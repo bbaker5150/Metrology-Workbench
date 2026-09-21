@@ -14905,7 +14905,7 @@ function DetailedView({
                 value={testPointData.outputQuantityName ?? uutNominal?.name ?? testPointData.testPointInfo?.measurementArea ?? "Output"}
                 onChange={outputQuantityName => onUpdateTestPoint({ outputQuantityName })} /></td>
               <td>{uutNominal?.value === "" || uutNominal?.value == null ? <span className="is-empty">Not Set</span> : `${uutNominal.value}${uutNominal.unit ? ` ${getUnitDisplayLabel(uutNominal.unit)}` : ""}`}</td>
-              {showInputBias && <td><NetBiasCell point={testPointData} session={sessionData} onChange={onUpdateTestPoint} /></td>}
+              {showInputBias && <td><NetBiasCell key={testPointData.id} point={testPointData} session={sessionData} onChange={onUpdateTestPoint} mode={inputBiasDisplay} /></td>}
             </tr>
             {equationDisplayData.variables.map((variable) => (
               <tr key={variable.symbol}>
@@ -15563,11 +15563,15 @@ function DetailedView({
           <div className="panel-table-container measurement-inputs-table-wrap" data-scoped-zoom-key="measurement-inputs">
             <table className="instrument-summary-table industry-table measurement-inputs-table measurement-bias-table">
               <colgroup><col style={{ width: "40%" }} /><col style={{ width: "30%" }} /><col style={{ width: "30%" }} /></colgroup>
-              <thead><tr><th>Name</th><th>Nominal</th><th>Bias</th></tr></thead>
+              <thead><tr><th>Name</th><th>Nominal</th><th><InlineMenuSelect ariaLabel="Input bias display" value={inputBiasDisplay} onChange={setInputBiasDisplay}
+                width="auto" showOptionMeta={false} options={[
+                  { value: "bias", label: "Bias" }, { value: "percent", label: "Bias %" },
+                  { value: "adjusted", label: "Nominal + Bias" },
+                ]} /></th></tr></thead>
               <tbody><tr className="measurement-output-row">
                 <td><MeasurementInputNameCell symbol="output" value={testPointData.outputQuantityName ?? uutNominal?.name ?? testPointData.testPointInfo?.measurementArea ?? "Output"} onChange={outputQuantityName => onUpdateTestPoint({ outputQuantityName })} /></td>
                 <td>{uutNominal?.value === "" || uutNominal?.value == null ? <span className="is-empty">Not Set</span> : `${uutNominal.value}${uutNominal.unit ? ` ${getUnitDisplayLabel(uutNominal.unit)}` : ""}`}</td>
-                <td><NetBiasCell point={testPointData} session={sessionData} onChange={onUpdateTestPoint} /></td>
+                <td><NetBiasCell key={testPointData.id} point={testPointData} session={sessionData} onChange={onUpdateTestPoint} mode={inputBiasDisplay} /></td>
               </tr></tbody>
             </table>
           </div>

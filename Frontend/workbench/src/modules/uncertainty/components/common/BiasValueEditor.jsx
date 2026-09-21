@@ -11,7 +11,7 @@ import "./MeasurementBias.css";
  * Changing the display basis does not perform a hidden numerical conversion:
  * the current number is reinterpreted in native units or percent as selected.
  */
-export default function BiasValueEditor({ value, unit, onChange, label = "Bias", allowCorrection = false, commitOnEdit = false }) {
+export default function BiasValueEditor({ value, unit, onChange, label = "Bias", allowCorrection = false, commitOnEdit = false, autoFocus = false }) {
   const spec = value || {};
   const [draft, setDraft] = useState(spec.value ?? "");
   const edited = useRef(false);
@@ -30,7 +30,7 @@ export default function BiasValueEditor({ value, unit, onChange, label = "Bias",
     edited.current = false;
   };
   return <span className="bias-value-editor">
-    <GrowingNumericInput aria-label={label} className="bias-value-input" type="text" inputMode="decimal" placeholder="0"
+    <GrowingNumericInput autoFocus={autoFocus} onFocus={event => autoFocus && event.target.select()} aria-label={label} className="bias-value-input" type="text" inputMode="decimal" placeholder="0"
       value={draft} onChange={event => { edited.current = true; event.target.setCustomValidity(""); setDraft(event.target.value); }} onBlur={commit}
       onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } }} />
     <InlineMenuSelect ariaLabel={`${label} units`} title={spec.kind === "percent" ? "Percent of the final UUT tolerance: half-span for two-sided limits, nominal-to-limit distance for known single-sided limits (Excel MUA basis)" : "Signed bias in native units"} value={spec.kind || "absolute"} width="auto" showOptionMeta={false}

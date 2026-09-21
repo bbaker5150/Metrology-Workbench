@@ -22,7 +22,7 @@ export async function checkSeptember21Followup(context) {
     const style = getComputedStyle(node); const box = node.getBoundingClientRect();
     return Number(style.opacity) > .5 && style.visibility === 'visible' && box.width > 0 && box.height > 0;
   });
-  const add = frame.getByRole('textbox', { name: 'Net measurement system bias', exact: true });
+  const add = frame.getByRole('button', { name: 'Edit net measurement system bias', exact: true });
   await add.scrollIntoViewIfNeeded();
   check('net-bias editor is visibly painted and enabled', await painted(add) && await add.isEnabled());
   check('Bias column is always present', await inputs.locator('thead th').count() === 4);
@@ -36,7 +36,7 @@ export async function checkSeptember21Followup(context) {
   await remove.scrollIntoViewIfNeeded();
   await page.mouse.move(2, 2);
   check('net-bias delete control is visible without hover', await painted(remove));
-  check('editing Bias creates exactly one manual net override', await inputs.locator('thead th').count() === 4 && await output.locator('.bias-value-editor').count() === 1 && await until(() => saved().testPoints[0].measurementBias?.mode === 'manual'));
+  check('editing Bias creates exactly one manual net override', await inputs.locator('thead th').count() === 4 && await output.locator('.measurement-net-bias-value').count() === 1 && await until(() => saved().testPoints[0].measurementBias?.mode === 'manual'));
   await frame.getByRole('button', { name: 'Input bias display', exact: true }).click();
   check('Bias retains all three display options', JSON.stringify(await frame.locator('.inline-unit-menu [role="option"] > span').allTextContents()) === JSON.stringify(['Bias', 'Bias %', 'Nominal + Bias']));
   await frame.getByRole('option', { name: 'Bias', exact: true }).click();
@@ -109,7 +109,11 @@ export async function checkSeptember21Followup(context) {
   const choices = await frame.locator('.inline-unit-menu [role="option"] > span').allTextContents();
   check('searching units offers V without prefixed V choices', choices.includes('V') && !choices.some(value => /^(mV|µV|uV|kV|MV)$/.test(value)));
   await frame.getByRole('option', { name: /^V\s+Voltage$/ }).click();
-  check('first UUT unit automatically fills the pre-existing point', await until(async () => await freshUnit.inputValue() === 'V'));
+  check('an area UUT does not assign the unassigned point unit', await freshUnit.inputValue() === '');
+  await fresh.getByRole('button', { name: 'UUT', exact: true }).click();
+  // The first option is Unassigned; the second is this area's newly added UUT.
+  await frame.locator('.inline-unit-menu').getByRole('option').nth(1).click();
+  check('assigning the UUT fills the pre-existing point unit', await until(async () => await freshUnit.inputValue() === 'V'));
   await freshUnit.selectOption('');
   check('Units remains an explicit choice after inheritance', await until(() => saved().testPoints.find(p => p.testPointInfo?.measurementArea === 'Fresh Area').testPointInfo.parameter.unitSelectionExplicit === true) && await freshUnit.inputValue() === '');
 
@@ -124,7 +128,7 @@ export async function checkSeptember21Followup(context) {
   check('long column menus use full viewport height on narrow screens with no nested scrollbars', await until(async () => await menu.evaluate(node => {
     const box = node.getBoundingClientRect();
     return box.top >= 0 && box.bottom <= innerHeight + 1 && box.height >= innerHeight - 24 &&
-      [...node.querySelectorAll('.sidebar-filter-sections, .sidebar-column-order-list')].every(child => getComputedStyle(child).overflowY === 'visible');
+      getComputedStyle(node).overflowY === 'hidden' && node.scrollHeight <= node.clientHeight + 1;
   })));
   if (process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await page.screenshot({ path: `${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/followup-columns-narrow.png` });
   await menu.press('Escape');

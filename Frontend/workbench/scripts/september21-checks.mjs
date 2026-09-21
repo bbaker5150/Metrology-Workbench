@@ -54,7 +54,7 @@ export async function checkSeptember21({ frame, page, check, until, saved }) {
   await frame.getByRole('option', { name: /^V\s+Voltage$/ }).click();
   await frame.locator('.analysis-tabs').click({ position: { x: 5, y: 5 } });
   await authorNetBias(frame);
-  check('net bias lives in the output row, with all cells aligned', await inputs.locator('.measurement-output-row > td').count() === 4 && await inputs.locator('.measurement-output-row .bias-value-editor').count() === 1 && await inputs.locator('tbody tr').count() === 2);
+  check('net bias lives in the output row, with all cells aligned', await inputs.locator('.measurement-output-row > td').count() === 4 && await inputs.locator('.measurement-output-row .measurement-net-bias-value').count() === 1 && await inputs.locator('tbody tr').count() === 2);
   const linkedRow = frame.locator('.uncertainty-budget-table tbody tr').filter({ hasText: 'Smoke tmde' }).first();
   check('imported TMDE source displays its valid 0.2 V limit after equation edits', await until(async () => /0\.2000+ V/.test(await linkedRow.locator('td').nth(1).innerText())));
   if (process.env.FEEDBACK_SCREENSHOT_DIRECTORY) {
@@ -122,7 +122,7 @@ export async function checkSeptember21({ frame, page, check, until, saved }) {
     return r.height >= oldHeight && r.top >= 0 && r.bottom <= innerHeight + 1 && r.left >= 0 && r.right <= innerWidth + 1;
   }, oldHeight));
   if (process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await page.screenshot({ path: `${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/columns.png` });
-  check('column menu has a single scroll surface', await columns.locator('.sidebar-filter-sections, .sidebar-column-order-list').evaluateAll(nodes => nodes.every(node => getComputedStyle(node).overflowY === 'visible')));
+  check('column lists scroll only after filling the viewport, without outer scrolling', await columns.evaluate(node => getComputedStyle(node).overflowY === 'hidden' && node.scrollHeight <= node.clientHeight + 1 && [...node.querySelectorAll('.sidebar-filter-sections, .sidebar-column-order-list')].every(list => list.scrollHeight <= list.clientHeight + 1 || node.getBoundingClientRect().height >= innerHeight - 24)));
   await frame.getByRole('button', { name: 'Columns', exact: true }).click();
   await frame.locator('[data-tour="tab-overview"]').click();
   const scroller = frame.locator('.analysis-content').first();

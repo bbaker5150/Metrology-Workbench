@@ -8,6 +8,33 @@ import { computePointRiskMetrics } from "../../../utils/riskCompute";
 import { copyPointBudget, pastePointBudget } from "../../../App";
 import { InlineToleranceCell, applyToleranceCaseChange } from "./UncertaintyPanel";
 
+it.each([['bias', '0.1 A'], ['percent', '5 %'], ['adjusted', '10.1 A']])("collapses a saved percent to the %s display without changing the authored basis", (mode, expected) => {
+  const { point, session } = biasFixture();
+  point.measurementBias = { mode: 'manual', kind: 'percent', value: '5', unit: 'A' };
+  let saved;
+  function Harness() {
+    const [current, setCurrent] = useState(point); saved = current;
+    return <NetBiasCell point={current} session={session} mode={mode} onChange={patch => setCurrent(p => ({ ...p, ...patch }))} />;
+  }
+  render(<Harness />);
+  const summary = () => screen.getByRole('button', { name: 'Edit net measurement system bias' });
+  expect(summary()).toHaveTextContent(expected);
+  fireEvent.click(summary());
+  const input = screen.getByRole('textbox', { name: 'Net measurement system bias' });
+  expect(input).toHaveValue('5');
+  fireEvent.change(input, { target: { value: '6' } });
+  fireEvent.keyDown(input, { key: 'Enter' });
+  expect(screen.queryByRole('textbox', { name: 'Net measurement system bias' })).toBeNull();
+  expect(saved.measurementBias).toMatchObject({ kind: 'percent', value: '6' });
+  expect(resolveMeasurementBias(saved, session).calBias).toBeCloseTo(.12, 12);
+  expect(summary()).toHaveTextContent(mode === 'bias' ? '0.12 A' : mode === 'percent' ? '6 %' : '10.12 A');
+  fireEvent.click(summary());
+  const invalid = screen.getByRole('textbox', { name: 'Net measurement system bias' });
+  fireEvent.change(invalid, { target: { value: 'invalid' } }); fireEvent.blur(invalid);
+  expect(invalid).toBeInTheDocument();
+  expect(saved.measurementBias.value).toBe('6');
+});
+
 it("adds one net output bias, replaces source contributions, and restores them on removal", () => {
   const { point, session } = biasFixture();
   const sources = { "tmde:voltage::voltage-range:Voltage": { value: .02, unit: "V" } };
@@ -24,12 +51,15 @@ it("adds one net output bias, replaces source contributions, and restores them o
   };
   render(<Harness />);
   expect(screen.queryByRole("button", { name: "Add Net Bias" })).toBeNull();
-  expect(screen.getAllByRole("textbox", { name: "Net measurement system bias" })).toHaveLength(1);
+  expect(screen.queryByRole("textbox", { name: "Net measurement system bias" })).toBeNull();
   expect(resolveMeasurementBias(saved, session).calBias).toBeCloseTo(originalCal, 12);
   expect(computePointRiskMetrics(saved, session, true)).toEqual(originalRisk);
-  const input = screen.getByRole("textbox", { name: "Net measurement system bias" });
+  fireEvent.click(screen.getByRole("button", { name: "Edit net measurement system bias" }));
+  let input = screen.getByRole("textbox", { name: "Net measurement system bias" });
   fireEvent.focus(input); fireEvent.blur(input);
   expect(saved.measurementBias).toEqual({ mode: "sources", sources });
+  fireEvent.click(screen.getByRole("button", { name: "Edit net measurement system bias" }));
+  input = screen.getByRole("textbox", { name: "Net measurement system bias" });
   fireEvent.change(input, { target: { value: "-.5" } });
   fireEvent.blur(input);
   const bias = resolveMeasurementBias(saved, session);
@@ -43,7 +73,7 @@ it("adds one net output bias, replaces source contributions, and restores them o
   fireEvent.click(screen.getByRole("button", { name: "Remove Net Bias" }));
   expect(saved.measurementBias).toEqual({ mode: "sources", sources });
   expect(computePointRiskMetrics(saved, session, true)).toEqual(originalRisk);
-  expect(screen.getByRole("textbox", { name: "Net measurement system bias" })).toBeInTheDocument();
+  expect(screen.getByRole("button", { name: "Edit net measurement system bias" })).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Remove Net Bias" })).toBeNull();
 });
 

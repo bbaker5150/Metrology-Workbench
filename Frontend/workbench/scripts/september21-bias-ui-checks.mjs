@@ -1,3 +1,4 @@
+import { editNetBias } from './net-bias-smoke-helpers.mjs';
 import { prepareInputTasking } from './input-tasking-checks.mjs';
 
 export function prepareSeptember21BiasUi(session) {
@@ -37,10 +38,10 @@ export async function checkSeptember21BiasUi({ frame, page, saved, until, check 
   await frame.getByRole('textbox', { name: 'Output variable', exact: true }).fill('I');
   await frame.getByRole('textbox', { name: 'Output variable', exact: true }).press('Enter');
   check('measurand symbol changes only equation LHS', await until(() => saved().testPoints[0].equationString === 'I = a') && Object.keys(saved().testPoints[0].variableMappings).join() === 'a');
-  await net.fill('.25'); await net.press('Enter');
+  await editNetBias(frame); await net.fill('.25'); await net.press('Enter');
   check('derived net bias persists in output units', await until(() => saved().testPoints[0].measurementBias?.value === '.25'));
   await frame.getByRole('button', { name: 'Remove Net Bias', exact: true }).click();
-  check('removing net bias preserves editor and column', await net.count() === 1 && await inputs.locator('thead th').count() === 4 && await until(() => !saved().testPoints[0].measurementBias));
+  check('removing net bias preserves editor and column', await frame.getByRole('button', { name: 'Edit net measurement system bias', exact: true }).count() === 1 && await inputs.locator('thead th').count() === 4 && await until(() => !saved().testPoints[0].measurementBias));
   await capture('d661-derived');
   await frame.locator('[data-tour="tab-overview"]').click();
 
@@ -61,12 +62,12 @@ export async function checkSeptember21BiasUi({ frame, page, saved, until, check 
   await frame.locator('.inline-unit-search').fill('volt');
   await frame.getByRole('option', { name: /^V\s+Voltage$/ }).click();
   check('first UUT unit updates the existing Units placeholder', await until(async () => await unit.inputValue() === 'V'));
-  await net.fill('.5'); await net.press('Enter');
+  await editNetBias(frame); await net.fill('.5'); await net.press('Enter');
   const freshPoint = () => saved().testPoints.find(p => p.testPointInfo?.measurementArea === 'Fresh Area');
   check('direct net bias saves without adding a component or equation', await until(() => freshPoint().measurementBias?.value === '.5') && !(freshPoint().components || []).length && !freshPoint().equationString);
   await capture('d661-direct');
-  await net.fill(''); await net.press('Enter');
-  check('clearing direct net bias restores inheritance', await until(() => !freshPoint().measurementBias) && await net.count() === 1);
+  await editNetBias(frame); await net.fill(''); await net.press('Enter');
+  check('clearing direct net bias restores inheritance', await until(() => !freshPoint().measurementBias) && await frame.getByRole('button', { name: 'Edit net measurement system bias', exact: true }).count() === 1);
   await unit.selectOption('');
   check('Units remains a deliberate selectable opt-out', await until(() => freshPoint().testPointInfo.parameter.unitSelectionExplicit === true) && await unit.inputValue() === '');
   await unit.selectOption('V');

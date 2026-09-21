@@ -30,7 +30,7 @@ export async function checkInputTasking({ frame, page, check, until, saved }) {
   await bias.fill(''); await bias.press('Enter');
   check('clearing source bias retains the net editor', await until(async () => await inputs.locator('thead th').count() === 4));
   await authorNetBias(frame);
-  check('a manual net bias retains a correctly aligned four-column table', await until(async () => await inputs.locator('thead th').count() === 4 && await inputs.locator('.measurement-output-row > td').count() === 4 && await inputs.locator('.measurement-output-row .bias-value-editor').count() === 1));
+  check('a manual net bias retains a correctly aligned four-column table', await until(async () => await inputs.locator('thead th').count() === 4 && await inputs.locator('.measurement-output-row > td').count() === 4 && await inputs.locator('.measurement-output-row .measurement-net-bias-value').count() === 1));
   await frame.getByRole('button', { name: 'Remove Net Bias', exact: true }).click();
   check('removing net bias preserves the always-visible column', await until(async () => await inputs.locator('thead th').count() === 4));
 

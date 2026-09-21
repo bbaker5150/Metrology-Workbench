@@ -17,7 +17,6 @@ import { computePointTmdeLimits } from "./utils/pointTmdeLimits";
 import { useConfirmRecordDeletes } from "./contexts/RecordDeletePolicy";
 import { faCircleInfo, faPenToSquare, faRotate } from "@fortawesome/free-solid-svg-icons";
 import { getMeasurementAreaUnits } from "./utils/pointUnits";
-import { instrumentHasMeasurementArea } from "./utils/measurementAreaGrouping";
 import { useWorkbenchIssues } from "../../shared/WorkbenchIssuesContext";
 /**
  * src/App.jsx
@@ -4477,14 +4476,11 @@ function App({ showThemeToggle = false }) {
     }, fnGroup, settings);
   };
 
-  // A shared function section can span several UUTs. Only offer units that
-  // belong to the UUT whose + button was clicked; the section-level list is a
-  // fallback for legacy instruments that do not carry range metadata yet.
+  // An area is not an instrument assignment. Only an instrument-specific + may
+  // prefill units; area-created points remain unitless until a UUT is assigned.
   const unitsForQuickAddPoint = (fnGroup, uutId) => {
     const uut = currentSessionData?.uuts?.find((candidate) => candidate.id === uutId);
-    // Area metadata also contains TMDE units. Only UUTs may supply a new
-    // point's default; explicit selection and later first-UUT inheritance remain.
-    const candidates = uut ? [uut] : (currentSessionData?.uuts || []).filter(item => instrumentHasMeasurementArea(item, fnGroup?.name));
+    const candidates = uut ? [uut] : [];
     return [...new Set(candidates.flatMap(item => instrumentFunctions(item).flatMap(fn => fn.units || [])).filter(Boolean))];
   };
 
@@ -5196,6 +5192,7 @@ function App({ showThemeToggle = false }) {
           return {
             ...point,
             associatedUutIds: nextUut ? [nextUut.id] : [],
+            activeUutId: nextUut?.id || null,
             measurementAreaId: point.measurementAreaId || null,
             uutTolerance: nextUut
               ? findMatchingRange(

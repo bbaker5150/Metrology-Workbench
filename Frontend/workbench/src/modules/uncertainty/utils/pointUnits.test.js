@@ -39,10 +39,12 @@ describe("missing point unit inheritance", () => {
   });
 });
 
-it("replaces the Units placeholder when the first UUT is added after the point, but respects a later opt-out", () => {
+it("replaces Units when the first UUT is assigned, but respects a later opt-out", () => {
   const previous = { uuts: [], testPoints: [{ id: "p", associatedUutIds: [], testPointInfo: { measurementArea: "Fresh", parameter: { value: 5, unit: "", unitSelectionExplicit: true } } }] };
   const current = { ...previous, uuts: [{ id: "new", measurementAreaNames: ["Fresh"], ranges: [{ id: "v", unit: "V" }] }] };
-  const next = inheritMissingPointUnits(current, previous);
+  expect(inheritMissingPointUnits(current, previous)).toBe(current);
+  const assigned = { ...current, testPoints: [{ ...current.testPoints[0], associatedUutIds: ['new'] }] };
+  const next = inheritMissingPointUnits(assigned, current);
   expect(next.testPoints[0].testPointInfo.parameter).toMatchObject({ value: 5, unit: "V", unitSelectionExplicit: false });
   const optOut = { ...next, testPoints: [{ ...next.testPoints[0], testPointInfo: { ...next.testPoints[0].testPointInfo, parameter: { value: 5, unit: "", unitSelectionExplicit: true } } }] };
   expect(inheritMissingPointUnits(optOut, next)).toBe(optOut);
@@ -57,7 +59,7 @@ it("unassigns a removed unit without choosing another range's unit", () => {
   expect(inheritMissingPointUnits(data).testPoints[0].testPointInfo.parameter).toMatchObject({ unit: "", unavailableUnit: "V" });
 });
 
-it('inherits the first area UUT unit for a new unassigned point but preserves an explicit Units choice', () => {
+it('never inherits from an area UUT before assignment, including load and stale IDs', () => {
   const point = { testPointInfo: { measurementArea: 'Fresh', parameter: { value: 5, unit: '', unitSelectionExplicit: false } }, associatedUutIds: [] };
   const data = { testPoints: [point], uuts: [
     { id: 'new', measurementAreaNames: ['Fresh'], ranges: [{ unit: '' }] },
@@ -65,6 +67,10 @@ it('inherits the first area UUT unit for a new unassigned point but preserves an
   ], tmdes: [{ measurementAreaNames: ['Fresh'], ranges: [{ unit: 'Ohm' }] }] };
   expect(inheritMissingPointUnits(data)).toBe(data);
   data.uuts[0].ranges[0].unit = 'V';
+  expect(inheritMissingPointUnits(data)).toBe(data);
+  point.associatedUutIds = ['deleted'];
+  expect(inheritMissingPointUnits(data)).toBe(data);
+  point.associatedUutIds = ['new'];
   expect(inheritMissingPointUnits(data).testPoints[0].testPointInfo.parameter.unit).toBe('V');
   point.testPointInfo.parameter.unitSelectionExplicit = true;
   expect(inheritMissingPointUnits(data)).toBe(data);

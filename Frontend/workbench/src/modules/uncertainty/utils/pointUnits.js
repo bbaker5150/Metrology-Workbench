@@ -14,22 +14,21 @@ export const inheritMissingPointUnits = (session, previous) => {
       return { ...point, uutTolerance: null, testPointInfo: { ...point.testPointInfo,
         parameter: { ...parameter, unavailableUnit: parameter.unit, unit: "" } } };
     }
-    const area = point.testPointInfo?.measurementArea || parameter.name;
-    const firstUutUnit = previous && !(previous.uuts || []).some(uut =>
-      instrumentHasMeasurementArea(uut, area) && getInstrumentRangeRows(uut).some(row => row.unit));
-    // "Units" before the area has any UUT units is an unassigned placeholder.
-    // An explicit Units choice after units exist is an intentional opt-out.
-    if (parameter.unit || (parameter.unitSelectionExplicit && !firstUutUnit)) return point;
     const ids = point.activeUutId
       ? [point.activeUutId]
       : point.associatedUutIds || [];
-    // Area-created points may not have a UUT assignment yet. A single unit
-    // across that area's UUTs is unambiguous; TMDE units and other areas must
-    // never decide the measurement point's output unit.
-    const hasLiveAssignment = ids.some(id => (session.uuts || []).some(uut => String(uut.id) === String(id)));
-    const uuts = (session.uuts || []).filter((uut) => hasLiveAssignment
-      ? ids.some((id) => String(id) === String(uut.id))
-      : instrumentHasMeasurementArea(uut, point.testPointInfo?.measurementArea || parameter.name));
+    // Sharing an area never assigns an instrument or its unit to a point.
+    // This also prevents load/migration from filling an explicitly unassigned
+    // point using an unrelated UUT in that area.
+    const uuts = (session.uuts || []).filter(uut => ids.some(id => String(id) === String(uut.id)));
+    if (!uuts.length) return point;
+    const previousPoint = previous?.testPoints?.find(item => item.id === point.id);
+    const previousIds = previousPoint?.activeUutId ? [previousPoint.activeUutId] : previousPoint?.associatedUutIds || [];
+    const firstUutUnit = previous && !(previous.uuts || []).some(uut =>
+      previousIds.some(id => String(id) === String(uut.id)) && getInstrumentRangeRows(uut).some(row => row.unit));
+    // Before assignment/first UUT unit, Units is a placeholder. Once assigned
+    // units exist, deliberately selecting Units remains a persistent opt-out.
+    if (parameter.unit || (parameter.unitSelectionExplicit && !firstUutUnit)) return point;
     const units = new Set();
     for (const uut of uuts) {
       const rows = getInstrumentRangeRows(uut);

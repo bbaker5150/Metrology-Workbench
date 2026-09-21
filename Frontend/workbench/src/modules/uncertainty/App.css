@@ -21320,6 +21320,23 @@ body.dark-mode .uncertainty-module .measurement-group-container .point-grid-item
 .uncertainty-module .instrument-equipment-table thead::before {
   content: ""; position: absolute; inset: -2px 0 0; background: linear-gradient(var(--component-bg), var(--component-bg)), var(--background-color); pointer-events: none;
 }
-/* Use the whole available viewport before scrolling either column list. */
-.sidebar-filter-dropdown:has(.point-column-menu-body) { overflow-y: auto; }
-.point-column-menu-body .point-column-available .sidebar-filter-sections { max-height: none; overflow: visible; }
+/* Grow to the full viewport beside the trigger before either list scrolls.
+   The shell/actions/headings never scroll: at the height limit, each long
+   list owns its scrollbar. There is no nested outer scrolling surface. */
+.sidebar-filter-dropdown:has(.point-column-menu-body) { overflow: hidden; }
+.point-column-menu-body {
+  box-sizing: border-box;
+  max-height: calc(var(--column-menu-height, 600px) - 22px);
+  grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr);
+  grid-template-rows: auto minmax(0, 1fr);
+  align-items: stretch;
+}
+.point-column-menu-body :is(.point-column-selected, .point-column-available) {
+  display: flex; flex-direction: column; min-height: 0;
+}
+.point-column-menu-body .sidebar-column-order-heading { flex-shrink: 0; }
+.point-column-menu-body .sidebar-column-order-list,
+.point-column-menu-body .point-column-available .sidebar-filter-sections {
+  min-height: 0; max-height: none; overflow-y: auto; overflow-x: hidden;
+  scrollbar-gutter: stable;
+}

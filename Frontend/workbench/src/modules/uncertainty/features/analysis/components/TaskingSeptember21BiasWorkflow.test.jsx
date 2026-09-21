@@ -19,20 +19,24 @@ it.each(["direct", "derived"])("exposes a persistent net editor for %s points wi
   const table = document.querySelector('.measurement-inputs-table');
   expect(within(table).getAllByRole('row')).toHaveLength(2);
   expect(within(table).getAllByRole('columnheader')).toHaveLength(type === "direct" ? 3 : 4);
-  const net = screen.getByRole('textbox', { name: 'Net measurement system bias' });
+  const edit = () => { fireEvent.click(screen.getByRole('button', { name: 'Edit net measurement system bias' })); return screen.getByRole('textbox', { name: 'Net measurement system bias' }); };
+  let net = edit();
   fireEvent.focus(net); fireEvent.blur(net);
   expect(saved.measurementBias).toBeUndefined();
   expect(screen.queryByRole('button', { name: 'Add Net Bias' })).toBeNull();
+  net = edit();
   fireEvent.change(net, { target: { value: '.25' } }); fireEvent.blur(net);
   expect(saved.measurementBias).toMatchObject({ mode: 'manual', value: '.25', unit: 'V' });
   fireEvent.click(screen.getByRole('button', { name: 'Remove Net Bias' }));
   expect(saved.measurementBias).toBeNull();
-  expect(net).toHaveValue('0');
+  expect(screen.getByRole('button', { name: 'Edit net measurement system bias' })).toHaveTextContent('0');
+  net = edit();
   // Typing an explicit zero must stop inheritance, even if the inherited sum
   // is already zero. Merely focusing the field above must not do so.
   fireEvent.change(net, { target: { value: '0.0' } });
   fireEvent.change(net, { target: { value: '0' } }); fireEvent.blur(net);
   expect(saved.measurementBias).toMatchObject({ mode: 'manual', value: '0' });
+  net = edit();
   fireEvent.change(net, { target: { value: '' } }); fireEvent.blur(net);
   expect(saved.measurementBias).toBeNull();
   expect(saved.testPointInfo).toEqual(initial.testPointInfo);
