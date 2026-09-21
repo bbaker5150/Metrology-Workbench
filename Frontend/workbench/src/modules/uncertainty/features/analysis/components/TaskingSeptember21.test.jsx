@@ -83,7 +83,7 @@ it("one clipboard owner replaces every older payload type", () => {
   }
 });
 
-it("output name is editable while symbol and nominal remain owned by equation and point", () => {
+it("output name and symbol are editable without changing RHS inputs or point nominal", () => {
   let saved;
   const initial = { id: "p", measurementType: "derived", equationString: "R*L", variableMappings: { R: "Force", L: "Length" },
     variableNominals: { R: { value: 10, unit: "lbf" }, L: { value: 2, unit: "ft" } },
@@ -97,7 +97,7 @@ it("output name is editable while symbol and nominal remain owned by equation an
   const table = document.querySelector(".measurement-inputs-table");
   expect(table.tBodies[0].rows[0]).toHaveClass("measurement-output-row");
   expect(within(table.tBodies[0].rows[0]).getByText("Torque")).toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "Edit output variable" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Edit output variable" })).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Edit nominal for equation variable output" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "Edit name for equation variable output" }));
   const name = screen.getByRole("textbox", { name: "Display name for equation variable output" });
@@ -107,6 +107,13 @@ it("output name is editable while symbol and nominal remain owned by equation an
   expect(saved.equationString).toBe("R*L");
   expect(saved.testPointInfo.parameter.value).toBe(20);
   expect(Object.keys(saved.variableMappings).sort()).toEqual(["L", "R"]);
+  expect(saved.variableNominals).toEqual(initial.variableNominals);
+  fireEvent.click(screen.getByRole("button", { name: "Edit output variable" }));
+  const outputSymbol = screen.getByRole("textbox", { name: "Output variable" });
+  fireEvent.change(outputSymbol, { target: { value: "τ" } });
+  fireEvent.keyDown(outputSymbol, { key: "Enter" });
+  expect(saved.equationString).toBe("τ = R*L");
+  expect(saved.variableMappings).toEqual(initial.variableMappings);
   expect(saved.variableNominals).toEqual(initial.variableNominals);
   expect(screen.queryByText(/Name every variable/)).toBeNull();
 });

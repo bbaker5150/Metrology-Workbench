@@ -616,8 +616,8 @@ describe("UniversalInstrumentModal library synchronization", () => {
     fireEvent.click(screen.getByTitle("Single-sided tolerance"));
     fireEvent.click(screen.getByRole("button", { name: "Single-sided direction" }));
     fireEvent.click(screen.getByRole("menuitemradio", { name: "Low" }));
-    fireEvent.click(screen.getByLabelText("Measurement unknown"));
-    const limit = screen.getByLabelText("Measurement unknown Lower limit");
+    fireEvent.click(screen.getByLabelText("Unknown value"));
+    const limit = screen.getByLabelText("Unknown value Lower limit");
     fireEvent.change(limit, { target: { value: "2.5" } });
     fireEvent.blur(limit, { target: { value: "2.5" } });
 

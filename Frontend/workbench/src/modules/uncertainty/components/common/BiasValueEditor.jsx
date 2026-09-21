@@ -1,5 +1,5 @@
 import GrowingNumericInput from "./GrowingNumericInput";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import InlineMenuSelect from "./InlineMenuSelect";
 import { getUnitDisplayLabel } from "../../utils/uncertaintyMath";
 import "./MeasurementBias.css";
@@ -11,9 +11,10 @@ import "./MeasurementBias.css";
  * Changing the display basis does not perform a hidden numerical conversion:
  * the current number is reinterpreted in native units or percent as selected.
  */
-export default function BiasValueEditor({ value, unit, onChange, label = "Bias", allowCorrection = false }) {
+export default function BiasValueEditor({ value, unit, onChange, label = "Bias", allowCorrection = false, commitOnEdit = false }) {
   const spec = value || {};
   const [draft, setDraft] = useState(spec.value ?? "");
+  const edited = useRef(false);
   useEffect(() => setDraft(spec.value ?? ""), [spec.value]);
   const commit = event => {
     const text = String(draft).trim();
@@ -23,11 +24,14 @@ export default function BiasValueEditor({ value, unit, onChange, label = "Bias",
       return;
     }
     event.currentTarget.setCustomValidity("");
-    if (text !== String(spec.value ?? "")) onChange({ ...spec, value: text, unit: spec.unit || unit });
+    // An inherited net value is display-only until edited. Deliberately typing
+    // its current value (including zero) still creates an explicit override.
+    if (text !== String(spec.value ?? "") || (commitOnEdit && edited.current)) onChange({ ...spec, value: text, unit: spec.unit || unit });
+    edited.current = false;
   };
   return <span className="bias-value-editor">
     <GrowingNumericInput aria-label={label} className="bias-value-input" type="text" inputMode="decimal" placeholder="0"
-      value={draft} onChange={event => { event.target.setCustomValidity(""); setDraft(event.target.value); }} onBlur={commit}
+      value={draft} onChange={event => { edited.current = true; event.target.setCustomValidity(""); setDraft(event.target.value); }} onBlur={commit}
       onKeyDown={event => { if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); } }} />
     <InlineMenuSelect ariaLabel={`${label} units`} title={spec.kind === "percent" ? "Percent of the final UUT tolerance: half-span for two-sided limits, nominal-to-limit distance for known single-sided limits (Excel MUA basis)" : "Signed bias in native units"} value={spec.kind || "absolute"} width="auto" showOptionMeta={false}
       options={[{ value: "absolute", label: getUnitDisplayLabel(spec.unit || unit) || "Native unit" }, { value: "percent", label: "%" }]}

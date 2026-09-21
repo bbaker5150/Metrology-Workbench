@@ -1,3 +1,4 @@
+import { authorNetBias } from './net-bias-smoke-helpers.mjs';
 import { prepareSeptember21, checkSeptember21 } from './september21-checks.mjs';
 export function prepareSeptember21Followup(session) {
   prepareSeptember21(session);
@@ -21,27 +22,27 @@ export async function checkSeptember21Followup(context) {
     const style = getComputedStyle(node); const box = node.getBoundingClientRect();
     return Number(style.opacity) > .5 && style.visibility === 'visible' && box.width > 0 && box.height > 0;
   });
-  const add = frame.getByRole('button', { name: 'Add Net Bias', exact: true });
+  const add = frame.getByRole('textbox', { name: 'Net measurement system bias', exact: true });
   await add.scrollIntoViewIfNeeded();
-  check('net-bias add control is visibly painted and enabled', await painted(add) && await add.isEnabled());
-  check('instrument source bias does not force a Bias column', await inputs.locator('thead th').count() === 3);
-  check('output symbol and nominal are read-only; Name remains editable', await output.locator('td').nth(0).locator('button,input').count() === 0 && await output.locator('td').nth(2).locator('button,input').count() === 0 && await output.getByRole('button', { name: 'Edit name for equation variable output' }).count() === 1);
+  check('net-bias editor is visibly painted and enabled', await painted(add) && await add.isEnabled());
+  check('Bias column is always present', await inputs.locator('thead th').count() === 4);
+  check('output symbol and Name are editable; nominal remains read-only', await output.locator('td').nth(0).locator('button,input').count() === 1 && await output.locator('td').nth(2).locator('button,input').count() === 0 && await output.getByRole('button', { name: 'Edit name for equation variable output' }).count() === 1);
   await output.getByRole('button', { name: 'Edit name for equation variable output' }).click();
   const outputName = frame.getByRole('textbox', { name: 'Display name for equation variable output' });
   await outputName.fill('Measured voltage'); await outputName.press('Tab');
   check('output Name persists without altering point nominal or RHS names', await until(() => saved().testPoints[0].outputQuantityName === 'Measured voltage') && saved().testPoints[0].testPointInfo.parameter.value === '5' && saved().testPoints[0].variableMappings.a === 'Voltage');
-  await add.click();
+  await authorNetBias(frame);
   const remove = frame.getByRole('button', { name: 'Remove Net Bias', exact: true });
   await remove.scrollIntoViewIfNeeded();
   await page.mouse.move(2, 2);
   check('net-bias delete control is visible without hover', await painted(remove));
-  check('adding Bias creates exactly one editor and disables duplicate addition', await inputs.locator('thead th').count() === 4 && await output.locator('.bias-value-editor').count() === 1 && await add.isDisabled());
+  check('editing Bias creates exactly one manual net override', await inputs.locator('thead th').count() === 4 && await output.locator('.bias-value-editor').count() === 1 && await until(() => saved().testPoints[0].measurementBias?.mode === 'manual'));
   await frame.getByRole('button', { name: 'Input bias display', exact: true }).click();
   check('Bias retains all three display options', JSON.stringify(await frame.locator('.inline-unit-menu [role="option"] > span').allTextContents()) === JSON.stringify(['Bias', 'Bias %', 'Nominal + Bias']));
   await frame.getByRole('option', { name: 'Bias', exact: true }).click();
   if (process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await page.screenshot({ path: `${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/followup-inputs.png` });
   await remove.click();
-  check('removing Bias hides its column and re-enables addition despite source biases', await until(async () => await inputs.locator('thead th').count() === 3 && await add.isEnabled()));
+  check('removing Bias restores automatic sources and keeps its column', await until(async () => await inputs.locator('thead th').count() === 4 && await add.isEnabled()));
 
   const results = frame.locator('.budget-results-zoom-surface').first();
   check('100% Results scale retains compact 80% physical geometry', await results.evaluate(node => node.dataset.zoomLevel === '1' && node.querySelector('.scoped-zoom-content').style.zoom === '0.8'));

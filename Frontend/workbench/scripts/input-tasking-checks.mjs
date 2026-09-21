@@ -1,3 +1,4 @@
+import { authorNetBias } from './net-bias-smoke-helpers.mjs';
 import { prepareBiasSession } from './measurement-bias-checks.mjs';
 
 export function prepareInputTasking(session) {
@@ -19,19 +20,19 @@ export async function checkInputTasking({ frame, page, check, until, saved }) {
   const first = frame.locator('[data-point-id="point"]');
   await first.locator('[data-sidebar-column="pfa"]').click();
   const inputs = frame.locator('.measurement-inputs-table');
-  check('Measurement Inputs omits the Bias column without authored source bias', await until(async () => await inputs.locator('thead th').count() === 3) && await frame.getByRole('button', { name: 'Input bias display', exact: true }).count() === 0);
+  check('Measurement Inputs always displays Bias', await until(async () => await inputs.locator('thead th').count() === 4) && await frame.getByRole('button', { name: 'Input bias display', exact: true }).count() === 1);
   const tmde = frame.locator('.instrument-equipment-table').nth(1);
   await tmde.locator('.cell-tolerance .inline-tolerance-summary').first().click();
   await tmde.getByRole('button', { name: 'Bias', exact: true }).click();
   const bias = frame.getByRole('textbox', { name: 'Range source bias', exact: true });
   await bias.fill('0'); await bias.press('Enter');
-  check('instrument bias alone does not add the optional table column', await until(async () => await inputs.locator('thead th').count() === 3));
+  check('instrument bias retains the four-column table', await until(async () => await inputs.locator('thead th').count() === 4));
   await bias.fill(''); await bias.press('Enter');
-  check('clearing the last source bias hides the column again', await until(async () => await inputs.locator('thead th').count() === 3));
-  await frame.getByRole('button', { name: 'Add Net Bias', exact: true }).click();
+  check('clearing source bias retains the net editor', await until(async () => await inputs.locator('thead th').count() === 4));
+  await authorNetBias(frame);
   check('a manual net bias retains a correctly aligned four-column table', await until(async () => await inputs.locator('thead th').count() === 4 && await inputs.locator('.measurement-output-row > td').count() === 4 && await inputs.locator('.measurement-output-row .bias-value-editor').count() === 1));
   await frame.getByRole('button', { name: 'Remove Net Bias', exact: true }).click();
-  check('removing net bias restores the compact inputs table', await until(async () => await inputs.locator('thead th').count() === 3));
+  check('removing net bias preserves the always-visible column', await until(async () => await inputs.locator('thead th').count() === 4));
 
   const pointUnit = first.getByRole('combobox', { name: 'Measurement point unit', exact: true });
   await pointUnit.selectOption('A');

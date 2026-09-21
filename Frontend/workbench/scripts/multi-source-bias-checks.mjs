@@ -1,3 +1,4 @@
+import { authorNetBias } from './net-bias-smoke-helpers.mjs';
 import { readFileSync } from 'node:fs';
 import { multiSourceCase } from './multi-source-bias-cases.mjs';
 const vectors = JSON.parse(readFileSync(new URL('../src/modules/uncertainty/utils/risk8/suppliedBiasParityVectors.json', import.meta.url))).cases.filter(v => v.type <= 4 && v.calBias === .2);
@@ -42,7 +43,7 @@ export async function checkMultiSourceBias({ frame, page, saved, until, check })
     const cards = frame.locator('.budget-decision-card dd[aria-label]');
     check(`detailed budget agrees with point list type ${vector.type}`, await until(async () => (await cards.allTextContents()).some(text => text.includes(vector.expected.pfa.toPrecision(4)))));
     const components = JSON.stringify(saved().testPoints.find(p => p.id === `parity-${vector.type}`).components);
-    await frame.getByRole('button', { name: 'Add Net Bias', exact: true }).click();
+    await authorNetBias(frame);
     check(`source sum initializes manual net type ${vector.type}`, await until(() => Math.abs(Number(saved().testPoints.find(p => p.id === `parity-${vector.type}`).measurementBias?.value) - 2) < 1e-12));
     const after = await read(row);
     check(`equivalent manual net preserves every displayed metric type ${vector.type}`, Object.keys(columns).every(key => Object.is(sources[key], after[key])));
@@ -62,12 +63,13 @@ export async function checkMultiSourceBias({ frame, page, saved, until, check })
   const confidence = first.getByRole('textbox', { name: 'Uncertainty Confidence (%)', exact: true });
   await confidence.fill('90'); await confidence.press('Enter');
   check('point requirement edit persists only on that point', await until(() => saved().testPoints[0].riskRequirements?.uncertaintyConfidence === '90') && saved().uncReq.uncertaintyConfidence === 95 && !saved().testPoints[1].riskRequirements);
-  check('point override recalculates risk and displays a default-deviation indicator', await until(async () => (await read(first)).tur !== before.tur) && await first.getByLabel('Differs from session default', { exact: true }).count() === 1);
+  const confidenceCell = first.locator('[data-sidebar-column="input_uncertaintyConfidence"]');
+  check('point override recalculates risk and displays override styling', await until(async () => (await read(first)).tur !== before.tur) && await confidenceCell.evaluate(node => node.classList.contains('is-override') && node.title.endsWith('Point override') && getComputedStyle(node.querySelector('.point-value-number')).fontStyle === 'normal'));
   await first.locator('[data-sidebar-column="pfa"]').click();
   check('detailed risk uses the same point-specific confidence', await until(async () => { const expected = (await read(first)).pfa.toPrecision(4); return (await frame.locator('.budget-decision-card dd[aria-label]').allTextContents()).some(text => text.includes(expected)); }));
   await first.getByRole('button', { name: 'Edit Uncertainty Confidence (%)', exact: true }).click();
   await confidence.fill(''); await confidence.press('Enter');
-  check('blank restores session defaults and original workbook result', await until(async () => Math.abs((await read(first)).tur - before.tur) < 1e-10) && await first.getByLabel('Differs from session default', { exact: true }).count() === 0);
+  check('blank restores session defaults and original workbook result', await until(async () => Math.abs((await read(first)).tur - before.tur) < 1e-10) && await confidenceCell.evaluate(node => node.classList.contains('is-inherited') && node.title.endsWith('Session default') && getComputedStyle(node.querySelector('.point-value-number')).fontStyle === 'italic'));
   check('calibration interval has at most two displayed decimals and keeps raw hover precision', await first.locator('[data-sidebar-column="gbCalInt"]').evaluate(node => /^\d+(\.\d{1,2})?$/.test(node.textContent.trim()) && node.title.length > node.textContent.trim().length));
   for (const dark of [false, true]) {
     await frame.evaluate(dark => { document.body.classList.remove('light-mode', 'dark-mode'); document.body.classList.add(dark ? 'dark-mode' : 'light-mode'); }, dark);

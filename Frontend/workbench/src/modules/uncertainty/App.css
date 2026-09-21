@@ -21234,10 +21234,10 @@ body.dark-mode .uncertainty-module .measurement-group-container .point-grid-item
 .uncertainty-module .point-value-with-unit .point-value-input-slot { justify-self: end; }
 .uncertainty-module .point-value-with-unit .point-value-number { text-align: right; }
 .uncertainty-module .point-information { width: auto; min-width: 0; margin: 0; justify-content: center; }
-/* Equal flexible tracks spread compact fields under the session selector while
-   their text mirrors retain intrinsic editor sizing and focus geometry. */
+/* Match the right-hand metadata track to the right-aligned default inputs;
+   text mirrors retain intrinsic editor sizing and focus geometry. */
 .session-info-content :is(.session-header-grid, .session-requirements-grid) {
-  grid-template-columns: repeat(2, minmax(max-content, 1fr)); column-gap: 20px;
+  grid-template-columns: minmax(max-content, 1fr) max-content; column-gap: 20px;
 }
 .point-column-menu-actions { display: flex; justify-content: flex-end; gap: 14px; grid-column: 1 / -1; }
 .point-column-menu-actions button { border: 0; border-radius: 4px; background: transparent; color: var(--primary-color); font-family: inherit; font-size: .75rem; font-weight: 600; cursor: pointer; padding: 4px 6px; }
@@ -21308,9 +21308,7 @@ body.dark-mode .uncertainty-module .measurement-group-container .point-grid-item
 .uncertainty-module .point-requirement-cell.is-override .sidebar-inline-input.value { color: var(--numeric-text); font-style: normal; }
 .session-default-inputs { border-top: 1px solid var(--border-color); margin-top: 10px; padding-top: 6px; }
 .session-default-input-fields { display: grid; gap: 7px; padding: 4px 0 8px; }
-.session-default-input-help { color: var(--text-color-muted); font-size: 11px; }
 .session-default-input-fields .session-header-field { display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; }
-.uncertainty-module .measurement-output-row > td { background: var(--table-header-bg, var(--component-bg)); border-bottom: 1px solid var(--border-color); }
 /* Paint area selection on its cell: collapsed-table row outlines can be hidden
    by an adjacent selected instrument. This has no effect on row geometry. */
 .uncertainty-module .instrument-equipment-table tr[data-area-selected="true"] > td {

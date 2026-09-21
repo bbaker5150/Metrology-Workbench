@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { expect, it } from "vitest";
-import { AddNetBiasButton, NetBiasCell } from "./NetMeasurementBias";
+import { NetBiasCell } from "./NetMeasurementBias";
 import { biasFixture } from "../../../utils/measurementBias.fixtures";
 import { resolveMeasurementBias } from "../../../utils/measurementBias";
 import { computePointRiskMetrics } from "../../../utils/riskCompute";
@@ -20,16 +20,16 @@ it("adds one net output bias, replaces source contributions, and restores them o
     const [current, setCurrent] = useState(point);
     saved = current;
     const change = patch => setCurrent(previous => ({ ...previous, ...patch }));
-    return <><AddNetBiasButton point={current} session={session} onChange={change} />
-      <table><tbody><tr><td><NetBiasCell point={current} onChange={change} /></td></tr></tbody></table></>;
+    return <table><tbody><tr><td><NetBiasCell point={current} session={session} onChange={change} /></td></tr></tbody></table>;
   };
   render(<Harness />);
-  fireEvent.click(screen.getByRole("button", { name: "Add Net Bias" }));
-  expect(screen.getByRole("button", { name: "Add Net Bias" })).toBeDisabled();
+  expect(screen.queryByRole("button", { name: "Add Net Bias" })).toBeNull();
   expect(screen.getAllByRole("textbox", { name: "Net measurement system bias" })).toHaveLength(1);
   expect(resolveMeasurementBias(saved, session).calBias).toBeCloseTo(originalCal, 12);
   expect(computePointRiskMetrics(saved, session, true)).toEqual(originalRisk);
   const input = screen.getByRole("textbox", { name: "Net measurement system bias" });
+  fireEvent.focus(input); fireEvent.blur(input);
+  expect(saved.measurementBias).toEqual({ mode: "sources", sources });
   fireEvent.change(input, { target: { value: "-.5" } });
   fireEvent.blur(input);
   const bias = resolveMeasurementBias(saved, session);
@@ -43,7 +43,8 @@ it("adds one net output bias, replaces source contributions, and restores them o
   fireEvent.click(screen.getByRole("button", { name: "Remove Net Bias" }));
   expect(saved.measurementBias).toEqual({ mode: "sources", sources });
   expect(computePointRiskMetrics(saved, session, true)).toEqual(originalRisk);
-  expect(screen.getByRole("button", { name: "Add Net Bias" })).toBeInTheDocument();
+  expect(screen.getByRole("textbox", { name: "Net measurement system bias" })).toBeInTheDocument();
+  expect(screen.queryByRole("button", { name: "Remove Net Bias" })).toBeNull();
 });
 
 it("keeps old corrected TMDE biases inert until edited, without exposing a correction checkbox", () => {

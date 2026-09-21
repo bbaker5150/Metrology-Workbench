@@ -17,6 +17,7 @@ import { computePointTmdeLimits } from "./utils/pointTmdeLimits";
 import { useConfirmRecordDeletes } from "./contexts/RecordDeletePolicy";
 import { faCircleInfo, faPenToSquare, faRotate } from "@fortawesome/free-solid-svg-icons";
 import { getMeasurementAreaUnits } from "./utils/pointUnits";
+import { instrumentHasMeasurementArea } from "./utils/measurementAreaGrouping";
 import { useWorkbenchIssues } from "../../shared/WorkbenchIssuesContext";
 /**
  * src/App.jsx
@@ -2221,7 +2222,6 @@ const SidebarSessionHeader = ({
                 <span>{group.label}</span><FontAwesomeIcon icon={group.open ? faChevronDown : faChevronRight} />
               </button>
               {group.open && <div className="session-default-input-fields" aria-label={`Default ${group.label}`}>
-                <span className="session-default-input-help">Defaults for points without overrides</span>
                 {group.fields.map(field => renderEditableField(`uncReq.${field.name}`, requirements[field.name], field.label, "text", field.tooltip))}
               </div>}
             </div>)}
@@ -4464,7 +4464,7 @@ function App({ showThemeToggle = false }) {
     const unit =
       selectedUnit ||
       fnRange?.unit ||
-      fnGroup?.unit ||
+      (uut ? fnGroup?.unit : "") ||
       uut?.instrument?.functions?.[0]?.unit ||
       "";
     return applyFunctionPointTemplate({
@@ -4482,8 +4482,10 @@ function App({ showThemeToggle = false }) {
   // fallback for legacy instruments that do not carry range metadata yet.
   const unitsForQuickAddPoint = (fnGroup, uutId) => {
     const uut = currentSessionData?.uuts?.find((candidate) => candidate.id === uutId);
-    const units = instrumentFunctions(uut || {}).flatMap(fn => fn.units || []);
-    return [...new Set(units.length ? units : [...(fnGroup?.units || []), fnGroup?.unit].filter(Boolean))];
+    // Area metadata also contains TMDE units. Only UUTs may supply a new
+    // point's default; explicit selection and later first-UUT inheritance remain.
+    const candidates = uut ? [uut] : (currentSessionData?.uuts || []).filter(item => instrumentHasMeasurementArea(item, fnGroup?.name));
+    return [...new Set(candidates.flatMap(item => instrumentFunctions(item).flatMap(fn => fn.units || [])).filter(Boolean))];
   };
 
   const handleQuickAddPoint = (
@@ -5207,19 +5209,15 @@ function App({ showThemeToggle = false }) {
         updateSession({ ...currentSessionData, testPoints: nextPoints,
           ...(creatingUut ? { uuts: [...(currentSessionData.uuts || []), nextUut] } : {}) });
         setSelectedTestPointContextUutId(nextUut?.id || null);
-        if (creatingUut) {
-          setSelectedTestPointId(null);
+        if (nextUut) {
+          setRiskResults(null);
+          setSelectedTestPointId(tp.id);
           setVirtualPoint(null);
-          setSelectedSidebarPointIds([]);
+          setSelectedSidebarPointIds([tp.id]);
           setSelectedTablePointIds([]);
-          setSelectedUutId(null);
+          setSelectedUutId(nextUut.id);
           setCurrentUutSelection([nextUut.id]);
-          setCollapsedOverviewInstrumentFunctionKeys(previous => {
-            const next = new Set(previous);
-            next.delete(`uut::${fnGroup.id}`);
-            return next;
-          });
-          setAnalysisMode("overview");
+          setAnalysisMode("uncertaintyTool");
         }
       }}
       valueColumnWidth={sidebarValueColumnWidth}

@@ -67,7 +67,7 @@ describe("inline tolerance global modes", () => {
     fireEvent.click(screen.getByTitle("Single-sided tolerance"));
 
     expect(screen.getByLabelText("Single-sided direction")).toBeInTheDocument();
-    expect(screen.getByText("Measurement known")).toBeInTheDocument();
+    expect(screen.getByText("Known value")).toBeInTheDocument();
     expect(screen.queryByTitle("Percent of full scale")).not.toBeInTheDocument();
   });
 

@@ -7,7 +7,7 @@ import { resolveMeasurementBias } from "../../../utils/measurementBias";
 import GrowingNumericInput from "../../../components/common/GrowingNumericInput";
 import BiasValueEditor from "../../../components/common/BiasValueEditor";
 import LegacyPointBiasNotice from "./LegacyPointBiasNotice";
-import { AddNetBiasButton, NetBiasCell } from "./NetMeasurementBias";
+import { NetBiasCell } from "./NetMeasurementBias";
 import { measureTableColumnWidths } from "../../../utils/measureTableColumnWidths";
 import { setInstrumentDragPreview } from "../../../utils/instrumentDragPreview";
 import { instrumentRowSelectionFromEvent } from "../../../utils/instrumentCellSelection";
@@ -4353,8 +4353,8 @@ const SingleSidedToleranceEditor = ({
   const limitLabel = direction === "low" ? "Lower limit" : "Upper limit";
   const unit = component.unit || activeRange?.unit || "";
   const measurementOptions = [
-    { value: "known", label: "Measurement known" },
-    { value: "unknown", label: "Measurement unknown" },
+    { value: "known", label: "Known value" },
+    { value: "unknown", label: "Unknown value" },
   ];
 
   const selectMeasurement = (next) => {
@@ -14865,12 +14865,12 @@ function DetailedView({
     ? resolveMeasurementBias(testPointData, sessionData, undefined, { ignoreManual: true }) : null,
   [testPointData, sessionData, equationDisplayData]);
 
-  // Instrument biases still participate in the calculation. The optional
-  // table column is authored here with + and removed with the output-row ×.
-  const showInputBias = testPointData.measurementBias?.mode === "manual";
+  // Always display the source breakdown and net editor. An override is only
+  // persisted after editing; viewing a point leaves its risk calculation intact.
+  const showInputBias = true;
 
   const equationVariableInputs =
-    equationDisplayData?.variables.length > 0 ? (
+    hasUsableEquation ? (
       <div
         className="panel-table-container measurement-inputs-table-wrap"
         data-scoped-zoom-key="measurement-inputs"
@@ -14898,12 +14898,14 @@ function DetailedView({
             {/* The output uses the point's own nominal and optional equation LHS.
                 It is never added to the RHS input mappings or source sum. */}
             <tr className="measurement-output-row">
-              <td>{testPointData.equationString?.includes("=") ? formatEquationVariableSymbol(testPointData.equationString.split("=")[0].trim()) : <span className="is-empty">Not Set</span>}</td>
+              <td><MeasurementInputSymbolCell output
+                symbol={testPointData.equationString?.includes("=") ? testPointData.equationString.split("=")[0].trim() : ""}
+                onCommit={symbol => handleEquationChange(`${symbol ? `${symbol} = ` : ""}${stripEquationPrefix(testPointData.equationString)}`)} /></td>
               <td><MeasurementInputNameCell symbol="output"
                 value={testPointData.outputQuantityName ?? uutNominal?.name ?? testPointData.testPointInfo?.measurementArea ?? "Output"}
                 onChange={outputQuantityName => onUpdateTestPoint({ outputQuantityName })} /></td>
               <td>{uutNominal?.value === "" || uutNominal?.value == null ? <span className="is-empty">Not Set</span> : `${uutNominal.value}${uutNominal.unit ? ` ${getUnitDisplayLabel(uutNominal.unit)}` : ""}`}</td>
-              {showInputBias && <td><NetBiasCell point={testPointData} onChange={onUpdateTestPoint} /></td>}
+              {showInputBias && <td><NetBiasCell point={testPointData} session={sessionData} onChange={onUpdateTestPoint} /></td>}
             </tr>
             {equationDisplayData.variables.map((variable) => (
               <tr key={variable.symbol}>
@@ -15552,10 +15554,24 @@ function DetailedView({
       )}
       <div
         className={`measurement-equation-section detail-workspace-content detail-workspace-content--equation${
-          collapsedDetailSections.has("equation") ? " is-collapsed" : ""
-        }${!isDerived ? " is-not-applicable" : ""}`}
+          isDerived && collapsedDetailSections.has("equation") ? " is-collapsed" : ""
+        }`}
         style={detailSectionStyle("equation", 1)}
       >
+        {!isDerived && <div className="measurement-equation-input-panel panel-card">
+          <div className="panel-card-header"><div className="panel-card-title"><FontAwesomeIcon icon={faFlask} /><span>Measurement Bias</span></div></div>
+          <div className="panel-table-container measurement-inputs-table-wrap" data-scoped-zoom-key="measurement-inputs">
+            <table className="instrument-summary-table industry-table measurement-inputs-table measurement-bias-table">
+              <colgroup><col style={{ width: "40%" }} /><col style={{ width: "30%" }} /><col style={{ width: "30%" }} /></colgroup>
+              <thead><tr><th>Name</th><th>Nominal</th><th>Bias</th></tr></thead>
+              <tbody><tr className="measurement-output-row">
+                <td><MeasurementInputNameCell symbol="output" value={testPointData.outputQuantityName ?? uutNominal?.name ?? testPointData.testPointInfo?.measurementArea ?? "Output"} onChange={outputQuantityName => onUpdateTestPoint({ outputQuantityName })} /></td>
+                <td>{uutNominal?.value === "" || uutNominal?.value == null ? <span className="is-empty">Not Set</span> : `${uutNominal.value}${uutNominal.unit ? ` ${getUnitDisplayLabel(uutNominal.unit)}` : ""}`}</td>
+                <td><NetBiasCell point={testPointData} session={sessionData} onChange={onUpdateTestPoint} /></td>
+              </tr></tbody>
+            </table>
+          </div>
+        </div>}
         {isDerived && equationDisplayData && (
           <div className="measurement-equation-layout">
             <div className="measurement-equation-block">
@@ -15723,14 +15739,13 @@ function DetailedView({
             </div>
 
           </div>
-          {hasUsableEquation && equationDisplayData.variables.length > 0 && (
+          {hasUsableEquation && (
           <div className="measurement-equation-input-panel panel-card">
             <div className="panel-card-header">
               <div className="panel-card-title">
                 <FontAwesomeIcon icon={faFlask} />
                 <span>Measurement Inputs</span>
               </div>
-              <AddNetBiasButton point={testPointData} session={sessionData} onChange={onUpdateTestPoint} />
             </div>
             <div className="measurement-equation-inputs-card">
                 {equationVariableInputs}

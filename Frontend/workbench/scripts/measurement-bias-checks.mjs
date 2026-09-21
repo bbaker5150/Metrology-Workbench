@@ -1,3 +1,4 @@
+import { authorNetBias } from './net-bias-smoke-helpers.mjs';
 export function prepareBiasSession(session) {
   const uut = session.uuts[0], tmde = session.tmdes[0];
   uut.ranges[0].tolerances = { floor: { high: 2, low: -2, unit: 'V', distribution: '1.732' }, bias: { value: .1, unit: 'V' } };
@@ -55,8 +56,8 @@ export async function checkMeasurementBias({ frame, page, saved, until, check })
   check('risk recalculates after returning to instrument defaults', await until(async () => JSON.stringify(await cards.allTextContents()) !== JSON.stringify(riskBeforeReset)));
 
   const automaticRisk = await cards.allTextContents();
-  await frame.getByRole('button', { name: 'Add Net Bias', exact: true }).click();
-  check('measurement-input plus enables one output-row bias initialized from sources', await until(() => saved().testPoints[0].measurementBias?.mode === 'manual') && Math.abs(Number(saved().testPoints[0].measurementBias.value)-.05)<1e-9 && await frame.locator('.measurement-output-row:has(.bias-value-editor)').count() === 1 && await frame.getByRole('button',{name:'Add Net Bias',exact:true}).isDisabled());
+  await authorNetBias(frame);
+  check('editing the inherited total enables one output-row net bias', await until(() => saved().testPoints[0].measurementBias?.mode === 'manual') && Math.abs(Number(saved().testPoints[0].measurementBias.value)-.05)<1e-9 && await frame.locator('.measurement-output-row:has(.bias-value-editor)').count() === 1 && await frame.getByRole('button',{name:'Add Net Bias',exact:true}).count() === 0);
   check('adding net bias alone leaves risk unchanged', JSON.stringify(await cards.allTextContents()) === JSON.stringify(automaticRisk));
   const net = frame.getByRole('textbox', { name: 'Net measurement system bias', exact: true });
   await net.fill('-.6'); await net.press('Enter');
@@ -64,7 +65,7 @@ export async function checkMeasurementBias({ frame, page, saved, until, check })
   check('net bias is not inserted into equation inputs or uncertainty components', Object.keys(saved().testPoints[0].variableMappings).join() === 'a' && saved().testPoints[0].components.length === 1 && saved().testPoints[0].equationString === 'a');
   await frame.locator('.measurement-output-row:has(.bias-value-editor)').hover();
   await frame.getByRole('button', { name: 'Remove Net Bias', exact: true }).click();
-  check('removing net bias restores automatic risk', await until(async () => JSON.stringify(await cards.allTextContents()) === JSON.stringify(automaticRisk)) && await frame.locator('.measurement-output-row:has(.bias-value-editor)').count() === 0);
+  check('removing net bias restores automatic risk and retains the editor', await until(async () => JSON.stringify(await cards.allTextContents()) === JSON.stringify(automaticRisk)) && await frame.locator('.measurement-output-row:has(.bias-value-editor)').count() === 1 && await frame.getByRole('button', { name: 'Remove Net Bias', exact: true }).count() === 0 && await until(() => !saved().testPoints[0].measurementBias));
 
   // Author both roles in their existing instrument cells, then verify changes
   // reach the current point's risk results without a navigation-triggered refresh.
@@ -128,7 +129,7 @@ export async function checkMeasurementBias({ frame, page, saved, until, check })
   check('source percentage selection persists', await until(() => saved().tmdes[0].ranges[0].tolerances.bias.kind === 'percent'));
   await page.waitForTimeout(600);
   check('-40% cal bias equals -.8 V using final UUT tolerance in built HTML', await until(async () => JSON.stringify(await cards.allTextContents()) === absoluteCards));
-  await frame.getByRole('button', { name: 'Add Net Bias', exact: true }).click();
+  await authorNetBias(frame);
   const netPercent = frame.getByRole('textbox', { name: 'Net measurement system bias', exact: true });
   await netPercent.fill('-40'); await netPercent.press('Enter');
   await frame.getByRole('button', { name: 'Net measurement system bias units', exact: true }).click();

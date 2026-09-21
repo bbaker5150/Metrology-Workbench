@@ -1,3 +1,4 @@
+import { authorNetBias } from './net-bias-smoke-helpers.mjs';
 import { prepareInputTasking } from './input-tasking-checks.mjs';
 export function prepareSeptember21(session) {
   prepareInputTasking(session);
@@ -52,7 +53,7 @@ export async function checkSeptember21({ frame, page, check, until, saved }) {
   await frame.locator('.inline-unit-search').fill('volt');
   await frame.getByRole('option', { name: /^V\s+Voltage$/ }).click();
   await frame.locator('.analysis-tabs').click({ position: { x: 5, y: 5 } });
-  await frame.getByRole('button', { name: 'Add Net Bias', exact: true }).click();
+  await authorNetBias(frame);
   check('net bias lives in the output row, with all cells aligned', await inputs.locator('.measurement-output-row > td').count() === 4 && await inputs.locator('.measurement-output-row .bias-value-editor').count() === 1 && await inputs.locator('tbody tr').count() === 2);
   const linkedRow = frame.locator('.uncertainty-budget-table tbody tr').filter({ hasText: 'Smoke tmde' }).first();
   check('imported TMDE source displays its valid 0.2 V limit after equation edits', await until(async () => /0\.2000+ V/.test(await linkedRow.locator('td').nth(1).innerText())));
