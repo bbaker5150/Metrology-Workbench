@@ -54,7 +54,7 @@ export async function checkSeptember21Followup(context) {
   // Default and overridden values must differ visually and numerically.
   await frame.getByRole('button', { name: 'Columns', exact: true }).click();
   await frame.getByRole('button', { name: 'Add PFA Required column', exact: true }).click();
-  await frame.getByRole('button', { name: 'Columns', exact: true }).click();
+  await frame.getByRole('button', { name: 'Close column settings', exact: true }).click();
   const inherited = point.locator('[data-sidebar-column="input_reqPFA"]');
   const overridden = frame.locator('[data-point-id="override-point"] [data-sidebar-column="input_reqPFA"]');
   check('default point inputs are grey/italic and overrides are regular', await inherited.locator('.point-value-number').evaluate(node => getComputedStyle(node).fontStyle === 'italic') && await overridden.locator('.point-value-number').evaluate(node => getComputedStyle(node).fontStyle === 'normal') && await inherited.locator('.point-value-number').evaluate(node => getComputedStyle(node).color) !== await overridden.locator('.point-value-number').evaluate(node => getComputedStyle(node).color));
@@ -119,21 +119,8 @@ export async function checkSeptember21Followup(context) {
 
   // Preserve the earlier sheet's coverage as well as the newly reported paths.
   await checkSeptember21(context);
-  await frame.getByRole('button', { name: 'Columns', exact: true }).click();
-  await page.setViewportSize({ width: 800, height: 600 });
-  // The Forge harness otherwise holds its iframe at 900px independently of
-  // the host viewport. Exercise the app's actual narrow/short viewport too.
-  await page.locator('#app').evaluate(node => { node.style.height = '600px'; });
-  const menu = frame.getByRole('dialog', { name: 'Visible measurement point columns', exact: true });
-  check('long column menus use full viewport height on narrow screens with no nested scrollbars', await until(async () => await menu.evaluate(node => {
-    const box = node.getBoundingClientRect();
-    return box.top >= 0 && box.bottom <= innerHeight + 1 && box.height >= innerHeight - 24 &&
-      getComputedStyle(node).overflowY === 'hidden' && node.scrollHeight <= node.clientHeight + 1;
-  })));
-  if (process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await page.screenshot({ path: `${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/followup-columns-narrow.png` });
-  await menu.press('Escape');
+  // checkSeptember21 also verifies the compact column dialog at narrow sizes.
   await page.setViewportSize({ width: 1600, height: 1050 });
-  await page.locator('#app').evaluate(node => { node.style.height = '900px'; });
 
   await frame.getByRole('button', { name: 'Instrument builder', exact: true }).click();
   await frame.getByTitle('Create Instrument', { exact: true }).click();

@@ -42,6 +42,12 @@ vi.mock('@heyirisai/docx-editor-react', () => ({
 // jsdom does not implement ResizeObserver, while the production UI relies on
 // it through react-use-measure / react-three-fiber. A no-op observer is enough
 // for render-level tests because layout itself is outside jsdom's scope.
+// jsdom has dialog elements but no top-layer implementation. Browser smoke
+// checks cover focus trapping and page geometry; DOM tests need open/close.
+if (globalThis.HTMLDialogElement && !HTMLDialogElement.prototype.showModal) {
+  HTMLDialogElement.prototype.showModal = function () { this.setAttribute('open', ''); };
+  HTMLDialogElement.prototype.close = function () { this.removeAttribute('open'); };
+}
 if (!globalThis.ResizeObserver) {
   globalThis.ResizeObserver = class ResizeObserver {
     observe() {}

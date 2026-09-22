@@ -1,3 +1,4 @@
+import { checkColumnDialog } from './column-dialog-checks.mjs';
 import { authorNetBias } from './net-bias-smoke-helpers.mjs';
 import { prepareInputTasking } from './input-tasking-checks.mjs';
 export function prepareSeptember21(session) {
@@ -113,17 +114,7 @@ export async function checkSeptember21({ frame, page, check, until, saved }) {
   await point.locator('[data-sidebar-column="pfa"]').click();
   await point.press('Control+v');
   check('point-list paste ignores an instrument clipboard', saved().testPoints.length === pointCount);
-  await frame.getByRole('button', { name: 'Columns', exact: true }).click();
-  const columns = frame.getByRole('dialog', { name: 'Visible measurement point columns', exact: true });
-  const oldHeight = await columns.evaluate(node => node.getBoundingClientRect().height);
-  while (await columns.locator('.point-column-add').count()) await columns.locator('.point-column-add').first().click();
-  check('column menu grows alongside the trigger and stays inside the viewport', await columns.evaluate((node, oldHeight) => {
-    const r = node.getBoundingClientRect();
-    return r.height >= oldHeight && r.top >= 0 && r.bottom <= innerHeight + 1 && r.left >= 0 && r.right <= innerWidth + 1;
-  }, oldHeight));
-  if (process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await page.screenshot({ path: `${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/columns.png` });
-  check('column lists scroll only after filling the viewport, without outer scrolling', await columns.evaluate(node => getComputedStyle(node).overflowY === 'hidden' && node.scrollHeight <= node.clientHeight + 1 && [...node.querySelectorAll('.sidebar-filter-sections, .sidebar-column-order-list')].every(list => list.scrollHeight <= list.clientHeight + 1 || node.getBoundingClientRect().height >= innerHeight - 24)));
-  await frame.getByRole('button', { name: 'Columns', exact: true }).click();
+  await checkColumnDialog({ frame, page, until, check });
   await frame.locator('[data-tour="tab-overview"]').click();
   const scroller = frame.locator('.analysis-content').first();
   // Place each table's body underneath its sticky column header, then hit-test

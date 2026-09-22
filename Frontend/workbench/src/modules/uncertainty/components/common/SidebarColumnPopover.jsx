@@ -1,76 +1,63 @@
 import useExclusiveMenu from "../../hooks/useExclusiveMenu";
-import React, { useLayoutEffect, useState, useRef } from "react";
+import React, { useLayoutEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 
 export default function SidebarColumnPopover({ anchorRef, onClose, children }) {
   useExclusiveMenu(true, onClose);
-  const [placement, setPlacement] = useState(null);
-  const menuRef = useRef(null);
-  const placed = Boolean(placement);
+  const dialogRef = useRef(null);
   useLayoutEffect(() => {
-    const update = () => {
-      const rect = anchorRef.current?.getBoundingClientRect();
-      // Fixed portal coordinates are CSS pixels; the trigger rect is already
-      // scaled by global UI zoom. Convert both into the portal's coordinate
-      // space so its growing list cannot cover the toggle at reduced zoom.
+    const dialog = dialogRef.current;
+    const trigger = anchorRef.current?.querySelector('button');
+    // The native top layer has no containing block in the workbench. Unlike
+    // a body portal, it cannot enlarge the document's scrollable overflow.
+    const fit = () => {
       const zoom = (parseFloat(getComputedStyle(document.documentElement).zoom) || 1) *
         (parseFloat(getComputedStyle(document.body).zoom) || 1);
-      const viewportWidth = window.innerWidth / zoom, viewportHeight = window.innerHeight / zoom;
-      const right = rect?.right / zoom, left = rect?.left / zoom;
-      const next = right + 8 + 480 <= viewportWidth - 8 ? {
-        left: right + 8, top: 8, width: 480, maxHeight: viewportHeight - 16,
-      } : left - 8 - 480 >= 8 ? {
-        left: left - 8 - 480, top: 8, width: 480, maxHeight: viewportHeight - 16,
-      } : {
-        // A narrow viewport cannot fit the menu beside the trigger. Keep the
-        // entire vertical budget instead of clipping it to the space below.
-        left: Math.max(8, Math.min(left || 8, viewportWidth - Math.min(480, viewportWidth - 16) - 8)),
-        top: 8, width: Math.min(480, viewportWidth - 16), maxHeight: viewportHeight - 16,
-      };
-      // Prefer either side of the trigger; narrow screens retain Escape and
-      // outside-click dismissal while using the available viewport height.
-      setPlacement(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
+      const viewport = window.visualViewport;
+      dialog.style.setProperty('--column-dialog-width', `${Math.max(1, (viewport?.width || innerWidth) / zoom - 32)}px`);
+      dialog.style.setProperty('--column-dialog-height', `${Math.max(1, (viewport?.height || innerHeight) / zoom - 32)}px`);
     };
-    update();
-    window.addEventListener("resize", update);
-    window.addEventListener("scroll", update, true);
-    const resize = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(update);
-    if (menuRef.current) resize?.observe(menuRef.current);
+    fit();
+    dialog.showModal();
+    window.addEventListener('resize', fit);
+    window.visualViewport?.addEventListener('resize', fit);
+    // UI scale can change independently of a browser resize.
+    const observer = new MutationObserver(fit);
+    observer.observe(document.documentElement, { attributes: true, attributeFilter: ['style', 'class'] });
+    observer.observe(document.body, { attributes: true, attributeFilter: ['style', 'class'] });
     return () => {
-      window.removeEventListener("resize", update);
-      window.removeEventListener("scroll", update, true);
-      resize?.disconnect();
+      window.removeEventListener('resize', fit);
+      window.visualViewport?.removeEventListener('resize', fit);
+      observer.disconnect();
+      dialog.close();
+      trigger?.focus({ preventScroll: true });
     };
-  }, [anchorRef, placed]);
-  if (!placement) return null;
+  }, [anchorRef]);
   return createPortal(
-    <div
-      ref={menuRef}
-      className="sidebar-filter-dropdown"
-      role="dialog"
+    <dialog ref={dialogRef} className="sidebar-filter-dropdown point-columns-dialog"
       aria-label="Visible measurement point columns"
-      style={{
-        width: placement.width,
-        maxHeight: placement.maxHeight,
-        "--column-menu-height": `${placement.maxHeight}px`,
-        left: placement.left,
-        boxSizing: "border-box",
-        position: "fixed",
-        top: placement.top ?? "auto",
-        bottom: placement.bottom ?? "auto",
-        right: "auto",
-        zIndex: 10020,
-      }}
-      onKeyDown={(event) => {
-        if (event.key === "Escape") {
-          event.stopPropagation();
-          onClose();
-          anchorRef.current?.querySelector("button")?.focus();
+      onCancel={event => { event.preventDefault(); onClose(); }}
+      onKeyDown={event => {
+        if (event.key === 'Escape') { event.preventDefault(); event.stopPropagation(); onClose(); }
+        if (event.key === 'Tab') {
+          const focusable = [...event.currentTarget.querySelectorAll('button:not(:disabled), input:not(:disabled), [tabindex="0"]')]
+            .filter(node => node.getClientRects().length > 0);
+          const first = focusable[0], last = focusable.at(-1);
+          if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+          else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
         }
       }}
-    >
+      onClick={event => {
+        if (event.target !== event.currentTarget) return;
+        const bounds = event.currentTarget.getBoundingClientRect();
+        if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) onClose();
+      }}>
+      <header className="point-columns-dialog-header">
+        <div><h2>Measurement point columns</h2><p>Drag displayed columns to reorder them. Changes apply immediately.</p></div>
+        <button type="button" onClick={onClose} aria-label="Close column settings" autoFocus>×</button>
+      </header>
       {children}
-    </div>,
+    </dialog>,
     document.body,
   );
 }

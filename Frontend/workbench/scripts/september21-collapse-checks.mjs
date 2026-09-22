@@ -1,3 +1,4 @@
+import { checkColumnDialog } from './column-dialog-checks.mjs';
 import { prepareInputTasking } from './input-tasking-checks.mjs';
 import { editNetBias } from './net-bias-smoke-helpers.mjs';
 
@@ -70,37 +71,5 @@ export async function checkSeptember21Collapse({ frame, page, saved, until, chec
   await unit.selectOption('');
   check('explicit Units choice remains available after UUT assignment', await until(() => freshPoint().testPointInfo.parameter.unitSelectionExplicit === true) && await unit.inputValue() === '');
 
-  await frame.getByRole('button', { name: 'Columns', exact: true }).click();
-  const menu = frame.getByRole('dialog', { name: 'Visible measurement point columns', exact: true });
-  const geometry = () => menu.evaluate(node => {
-    const box = node.getBoundingClientRect();
-    const lists = [...node.querySelectorAll('.sidebar-filter-sections, .sidebar-column-order-list')];
-    return { height: box.height, top: box.top, bottom: box.bottom, viewport: innerHeight,
-      outerOverflow: node.scrollHeight > node.clientHeight + 1,
-      scrollbars: lists.filter(list => list.scrollHeight > list.clientHeight + 1).length,
-      headingVisible: [...node.querySelectorAll('.sidebar-column-order-heading, .point-column-menu-actions')].every(el => el.getBoundingClientRect().top >= box.top && el.getBoundingClientRect().bottom <= box.bottom) };
-  });
-  // A roomy viewport must let both lists grow naturally, with zero scrollbars.
-  await page.setViewportSize({ width: 2200, height: 2000 });
-  await page.locator('#app').evaluate(node => { node.style.height = '1950px'; });
-  check('columns menu expands naturally with no scrollbars when content fits', await until(async () => { const g = await geometry(); return g.scrollbars === 0 && !g.outerOverflow && g.bottom <= g.viewport; }));
-  for (let n = 0; n < 7; n++) await menu.locator('.point-column-add').first().click();
-  await page.setViewportSize({ width: 1600, height: 750 });
-  await page.locator('#app').evaluate(node => { node.style.height = '700px'; });
-  check('long displayed and available lists get independent scrolling only at full height', await until(async () => { const g = await geometry(); return g.scrollbars === 2 && !g.outerOverflow && g.height >= g.viewport - 24 && g.headingVisible; }));
-  await capture('e4-columns-full');
-  const list = menu.locator('.sidebar-column-order-list');
-  await list.evaluate(node => { node.scrollTop = node.scrollHeight; });
-  check('last displayed column remains reachable without scrolling the shell or hiding actions', await geometry().then(g => !g.outerOverflow && g.headingVisible) && await list.evaluate(node => node.lastElementChild.getBoundingClientRect().bottom <= node.getBoundingClientRect().bottom + 1));
-  for (const zoom of [0.75, 1.25]) {
-    await frame.evaluate(zoom => { document.documentElement.style.zoom = String(zoom); }, zoom);
-    await page.setViewportSize({ width: 1500 + zoom * 40, height: 750 });
-    check(`column menu stays bounded at ${zoom * 100}% zoom`, await until(async () => { const g = await geometry(); return g.top >= 0 && g.bottom <= g.viewport + 1 && !g.outerOverflow && g.headingVisible; }));
-  }
-  await frame.evaluate(() => { document.documentElement.style.zoom = ''; });
-  await menu.getByRole('button', { name: 'Reset Columns', exact: true }).focus();
-  await menu.press('Escape');
-  check('Escape dismisses the resized column menu', await menu.count() === 0);
-  await page.setViewportSize({ width: 1600, height: 1050 });
-  await page.locator('#app').evaluate(node => { node.style.height = '900px'; });
+  await checkColumnDialog({ frame, page, until, check });
 }

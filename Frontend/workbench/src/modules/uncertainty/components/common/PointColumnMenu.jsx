@@ -88,6 +88,7 @@ export default function PointColumnMenu({ sections, columns, setColumns, selecte
       <button type="button" onClick={() => { finishDrag(); onReset(); }}>Reset Columns</button>
       <button type="button" onClick={onSetDefault}>Set as Default</button>
     </div>
+    <div className="point-column-lists">
     <section className="point-column-selected">
       <div className="sidebar-column-order-heading"><strong>Displayed columns</strong></div>
       <div className="sidebar-column-order-list" onDragOver={event => { if (draggedKey.current) event.preventDefault(); }} onDrop={event => dropColumn(event, null)}>
@@ -121,7 +122,6 @@ export default function PointColumnMenu({ sections, columns, setColumns, selecte
         </section>)}
       </div>
     </section>
-
-
+    </div>
   </div>;
 }

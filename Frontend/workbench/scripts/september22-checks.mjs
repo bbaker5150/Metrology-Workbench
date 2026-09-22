@@ -1,3 +1,4 @@
+import { checkColumnDialog } from './column-dialog-checks.mjs';
 import { prepareInputTasking } from './input-tasking-checks.mjs';
 
 export function prepareSeptember22(session) {
@@ -68,45 +69,5 @@ export async function checkSeptember22({ frame, page, saved, until, check }) {
   await unit.selectOption('V');
   check('restoring compatible units recalculates limits and risk', await until(async () => /\d/.test(await first.locator('[data-sidebar-column="pfa"]').innerText())));
 
-  await frame.getByRole('button', { name: 'Columns', exact: true }).click();
-  const menu = frame.getByRole('dialog', { name: 'Visible measurement point columns', exact: true });
-  const geometry = () => menu.evaluate(node => {
-    const box = node.getBoundingClientRect();
-    const lists = [...node.querySelectorAll('.sidebar-column-order-list, .sidebar-filter-sections')];
-    return { top: box.top, bottom: box.bottom, left: box.left, right: box.right, height: box.height, viewport: innerHeight,
-      scrollbars: lists.filter(el => el.scrollHeight > el.clientHeight + 1).length,
-      outerOverflow: node.scrollHeight > node.clientHeight + 1,
-      bounded: box.top >= 0 && box.bottom <= innerHeight + 1 && box.left >= 0 && box.right <= innerWidth + 1 };
-  });
-  await size(2200, 2000);
-  check('roomy column menu displays both lists without scrolling', await until(async () => {
-    const g = await geometry(); return g.bounded && !g.outerOverflow && g.scrollbars === 0;
-  }));
-  // At this height both lists exceed the viewport after seven additions.
-  await size(1600, 650);
-  for (let i = 0; i < 7; i++) await menu.locator('.point-column-add').first().click();
-  check('two column scrollbars appear only after the menu fills the viewport', await until(async () => {
-    const g = await geometry(); return g.scrollbars === 2 && g.height >= g.viewport - 24 && !g.outerOverflow && g.bounded;
-  }));
-  check('column menu is beside the Columns button', await menu.evaluate(node => {
-    const menu = node.getBoundingClientRect(), trigger = document.querySelector('[data-tour="sidebar-columns"]').getBoundingClientRect();
-    return menu.left >= trigger.right || menu.right <= trigger.left;
-  }));
-  await capture('september22-columns-full-height');
-  for (const zoom of [0.75, 1.25]) {
-    await frame.evaluate(value => { document.documentElement.style.zoom = String(value); }, zoom);
-    await size(1500, 700);
-    check(`sidebar retains one vertical scrollbar at ${zoom * 100}% zoom`, await until(async () => (await scrollOwners()).length === 1));
-    check(`column menu remains inside viewport at ${zoom * 100}% zoom`, await until(async () => {
-      const g = await geometry(); return g.bounded && !g.outerOverflow && (g.scrollbars < 2 || g.height >= g.viewport - 24);
-    }));
-  }
-  await frame.evaluate(() => { document.documentElement.style.zoom = ''; });
-  await size(600, 600);
-  check('narrow-screen menu uses the full available height without outer scrolling', await until(async () => {
-    const g = await geometry(); return g.bounded && !g.outerOverflow && g.height >= g.viewport - 24;
-  }));
-  await menu.getByRole('button', { name: 'Reset Columns', exact: true }).click();
-  await menu.press('Escape');
-  await size(1600, 900);
+  await checkColumnDialog({ frame, page, until, check });
 }
