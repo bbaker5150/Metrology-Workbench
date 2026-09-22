@@ -32,6 +32,13 @@ it('does not silently reinterpret floor units, even without an outer range unit'
   expect(toleranceUnitMismatch({ unit: 'A', reading: { high: 1, unit: '%' } }, 'V', unitSystem)).toMatch(/Unit mismatch/);
 });
 
+it.each(['in', 'inch', 'in.'])('blocks the reported voltage percentage tolerance on a %s point', unit => {
+  const tolerance = { unit: 'V', tolerances: { reading: { high: 1, low: -1, unit: '%', distribution: '1.732' } } };
+  const nominal = { value: 1, unit };
+  expect(getAbsoluteLimits(tolerance, nominal)).toMatchObject({ low: 'N/A', high: 'N/A', reason: expect.stringMatching(/Unit mismatch/) });
+  expect(calculateUncertaintyFromToleranceObject(tolerance, nominal)).toMatchObject({ standardUncertainty: NaN, error: expect.stringMatching(/Unit mismatch/) });
+});
+
 it('retains compatible scaled units, aliases, relative specs and blank native frames', () => {
   expect(getAbsoluteLimits({ unit: 'V', floor: { high: 100, low: -100, unit: 'mV' } }, { value: 1, unit: 'V' })).toMatchObject({ rawLow: '0.9', rawHigh: '1.1' });
   for (const [source, target] of [['mV','V'], ['ohm','Ohm'], ['degC','degF'], ['', ''], ['%', 'V']])

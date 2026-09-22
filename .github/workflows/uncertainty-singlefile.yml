@@ -102,6 +102,11 @@ jobs:
         # must not become a release.
         run: node scripts/smoke-forge-srcdoc.mjs
 
+      - name: Verify sidebar scrolling, column menus and incompatible units
+        run: node scripts/smoke-forge-srcdoc.mjs
+        env:
+          SEPTEMBER22_SMOKE: '1'
+
       - name: Checksum
         id: checksum
         run: |

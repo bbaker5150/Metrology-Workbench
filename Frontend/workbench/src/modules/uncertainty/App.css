@@ -21162,13 +21162,15 @@ body.point-columns-dragging .point-column-menu-body .point-column-add > span:las
 .uncertainty-module .instrument-equipment-table thead { position: sticky; top: var(--instrument-header-offset, 0px); z-index: 6; background: var(--component-bg); }
 .uncertainty-module .instrument-equipment-table thead th { position: relative; top: auto; background: var(--component-bg); }
 
-/* The point list owns both axes: the horizontal scrollbar is always at the
-   visible bottom and the single header remains inside the same scroll frame. */
-.uncertainty-module .measurement-point-list { display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
-.uncertainty-module .sidebar-session-info-zoom-surface { flex: 0 1 auto; max-height: 45%; overflow-y: auto; }
+/* Session details and points share one viewport on both axes. The horizontal
+   scrollbar stays at the visible bottom; details/actions stay horizontally
+   anchored while the point columns scroll beneath their sticky header. */
+.uncertainty-module .measurement-point-list { display: flex; flex-direction: column; overflow: auto; min-height: 0; }
+.uncertainty-module .sidebar-session-info-zoom-surface { flex: 0 0 auto; max-height: none; overflow: visible; position: sticky; left: 0; }
 .uncertainty-module .measurement-points-zoom-surface,
-.uncertainty-module .measurement-points-zoom-surface > .scoped-zoom-content { display: flex; flex-direction: column; flex: 1 1 0; min-height: 0; }
-.uncertainty-module .measurement-points-table { flex: 1 1 0; min-height: 0; overflow: auto; }
+.uncertainty-module .measurement-points-zoom-surface > .scoped-zoom-content { display: flex; flex-direction: column; flex: 0 0 auto; min-height: 0; overflow: visible; }
+.uncertainty-module .measurement-points-table { flex: 0 0 auto; min-height: 0; overflow: visible; }
+.uncertainty-module .measurement-points-zoom-surface .sidebar-global-actions { position: sticky; left: 10px; }
 .uncertainty-module .measurement-points-table .sidebar-column-header-stack { top: 0; background: var(--component-bg); }
 /* Reuse the existing gap divider and visual-last marker, including reordered
    and selected columns; adding cell borders would create duplicate seams. */

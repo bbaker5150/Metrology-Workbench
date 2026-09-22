@@ -14,7 +14,7 @@ export default function PointSelectionOutline() {
   useLayoutEffect(() => {
     const overlay = ref.current;
     const content = overlay.parentElement;
-    const scroller = content.parentElement;
+    const scroller = content.closest('.measurement-point-list') || content.parentElement;
     let frame = null;
     let previous = "";
     const sync = () => {
