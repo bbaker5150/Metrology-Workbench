@@ -1,6 +1,7 @@
 import { prepareInputTasking } from './input-tasking-checks.mjs';
 export function prepareWorkspacePolish(session) {
   prepareInputTasking(session);
+  session.testPoints[0].testPointInfo.qualifier = { value: "Extended calibration verification qualifier" };
   const direct = structuredClone(session.testPoints[0]);
   Object.assign(direct, { id: 'direct-polish', measurementType: 'direct', equationString: '', variableMappings: {}, variableNominals: {}, measurementBias: null });
   direct.components.forEach(c => { delete c.variableType; delete c.variableSymbol; });
@@ -10,13 +11,16 @@ export async function checkWorkspacePolish({ frame, page, saved, until, check })
   await page.setViewportSize({ width: 1600, height: 1000 });
   const capture = async name => { if (process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await page.screenshot({ path: `${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/${name}.png` }); };
   const divider = frame.getByRole('separator', { name: 'Resize measurement point list' });
+  const dividerIsReachable = () => divider.evaluate(node => { const r = node.getBoundingClientRect(); return r.width >= 12 && document.elementFromPoint(r.x + r.width / 2, r.y + 60) === node && getComputedStyle(node, '::after').content.includes('↔'); });
   await divider.dblclick();
+  check('full-width list keeps a visible, directly reachable divider', await dividerIsReachable());
   check('first divider double-click shows the measurement list at full width', await frame.locator('.results-sidebar').isVisible() && !await frame.locator('.results-content').isVisible() && await frame.locator('.results-sidebar').evaluate(node => node.clientWidth > node.parentElement.clientWidth - 70));
   await frame.evaluate(() => location.reload());
   await frame.getByRole('combobox', { name: 'Analysis Session' }).waitFor();
   check('full-width pane choice survives refresh', !await frame.locator('.results-content').isVisible());
   await divider.dblclick();
   check('second divider double-click shows tables at full width and keeps the divider reachable', !await frame.locator('.results-sidebar').isVisible() && await frame.locator('.results-content').isVisible() && await divider.isVisible());
+  check('full-width tables keep a visible, directly reachable divider', await dividerIsReachable());
   await divider.focus(); await divider.press('Escape');
   check('keyboard restores the split workspace', await frame.locator('.results-sidebar').isVisible() && await frame.locator('.results-content').isVisible());
   const start = await divider.boundingBox();
@@ -30,6 +34,29 @@ export async function checkWorkspacePolish({ frame, page, saved, until, check })
   const expand = frame.getByRole('button', { name: 'Expand measurement area', exact: true });
   if (await expand.count()) await expand.first().click();
   const point = frame.locator('[data-point-id="point"]');
+  check('automatic UUT width fits its text without retaining the old 200px minimum', await until(async () => point.locator('[data-sidebar-column="uut"]').evaluate(node => { const text = node.querySelector('.point-uut-summary'); return node.clientWidth < 200 && text.scrollWidth <= text.clientWidth + 1; })));
+  const defaultWidth = await point.locator('[data-sidebar-column="uut"]').evaluate(node => node.clientWidth);
+  const resize = frame.locator('.sidebar-column-header-cell--uut .sidebar-column-resizer');
+  await resize.scrollIntoViewIfNeeded();
+  const edge = await resize.boundingBox();
+  await page.mouse.move(edge.x + edge.width / 2, edge.y + 10); await page.mouse.down(); await page.mouse.move(edge.x + edge.width / 2 + 80, edge.y + 10, { steps: 8 }); await page.mouse.up();
+  check('user can widen an automatically fitted column', await until(async () => await point.locator('[data-sidebar-column="uut"]').evaluate(node => node.clientWidth) >= defaultWidth + 75));
+  await resize.dblclick();
+  check('double-click restores content-fitted column width', await until(async () => Math.abs(await point.locator('[data-sidebar-column="uut"]').evaluate(node => node.clientWidth) - defaultWidth) < 2));
+  await frame.getByRole('button', { name: 'Columns', exact: true }).click();
+  const columns = frame.getByRole('dialog', { name: 'Visible measurement point columns', exact: true });
+  for (const label of ['Qualifier', 'Cal Int with GB', 'Cal Int w/o GB']) await columns.getByRole('button', { name: `Add ${label} column`, exact: true }).click();
+  await columns.getByRole('button', { name: 'Close column settings', exact: true }).click();
+  check('a newly enabled column immediately fits its longest value', await until(async () => point.locator('[data-sidebar-column="qualifier"] .point-grouped-cell-label').evaluate(node => node.clientWidth > 150 && node.scrollWidth <= node.clientWidth + 1)));
+  for (const key of ['gbCalInt', 'noGbCalInt']) check(`${key} displays exactly two decimal places`, await until(async () => /^\d+\.\d{2}$/.test((await point.locator(`[data-sidebar-column="${key}"]`).innerText()).trim())));
+  await frame.getByRole('button', { name: 'Columns', exact: true }).click();
+  await columns.getByRole('button', { name: 'Reset Columns', exact: true }).click();
+  await columns.getByRole('button', { name: 'Close column settings', exact: true }).click();
+  for (const zoom of [.75, 1.25]) {
+    await frame.evaluate(value => { document.documentElement.style.zoom = String(value); window.dispatchEvent(new Event('resize')); }, zoom);
+    check(`automatic widths remain in logical pixels at ${zoom * 100}% zoom`, await until(async () => Math.abs(await point.locator('[data-sidebar-column="uut"]').evaluate(node => node.clientWidth) - defaultWidth) < 3));
+  }
+  await frame.evaluate(() => { document.documentElement.style.zoom = ''; window.dispatchEvent(new Event('resize')); });
   await point.locator('[data-sidebar-column="pfa"]').click();
   const unit = point.getByRole('combobox', { name: 'Measurement point unit' });
   await unit.click();

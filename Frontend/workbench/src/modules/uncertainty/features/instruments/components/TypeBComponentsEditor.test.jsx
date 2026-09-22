@@ -187,7 +187,8 @@ it("uses the budget equation editor and includes an active draft in an instrumen
    return <TypeBComponentsEditor components={components} referenceUnit="V" onChange={next => { latest = next; setComponents(next); }} />;
  }
  const first = render(<Wrapper />);
- fireEvent.click(screen.getByRole("button", { name: "Add equation", exact: true }));
+ fireEvent.click(screen.getByRole("button", { name: "Add Type B component", exact: true }));
+ fireEvent.click(screen.getByRole("option", { name: "Add equation component", exact: true }));
  const equation = await screen.findByLabelText("Uncertainty equation");
  fireEvent.change(equation, { target: { value: "x/100" } });
  const saved = withInstrumentEditorDrafts({ typeBComponents: latest });

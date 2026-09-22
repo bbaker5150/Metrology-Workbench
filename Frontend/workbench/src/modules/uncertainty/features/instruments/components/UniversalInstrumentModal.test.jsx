@@ -577,7 +577,8 @@ describe("UniversalInstrumentModal library synchronization", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Add Type B/i }));
 
-    expect(screen.getByLabelText("Type B component name")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("option", { name: "Add manual component" }));
+    expect(screen.getByLabelText("Error source name")).toBeInTheDocument();
   });
 
   test("owns Ctrl+Z and undoes builder actions without touching the session behind it", async () => {
@@ -656,7 +657,7 @@ describe("UniversalInstrumentModal library synchronization", () => {
     expect(screen.getByText("No functions yet.")).toBeInTheDocument();
     expect(screen.getByText("No Type B Uncertainties yet.")).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /^Add Function$/i })).toHaveLength(1);
-    expect(screen.getAllByRole("button", { name: /^Add Type B$/i })).toHaveLength(1);
+    expect(screen.getAllByRole("button", { name: /^Add Type B component$/i })).toHaveLength(1);
   });
 
   test("does not expose the obsolete range resolution opt-in", () => {

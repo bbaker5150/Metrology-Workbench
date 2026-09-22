@@ -481,7 +481,7 @@ const resolveUnitOption = (flatUnitOptions, value) => {
   );
 };
 
-const UnitSelect = ({
+export const UnitSelect = ({
   value = "",
   onChange,
   onTab,
@@ -7265,7 +7265,11 @@ const SummaryDashboard = ({
       confirmViaNotification(setNotification, {
         title: "Associate Type B component",
         message: `Associate ${component.name || "this component"} with ${item.name || item.instrument?.model || "this instrument"}? It will be available from that instrument in other budgets.`,
-        onConfirm: () => onSessionSave?.(associateBudgetComponent(latestSessionDataRef.current, kind, targetId, component)),
+        onConfirm: () => {
+          const next = associateBudgetComponent(latestSessionDataRef.current, kind, targetId, component);
+          onSessionSave?.(next);
+          saveItemInstrumentToLocalLibrary(kind, next[kind === "uut" ? "uuts" : "tmdes"].find(item => String(item.id) === String(targetId)));
+        },
       });
       return;
     }
@@ -10478,7 +10482,11 @@ function DetailedView({
       confirmViaNotification(setNotification, {
         title: "Associate Type B component",
         message: `Associate ${component.name || "this component"} with ${item.name || item.instrument?.model || "this instrument"}? It will be available from that instrument in other budgets.`,
-        onConfirm: () => onSessionSave?.(associateBudgetComponent(latestSessionDataRef.current, kind, targetId, component)),
+        onConfirm: () => {
+          const next = associateBudgetComponent(latestSessionDataRef.current, kind, targetId, component);
+          onSessionSave?.(next);
+          saveItemInstrumentToLocalLibrary(kind, next[kind === "uut" ? "uuts" : "tmdes"].find(item => String(item.id) === String(targetId)));
+        },
       });
       return;
     }

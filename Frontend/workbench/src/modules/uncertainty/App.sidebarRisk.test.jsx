@@ -60,9 +60,9 @@ describe("measurement-point value editing", () => {
     );
   });
 
-  test("keeps UUT limit columns wide enough for full-precision values", () => {
-    expect(getSidebarColumnMinWidth("lowLimit")).toBe(82);
-    expect(getSidebarColumnMinWidth("highLimit")).toBe(82);
+  test("allows UUT limits to size to their content without an oversized fixed minimum", () => {
+    expect(getSidebarColumnMinWidth("lowLimit")).toBe(44);
+    expect(getSidebarColumnMinWidth("highLimit")).toBe(44);
     expect(getSidebarColumnMinWidth("section")).toBe(44);
   });
 
@@ -987,7 +987,7 @@ describe("measurement-point Risk 8 metric interactions", () => {
             gbHigh: 0.05025,
             gbPfa: 2,
             gbPfr: 4.18,
-            gbCalInt: 5.40849,
+            gbCalInt: 8.000924,
             gbMeasRel: 86.47,
             noGbPfa: 2.01,
             noGbPfr: 3.61,
@@ -1038,8 +1038,8 @@ describe("measurement-point Risk 8 metric interactions", () => {
     expect(screen.getByTitle("100")).toHaveTextContent("100.00%");
     expect(screen.getByTitle("85.69")).toHaveTextContent("85.69%");
     expect(screen.getByTitle("86.47")).toHaveTextContent("86.47%");
-    expect(screen.getByTitle("5.40849")).toHaveTextContent(
-      "5.41",
+    expect(screen.getByTitle("8.000924")).toHaveTextContent(
+      "8.00",
     );
     expect(screen.getByTitle("2.01")).toHaveTextContent("2.01%");
     expect(screen.getByTitle("3.61")).toHaveTextContent("3.61%");

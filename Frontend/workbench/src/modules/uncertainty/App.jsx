@@ -1,3 +1,5 @@
+import useSidebarAutoWidths from "./hooks/useSidebarAutoWidths";
+import { syncInstrumentBudgetComponents } from "./utils/instrumentBudgetComponents";
 import usePageExitRecovery from "./hooks/usePageExitRecovery";
 import useWorkspaceScrollRecovery from "./hooks/useWorkspaceScrollRecovery";
 import { readEditorDraft, saveEditorDraft, clearEditorDraft } from "./utils/editorRecovery";
@@ -483,10 +485,7 @@ const getVisibleSidebarColumnOrder = (visibleColumns, columnOrder) =>
 // A column the user has dragged is pinned to that exact width; everything else
 // keeps its default track sizing.
 export const SIDEBAR_COLUMN_MIN_WIDTH = 44;
-const SIDEBAR_COLUMN_MIN_WIDTHS = {
-  lowLimit: 82,
-  highLimit: 82,
-};
+const SIDEBAR_COLUMN_MIN_WIDTHS = {};
 
 export const getSidebarColumnMinWidth = (key) =>
   SIDEBAR_COLUMN_MIN_WIDTHS[key] || SIDEBAR_COLUMN_MIN_WIDTH;
@@ -1205,7 +1204,7 @@ export const SidebarPointItem = ({
 
   const formatMitigationNumber = (value, digits = 8) =>
     value !== undefined && value !== null && Number.isFinite(Number(value))
-      ? Number(value).toFixed(digits).replace(/\.?0+$/, "")
+      ? digits === 2 ? Number(value).toFixed(2) : Number(value).toFixed(digits).replace(/\.?0+$/, "")
       : "-";
 
   const formatMitigationPercent = (value, digits = 1) =>
@@ -2432,9 +2431,10 @@ function App({ showThemeToggle = false }) {
     [currentTestPoints, currentSessionData, pointRiskMap, pointRiskStatusMap, sidebarColumns],
   );
 
+  const sidebarAutoWidths = useSidebarAutoWidths(resultsContainerRef);
   const sidebarRenderedColumnWidths = useMemo(
-    () => getSidebarRiskColumnWidths(sidebarColumnWidths, pointRiskMap),
-    [sidebarColumnWidths, pointRiskMap],
+    () => ({ ...sidebarAutoWidths, ...getSidebarRiskColumnWidths(sidebarColumnWidths, pointRiskMap) }),
+    [sidebarAutoWidths, sidebarColumnWidths, pointRiskMap],
   );
 
   // Measurement-point chronology is authored by the user. Never reorder it as
@@ -4242,6 +4242,10 @@ function App({ showThemeToggle = false }) {
     // CASE 4: Standard Library Save
     else {
       saveInstrument(data);
+      if (currentSessionData && data.scope !== "shared") {
+        const next = syncInstrumentBudgetComponents(currentSessionData, data);
+        if (next !== currentSessionData) updateSession(next);
+      }
     }
 
     setIsInstrumentBuilderOpen(false);

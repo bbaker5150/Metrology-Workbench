@@ -98,8 +98,11 @@ export default function DynamicBudgetComponentRow({
     });
   }, [referencePoint?.value, referencePoint?.unit]);
 
+  const openedAutomatically = useRef(false);
   useEffect(() => {
-    if (!autoEdit) return;
+    if (!autoEdit) { openedAutomatically.current = false; return; }
+    if (openedAutomatically.current) return;
+    openedAutomatically.current = true;
     setEditing(true);
     onEditorOpened?.();
     focusEditor();
@@ -235,7 +238,7 @@ export default function DynamicBudgetComponentRow({
           restoreTriggerFocus();
         }
       }}>
-      <td className="budget-source-cell has-order-controls"><span className="budget-component-drag" {...budgetDragProps(component)} aria-label="Drag Type B component">⠿</span>
+      <td {...budgetDragProps(component)} className="budget-source-cell has-order-controls">
         <div className="budget-order-controls">
           <button type="button" title="Move component up" aria-label="Move component up" onClick={onMoveUp}><FontAwesomeIcon icon={faArrowUp} /></button>
           <button type="button" title="Move component down" aria-label="Move component down" onClick={onMoveDown}><FontAwesomeIcon icon={faArrowDown} /></button>

@@ -575,8 +575,7 @@ export const InlineManualComponentRow = ({
         onKeyDownCapture={handleFieldTab}
         onClick={event => activateField(fields[event.target.closest("td")?.cellIndex] || "name")}
       >
-        <td className="budget-source-cell has-order-controls" data-budget-field="name">
-          <span className="budget-component-drag" {...budgetDragProps(component)} aria-label="Drag Type B component">⠿</span>
+        <td {...budgetDragProps(component)} className="budget-source-cell has-order-controls" data-budget-field="name">
           <BudgetOrderControls onMoveUp={onMoveUp} onMoveDown={onMoveDown} />
           {fieldSummary("name", component.name)}
         </td>
@@ -638,8 +637,8 @@ export const InlineManualComponentRow = ({
       onKeyDownCapture={handleFieldTab}
       onKeyDown={handleRowKeyDown}
     >
-      <td className="budget-source-cell has-order-controls" data-budget-field="name">
-        <span className="budget-component-drag" {...budgetDragProps(component)} aria-label="Drag Type B component">⠿</span>
+      <td {...budgetDragProps(component)} className="budget-source-cell has-order-controls" data-budget-field="name">
+
           <BudgetOrderControls onMoveUp={onMoveUp} onMoveDown={onMoveDown} />
         {activeField === "name" ? <InlineSourceNameEditor
           ref={nameInputRef}

@@ -209,6 +209,11 @@ await page.route('**/_api/**', async (route) => {
     const recordId = /\$filter=RecordId eq '([^']+)'/.exec(url)?.[1];
     return ok({ value: instrumentItems.filter(item => !recordId || item.RecordId === recordId) });
   }
+  if (/UncertaintyInstruments'\)\/items$/.test(url) && request.method() === 'POST') {
+    const item = { Id: 1000 + instrumentItems.length, AuthorId: 7, ...JSON.parse(request.postData()) };
+    instrumentItems.push(item);
+    return ok(item);
+  }
   if (/getfilebyserverrelativeurl/.test(url)) {
     const name = /session-7-\d+\.json/.exec(url)?.[0];
     if (/ListItemAllFields/.test(url)) return ok({ Id: sessions.get(name)?.id });
@@ -386,17 +391,20 @@ if (/not set up yet/i.test(frameText)) {
   await frame.getByTitle('Delete Session', { exact: true }).click();
   check('session deletion archives the full document without a dialog', await until(() => [...sessions.values()].some(doc => doc._uncertaintyArchive)) && dialogs.length === 0);
   await frame.getByRole('button', { name: 'Instrument builder', exact: true }).click();
+  const selectedLibraryRecords = instrumentItems.filter(item => ['instrument-301', 'instrument-302'].includes(item.RecordId));
+  const retainedLibraryRecords = instrumentItems.filter(item => !selectedLibraryRecords.includes(item)).map(item => [item.RecordId, item.PayloadJson]);
+  const retainedLibraryRecordsUnchanged = () => retainedLibraryRecords.every(([id, payload]) => instrumentItems.find(item => item.RecordId === id)?.PayloadJson === payload);
   const first = frame.getByText('DMM-301', { exact: true });
   const second = frame.getByText('DMM-302', { exact: true });
   await first.click();
   await second.click({ modifiers: ['Control'] });
   await page.keyboard.press('Delete');
-  check('builder bulk removal archives only the selected records without a dialog', await until(() => instrumentItems.every(item => JSON.parse(item.PayloadJson)._uncertaintyArchive)) && dialogs.length === 0);
+  check('builder bulk removal archives only the selected records without a dialog', await until(() => selectedLibraryRecords.length === 2 && selectedLibraryRecords.every(item => JSON.parse(item.PayloadJson)._uncertaintyArchive)) && retainedLibraryRecordsUnchanged() && dialogs.length === 0);
   await page.reload({ waitUntil: 'networkidle' });
   const reloaded = page.frames().find(f => f.url() === 'about:srcdoc');
   await reloaded.getByRole('button', { name: 'Instrument builder', exact: true }).click();
   check('archived instruments stay absent after reload', await reloaded.getByText('DMM-301', { exact: true }).count() === 0 && await reloaded.getByText('DMM-302', { exact: true }).count() === 0);
-  check('records remain recoverable in SharePoint', sessions.size === 2 && instrumentItems.every(item => JSON.parse(item.PayloadJson).description === 'Archive smoke instrument'));
+  check('records remain recoverable in SharePoint', sessions.size === 2 && selectedLibraryRecords.every(item => JSON.parse(item.PayloadJson).description === 'Archive smoke instrument') && retainedLibraryRecordsUnchanged());
 }
 
 check('no delete, recycle, bulk, or mutation override requests', destructiveCalls.length === 0, destructiveCalls.join('\n'));

@@ -1,5 +1,5 @@
 import { expect, it } from "vitest";
-import { associateBudgetComponent, canUseInstrumentBudgetComponent, createInstrumentBudgetComponent, instantiateInstrumentBudgetComponent } from "./instrumentBudgetComponents";
+import { associateBudgetComponent, canUseInstrumentBudgetComponent, createInstrumentBudgetComponent, instantiateInstrumentBudgetComponent, syncInstrumentBudgetComponents } from "./instrumentBudgetComponents";
 import { resolveDynamicComponent } from "./dynamicBudgetComponents";
 import { calculateDerivedUncertainty } from "./uncertaintyMath";
 it("filters a reusable table by converted nominal without adding invented rows", () => {
@@ -32,4 +32,16 @@ it.each([{ a: "", b: "" }, { a: "Same", b: "Same" }])("calculates inputs separat
  expect(result.nominalResult).toBe(5);
  expect(result.combinedUncertaintyNative).toBeCloseTo(Math.sqrt(5));
  expect(result.breakdown.map(row => row.ui_absolute_base)).toEqual([1, 2]);
+});
+
+it("saves a stable instrument identity and synchronizes builder deletion without altering independent budgets", () => {
+  const record = createInstrumentBudgetComponent("equation", "V");
+  const associated = associateBudgetComponent({ uuts: [{ id: "u", instrument: {} }], testPoints: [{ components: [record.budgetComponent] }] }, "uut", "u", record.budgetComponent);
+  expect(associated.uuts[0].instrument.id).toBe("u");
+  const next = syncInstrumentBudgetComponents(associated, { id: "u", typeBComponents: [] });
+  expect(next.uuts[0].instrument.typeBComponents).toEqual([]);
+  expect(next.testPoints).toBe(associated.testPoints);
+  expect(syncInstrumentBudgetComponents(associated, { id: "unrelated", typeBComponents: [] })).toBe(associated);
+  const shared = { ...associated, uuts: [{ ...associated.uuts[0], instrument: { ...associated.uuts[0].instrument, scope: "shared" } }] };
+  expect(syncInstrumentBudgetComponents(shared, { id: "u", typeBComponents: [] })).toBe(shared);
 });

@@ -208,3 +208,16 @@ export function attachDynamicComponent(session, pointId, kind, scope, existing, 
   const openEditor = !existing || kind !== 'table' || Boolean(resolveDynamicComponent(component, definition, nominal).pendingReason);
   return { component, openEditor, session: { ...next, testPoints: next.testPoints.map(p => String(p.id) !== String(point.id) || p.components?.some(c => c.id === component.id) ? p : { ...p, components: [...(p.components || []), component] }) } };
 }
+
+// Remove the definition only after its final budget use is removed. Instrument
+// associations hold independent portable copies and are not deleted here.
+export function removeDynamicBudgetComponent(session, pointId, componentId) {
+  const point = session.testPoints?.find(p => String(p.id) === String(pointId));
+  const component = point?.components?.find(c => c.id === componentId);
+  const id = component?.dynamicDefinitionId;
+  const testPoints = (session.testPoints || []).map(p => String(p.id) === String(pointId)
+    ? { ...p, components: (p.components || []).filter(c => c.id !== componentId) } : p);
+  const stillUsed = testPoints.some(p => p.components?.some(c => c.dynamicDefinitionId === id));
+  return { ...session, testPoints, dynamicBudgetDefinitions: id && !stillUsed
+    ? (session.dynamicBudgetDefinitions || []).filter(d => d.id !== id) : session.dynamicBudgetDefinitions };
+}

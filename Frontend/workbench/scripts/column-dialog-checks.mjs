@@ -24,6 +24,7 @@ export async function checkColumnDialog({ frame, page, until, check }) {
   await trigger.click();
   check('column settings open in the native top layer without changing page or workspace height', await until(async () =>
     (await geometry()).modal && JSON.stringify(await pageSize()) === JSON.stringify(before)));
+  check('column settings omit the redundant heading and help text', await menu.locator('h3, p').count() === 0);
   check('column settings have one shared scrollbar and fixed actions', await until(async () => {
     const g = await geometry(); return g.bounded && !g.outerOverflow && g.actionsVisible && JSON.stringify(g.scrollers) === JSON.stringify(['point-column-lists']);
   }));

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { createDynamicDefinition, createDynamicComponent, resolveDynamicComponent, resolveDynamicComponents, updateDynamicDefinition, availableDynamicDefinitions, attachDynamicComponent, removeDynamicDefinitionFromPicker } from "./dynamicBudgetComponents";
+import { createDynamicDefinition, createDynamicComponent, resolveDynamicComponent, resolveDynamicComponents, updateDynamicDefinition, availableDynamicDefinitions, attachDynamicComponent, removeDynamicDefinitionFromPicker, removeDynamicBudgetComponent } from "./dynamicBudgetComponents";
 import { computeUncertaintyForPoint, computePointRiskMetrics, updateSharedDynamicDefinition } from "./riskCompute";
 
 const table = () => { const d = createDynamicDefinition("table", {unit:"V"}); const id=d.columns[0].id;
@@ -221,4 +221,16 @@ it.each(["table", "equation"])("isolates %s instances for blank input names", ki
  expect(second.session.testPoints[0].components.map(c => c.variableSymbol)).toEqual(["a", "b"]);
  const final = attachDynamicComponent(second.session, "p", kind, { kind: "final" });
  expect(final.session.testPoints[0].components).toHaveLength(3);
+});
+
+it("removes unused definitions from the picker only after their last budget instance is deleted", () => {
+  const def = table();
+  const component = createDynamicComponent(def);
+  const session = { dynamicBudgetDefinitions: [def], testPoints: [point(100, component), point(200, { ...component, id: "second" })] };
+  const first = removeDynamicBudgetComponent(session, "100", component.id);
+  expect(availableDynamicDefinitions(first)).toHaveLength(1);
+  expect(resolveDynamicComponents(first.testPoints[1].components, first.testPoints[1], first)[0].value_native).toBe(.023);
+  const last = removeDynamicBudgetComponent(first, "200", "second");
+  expect(availableDynamicDefinitions(JSON.parse(JSON.stringify(last)))).toEqual([]);
+  expect(session.testPoints[0].components).toHaveLength(1);
 });

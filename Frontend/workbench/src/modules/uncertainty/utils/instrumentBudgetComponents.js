@@ -20,14 +20,14 @@ export function createInstrumentBudgetComponent(kind, unit = "") {
   const point = { value: "", unit };
   const component = kind === "manual" ? createInlineManualComponent({ id: uuid(), referencePoint: point })
     : createDynamicComponent(createDynamicDefinition(kind, point));
-  return { id: uuid(), kind, name: "", budgetComponent: component };
+  return { id: uuid(), kind, name: "", budgetComponent: { ...component, inlineDraft: true } };
 }
 export function associateBudgetComponent(session, kind, instrumentId, component) {
   const list = kind === "uut" ? "uuts" : "tmdes";
   const portable = portableBudgetComponent(component);
   const record = { id: uuid(), kind: portable.dynamicDefinition?.kind || "manual", name: portable.name || "", budgetComponent: portable };
   return { ...session, [list]: (session[list] || []).map(item => String(item.id) !== String(instrumentId) ? item : {
-    ...item, instrument: { ...item.instrument, typeBComponents: [...(item.instrument?.typeBComponents || []), record] },
+    ...item, instrument: { ...item.instrument, id: item.instrument?.id || item.libraryInstrumentId || item.id, typeBComponents: [...(item.instrument?.typeBComponents || []), record] },
   }) };
 }
 export function canUseInstrumentBudgetComponent(record, nominal) {
@@ -45,13 +45,13 @@ export function instantiateInstrumentBudgetComponent(record, scope) {
   return { ...component, associatedTypeBId: record.id };
 }
 export function budgetDragProps(component) {
-  return { draggable: component.type !== "A", hidden: component.type === "A", title: "Drag to a UUT or TMDE to associate this Type B component",
+  return { draggable: component.type !== "A", title: "Drag to a UUT or TMDE to associate this Type B component",
     onDragStart: event => {
       if (component.type === "A") { event.preventDefault(); return; }
       event.stopPropagation();
       event.dataTransfer.effectAllowed = "copy";
       event.dataTransfer.setData(BUDGET_COMPONENT_MIME, JSON.stringify(portableBudgetComponent(component)));
-    }, onClick: event => event.stopPropagation() };
+    } };
 }
 
 // Saving the instrument includes the active editor even when its click-away
@@ -66,4 +66,21 @@ export function withInstrumentEditorDrafts(instrument) {
       : normalizeInlineManualComponent({ component, draft, referencePoint: { value: "", unit: component.unit_native || instrument.functions?.[0]?.unit || "" } });
     return { ...record, name: updated.name, budgetComponent: updated };
   }) };
+}
+
+// Library Type B edits propagate only to the matching local instrument. Budget
+// instances are independent snapshots and keep their authored calculations.
+export function syncInstrumentBudgetComponents(session, instrument) {
+  let changed = false;
+  const result = { ...session };
+  for (const list of ["uuts", "tmdes"]) {
+    result[list] = (session[list] || []).map(item => {
+      if (item.instrument?.scope === "shared" || !instrument.id ||
+          ![item.instrument?.id, item.libraryInstrumentId].includes(instrument.id)) return item;
+      if (JSON.stringify(item.instrument?.typeBComponents || []) === JSON.stringify(instrument.typeBComponents || [])) return item;
+      changed = true;
+      return { ...item, instrument: { ...item.instrument, typeBComponents: instrument.typeBComponents || [] } };
+    });
+  }
+  return changed ? result : session;
 }

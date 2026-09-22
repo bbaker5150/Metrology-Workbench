@@ -35,7 +35,9 @@ import {
   unitCategories,
   unitSystem,
 } from "../../../utils/uncertaintyMath";
-import TypeBComponentsEditor, { createTypeBComponent } from "./TypeBComponentsEditor";
+import TypeBComponentsEditor from "./TypeBComponentsEditor";
+import { TypeBAddMenu } from "./ReusableTypeBEditor";
+import { createInstrumentBudgetComponent } from "../../../utils/instrumentBudgetComponents";
 import BuilderUnitSelect from "./BuilderUnitSelect";
 import NotificationModal from "../../../components/modals/NotificationModal";
 import { useFloatingWindow } from "../../../hooks/useFloatingWindow";
@@ -865,10 +867,8 @@ const UniversalInstrumentModal = ({
     const typeBReferenceUnit =
         activeFunction?.unit || instrumentDef.functions?.[0]?.unit || "";
 
-    const handleAddTypeBComponent = () => {
-        const component = createTypeBComponent(typeBReferenceUnit, {
-            functionId: activeFunctionId || "",
-        });
+    const handleAddTypeBComponent = (kind) => {
+        const component = createInstrumentBudgetComponent(kind, typeBReferenceUnit);
         setActiveTypeBId(component.id);
         setInstrumentDef(prev => ({
             ...prev,
@@ -1626,13 +1626,7 @@ const UniversalInstrumentModal = ({
                                             Type B Uncertainties
                                         </h5>
                                         <div className="spec-toolbar-actions">
-                                            <button
-                                                className="lib-pill-btn"
-                                                onClick={handleAddTypeBComponent}
-                                                title="Add Type B uncertainty"
-                                            >
-                                                <FontAwesomeIcon icon={faPlus} /> Add Type B
-                                            </button>
+                                            <TypeBAddMenu onAdd={handleAddTypeBComponent} />
                                             <button
                                                 className="builder-x-action builder-toolbar-delete"
                                                 onClick={handleDeleteActiveTypeBComponent}

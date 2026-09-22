@@ -20458,8 +20458,8 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
 
 /* Table/equation components use the same compact, transparent fields as the
    expanded instrument cells. Only the active field receives an accent. */
-.uncertainty-module .budget-dynamic-row { --function-input-accent: var(--primary-color); }
-.uncertainty-module .budget-dynamic-row input {
+:is(.uncertainty-module, .instrument-builder-wrapper) .budget-dynamic-row { --function-input-accent: var(--primary-color); }
+:is(.uncertainty-module, .instrument-builder-wrapper) .budget-dynamic-row input {
   box-sizing: border-box;
   min-width: 0;
   max-width: 100%;
@@ -20472,56 +20472,56 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
   font: inherit;
   font-size: .75rem;
 }
-.uncertainty-module .budget-dynamic-row input::placeholder { color: var(--text-color-muted); opacity: .75; }
-.uncertainty-module .budget-dynamic-row input:is(:hover, :focus) {
+:is(.uncertainty-module, .instrument-builder-wrapper) .budget-dynamic-row input::placeholder { color: var(--text-color-muted); opacity: .75; }
+:is(.uncertainty-module, .instrument-builder-wrapper) .budget-dynamic-row input:is(:hover, :focus) {
   border-color: var(--function-input-accent);
   background: color-mix(in srgb, var(--function-input-accent) 10%, transparent);
   outline: none;
 }
-.uncertainty-module .budget-dynamic-row input:focus-visible { box-shadow: 0 0 0 2px color-mix(in srgb, var(--function-input-accent) 16%, transparent); }
-.uncertainty-module .budget-dynamic-row .dynamic-source-name { width: 190px; }
+:is(.uncertainty-module, .instrument-builder-wrapper) .budget-dynamic-row input:focus-visible { box-shadow: 0 0 0 2px color-mix(in srgb, var(--function-input-accent) 16%, transparent); }
+:is(.uncertainty-module, .instrument-builder-wrapper) .budget-dynamic-row .dynamic-source-name { width: 190px; }
 .dynamic-source-editor { width: auto; }
 .dynamic-component-kind { display: block; margin-top: 4px; color: var(--text-color-muted); font-size: .65rem; }
-.uncertainty-module .budget-dynamic-row .dynamic-source-label { text-align: left; padding: 0; max-width: 100%; white-space: inherit; overflow-wrap: inherit; }
-.uncertainty-module .budget-dynamic-row.is-editing > td { vertical-align: middle; }
+:is(.uncertainty-module, .instrument-builder-wrapper) .budget-dynamic-row .dynamic-source-label { text-align: left; padding: 0; max-width: 100%; white-space: inherit; overflow-wrap: inherit; }
+:is(.uncertainty-module, .instrument-builder-wrapper) .budget-dynamic-row.is-editing > td { vertical-align: middle; }
 .dynamic-budget-editor { width: var(--budget-editor-width, 640px); max-width: 80vw; min-width: 320px; padding: 2px 0; color: var(--text-color); font-size: .75rem; white-space: normal; }
 .dynamic-budget-options { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 10px 14px; margin: 0 0 10px; }
 .dynamic-inline-field { display: grid; gap: 4px; min-width: 0; }
 .dynamic-inline-field > span { color: var(--text-color-muted); font-size: .65rem; font-weight: 600; }
-.uncertainty-module .dynamic-budget-editor .inline-unit-select { width: max-content; min-width: max-content; flex: 0 0 auto; }
-.uncertainty-module .dynamic-budget-editor .inline-unit-combobox { min-height: 26px; height: 26px; font-size: .75rem; }
-.uncertainty-module .dynamic-budget-editor .inline-unit-base-button > span,
-.uncertainty-module .dynamic-budget-editor .inline-menu-select-trigger > span { overflow: visible; text-overflow: clip; white-space: nowrap; }
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor .inline-unit-select { width: max-content; min-width: max-content; flex: 0 0 auto; }
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor .inline-unit-combobox { min-height: 26px; height: 26px; font-size: .75rem; }
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor .inline-unit-base-button > span,
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor .inline-menu-select-trigger > span { overflow: visible; text-overflow: clip; white-space: nowrap; }
 .dynamic-table-scroll { max-width: 100%; max-height: 300px; overflow: auto; border-block: 1px solid var(--border-color); }
-.uncertainty-module .dynamic-input-table { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: auto; margin: 0; }
-.uncertainty-module .dynamic-input-table :is(th, td) { padding: 3px 5px; border: 0; border-bottom: 1px solid var(--table-divider-color, var(--border-color)); color: var(--text-color); text-align: left; white-space: nowrap; }
-.uncertainty-module .dynamic-input-table th { background: var(--table-header-bg); font-size: .65rem; font-weight: 600; letter-spacing: .03em; box-shadow: none; }
-.uncertainty-module .dynamic-input-table tbody tr:last-child td { border-bottom: 0; }
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-input-table { width: 100%; border-collapse: separate; border-spacing: 0; table-layout: auto; margin: 0; }
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-input-table :is(th, td) { padding: 3px 5px; border: 0; border-bottom: 1px solid var(--table-divider-color, var(--border-color)); color: var(--text-color); text-align: left; white-space: nowrap; }
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-input-table th { background: var(--table-header-bg); font-size: .65rem; font-weight: 600; letter-spacing: .03em; box-shadow: none; }
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-input-table tbody tr:last-child td { border-bottom: 0; }
 .uncertainty-module .budget-resizable-table.has-custom-widths .dynamic-input-table :is(th, td) { white-space: nowrap; overflow-wrap: normal; }
 .uncertainty-module .budget-resizable-table .dynamic-input-table > thead > tr > th { font-size: .65rem; letter-spacing: .03em; }
 
-.uncertainty-module .dynamic-input-table input { width: 130px; min-width: 85px; }
-.uncertainty-module .dynamic-input-table .dynamic-column-heading input { width: 145px; font-size: .7rem; font-weight: 600; }
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-input-table input { width: 130px; min-width: 85px; }
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-input-table .dynamic-column-heading input { width: 145px; font-size: .7rem; font-weight: 600; }
 .dynamic-column-heading { display: flex; align-items: center; gap: 3px; }
 .dynamic-header-unit { margin-left: 3px; text-transform: none; color: var(--text-color-muted); font-size: .65rem; font-weight: 400; }
 .dynamic-editor-actions { display: flex; align-items: center; gap: 8px; padding-top: 5px; }
-.uncertainty-module .dynamic-inline-action {
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-inline-action {
   display: inline-flex; align-items: center; justify-content: center; gap: 5px;
   flex: 0 0 auto; min-height: 24px; padding: 3px 5px; border: 1px solid transparent;
   border-radius: 4px; color: var(--text-color-muted); background: transparent;
   font: inherit; font-size: .7rem; cursor: pointer;
 }
-.uncertainty-module .dynamic-inline-action:is(:hover, :focus-visible) { color: var(--primary-color); border-color: var(--border-color); background: var(--input-background); outline: none; }
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-inline-action:is(:hover, :focus-visible) { color: var(--primary-color); border-color: var(--border-color); background: var(--input-background); outline: none; }
 .dynamic-row-action-cell { width: 24px; }
 .dynamic-row-remove { opacity: 0; }
 .dynamic-input-table tr:is(:hover, :focus-within) .dynamic-row-remove { opacity: 1; }
-.uncertainty-module .dynamic-inline-action.dynamic-row-remove:hover { color: var(--danger-color, #d9534f); }
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-inline-action.dynamic-row-remove:hover { color: var(--danger-color, #d9534f); }
 .dynamic-equation-entry { display: flex; align-items: center; gap: 7px; margin-bottom: 8px; }
 .dynamic-equation-entry > span { color: var(--primary-color); font-size: .75rem; }
-.uncertainty-module .dynamic-equation-entry input { width: 100%; flex: 1; background: var(--input-background); border-color: var(--border-color); }
-.uncertainty-module .dynamic-equation-entry input[aria-invalid="true"] { border-color: var(--status-warning, #b58100); }
-.uncertainty-module .dynamic-variable-table .dynamic-variable-symbol { width: 55px; font-style: italic; color: var(--primary-color); }
-.uncertainty-module .dynamic-variable-table td:nth-child(2) input { width: 100%; min-width: 130px; }
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-equation-entry input { width: 100%; flex: 1; background: var(--input-background); border-color: var(--border-color); }
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-equation-entry input[aria-invalid="true"] { border-color: var(--status-warning, #b58100); }
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-variable-table .dynamic-variable-symbol { width: 55px; font-style: italic; color: var(--primary-color); }
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-variable-table td:nth-child(2) input { width: 100%; min-width: 130px; }
 .dynamic-variable-value { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .dynamic-bound-value { padding: 3px 6px; white-space: nowrap; }
 .dynamic-variable-binding { width: 26px; }
@@ -20529,8 +20529,8 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
 .dynamic-editor-preview { font-size: .72rem; white-space: normal; line-height: 1.4; }
 .dynamic-editor-preview > span { color: var(--text-color-muted); margin-right: 6px; }
 .dynamic-editor-preview.is-pending { color: var(--text-color-muted); }
-.uncertainty-module .budget-dynamic-row > .action-cell { padding-inline: 0; text-align: center; }
-.uncertainty-module .budget-dynamic-row > .action-cell button { border: 0; background: transparent; color: var(--danger-color, #d9534f); cursor: pointer; }
+:is(.uncertainty-module, .instrument-builder-wrapper) .budget-dynamic-row > .action-cell { padding-inline: 0; text-align: center; }
+:is(.uncertainty-module, .instrument-builder-wrapper) .budget-dynamic-row > .action-cell button { border: 0; background: transparent; color: var(--danger-color, #d9534f); cursor: pointer; }
 
 /* One column chooser for visibility and order. */
 .point-column-menu-body { display:grid; grid-template-columns:minmax(150px, .9fr) minmax(180px, 1.1fr); gap:16px; padding:12px; }
@@ -20851,7 +20851,7 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
 .point-column-indicators[aria-pressed="true"] { color: var(--primary-color); }
 
 /* Measure intrinsic controls even when the user has saved narrow columns. */
-.uncertainty-module .budget-inline-tolerance-cell .inline-tolerance-editor--all {
+:is(.uncertainty-module, .instrument-builder-wrapper) .budget-inline-tolerance-cell .inline-tolerance-editor--all {
   width: max-content; min-width: 285px; max-width: none;
 }
 .uncertainty-module .budget-range-selector,
@@ -20971,9 +20971,9 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
 }
 
 /* Dynamic budgets and measurement inputs share instrument editing surfaces. */
-.uncertainty-module .budget-dynamic-row.is-editing .budget-source-cell { text-align: left; }
-.uncertainty-module .budget-dynamic-row.is-editing .dynamic-source-label { text-align: left; }
-.uncertainty-module .budget-dynamic-row input { font-size: inherit; }
+:is(.uncertainty-module, .instrument-builder-wrapper) .budget-dynamic-row.is-editing .budget-source-cell { text-align: left; }
+:is(.uncertainty-module, .instrument-builder-wrapper) .budget-dynamic-row.is-editing .dynamic-source-label { text-align: left; }
+:is(.uncertainty-module, .instrument-builder-wrapper) .budget-dynamic-row input { font-size: inherit; }
 .uncertainty-module .measurement-inputs-table { table-layout: auto; }
 .uncertainty-module .measurement-inputs-table .measurement-input-cell-editor { width: max-content; min-width: 100%; }
 .uncertainty-module .measurement-inputs-table .measurement-input-nominal { display: inline-flex; width: max-content; min-width: max-content; gap: 4px; }
@@ -21004,7 +21004,7 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
    The focus indication is an inset paint effect, never added padding/borders. */
 .inline-source-name-slot { position: relative; display: block; max-width: 100%; min-width: 0; }
 .inline-source-name-slot > .inline-tolerance-summary { visibility: hidden; }
-.uncertainty-module .budget-source-cell .inline-source-name-input {
+:is(.uncertainty-module, .instrument-builder-wrapper) .budget-source-cell .inline-source-name-input {
   position: absolute; inset: 0; width: 100%; max-width: 100%; min-width: 0; height: 100%;
   resize: none; overflow: hidden; box-sizing: border-box; margin: 0;
   padding: 2px 0; border: 1px solid transparent; border-inline: 0;
@@ -21012,7 +21012,7 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
   background: var(--input-background); color: var(--text-color);
   outline: none; box-shadow: inset 0 0 0 1px var(--primary-color);
 }
-.uncertainty-module .budget-dynamic-row .inline-source-name-input { padding-block: 0; }
+:is(.uncertainty-module, .instrument-builder-wrapper) .budget-dynamic-row .inline-source-name-input { padding-block: 0; }
 .uncertainty-module .measurement-group-container .point-unit-control .point-unit-select { height: 24px; min-height: 24px; padding: 0 16px 0 5px; border-radius: 4px; font-family: inherit; font-weight: 400; }
 .uncertainty-module .measurement-group-container .point-unit-control .point-unit-select:is(:hover, :focus, :focus-visible),
 .uncertainty-module .measurement-group-container .point-value-editing .point-unit-select {
@@ -21046,8 +21046,8 @@ body .uncertainty-module .budget-resizable-table > tbody > tr:hover,
   background: linear-gradient(var(--budget-row-tint), var(--budget-row-tint)),
     linear-gradient(var(--content-background), var(--content-background)), var(--background-color);
 }
-.uncertainty-module .budget-dynamic-row > .action-cell > button { opacity: 0; pointer-events: none; transition: opacity .12s ease; }
-.uncertainty-module .budget-dynamic-row:is(:hover, :focus-within) > .action-cell > button { opacity: 1; pointer-events: auto; }
+:is(.uncertainty-module, .instrument-builder-wrapper) .budget-dynamic-row > .action-cell > button { opacity: 0; pointer-events: none; transition: opacity .12s ease; }
+:is(.uncertainty-module, .instrument-builder-wrapper) .budget-dynamic-row:is(:hover, :focus-within) > .action-cell > button { opacity: 1; pointer-events: auto; }
 .uncertainty-module .analysis-content { scrollbar-gutter: stable; }
 /* This is a drag surface: keep target coordinates fixed even when the user
    starts immediately after opening it. Other menus retain their slide-in. */
@@ -21426,3 +21426,24 @@ dialog.point-columns-dialog::backdrop { background: rgb(10 18 32 / 35%); }
   .uncertainty-module .point-unit-chevron { display: none; }
   .uncertainty-module .point-unit-control .point-unit-select { padding-right: 5px !important; }
 }
+
+/* Keep a visible, generous divider hit area even at either full-width edge. */
+.uncertainty-module .results-workflow-container > .sidebar-resizer {
+  flex-basis: 16px; width: 16px; min-width: 16px; opacity: 1;
+  background: color-mix(in srgb, var(--primary-color) 7%, var(--component-bg));
+  border-inline: 1px solid var(--border-color); box-sizing: border-box;
+}
+.uncertainty-module .results-workflow-container > .sidebar-resizer::after {
+  content: '↔'; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+  color: var(--primary-color); font-size: 13px; font-weight: 700; pointer-events: none;
+}
+.uncertainty-module .results-workflow-container > .sidebar-resizer:hover { background: color-mix(in srgb, var(--primary-color) 18%, var(--component-bg)); }
+.point-columns-dialog-header { justify-content: flex-end; padding-block: 4px; }
+.typeb-add-menu .inline-menu-select-trigger { border: 0; background: transparent; padding: 0; justify-content: center; font-size: 19px; }
+.typeb-add-menu .inline-menu-select-trigger > svg { display: none; }
+.instrument-builder-wrapper .instrument-reusable-typeb .budget-source-cell { min-width: 160px; }
+.instrument-builder-wrapper .instrument-reusable-typeb .uncertainty-budget-table { width: max-content; min-width: 100%; }
+.budget-source-cell[draggable="true"] { cursor: grab; }
+.instrument-builder-wrapper .budget-order-controls { display: none; }
+
+.instrument-builder-wrapper .budget-source-cell.has-order-controls { padding-left: 8px; }

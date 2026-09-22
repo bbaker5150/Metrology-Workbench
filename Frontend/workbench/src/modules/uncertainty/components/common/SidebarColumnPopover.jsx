@@ -53,7 +53,6 @@ export default function SidebarColumnPopover({ anchorRef, onClose, children }) {
         if (event.clientX < bounds.left || event.clientX > bounds.right || event.clientY < bounds.top || event.clientY > bounds.bottom) onClose();
       }}>
       <header className="point-columns-dialog-header">
-        <div><h2>Measurement point columns</h2><p>Drag displayed columns to reorder them. Changes apply immediately.</p></div>
         <button type="button" onClick={onClose} aria-label="Close column settings" autoFocus>×</button>
       </header>
       {children}

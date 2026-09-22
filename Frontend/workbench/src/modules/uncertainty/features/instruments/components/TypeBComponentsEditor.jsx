@@ -20,8 +20,6 @@ import GrowingNumericInput from "../../../components/common/GrowingNumericInput"
  * same way regardless of how the instrument was created.
  */
 import React, { useMemo } from "react";
-import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faPlus } from "@fortawesome/free-solid-svg-icons";
 import {
   unitSystem,
   unitCategories,
@@ -105,11 +103,6 @@ const TypeBComponentsEditor = ({
   const list = Array.isArray(components) ? components : [];
   const unitOptions = useMemo(() => buildUnitOptions(referenceUnit), [referenceUnit]);
 
-  const addComponent = () =>
-    onChange([
-      ...list,
-      createTypeBComponent(referenceUnit, { functionId: activeFunctionId }),
-    ]);
   const updateComponent = (id, field, value) =>
     onChange(list.map((mc) => (mc.id === id ? { ...mc, [field]: value } : mc)));
   const removeComponent = (id) => onChange(list.filter((mc) => mc.id !== id));
@@ -132,7 +125,7 @@ const TypeBComponentsEditor = ({
         </small>
       )}
 
-      <ReusableTypeBEditor components={list} onChange={onChange} referenceUnit={referenceUnit} onActivate={onActivate} />
+      <ReusableTypeBEditor components={list} onChange={onChange} referenceUnit={referenceUnit} onActivate={onActivate} activeId={activeId} showAddButton={showAddButton} />
       <div className="typeb-cards">
         {list.filter(mc => !mc.budgetComponent).map((mc) => {
           const isStandard = mc.inputMode === "standard";
@@ -390,17 +383,7 @@ const TypeBComponentsEditor = ({
         )}
       </div>
 
-      {showAddButton && (
-        <button
-          type="button"
-          className="lib-pill-btn"
-          onClick={addComponent}
-          style={{ marginTop: "10px" }}
-          title="Add an associated Type B uncertainty"
-        >
-          <FontAwesomeIcon icon={faPlus} /> Add Type B
-        </button>
-      )}
+
     </div>
   );
 };

@@ -1,3 +1,4 @@
+import { removeDynamicBudgetComponent } from "../../utils/dynamicBudgetComponents";
 /**
  * src/features/analysis/Analysis.jsx
  *
@@ -578,6 +579,11 @@ function Analysis({
       id,
     );
     if (savedRemoval.removed) {
+      const removed = testPointData.components?.find(c => c.id === id);
+      if (removed?.dynamicDefinitionId && onSessionSave) {
+        onSessionSave(removeDynamicBudgetComponent(sessionData, testPointData.id, id));
+        return;
+      }
       onDataSave({ components: savedRemoval.components });
       return;
     }
