@@ -41,7 +41,8 @@ describe("single-sided measurement-unknown dashboards", () => {
       />
     );
 
-    expect(screen.getByText("PFA Boundary")).toBeInTheDocument();
+    expect(screen.getByText("Probability of False Accept")).toBeInTheDocument();
+    expect(screen.getByText("NA")).toBeInTheDocument();
     expect(screen.getByText("Lower Acceptance Limit")).toBeInTheDocument();
     expect(screen.getByText(/TUR, REOP, PFR, and interval metrics are unavailable/i)).toBeInTheDocument();
   });

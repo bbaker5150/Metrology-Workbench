@@ -1,3 +1,4 @@
+import { biasFixture } from "./utils/measurementBias.fixtures";
 import React from "react";
 import {
   fireEvent,
@@ -66,7 +67,7 @@ describe("measurement-point value editing", () => {
     expect(getSidebarColumnMinWidth("section")).toBe(44);
   });
 
-  test("preserves authored narrow PFA widths and shows a compact boundary marker", () => {
+  test("preserves authored widths and shows NA without a boundary marker for unknown readings", () => {
     const saved = { pfa: 44, pfr: 63 };
     const risks = { unknown: { riskMethod: "risk8-pfa-boundary", pfa: 1.55 }, known: { pfa: 0.8 } };
     const widths = getSidebarRiskColumnWidths(saved, risks);
@@ -77,7 +78,8 @@ describe("measurement-point value editing", () => {
     ))}</>);
     const rows = [...container.querySelectorAll(".point-grid-item")];
     expect(rows.map(row => row.style.gridTemplateColumns)).toEqual(["44px 63px", "44px 63px"]);
-    expect(screen.getByText("Boundary")).toHaveAttribute("title", expect.stringContaining("Measured value unknown"));
+    expect(screen.queryByText("Boundary")).toBeNull();
+    expect(rows[0].querySelector('[data-sidebar-column="pfa"]')).toHaveTextContent("NA");
     expect(saved).toEqual({ pfa: 44, pfr: 63 });
     expect(getSidebarRiskColumnWidths(saved, { known: risks.known, invalid: null })).toBe(saved);
     expect(getSidebarRiskColumnWidths({ pfa: 180 }, risks).pfa).toBe(180);
@@ -1109,4 +1111,20 @@ test("blank UUT and value cell clicks select the point while text clicks edit", 
   expect(screen.queryByRole("listbox")).toBeNull();
   fireEvent.click(container.querySelector(".point-value-number"));
   expect(container.querySelector("input.sidebar-inline-input.value")).toHaveValue("10");
+});
+
+test("bias columns show live UUT and each TMDE's authored native bias separately", () => {
+  const { point, session } = biasFixture();
+  point.uutTolerance.bias = { value: -.2, unit: "A" };
+  const props = { point, requirementSession: session, visibleColumns: { uutBias: true, tmdeBias: true }, onSave: vi.fn(), onSelect: vi.fn() };
+  const { container, rerender } = render(<SidebarPointItem {...props} />);
+  expect(container.querySelector('[data-sidebar-column="uutBias"]')).toHaveTextContent('-0.2 A');
+  const sources = container.querySelectorAll('[data-sidebar-column="tmdeBias"] > span');
+  expect(sources).toHaveLength(2);
+  expect(sources[0]).toHaveTextContent('Voltage: 0.01 V');
+  expect(sources[1]).toHaveTextContent('Resistance: 0.002 Ω');
+  const nextSession = structuredClone(session);
+  nextSession.tmdes[0].instrument.functions[0].ranges[0].tolerances.bias.value = -.05;
+  rerender(<SidebarPointItem {...props} requirementSession={nextSession} />);
+  expect(container.querySelector('[data-sidebar-column="tmdeBias"]')).toHaveTextContent('Voltage: -0.05 V');
 });

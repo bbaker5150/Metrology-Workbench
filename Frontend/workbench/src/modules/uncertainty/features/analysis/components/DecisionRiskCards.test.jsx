@@ -14,7 +14,7 @@ it("updates both card colors when the session threshold changes", () => {
 });
 it("labels boundary results and retains an unavailable PFR slot", () => {
   render(<DecisionRiskCards results={{ riskMethod: "risk8-pfa-boundary", pfa: 1.5, pfr: 0 }} formatValue={formatValue} />);
-  expect(screen.getByText("PFA at Boundary").parentElement).toHaveClass("is-good");
+  expect(screen.getByText("PFA").parentElement).toHaveClass("is-neutral");
   expect(screen.getByLabelText("PFR: Unavailable")).toBeInTheDocument();
   expect(screen.getByText("PFR")).toBeInTheDocument();
 });

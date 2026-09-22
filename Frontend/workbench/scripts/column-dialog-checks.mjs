@@ -10,7 +10,7 @@ export async function checkColumnDialog({ frame, page, until, check }) {
   const geometry = () => menu.evaluate(node => {
     const box = node.getBoundingClientRect();
     const scrollOwners = [...node.querySelectorAll('*')].filter(el => /^(auto|scroll)$/.test(getComputedStyle(el).overflowY) && el.clientHeight > 0 && el.scrollHeight > el.clientHeight + 1);
-    return { modal: node.matches(':modal'), height: box.height, width: box.width,
+    return { modal: node.matches(':modal'), popover: node.matches(':popover-open'), height: box.height, width: box.width,
       bounded: box.top >= 0 && box.left >= 0 && box.bottom <= innerHeight + 1 && box.right <= innerWidth + 1,
       outerOverflow: node.scrollHeight > node.clientHeight + 1,
       scrollers: scrollOwners.map(el => el.className),
@@ -23,11 +23,16 @@ export async function checkColumnDialog({ frame, page, until, check }) {
   const before = await pageSize();
   await trigger.click();
   check('column settings open in the native top layer without changing page or workspace height', await until(async () =>
-    (await geometry()).modal && JSON.stringify(await pageSize()) === JSON.stringify(before)));
+    (await geometry()).popover && !(await geometry()).modal && JSON.stringify(await pageSize()) === JSON.stringify(before)));
   check('column settings omit the redundant heading and help text', await menu.locator('h3, p').count() === 0);
-  check('column settings have one shared scrollbar and fixed actions', await until(async () => {
-    const g = await geometry(); return g.bounded && !g.outerOverflow && g.actionsVisible && JSON.stringify(g.scrollers) === JSON.stringify(['point-column-lists']);
+  check('column settings scroll each list independently with fixed actions', await until(async () => {
+    const g = await geometry(); return g.bounded && !g.outerOverflow && g.actionsVisible && g.scrollers.every(name => ['point-column-selected', 'point-column-available'].includes(name)) && g.scrollers.includes('point-column-available');
   }));
+  const selectedScroll = await menu.locator('.point-column-selected').evaluate(node => node.scrollTop);
+  await menu.locator('.point-column-available').evaluate(node => { node.scrollTop = node.scrollHeight; });
+  check('scrolling Add Columns leaves Displayed columns stationary', await menu.locator('.point-column-available').evaluate(node => node.scrollTop > 0) && await menu.locator('.point-column-selected').evaluate(node => node.scrollTop) === selectedScroll);
+  check('column popover has no dimming or blur', await menu.evaluate(node => { const css = getComputedStyle(node, '::backdrop'); return css.backgroundColor === 'rgba(0, 0, 0, 0)' && css.backdropFilter === 'none'; }));
+  await menu.locator('.point-column-available').evaluate(node => { node.scrollTop = 0; });
   check('column lists use the dialog width without horizontal overflow', await menu.evaluate(node => {
     const list = node.querySelector('.point-column-lists');
     // clientWidth excludes the deliberately reserved scrollbar gutter.
@@ -52,9 +57,9 @@ export async function checkColumnDialog({ frame, page, until, check }) {
   check('hiding a column returns it to the available list', await until(async () => await rows.count() === count && await menu.getByRole('button', { name: `Add ${label} column`, exact: true }).count() === 1));
   while (await menu.locator('.point-column-add').count()) await menu.locator('.point-column-add').first().click();
   check('showing every column does not stretch the document or workspace', JSON.stringify(await pageSize()) === JSON.stringify(before));
-  await menu.locator('.point-column-lists').evaluate(node => { node.scrollTop = node.scrollHeight; });
+  await menu.locator('.point-column-selected').evaluate(node => { node.scrollTop = node.scrollHeight; });
   check('the last displayed column is reachable while dialog actions stay visible', await rows.last().evaluate(node => {
-    const scroller = node.closest('.point-column-lists').getBoundingClientRect(), row = node.getBoundingClientRect();
+    const scroller = node.closest('.point-column-selected').getBoundingClientRect(), row = node.getBoundingClientRect();
     return row.top >= scroller.top && row.bottom <= scroller.bottom + 1;
   }) && (await geometry()).actionsVisible);
   if (process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await page.screenshot({ path: `${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/column-settings-all-columns.png` });
@@ -69,8 +74,8 @@ export async function checkColumnDialog({ frame, page, until, check }) {
     await trigger.scrollIntoViewIfNeeded();
     const initial = await pageSize();
     await trigger.click();
-    check(`dialog stays bounded with one scroll area at ${width}×${height}, ${zoom * 100}% zoom`, await until(async () => {
-      const g = await geometry(); return g.bounded && !g.outerOverflow && g.actionsVisible && g.scrollers.length === 1 && g.height <= 720 * zoom + 1;
+    check(`popover stays bounded with independent scroll areas at ${width}×${height}, ${zoom * 100}% zoom`, await until(async () => {
+      const g = await geometry(); return g.bounded && !g.outerOverflow && g.actionsVisible && g.scrollers.length <= 2 && g.scrollers.every(name => ['point-column-selected', 'point-column-available'].includes(name)) && g.height <= 720 * zoom + 1;
     }));
     check(`opening the dialog preserves page height at ${zoom * 100}% zoom`, JSON.stringify(await pageSize()) === JSON.stringify(initial));
     if (width === 360 && process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await page.screenshot({ path: `${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/column-settings-narrow.png` });
@@ -85,5 +90,5 @@ export async function checkColumnDialog({ frame, page, until, check }) {
   await page.locator('#app').evaluate(node => { node.style.height = '900px'; });
   await trigger.click();
   await page.mouse.click(2, 2);
-  check('clicking the backdrop dismisses column settings', await until(async () => await menu.count() === 0));
+  check('clicking outside dismisses column settings', await until(async () => await menu.count() === 0));
 }

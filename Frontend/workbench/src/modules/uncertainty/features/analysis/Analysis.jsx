@@ -982,7 +982,7 @@ function Analysis({
           <div
             ref={analysisContentRef}
             className="analysis-content"
-            style={{ flex: 1, overflowY: "auto", padding: "20px" }}
+            style={{ flex: 1, overflowY: "auto", padding: "0 20px 20px" }}
           >
             {analysisMode === "notes" ? notesWorkspace : (
               <UncertaintyPanel
@@ -1032,7 +1032,7 @@ function Analysis({
           <div
             ref={analysisContentRef}
             className="analysis-content"
-            style={{ flex: 1, overflowY: "auto", padding: "20px" }}
+            style={{ flex: 1, overflowY: "auto", padding: "0 20px 20px" }}
           >
             {analysisMode === "notes" && notesWorkspace}
 

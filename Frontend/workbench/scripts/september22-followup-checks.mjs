@@ -7,26 +7,20 @@ export async function checkSeptember22Followup({ frame, page, saved, until, chec
   check('divider arrow appears on hover', await divider.evaluate(node => getComputedStyle(node, '::after').opacity === '1'));
 
   const settings = frame.getByRole('button', { name: 'Voltage measurement area settings', exact: true });
-  await settings.locator("..").hover(); await settings.click();
-  const biasToggle = frame.getByRole('checkbox', { name: /Show measurement bias/ });
-  await biasToggle.uncheck();
-  check('turning off area bias hides the derived Bias column', await until(async () => await frame.locator('.measurement-inputs-table thead th').count() === 3));
-  await settings.locator("..").hover(); await settings.click();
-  await frame.locator('[data-point-id="direct-polish"] [data-sidebar-column="pfa"]').click();
-  check('the same area setting hides the direct Measurement Bias section', await frame.locator('.measurement-bias-table').count() === 0 && await frame.getByRole('button', { name: 'Collapse Measurement Bias section', exact: true }).count() === 0);
-  check('hiding bias retains the authored value', saved().testPoints.find(p => p.id === 'direct-polish').measurementBias?.value === '.25');
-  await frame.evaluate(() => location.reload());
-  await frame.getByRole('combobox', { name: 'Analysis Session' }).waitFor();
-  await settings.locator("..").hover(); await settings.click();
-  check('area bias preference survives refresh', !await biasToggle.isChecked());
-  await biasToggle.check(); await settings.locator("..").hover(); await settings.click();
-  await frame.locator('[data-point-id="point"] [data-sidebar-column="pfa"]').click();
-  check('enabling area bias restores its derived controls', await until(async () => await frame.locator('.measurement-inputs-table thead th').count() === 4));
-  await frame.getByRole('button', { name: 'Fresh Area measurement area settings', exact: true }).locator('..').hover();
-  await frame.getByRole('button', { name: 'Fresh Area measurement area settings', exact: true }).click();
-  check('a new area defaults to hidden bias', !await biasToggle.isChecked());
-  await frame.getByRole('button', { name: 'Fresh Area measurement area settings', exact: true }).locator('..').hover();
-  await frame.getByRole('button', { name: 'Fresh Area measurement area settings', exact: true }).click();
+  await settings.locator('..').hover(); await settings.click();
+  check('retired measurement bias option is absent from area settings', await frame.getByRole('checkbox', { name: /Show measurement bias/ }).count() === 0);
+  await settings.locator('..').hover(); await settings.click();
+  const point = frame.locator('[data-point-id="point"]');
+  check('bias columns are available with independent source values', await point.locator('[data-sidebar-column="uutBias"]').count() === 1 && await point.locator('[data-sidebar-column="tmdeBias"]').count() === 1);
+  for (const zoom of [.75, 1, 1.25]) {
+    await frame.evaluate(value => { document.documentElement.style.zoom = String(value); window.dispatchEvent(new Event('resize')); }, zoom);
+    check(`value column includes the entire unit control at ${zoom * 100}%`, await until(async () => point.locator('[data-sidebar-column="value"]').evaluate(cell => {
+      const unit = cell.querySelector('select').getBoundingClientRect(), box = cell.getBoundingClientRect();
+      return unit.right <= box.right + 1 && unit.left >= box.left - 1 && cell.scrollWidth <= cell.clientWidth + 1;
+    })));
+  }
+  await frame.evaluate(() => { document.documentElement.style.zoom = ''; window.dispatchEvent(new Event('resize')); });
+  check('session picker chevron is at the right edge', await frame.locator('#session-select').evaluate(node => getComputedStyle(node, '::picker-icon').marginInlineStart !== '0px'));
 
   await frame.getByRole('button', { name: 'Edit measurement equation', exact: true }).click();
   const equation = frame.getByRole('textbox', { name: 'Measurement equation', exact: true });
@@ -36,11 +30,31 @@ export async function checkSeptember22Followup({ frame, page, saved, until, chec
   await frame.getByRole('button', { name: 'Edit measurement equation', exact: true }).click();
   await equation.fill('a'); await equation.press('Enter');
 
+  check('light mode uses clean white content and budget surfaces', await frame.locator('.content-area, .results-content, .budget-section-title-row, .budget-results-card').evaluateAll(nodes => nodes.length > 2 && nodes.every(node => getComputedStyle(node).backgroundColor === 'rgb(255, 255, 255)')));
+  check('budget content has no extra top padding above its section dividers', await frame.locator('.analysis-content').evaluate(node => getComputedStyle(node).paddingTop === '0px'));
+  const tmdeTable = frame.locator('.instrument-equipment-table').nth(1);
+  await tmdeTable.locator('.cell-tolerance .inline-tolerance-summary').first().click();
+  await tmdeTable.getByRole('button', { name: 'Bias', exact: true }).click();
+  const sourceBias = tmdeTable.getByRole('textbox', { name: 'Range source bias', exact: true });
+  await sourceBias.fill('0.125'); await sourceBias.press('Enter');
+  check('instrument bias edits immediately update the TMDE Bias column', await until(async () => (await point.locator('[data-sidebar-column="tmdeBias"]').innerText()).includes('0.125 V')));
+  await sourceBias.fill(''); await sourceBias.press('Enter');
+  await frame.locator('.analysis-tabs').click({ position: { x: 5, y: 5 } });
+
   const table = frame.locator('.instrument-equipment-table').first();
   const row = table.locator('tr[data-selection-key="uut:uut"]').first();
   const range = row.locator('[data-range-cell]').first();
   await range.click({ position: { x: 3, y: 3 } });
   await range.locator('.inline-tolerance-summary').click();
+  const widths = await table.evaluate(async node => {
+    const values = [];
+    for (let i = 0; i < 30; i++) {
+      await new Promise(resolve => requestAnimationFrame(resolve));
+      values.push(node.querySelector('th[data-instrument-column="range"]').getBoundingClientRect().width);
+    }
+    return values;
+  });
+  check('expanded range width remains stable over repeated layout frames', Math.max(...widths.slice(5)) - Math.min(...widths.slice(5)) < 1, JSON.stringify(widths));
   // Simulate the user's unusually wide column without changing stored widths.
   await table.locator('col').nth(1).evaluate(node => node.style.setProperty('--instrument-live-column-width', '600px'));
   const geometry = await range.evaluate(node => {

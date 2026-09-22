@@ -5,9 +5,8 @@ import "../../../components/common/MeasurementBias.css";
 
 const display = value => Number.isFinite(value) ? `${value > 0 ? "+" : ""}${Number(value.toPrecision(7))}` : "Not set";
 
-/** Instrument biases live in tolerance/error-limit cells; an optional manual
- * net bias has its own Measurement Inputs row. Do not silently discard other
- * overrides authored by the former point menu:
+/** Instrument biases live in tolerance/error-limit cells. Do not silently
+ * discard overrides authored by the retired point and net-bias editors:
  * that would change saved risk results merely by opening a session. This notice
  * is absent for instrument-owned biases, including explicit zero and corrected
  * ranges. A user can explicitly return an old point to instrument inheritance.

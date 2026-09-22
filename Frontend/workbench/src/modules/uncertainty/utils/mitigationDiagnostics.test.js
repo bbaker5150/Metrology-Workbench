@@ -145,9 +145,10 @@ describe("mitigation diagnostics through the sidebar calculation", () => {
         },
       },
     );
-    expect(result.metrics.gbPfa).toEqual(expect.any(Number));
+    expect(result.metrics.gbPfa).toBeUndefined();
+    expect(result.metrics.gbHigh).toEqual(expect.any(Number));
     expect(result.warnings.join(" ")).toContain(
-      "PFA-only acceptance-boundary results",
+      "acceptance limits based on required PFA",
     );
     expect(result.warnings.join(" ")).not.toContain(
       "PFA acceptance boundary could not be calculated",

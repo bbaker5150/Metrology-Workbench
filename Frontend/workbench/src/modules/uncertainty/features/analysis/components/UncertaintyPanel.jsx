@@ -6,12 +6,9 @@ import useExclusiveMenu from "../../../hooks/useExclusiveMenu";
 import { claimWorkspaceClipboard, ownsWorkspaceClipboard } from "../../../utils/workspaceClipboard";
 import { getPointRequirements } from "../../../utils/pointRequirements";
 import { claimWorkspaceSelection, WORKSPACE_SELECTION_EVENT } from "../../../utils/workspaceSelection";
-import MeasurementInputBias from "./MeasurementInputBias";
-import { resolveMeasurementBias } from "../../../utils/measurementBias";
 import GrowingNumericInput from "../../../components/common/GrowingNumericInput";
 import BiasValueEditor from "../../../components/common/BiasValueEditor";
 import LegacyPointBiasNotice from "./LegacyPointBiasNotice";
-import { NetBiasCell } from "./NetMeasurementBias";
 import { measureTableColumnWidths } from "../../../utils/measureTableColumnWidths";
 import { setInstrumentDragPreview } from "../../../utils/instrumentDragPreview";
 import { instrumentRowSelectionFromEvent } from "../../../utils/instrumentCellSelection";
@@ -14707,6 +14704,27 @@ function DetailedView({
 
   const calcStatus = getCalculatedStatus();
 
+  const calcStatusStyle = {
+    match: {
+      borderColor: "var(--status-good)",
+      backgroundColor: "rgba(76, 175, 80, 0.1)",
+      color: "var(--status-good)",
+      icon: faCheckCircle,
+    },
+    mismatch: {
+      borderColor: "var(--status-bad)",
+      backgroundColor: "rgba(255, 82, 82, 0.1)",
+      color: "var(--status-bad)",
+      icon: faTimesCircle,
+    },
+    neutral: {
+      borderColor: "var(--border-color)",
+      backgroundColor: "transparent",
+      color: "var(--text-color-muted)",
+      icon: null,
+    },
+  }[calcStatus];
+
   const primaryUutId = activePointUutId;
   const primaryUut = (sessionData.uuts || []).find((u) => u.id === primaryUutId);
 
@@ -14738,18 +14756,6 @@ function DetailedView({
     }
   }, [activeResolvedTolerance, uutToleranceData, onUpdateTestPoint]);
 
-  const [inputBiasDisplay, setInputBiasDisplay] = useState("bias");
-  // Resolve signed source contributions once, not once per equation-input row.
-  // The optional net replacement belongs to the output and stays out of this view.
-  const inputBiasCalculation = useMemo(() => equationDisplayData?.variables.length
-    ? resolveMeasurementBias(testPointData, sessionData, undefined, { ignoreManual: true }) : null,
-  [testPointData, sessionData, equationDisplayData]);
-
-  // Visibility is an area preference; hiding controls never deletes authored bias.
-  const showInputBias = Boolean((sessionData.measurementAreaGroups || []).find(
-    area => makeFunctionKey(area.name) === activePointFunctionKey,
-  )?.pointCreationSettings?.showBias);
-
   const equationVariableInputs =
     hasUsableEquation ? (
       <div
@@ -14759,37 +14765,17 @@ function DetailedView({
         <table className="instrument-summary-table industry-table measurement-inputs-table">
           <colgroup>
             <col style={{ width: "12%" }} />
-            <col style={{ width: showInputBias ? "30%" : "40%" }} />
-            <col style={{ width: showInputBias ? "33%" : "48%" }} />
-            {showInputBias && <col style={{ width: "25%" }} />}
+            <col style={{ width: "40%" }} />
+            <col style={{ width: "48%" }} />
           </colgroup>
           <thead>
             <tr>
               <th>Variable</th>
               <th>Name</th>
               <th>Nominal</th>
-              {showInputBias && <th><InlineMenuSelect ariaLabel="Input bias display" value={inputBiasDisplay} onChange={setInputBiasDisplay}
-                width="auto" showOptionMeta={false} options={[
-                  { value: "bias", label: "Bias" }, { value: "percent", label: "Bias %" },
-                  { value: "adjusted", label: "Nominal + Bias" },
-                ]} /></th>}
             </tr>
           </thead>
           <tbody>
-            {/* The output uses the point's own nominal and optional equation LHS.
-                It is never added to the RHS input mappings or source sum. */}
-            <tr className="measurement-output-row">
-              <td><MeasurementInputSymbolCell output
-                symbol={testPointData.equationString?.includes("=") ? testPointData.equationString.split("=")[0].trim() : ""}
-                onCommit={symbol => handleEquationChange(`${symbol ? `${symbol} = ` : ""}${stripEquationPrefix(testPointData.equationString)}`)} /></td>
-              <td><MeasurementInputNameCell symbol="output"
-                value={testPointData.outputQuantityName ?? uutNominal?.name ?? testPointData.testPointInfo?.measurementArea ?? "Output"}
-                onChange={outputQuantityName => onUpdateTestPoint({ outputQuantityName })} /></td>
-              <td><div className="measurement-output-nominal"><span>{uutNominal?.value === "" || uutNominal?.value == null ? <span className="is-empty">Not Set</span> : `Target ${uutNominal.value}${uutNominal.unit ? ` ${getUnitDisplayLabel(uutNominal.unit)}` : ""}`}</span>
-                {Number.isFinite(calculatedNominal) && <small className={`measurement-calculated-value is-${calcStatus}`} title={calcStatus === "mismatch" ? "The calculated nominal differs from the target" : "Nominal calculated from the equation inputs"}>Calculated {calculatedNominal.toPrecision(6)} {getUnitDisplayLabel(uutNominal?.unit || "")}</small>}
-              </div></td>
-              {showInputBias && <td><NetBiasCell key={testPointData.id} point={testPointData} session={sessionData} onChange={onUpdateTestPoint} mode={inputBiasDisplay} /></td>}
-            </tr>
             {equationDisplayData.variables.map((variable) => (
               <tr key={variable.symbol}>
                 <td>
@@ -14833,7 +14819,6 @@ function DetailedView({
                     }
                   />
                 </td>
-                {showInputBias && <td><MeasurementInputBias point={testPointData} session={sessionData} variable={variable} mode={inputBiasDisplay} resolved={inputBiasCalculation} /></td>}
               </tr>
             ))}
           </tbody>
@@ -15425,9 +15410,9 @@ function DetailedView({
       </div>
 
       {/* --- MIDDLE ROW: EQUATION --- */}
-      {(isDerived || showInputBias) && (
+      {isDerived && (
         <DetailWorkspaceSectionToggle
-          label={isDerived ? "Measurement Equation" : "Measurement Bias"}
+          label="Measurement Equation"
           collapsed={collapsedDetailSections.has("equation")}
           onToggle={() => toggleDetailSection("equation")}
           style={detailSectionStyle("equation")}
@@ -15435,29 +15420,12 @@ function DetailedView({
           className="detail-workspace-section-toggle--equation"
         />
       )}
-      {(isDerived || showInputBias) && <div
+      {isDerived && <div
         className={`measurement-equation-section detail-workspace-content detail-workspace-content--equation${
           collapsedDetailSections.has("equation") ? " is-collapsed" : ""
         }`}
         style={detailSectionStyle("equation", 1)}
       >
-        {!isDerived && <div className="measurement-equation-input-panel panel-card">
-          <div className="panel-table-container measurement-inputs-table-wrap" data-scoped-zoom-key="measurement-inputs">
-            <table className="instrument-summary-table industry-table measurement-inputs-table measurement-bias-table">
-              <colgroup><col style={{ width: "40%" }} /><col style={{ width: "30%" }} /><col style={{ width: "30%" }} /></colgroup>
-              <thead><tr><th>Name</th><th>Nominal</th><th><InlineMenuSelect ariaLabel="Input bias display" value={inputBiasDisplay} onChange={setInputBiasDisplay}
-                width="auto" showOptionMeta={false} options={[
-                  { value: "bias", label: "Bias" }, { value: "percent", label: "Bias %" },
-                  { value: "adjusted", label: "Nominal + Bias" },
-                ]} /></th></tr></thead>
-              <tbody><tr className="measurement-output-row">
-                <td><MeasurementInputNameCell symbol="output" value={testPointData.outputQuantityName ?? uutNominal?.name ?? testPointData.testPointInfo?.measurementArea ?? "Output"} onChange={outputQuantityName => onUpdateTestPoint({ outputQuantityName })} /></td>
-                <td>{uutNominal?.value === "" || uutNominal?.value == null ? <span className="is-empty">Not Set</span> : `${uutNominal.value}${uutNominal.unit ? ` ${getUnitDisplayLabel(uutNominal.unit)}` : ""}`}</td>
-                <td><NetBiasCell key={testPointData.id} point={testPointData} session={sessionData} onChange={onUpdateTestPoint} mode={inputBiasDisplay} /></td>
-              </tr></tbody>
-            </table>
-          </div>
-        </div>}
         {isDerived && equationDisplayData && (
           <div className="measurement-equation-layout">
             <div className="measurement-equation-block">
@@ -15635,7 +15603,25 @@ function DetailedView({
             </div>
             <div className="measurement-equation-inputs-card">
                 {equationVariableInputs}
-
+                {calcStatus !== "neutral" && (
+                  <div
+                    className="measurement-equation-status"
+                    style={{ color: calcStatusStyle.color }}
+                  >
+                    <div className="measurement-equation-status-main">
+                      <FontAwesomeIcon icon={calcStatusStyle.icon} />
+                      <span>
+                        Calculated:{" "}
+                        <strong>
+                          {calculatedNominal?.toPrecision(6)} {uutNominal?.unit}
+                        </strong>
+                      </span>
+                    </div>
+                    <div className="measurement-equation-status-target">
+                      Target {targetNominal?.toPrecision(6)} {uutNominal?.unit}
+                    </div>
+                  </div>
+                )}
             </div>
           </div>
           )}
@@ -16390,7 +16376,7 @@ function DetailedView({
         style={detailSectionStyle("budget", 1)}
       >
       <LegacyPointBiasNotice point={testPointData} session={sessionData}
-        netBiasEditable={hasUsableEquation && equationDisplayData.variables.length > 0}
+        netBiasEditable={false}
         calculatedAverage={calcResults?.calculatedNominalValue}
         onChange={onUpdateTestPoint} />
       {!hasMeasurementPoint && <p className="form-section-warning" role="status">Enter a measurement value when ready. You can build the uncertainty budget now; value-dependent components will show a warning until a value is assigned.</p>}

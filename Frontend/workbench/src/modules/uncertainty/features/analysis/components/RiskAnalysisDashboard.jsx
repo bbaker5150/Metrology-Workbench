@@ -102,11 +102,11 @@ const RiskAnalysisDashboard = ({
       {boundaryOnly ? (
         <>
           <RiskGauge
-            label="PFA Boundary"
+            label="Probability of False Accept"
             active={isActive("pfa")} onClick={() => onShowBreakdown("pfa")}
-            value={fmt(results.pfa, 4) + " %"}
+            value="NA"
             accent="accent-primary"
-            note="The achieved PFA at the acceptance boundary after inward resolution rounding."
+            note="Unavailable without a measured value."
           />
           <RiskGauge
             label={typeof results.ALow === "number" ? "Lower Acceptance Limit" : "Upper Acceptance Limit"}

@@ -22,7 +22,7 @@ it("retains an invalid equation and its error after editing ends", () => {
   expect(screen.getByLabelText("Measurement equation")).toHaveValue("/asd");
 });
 
-it.each(["direct", "derived"])("shows bias only when this %s point's area opts in", type => {
+it.each(["direct", "derived"])("ignores retired bias visibility settings for %s points", type => {
   const point = { id: "p", measurementType: type, equationString: "5", variableMappings: {}, components: [], measurementBias: { mode: "manual", value: ".2", unit: "V" },
     testPointInfo: { measurementArea: "Voltage", parameter: { value: 5, unit: "V" } } };
   const renderPanel = showBias => <UncertaintyPanel testPointData={point} sessionData={{ id: "s", uuts: [], tmdes: [], testPoints: [point],
@@ -32,7 +32,7 @@ it.each(["direct", "derived"])("shows bias only when this %s point's area opts i
   expect(screen.queryByRole("button", { name: "Edit net measurement system bias" })).toBeNull();
   if (type === "direct") expect(screen.queryByText("Measurement Bias")).toBeNull();
   view.rerender(renderPanel(true));
-  expect(screen.getByRole("button", { name: "Edit net measurement system bias" })).toBeVisible();
+  expect(screen.queryByRole("button", { name: "Edit net measurement system bias" })).toBeNull();
   view.rerender(renderPanel(false));
   expect(screen.queryByRole("button", { name: "Edit net measurement system bias" })).toBeNull();
   expect(point.measurementBias.value).toBe(".2");

@@ -21244,12 +21244,6 @@ body.dark-mode .uncertainty-module .measurement-group-container .point-grid-item
 .point-column-menu-actions { display: flex; justify-content: flex-end; gap: 14px; grid-column: 1 / -1; }
 .point-column-menu-actions button { border: 0; border-radius: 4px; background: transparent; color: var(--primary-color); font-family: inherit; font-size: .75rem; font-weight: 600; cursor: pointer; padding: 4px 6px; }
 .point-column-menu-actions button:is(:hover, :focus-visible) { background: var(--primary-color-light); }
-/* A manually narrowed PFA column retains an accessible boundary marker below
-   its percentage. Automatic width still displays the full Boundary pill. */
-.uncertainty-module .point-risk-metric:has(.point-method-badge.is-compact) { display: flex; align-items: center; flex-direction: column; gap: 1px; }
-.uncertainty-module .point-method-badge.is-compact { font-size: 0; margin: 0; padding: 1px 4px; align-self: center; }
-.uncertainty-module .point-method-badge.is-compact::before { content: "B"; font-size: 9px; line-height: 10px; }
-
 .uncertainty-module .sidebar-sort-header--value { padding-left: 0; }
 
 /* Continuous column rules are painted once per area, independent of row
@@ -21325,7 +21319,7 @@ body.dark-mode .uncertainty-module .measurement-group-container .point-grid-item
 /* Column settings live in the browser's top layer and never size the page.
    One shared list scroller keeps long column lists out of the dialog shell. */
 .sidebar-filter-dropdown.point-columns-dialog {
-  position: fixed; inset: 0; margin: auto; box-sizing: border-box;
+  position: fixed; inset: auto; margin: 0; box-sizing: border-box;
   width: min(680px, var(--column-dialog-width));
   height: min(720px, var(--column-dialog-height));
   max-width: none; max-height: none; padding: 0;
@@ -21333,8 +21327,8 @@ body.dark-mode .uncertainty-module .measurement-group-container .point-grid-item
   background: var(--content-background); border-radius: 12px;
   animation: none; contain: layout paint;
 }
-dialog.point-columns-dialog[open] { display: flex; flex-direction: column; align-items: stretch; }
-dialog.point-columns-dialog::backdrop { background: rgb(10 18 32 / 35%); }
+.point-columns-dialog:popover-open { display: flex; flex-direction: column; align-items: stretch; }
+.point-columns-dialog::backdrop { background: transparent; backdrop-filter: none; }
 .point-columns-dialog-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; padding: 20px 20px 12px; flex: 0 0 auto; }
 .point-columns-dialog-header h2 { margin: 0; font-size: 1.1rem; font-weight: 650; color: var(--text-color); }
 .point-columns-dialog-header p { margin: 6px 0 0; font-size: .75rem; line-height: 1.5; color: var(--text-color-muted); }
@@ -21343,8 +21337,8 @@ dialog.point-columns-dialog::backdrop { background: rgb(10 18 32 / 35%); }
 .point-columns-dialog .point-column-menu-body { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; max-height: none; padding: 0; gap: 0; overflow: hidden; align-items: stretch; }
 .point-columns-dialog .point-column-menu-actions { flex: 0 0 auto; padding: 0 20px 12px; border-bottom: 1px solid var(--border-color); }
 .point-column-lists { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; gap: 20px; }
-.point-columns-dialog .point-column-lists { flex: 1 1 auto; min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; padding: 0 20px 20px; }
-.point-columns-dialog :is(.point-column-selected, .point-column-available) { min-width: 0; }
+.point-columns-dialog .point-column-lists { flex: 1 1 auto; min-height: 0; overflow: hidden; align-items: stretch; padding: 0 20px 20px; }
+.point-columns-dialog :is(.point-column-selected, .point-column-available) { min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
 .point-columns-dialog .sidebar-column-order-heading { position: sticky; top: 0; z-index: 1; background: var(--content-background); padding: 12px 4px; }
 .point-columns-dialog .sidebar-column-order-list,
 .point-columns-dialog .point-column-available .sidebar-filter-sections { min-height: 0; max-height: none; overflow: visible; scrollbar-gutter: auto; }
@@ -21465,3 +21459,17 @@ dialog.point-columns-dialog::backdrop { background: rgb(10 18 32 / 35%); }
 .uncertainty-module .results-workflow-container > .sidebar-resizer::after { opacity: 0; }
 .uncertainty-module .results-workflow-container > .sidebar-resizer:is(:hover, :focus-visible)::after { opacity: 1; }
 .repeatability-unit-warning { color: var(--status-warning, #a16207); margin: 0 0 12px; }
+
+/* White light-mode surfaces keep hierarchy in rules, typography and spacing. */
+body.light-mode.uncertainty-active, body.light-mode .uncertainty-module {
+  --component-header-bg: #fff;
+  --sidebar-background: #fff;
+  --background-color: #fff;
+  --background-secondary: #fff;
+}
+body.light-mode .uncertainty-module :is(.content-area, .results-content, .results-sidebar, .analysis-container, .analysis-content, .panel-card, .panel-card-header, .analysis-tabs, .budget-stack-section, .budget-section-title-row, .budget-results-card, .uncertainty-budget-table thead) { background: #fff; }
+.uncertainty-module #session-select::picker-icon { margin-inline-start: auto; }
+.uncertainty-module #session-select { background-position: right 8px center; }
+@supports (appearance: base-select) { .uncertainty-module #session-select { padding-inline-end: 8px; } }
+.uncertainty-module .analysis-content:has(.configuration-panel) { padding-top: 0; }
+.uncertainty-module .detail-workspace-section-toggle--instruments { margin-top: 0; }

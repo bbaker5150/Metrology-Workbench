@@ -37,7 +37,7 @@ describe("unknown-measurement Risk 8.0 app wiring", () => {
     expect(boundary.fields.REOP_At_Test_TUR).toBe("");
   });
 
-  test("summary exposes boundary PFA and leaves measured-value metrics unavailable", () => {
+  test("summary keeps acceptance limits but leaves observed PFA and PFR unavailable", () => {
     const summary = toUnknownMeasurementSummary(
       computeUnknownMeasurementBoundary8({
         tolerance: tolerance("low"),
@@ -46,8 +46,8 @@ describe("unknown-measurement Risk 8.0 app wiring", () => {
       })
     );
 
-    expect(summary.pfa).toBeCloseTo(2, 12);
-    expect(summary.gbPfa).toBeCloseTo(2, 12);
+    expect(summary.pfa).toBeUndefined();
+    expect(summary.gbPfa).toBeUndefined();
     expect(summary.gbLow).toBeTypeOf("number");
     expect(summary.pfr).toBeUndefined();
     expect(summary.tur).toBeUndefined();

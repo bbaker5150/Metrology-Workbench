@@ -115,13 +115,12 @@ export function getMitigationDiagnostics({
     }
     if (unknown) {
       const boundaryFields = new Set([
-        "gbPfa",
         single?.direction === "low" ? "gbLow" : "gbHigh",
       ]);
       const unsupported = missing.filter((key) => !boundaryFields.has(key));
       if (unsupported.length)
         add(
-          `${group.label} — ${unsupported.map((key) => group.fields[key]).join(", ")}: A single-sided tolerance with an unknown measurement uses PFA-only acceptance-boundary results. REOP-based guard-band and interval mitigation are not calculated for this case.`, "info",
+          `${group.label} — ${unsupported.map((key) => group.fields[key]).join(", ")}: A single-sided tolerance with an unknown measurement uses acceptance limits based on required PFA. Observed PFA, PFR, REOP-based guard-band and interval metrics are not calculated for this case.`, "info",
         );
       const failed = missing.filter((key) => boundaryFields.has(key));
       if (failed.length)

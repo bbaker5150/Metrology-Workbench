@@ -94,7 +94,14 @@ export default function useInstrumentTableLayout(containerRef) {
         const content = editor.closest(".range-row-cell") || editor;
         // scrollWidth/offsetWidth are layout pixels; client rects include CSS
         // zoom and cannot be mixed into colgroup widths.
-        let width = Math.max(content.scrollWidth, content.offsetWidth);
+        let width = Math.max(editor.scrollWidth, editor.offsetWidth);
+        if (content !== editor) {
+          // The range wrapper stretches to the cell. Measure intrinsic children,
+          // never feed that already-expanded width back into its own requirement.
+          const children = [...content.children].filter(node => node.getClientRects().length);
+          width = children.reduce((sum, node) => sum + Math.max(node.scrollWidth, node.offsetWidth), 0)
+            + Math.max(0, children.length - 1) * (parseFloat(getComputedStyle(content).columnGap) || 0);
+        }
         if (editor.matches('.inline-desc-fields')) {
           const wrapper = editor.closest('.uut-description-content');
           const badge = wrapper?.querySelector('.instrument-usage-badge');

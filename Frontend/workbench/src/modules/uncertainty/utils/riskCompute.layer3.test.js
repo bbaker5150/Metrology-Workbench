@@ -449,7 +449,8 @@ describe("computePointRiskMetrics Layer 3 integration", () => {
 
     expect(metrics).not.toBeNull();
     expect(metrics.riskMethod).toBe("risk8-pfa-boundary");
-    expect(metrics.pfa).toBeCloseTo(2, 12);
+    expect(metrics.pfa).toBeUndefined();
+    expect(metrics.gbPfa).toBeUndefined();
     expect(metrics.gbLow).toBeTypeOf("number");
     expect(metrics.gbLow).toBeGreaterThan(9);
     expect(metrics.pfr).toBeUndefined();

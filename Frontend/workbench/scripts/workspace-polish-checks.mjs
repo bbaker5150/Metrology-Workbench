@@ -81,14 +81,10 @@ export async function checkWorkspacePolish({ frame, page, saved, until, check })
   await unit.click();
   check('measurement point units use the styled picker too', await unit.evaluate(node => getComputedStyle(node).appearance === 'base-select' && node.matches(':open')));
   await capture('polish-point-unit-menu'); await unit.press('Escape');
-  const output = frame.locator('.measurement-inputs-table .measurement-output-row');
-  check('calculated and target nominal are integrated in the output cell', await output.innerText().then(text => text.includes('Target 5 V') && text.includes('Calculated 5.00000 V')) && await frame.locator('.measurement-equation-status').count() === 0);
-  check('derived output bias includes its calculated net value', await output.locator('.net-bias-inherited .measurement-calculated-value').innerText().then(text => text.includes('Calculated 0 V')));
-  const bias = frame.getByRole('button', { name: 'Input bias display', exact: true });
-  await frame.locator('.analysis-tabs').hover();
-  check('Bias selector border is hidden at rest', await bias.evaluate(node => getComputedStyle(node).borderTopColor === 'rgba(0, 0, 0, 0)'));
-  await bias.hover();
-  check('Bias selector border appears on hover', await bias.evaluate(node => getComputedStyle(node).borderTopColor !== 'rgba(0, 0, 0, 0)'));
+  const output = frame.locator('.measurement-equation-status');
+  check('calculated nominal and target use the original status below the input table', await output.innerText().then(text => text.includes('Calculated: 5.00000 V') && text.includes('Target 5.00000 V')));
+  check('measurement inputs contain only Variable, Name and Nominal', JSON.stringify(await frame.locator('.measurement-inputs-table thead th').allTextContents()) === JSON.stringify(['Variable', 'Name', 'Nominal']));
+  check('no output row or net bias editor remains', await frame.locator('.measurement-output-row, .measurement-bias-table').count() === 0 && await frame.getByRole('button', { name: 'Edit net measurement system bias', exact: true }).count() === 0);
   await frame.getByRole('button', { name: 'Add component to budget', exact: true }).first().click();
   for (const kind of ['tabular', 'equation']) {
     const item = frame.getByRole('button', { name: `Add ${kind} component`, exact: true });
@@ -107,19 +103,8 @@ export async function checkWorkspacePolish({ frame, page, saved, until, check })
   check('risk cards omit the redundant gray captions', await frame.locator('.budget-decision-caption').count() === 0);
   await output.scrollIntoViewIfNeeded(); await capture('polish-derived-output');
   await frame.locator('[data-point-id="direct-polish"] [data-sidebar-column="pfa"]').click();
-  const section = frame.locator('[data-detail-section="equation"]');
-  check('direct points have a Measurement Bias section', await until(async () => await frame.getByRole('button', { name: 'Collapse Measurement Bias section', exact: true }).isVisible()));
-  check('direct bias has no calculated hint until a net bias is authored', await frame.locator('.measurement-bias-table .measurement-calculated-value').count() === 0);
-  await frame.getByRole('button', { name: 'Edit net measurement system bias', exact: true }).click();
-  const input = frame.getByRole('textbox', { name: 'Net measurement system bias', exact: true });
-  await input.fill('.25'); await input.press('Enter');
-  check('authored direct bias shows the calculated net value', await until(async () => (await frame.locator('.measurement-bias-table .measurement-calculated-value').innerText()).includes('Calculated 0.25 V') && saved().testPoints.find(p => p.id === 'direct-polish').measurementBias?.value === '.25'));
-  await capture('polish-direct-bias');
-  await section.getByRole('button', { name: 'Collapse Measurement Bias section', exact: true }).click();
-  check('Measurement Bias collapses and saves its state', await until(() => saved().detailCollapsedSections?.includes('equation')) && !await frame.locator('.measurement-bias-table').isVisible());
-  await section.getByRole('button', { name: 'Expand Measurement Bias section', exact: true }).click();
-  await section.dragTo(frame.locator('[data-detail-section="budget"]'));
-  check('Measurement Bias reorders with other workspace sections', await until(() => saved().detailSectionOrder?.indexOf('equation') > saved().detailSectionOrder?.indexOf('budget')));
+  check('direct points have no Measurement Bias table or section', await frame.locator('.measurement-bias-table').count() === 0 && await frame.getByRole('button', { name: 'Collapse Measurement Bias section', exact: true }).count() === 0);
+  await capture('polish-direct');
   await frame.locator('[data-point-id="point"] [data-sidebar-column="pfa"]').click();
   await checkSeptember22Followup({ frame, page, saved, until, check });
 }

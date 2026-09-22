@@ -1,3 +1,4 @@
+import { getUutBiasDefault, getPointBiasSources } from "./utils/measurementBias";
 import useSidebarAutoWidths from "./hooks/useSidebarAutoWidths";
 import { syncInstrumentBudgetComponents } from "./utils/instrumentBudgetComponents";
 import usePageExitRecovery from "./hooks/usePageExitRecovery";
@@ -184,7 +185,6 @@ const DEFAULT_FUNCTION_POINT_SETTINGS = Object.freeze({
   mode: "direct",
   reuseEquation: false,
   reuseBudget: false,
-  showBias: false,
 });
 
 const clonePointSettingValue = (value) => {
@@ -363,6 +363,8 @@ const SIDEBAR_COLUMN_GROUPS = [
       "measurementUncertainty",
       "tmdeLow",
       "tmdeHigh",
+      "uutBias",
+      "tmdeBias",
       "tur",
       "tar",
     ],
@@ -411,6 +413,8 @@ const SIDEBAR_COLUMN_TRACKS = {
   measurementUncertainty: SIDEBAR_UNCERTAINTY_COLUMN,
   tmdeLow: "minmax(90px, 1fr)",
   tmdeHigh: "minmax(90px, 1fr)",
+  uutBias: "100px",
+  tmdeBias: "100px",
   tur: "55px",
   tar: "55px",
   observedReop: "78px",
@@ -444,6 +448,8 @@ const SIDEBAR_COLUMN_LABELS = {
   measurementUncertainty: "Exp. Uncertainty",
   tmdeLow: "TMDE Low Limit",
   tmdeHigh: "TMDE High Limit",
+  uutBias: "UUT Bias",
+  tmdeBias: "TMDE Bias",
   tur: "TUR",
   tar: "TAR",
   observedReop: "REOP @ test pt TUR",
@@ -491,21 +497,7 @@ const SIDEBAR_COLUMN_MIN_WIDTHS = {};
 export const getSidebarColumnMinWidth = (key) =>
   SIDEBAR_COLUMN_MIN_WIDTHS[key] || SIDEBAR_COLUMN_MIN_WIDTH;
 
-// Reserve room for the percentage and its method pill in every row and header.
-// Keep saved widths intact so removing the last boundary restores user sizing.
-export const getSidebarRiskColumnWidths = (columnWidths, riskMetricsMap) => {
-  if (!Object.values(riskMetricsMap).some(
-    (risk) => risk?.riskMethod === "risk8-pfa-boundary",
-  )) return columnWidths;
-  const custom = Number(columnWidths.pfa);
-  // Only automatic sizing reserves the full badge. Authored narrow columns
-  // use its compact marker, keeping both the value and boundary meaning visible.
-  if (Number.isFinite(custom) && custom > 0) return columnWidths;
-  return {
-    ...columnWidths,
-    pfa: Math.max(128, Number.isFinite(custom) ? custom : 0),
-  };
-};
+export const getSidebarRiskColumnWidths = (columnWidths = {}) => columnWidths;
 
 const getSidebarGridTemplate = (
   visibleColumns,
@@ -559,6 +551,8 @@ const INSTRUMENT_SIZE_STORAGE_KEYS = [
   "uncertalytics:detail:tmde:instrument-table-height:v1",
 ];
 const DEFAULT_SIDEBAR_COLUMNS = {
+  uutBias: true,
+  tmdeBias: true,
   warningIcons: true,
   uut: true,
   section: false,
@@ -1160,22 +1154,12 @@ export const SidebarPointItem = ({
   // Prefer the live, reactively-computed metrics (always current with the
   // session inputs). A null live result means the current inputs are invalid;
   // only consumers without a live calculator may use the saved snapshot.
-  const risk = liveRiskMetrics !== undefined ? (liveRiskMetrics || {}) : (point.riskMetrics || {});
+  const availableRisk = liveRiskMetrics !== undefined ? (liveRiskMetrics || {}) : (point.riskMetrics || {});
 
-  // Monte Carlo is an uncertainty-budget method now, not a separate risk
-  // method. Only the measurement-unknown Risk 8 boundary needs a row marker.
-  const riskMethodMark =
-    risk.riskMethod === "risk8-pfa-boundary"
-      ? {
-          label: "Boundary",
-          className: "",
-          note: "Measured value unknown: this PFA is calculated at the acceptance cutoff set by your required PFA and measurement uncertainty. It is not a pass/fail result for a measured reading.",
-        }
-      : null;
-  // Measurement-unknown rows expose only the Risk 8 PFA boundary. A known
-  // single-sided measurement has the full Risk 8 result set and dedicated
-  // breakdowns, so its metrics remain available to Ctrl/Cmd-click.
-  const boundaryOnly = risk.riskMethod === "risk8-pfa-boundary";
+  const boundaryOnly = availableRisk.riskMethod === "risk8-pfa-boundary" ||
+    (point.uutTolerance?.singleSided || point.uutTolerance?.tolerances?.singleSided)?.measurement === "unknown";
+  const risk = boundaryOnly ? { ...availableRisk, pfa: undefined, gbPfa: undefined } : availableRisk;
+  const unavailableMetric = boundaryOnly ? "NA" : "-";
 
   // --- COLOR LOGIC ---
   // Status colors are requirements-relative.  Keeping these thresholds local
@@ -1206,12 +1190,12 @@ export const SidebarPointItem = ({
   const formatMitigationNumber = (value, digits = 8) =>
     value !== undefined && value !== null && Number.isFinite(Number(value))
       ? digits === 2 ? Number(value).toFixed(2) : Number(value).toFixed(digits).replace(/\.?0+$/, "")
-      : "-";
+      : unavailableMetric;
 
   const formatMitigationPercent = (value, digits = 1) =>
     value !== undefined && value !== null && Number.isFinite(Number(value))
       ? `${Number(value).toFixed(digits)}%`
-      : "-";
+      : unavailableMetric;
 
   // Hover text is intentionally only the unrounded stored value. Column
   // headings already explain what the number means; repeating the label and
@@ -1222,7 +1206,7 @@ export const SidebarPointItem = ({
     value !== "" &&
     Number.isFinite(Number(value))
       ? rawDecimal(value)
-      : "-";
+      : unavailableMetric;
 
   // Calculate Metrics
   const toleranceSummary = React.useMemo(() => {
@@ -1293,6 +1277,16 @@ export const SidebarPointItem = ({
     point.tmdeTolerances,
     point.testPointInfo,
   ]);
+
+  const formatSourceBias = spec => {
+    if (spec?.value == null || String(spec.value).trim() === "") return "—";
+    const unit = spec.kind === "percent" ? "%" : getUnitDisplayLabel(spec.unit || displayUnit);
+    return `${spec.value}${unit ? ` ${unit}` : ""}${spec.corrected ? " (corrected)" : ""}`;
+  };
+  const uutBiasSpec = getUutBiasDefault(point, requirementSession);
+  const tmdeBiasSources = React.useMemo(() => visibleColumns.tmdeBias
+    ? getPointBiasSources(point, requirementSession).filter(source => source.inherited?.value != null && String(source.inherited.value).trim() !== "") : [],
+    [point, requirementSession, visibleColumns.tmdeBias]);
 
   const tmdeLimitsTitle = React.useMemo(() => {
     if (liveTmdeLimits) return liveTmdeLimits.reason || `${liveTmdeLimits.method}: ${liveTmdeLimits.low} to ${liveTmdeLimits.high} ${liveTmdeLimits.unit}`;
@@ -1707,6 +1701,13 @@ export const SidebarPointItem = ({
         </span></span>
       )}
 
+      {visibleColumns.uutBias && <span className="point-metric" title={`UUT Bias: ${formatSourceBias(uutBiasSpec)}`}>{formatSourceBias(uutBiasSpec)}</span>}
+      {visibleColumns.tmdeBias && <span className="point-metric point-metric-list">
+        {tmdeBiasSources.length ? tmdeBiasSources.map(source => <span key={source.key} className="point-metric-list-item" title={`${source.name}: ${formatSourceBias(source.inherited)}`}>
+          {source.variableType ? `${source.variableType}: ` : ""}{formatSourceBias(source.inherited)}
+        </span>) : "—"}
+      </span>}
+
       {/* Col 5-8 Risk Columns. Clicking a metric selects the point and opens
           that metric's risk breakdown (handled in Analysis once the point's
           riskResults are ready). */}
@@ -1717,7 +1718,7 @@ export const SidebarPointItem = ({
           title={fullMetricTitle("TUR", risk.tur, { action: true })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "tur")}
         >
-          {risk.tur !== undefined ? `${Number(risk.tur).toFixed(2)}` : "-"}
+          {risk.tur !== undefined ? `${Number(risk.tur).toFixed(2)}` : unavailableMetric}
         </span>
       )}
       {visibleColumns.tar && (
@@ -1727,7 +1728,7 @@ export const SidebarPointItem = ({
           title={fullMetricTitle("TAR", risk.tar, { action: true })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "tar")}
         >
-          {risk.tar !== undefined ? `${Number(risk.tar).toFixed(1)}` : "-"}
+          {risk.tar !== undefined ? `${Number(risk.tar).toFixed(1)}` : unavailableMetric}
         </span>
       )}
       {visibleColumns.observedReop && (
@@ -1750,20 +1751,11 @@ export const SidebarPointItem = ({
           title={fullMetricTitle("PFA", risk.pfa, {
             suffix: "%",
             action: true,
-            note: riskMethodMark?.note || "",
           })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "pfa")}
         >
-          {risk.pfa !== undefined ? `${Number(risk.pfa).toFixed(2)}%` : "-"}
-          {riskMethodMark && (
-            <span
-              className={`point-method-badge ${Number(columnWidths.pfa) > 0 && Number(columnWidths.pfa) < 128 ? "is-compact" : ""} ${riskMethodMark.className}`}
-              aria-label="Boundary"
-              title={riskMethodMark.note}
-            >
-              {riskMethodMark.label}
-            </span>
-          )}
+          {!boundaryOnly && risk.pfa !== undefined ? `${Number(risk.pfa).toFixed(2)}%` : unavailableMetric}
+
         </span>
       )}
       {visibleColumns.pfr && (
@@ -1773,7 +1765,7 @@ export const SidebarPointItem = ({
           title={fullMetricTitle("PFR", risk.pfr, { suffix: "%", action: true })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "pfr")}
         >
-          {risk.pfr !== undefined ? `${Number(risk.pfr).toFixed(2)}%` : "-"}
+          {!boundaryOnly && risk.pfr !== undefined ? `${Number(risk.pfr).toFixed(2)}%` : unavailableMetric}
         </span>
       )}
       {visibleColumns.maxReop && (
@@ -1808,7 +1800,7 @@ export const SidebarPointItem = ({
           })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "gbmult")}
         ><span className="point-metric-content">
-          {risk.gbMult !== undefined ? `${Number(risk.gbMult).toFixed(2)}%` : "-"}
+          {risk.gbMult !== undefined ? `${Number(risk.gbMult).toFixed(2)}%` : unavailableMetric}
         </span></span>
       )}
       {visibleColumns.gbLow && (
@@ -1817,7 +1809,7 @@ export const SidebarPointItem = ({
           title={fullMetricTitle("Guardband Low Limit", risk.gbLow, { action: true })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "gblow")}
         ><span className="point-metric-content">
-          {risk.gbLow !== undefined ? Number(risk.gbLow).toPrecision(4) : "-"}
+          {risk.gbLow !== undefined ? Number(risk.gbLow).toPrecision(4) : unavailableMetric}
         </span></span>
       )}
       {visibleColumns.gbHigh && (
@@ -1826,7 +1818,7 @@ export const SidebarPointItem = ({
           title={fullMetricTitle("Guardband High Limit", risk.gbHigh, { action: true })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "gbhigh")}
         ><span className="point-metric-content">
-          {risk.gbHigh !== undefined ? Number(risk.gbHigh).toPrecision(4) : "-"}
+          {risk.gbHigh !== undefined ? Number(risk.gbHigh).toPrecision(4) : unavailableMetric}
         </span></span>
       )}
       {visibleColumns.gbPfa && (
@@ -1839,7 +1831,7 @@ export const SidebarPointItem = ({
           })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "gbpfa")}
         >
-          {risk.gbPfa !== undefined ? `${Number(risk.gbPfa).toFixed(2)}%` : "-"}
+          {risk.gbPfa !== undefined ? `${Number(risk.gbPfa).toFixed(2)}%` : unavailableMetric}
         </span>
       )}
       {visibleColumns.gbPfr && (
@@ -1852,7 +1844,7 @@ export const SidebarPointItem = ({
           })}
           onClick={boundaryOnly ? undefined : (e) => handleMetricClick(e, "gbpfr")}
         >
-          {risk.gbPfr !== undefined ? `${Number(risk.gbPfr).toFixed(2)}%` : "-"}
+          {risk.gbPfr !== undefined ? `${Number(risk.gbPfr).toFixed(2)}%` : unavailableMetric}
         </span>
       )}
       {visibleColumns.gbCalInt && (
@@ -5409,6 +5401,8 @@ function App({ showThemeToggle = false }) {
       ],
       tmdeLow: ["TMDE Low"],
       tmdeHigh: ["TMDE High"],
+      uutBias: ["UUT Bias"],
+      tmdeBias: ["TMDE Bias"],
       tur: ["TUR", { align: "center" }],
       tar: ["TAR", { align: "center" }],
       observedReop: [
@@ -5540,11 +5534,6 @@ function App({ showThemeToggle = false }) {
               <div className="function-point-settings-heading">
                 <strong>Measurement Area Settings</strong>
               </div>
-              <label className="function-point-setting-check">
-                <input type="checkbox" checked={Boolean(settings.showBias)}
-                  onChange={event => updateFunctionPointSettings(fnGroup, { showBias: event.target.checked })} />
-                <span><strong>Show measurement bias</strong><small>Show bias controls for points in this area. Existing bias values remain applied when hidden.</small></span>
-              </label>
               <div className="function-point-type-options" role="radiogroup" aria-label="New point type">
                 {[
                   ["direct", "Direct"],
@@ -6126,6 +6115,8 @@ function App({ showThemeToggle = false }) {
                                   label: "Exp. Uncertainty",
                                 },
                                 { key: "tmdeLow", keys: ["tmdeLow", "tmdeHigh"], label: "TMDE Limits" },
+                                { key: "uutBias", label: "UUT Bias" },
+                                { key: "tmdeBias", label: "TMDE Bias" },
                                 { key: "tur", label: "TUR" },
                                 { key: "tar", label: "TAR" },
                               ],

@@ -16,7 +16,7 @@ it('cycles keyboard focus through column settings and restores the trigger on Es
   const trigger = screen.getByRole('button', { name: 'Columns', exact: true });
   fireEvent.click(trigger);
   const dialog = screen.getByRole('dialog');
-  expect(dialog).toHaveAttribute('open');
+  expect(dialog).toHaveAttribute('popover', 'manual');
   const buttons = within(dialog).getAllByRole('button');
   // jsdom has no layout. Mark these rendered controls as visible for tabbing.
   const mocks = buttons.map(button => vi.spyOn(button, 'getClientRects').mockReturnValue([{}]));

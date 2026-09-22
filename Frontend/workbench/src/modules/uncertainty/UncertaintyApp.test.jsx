@@ -1310,7 +1310,6 @@ describe("UncertaintyApp", () => {
         mode: "derived",
         reuseEquation: true,
         reuseBudget: true,
-        showBias: false,
       });
     });
   }, 15000);
@@ -1507,7 +1506,7 @@ describe("UncertaintyApp", () => {
     ]);
     expect(columnGroups.map((group) => group.style.gridColumn)).toEqual([
       "span 1",
-      "span 7",
+      "span 9",
       "span 2",
       "span 1",
       "span 1",

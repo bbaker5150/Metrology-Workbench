@@ -131,7 +131,9 @@ it.each(["known", "unknown"])("keeps biased %s single-sided panel, sidebar, and 
     return useRiskCalculation(session, point, point.uutTolerance, point.tmdeTolerances, point.testPointInfo.parameter, calcResults, "riskmitigation");
   });
   const sidebar = computePointRiskMetrics(point, session, true);
-  await waitFor(() => expect(result.current.riskResults?.pfa).toBeCloseTo(sidebar.pfa, 8));
+  await waitFor(() => expect(result.current.riskResults?.riskMethod).toBe(sidebar.riskMethod));
+  if (measurement === "known") expect(result.current.riskResults.pfa).toBeCloseTo(sidebar.pfa, 8);
+  else { expect(sidebar.pfa).toBeUndefined(); expect(result.current.riskResults.pfa).toBeUndefined(); }
   expect(result.current.riskResults.gbHigh).toBeCloseTo(sidebar.gbHigh, 8);
   if (measurement === "known") {
     expect(result.current.riskResults.tur).toBeCloseTo(sidebar.tur, 8);

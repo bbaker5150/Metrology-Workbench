@@ -83,39 +83,19 @@ it("one clipboard owner replaces every older payload type", () => {
   }
 });
 
-it("output name and symbol are editable without changing RHS inputs or point nominal", () => {
-  let saved;
-  const initial = { id: "p", measurementType: "derived", equationString: "R*L", variableMappings: { R: "Force", L: "Length" },
+it("restores an input-only table while retaining an equation output prefix", () => {
+  const point = { id: "p", measurementType: "derived", equationString: "τ = R*L", variableMappings: { R: "Force", L: "Length" },
     variableNominals: { R: { value: 10, unit: "lbf" }, L: { value: 2, unit: "ft" } },
     testPointInfo: { parameter: { name: "Torque", value: 20, unit: "ft-lbf" } }, components: [] };
-  function Harness() {
-    const [point, setPoint] = useState(initial); saved = point;
-    return <UncertaintyPanel testPointData={point} sessionData={{ id: "s", uuts: [], tmdes: [], testPoints: [point], measurementAreas: [], uncReq: {} }}
-      uutNominal={point.testPointInfo.parameter} tmdeTolerancesData={[]} onUpdateTestPoint={patch => setPoint(previous => ({ ...previous, ...patch }))} />;
-  }
-  render(<Harness />);
-  const table = document.querySelector(".measurement-inputs-table");
-  expect(table.tBodies[0].rows[0]).toHaveClass("measurement-output-row");
-  expect(within(table.tBodies[0].rows[0]).getByText("Torque")).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: "Edit output variable" })).toBeInTheDocument();
-  expect(screen.queryByRole("button", { name: "Edit nominal for equation variable output" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Edit name for equation variable output" }));
-  const name = screen.getByRole("textbox", { name: "Display name for equation variable output" });
-  fireEvent.change(name, { target: { value: "Applied torque" } });
-  fireEvent.blur(name);
-  expect(saved.outputQuantityName).toBe("Applied torque");
-  expect(saved.equationString).toBe("R*L");
-  expect(saved.testPointInfo.parameter.value).toBe(20);
-  expect(Object.keys(saved.variableMappings).sort()).toEqual(["L", "R"]);
-  expect(saved.variableNominals).toEqual(initial.variableNominals);
-  fireEvent.click(screen.getByRole("button", { name: "Edit output variable" }));
-  const outputSymbol = screen.getByRole("textbox", { name: "Output variable" });
-  fireEvent.change(outputSymbol, { target: { value: "τ" } });
-  fireEvent.keyDown(outputSymbol, { key: "Enter" });
-  expect(saved.equationString).toBe("τ = R*L");
-  expect(saved.variableMappings).toEqual(initial.variableMappings);
-  expect(saved.variableNominals).toEqual(initial.variableNominals);
-  expect(screen.queryByText(/Name every variable/)).toBeNull();
+  const update = vi.fn();
+  const { container } = render(<UncertaintyPanel testPointData={point} sessionData={{ id: "s", uuts: [], tmdes: [] }}
+    uutNominal={point.testPointInfo.parameter} tmdeTolerancesData={[]} onUpdateTestPoint={update} />);
+  const table = container.querySelector('.measurement-inputs-table');
+  expect(table.tBodies[0].rows).toHaveLength(2);
+  expect(table.querySelector('.measurement-output-row')).toBeNull();
+  expect(screen.queryByRole("button", { name: "Edit output variable" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Edit measurement equation" })).toHaveTextContent('τ');
+  expect(point.variableNominals).toEqual({ R: { value: 10, unit: "lbf" }, L: { value: 2, unit: "ft" } });
 });
 
 it("renames a Unicode input without rewriting the output or a longer symbol", () => {

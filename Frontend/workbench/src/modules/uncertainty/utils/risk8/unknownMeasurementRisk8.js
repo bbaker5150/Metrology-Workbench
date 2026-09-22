@@ -84,8 +84,8 @@ export function computeUnknownMeasurementBoundary8({
 
 /**
  * Convert the PFA-only result to the compact metrics contract used by sidebar
- * rows and exports. `pfa` is the boundary PFA achieved by construction; metrics
- * that require a measured value remain undefined and therefore render as N/A.
+ * rows and exports. The cutoff still uses required PFA, but an unknown reading has no observed
+ * PFA or PFR. Keep those metrics unavailable, matching workbook types 5/6.
  */
 export function toUnknownMeasurementSummary(boundary) {
   if (!boundary?.computed || boundary.out?.statusMit !== "OK") return null;
@@ -93,10 +93,7 @@ export function toUnknownMeasurementSummary(boundary) {
   return {
     riskMethod: "risk8-pfa-boundary",
     riskAvailability: "pfa-boundary-only",
-    pfa:
-      typeof boundary.out.mitPfa === "number"
-        ? boundary.out.mitPfa * 100
-        : undefined,
+    pfa: undefined,
     pfr: undefined,
     tur: undefined,
     tar: undefined,
@@ -108,9 +105,6 @@ export function toUnknownMeasurementSummary(boundary) {
       typeof boundary.out.physGbUpper === "number"
         ? boundary.out.physGbUpper
         : undefined,
-    gbPfa:
-      typeof boundary.out.mitPfa === "number"
-        ? boundary.out.mitPfa * 100
-        : undefined,
+    gbPfa: undefined,
   };
 }

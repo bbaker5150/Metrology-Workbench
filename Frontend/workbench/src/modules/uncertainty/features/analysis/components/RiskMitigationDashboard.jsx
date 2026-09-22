@@ -62,7 +62,7 @@ const RiskMitigationDashboard = ({ results, onShowBreakdown, activeModals = [] }
         <RiskGauge
           label="Probability of False Accept at Boundary"
           active={isActive("gbpfa")} onClick={() => onShowBreakdown("gbpfa")}
-          value={fmtPct(guardBand.GBPFA)}
+          value="NA"
           accent="accent-guardband"
           note="PFR, TUR, REOP, and calibration-interval recommendations require a measured value and remain N/A."
         />
