@@ -1,3 +1,4 @@
+import { normalizeInstrumentTypeBComponents } from "../../../utils/instrumentBudgetComponents";
 import { withInstrumentEditorDrafts } from "../../../utils/instrumentBudgetComponents";
 import { readEditorDraft, saveEditorDraft, clearEditorDraft } from "../../../utils/editorRecovery";
 import { useConfirmRecordDeletes } from "../../../contexts/RecordDeletePolicy";
@@ -547,7 +548,7 @@ const UniversalInstrumentModal = ({
     [instrumentDef.functions, activeFunctionId]);
 
     const typeBComponents = useMemo(
-        () => (Array.isArray(instrumentDef.typeBComponents) ? instrumentDef.typeBComponents : []),
+        () => normalizeInstrumentTypeBComponents(instrumentDef.typeBComponents),
         [instrumentDef.typeBComponents],
     );
 

@@ -1,5 +1,6 @@
 import { authorNetBias, editNetBias } from './net-bias-smoke-helpers.mjs';
 export function prepareBiasSession(session) {
+  session.measurementAreaGroups.forEach(area => { area.pointCreationSettings = { ...area.pointCreationSettings, showBias: true }; });
   const uut = session.uuts[0], tmde = session.tmdes[0];
   uut.ranges[0].tolerances = { floor: { high: 2, low: -2, unit: 'V', distribution: '1.732' }, bias: { value: .1, unit: 'V' } };
   tmde.ranges[0].tolerances = { floor: { high: .2, low: -.2, unit: 'V', distribution: '1.732' }, bias: { value: .05, unit: 'V' } };

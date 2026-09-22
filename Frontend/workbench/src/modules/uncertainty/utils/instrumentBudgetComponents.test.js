@@ -45,3 +45,17 @@ it("saves a stable instrument identity and synchronizes builder deletion without
   const shared = { ...associated, uuts: [{ ...associated.uuts[0], instrument: { ...associated.uuts[0].instrument, scope: "shared" } }] };
   expect(syncInstrumentBudgetComponents(shared, { id: "u", typeBComponents: [] })).toBe(shared);
 });
+
+
+it("migrates legacy manual definitions losslessly and removes only empty placeholders", async () => {
+  const { normalizeInstrumentTypeBComponents, withInstrumentEditorDrafts } = await import("./instrumentBudgetComponents");
+  const legacy = { id: "legacy", name: "Head pressure", unit: "psig", distribution: "2.449", inputMode: "tolerance", scope: "range", functionId: "pressure", rangeId: "r1",
+    tolerance: { floor: { high: ".01", low: "-.02", unit: "psig", distribution: "2.449", symmetric: false } } };
+  const components = normalizeInstrumentTypeBComponents([{ id: "empty", unit: "V", toleranceLimit: "", name: "" }, legacy]);
+  expect(components).toHaveLength(1);
+  expect(components[0]).toMatchObject({ id: "legacy", scope: "range", functionId: "pressure", rangeId: "r1" });
+  expect(components[0].budgetComponent.originalInput.tolerance.floor).toEqual(legacy.tolerance.floor);
+  expect(withInstrumentEditorDrafts({ typeBComponents: [legacy] }).typeBComponents[0].budgetComponent).toBeDefined();
+  const standard = normalizeInstrumentTypeBComponents([{ id: "std", name: "Standard", unit: "V", inputMode: "standard", standardUncertainty: ".2", distribution: "2" }])[0];
+  expect(standard.budgetComponent.originalInput.tolerance.floor).toMatchObject({ high: "0.2", distribution: "1" });
+});

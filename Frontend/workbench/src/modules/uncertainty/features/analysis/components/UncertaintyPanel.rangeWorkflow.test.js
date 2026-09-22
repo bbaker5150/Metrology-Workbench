@@ -264,7 +264,7 @@ describe("shared instrument inline editing", () => {
       expect.objectContaining({
         scope: "local",
         sourceId: "shared-dmm",
-        libraryInstrumentId: "shared-dmm",
+        libraryInstrumentId: localized.instrument.id,
         localOverride: true,
       }),
     );
@@ -392,8 +392,8 @@ describe("add-to-budget range filtering", () => {
   });
 });
 
-describe("local instrument role synchronization", () => {
-  it("uses one edited definition for matching local UUT and TMDE rows", () => {
+describe("independent local instrument instances", () => {
+  it("forks an edited TMDE definition and preserves the matching UUT", () => {
     const originalDefinition = {
       id: "local-dmm",
       scope: "local",
@@ -454,14 +454,15 @@ describe("local instrument role synchronization", () => {
       "tmde",
     );
 
-    expect(synchronized.tmdes[0]).toBe(updatedTmde);
+    expect(synchronized.tmdes[0].instrument.id).not.toBe(originalDefinition.id);
+    expect(synchronized.tmdes[0].instrument.functions).toEqual(updatedTmde.instrument.functions);
     expect(
-      synchronized.uuts[0].instrument.functions[0].ranges[0].tolerances.floor.high,
-    ).toBe("0.1");
+      synchronized.uuts[0],
+    ).toBe(session.uuts[0]);
     expect(synchronized.tmdes[0].instrument.measurementArea).toBe("Electrical");
   });
 
-  it("preserves the TMDE distribution when tolerance is edited from the UUT table", () => {
+  it("preserves each role's own distribution when UUT tolerance changes", () => {
     const uutDefinition = {
       id: "local-voltmeter",
       scope: "local",
@@ -560,12 +561,13 @@ describe("local instrument role synchronization", () => {
     expect(uutReading).toMatchObject({
       high: "0.2",
       low: "-0.2",
-      distribution: "2.449",
+      distribution: "not_set",
     });
-    expect(tmdeReading).toEqual(uutReading);
+    expect(tmdeReading).toEqual(tmdeDefinition.functions[0].ranges[0].tolerances.reading);
+    expect(synchronized.uuts[0].instrument.id).not.toBe(synchronized.tmdes[0].instrument.id);
   });
 
-  it("keeps a TMDE distribution edit authoritative for both local roles", () => {
+  it("changes only the selected TMDE distribution", () => {
     const definition = {
       id: "local-meter",
       scope: "local",
@@ -625,7 +627,7 @@ describe("local instrument role synchronization", () => {
     expect(
       synchronized.uuts[0].instrument.functions[0].ranges[0].tolerances.reading
         .distribution,
-    ).toBe("2.449");
+    ).toBe("1.732");
     expect(
       synchronized.tmdes[0].instrument.functions[0].ranges[0].tolerances.reading
         .distribution,
@@ -688,11 +690,12 @@ describe("local instrument role synchronization", () => {
     );
 
     expect(
-      synchronized.tmdes[0].instrument.functions[0].ranges[0].tolerances.reading
+      synchronized.uuts[0].instrument.functions[0].ranges[0].tolerances.reading
         .distribution,
     ).toBe("not_set");
+    expect(synchronized.tmdes[0].instrument.functions[0].ranges).toEqual([existingRange]);
     expect(
-      synchronized.tmdes[0].instrument.functions[0].ranges[1].tolerances.reading
+      synchronized.uuts[0].instrument.functions[0].ranges[1].tolerances.reading
         .distribution,
     ).toBe("2.449");
   });
@@ -917,4 +920,18 @@ it("leaves new range fields separate, merges equal nonblank values, and retains 
   expect(instrumentCustomFieldGroup(item, "notes", rows, 1)).toBeNull();
   expect(instrumentCustomFieldGroup(item, "notes", rows, 2).value).toBe("Other");
   expect(removeInstrumentCustomColumn({ uuts: [item] }, "uut", "notes").uuts[0].rangeCustomFields.r1).toEqual({});
+});
+
+
+it("detaches legacy identity aliases when a shared local definition forks", () => {
+  const instrument = { id: "shared-local", scope: "local", functions: [] };
+  const original = { id: "tmde-one", definitionId: instrument.id, instrumentId: instrument.id, sourceInstrument: instrument, instrument };
+  const other = { ...original, id: "tmde-two" };
+  const result = synchronizeLocalInstrumentDefinitions({ tmdes: [original, other] }, { ...original, instrument: { ...instrument, description: "Edited" } }, "tmde");
+  const edited = result.tmdes[0];
+  expect(edited.instrument.id).not.toBe(instrument.id);
+  expect(edited.definitionId).toBe(edited.instrument.id);
+  expect(edited.instrumentId).toBe(edited.instrument.id);
+  expect(edited.sourceInstrument.id).toBe(edited.instrument.id);
+  expect(result.tmdes[1]).toBe(other);
 });

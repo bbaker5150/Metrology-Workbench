@@ -1,3 +1,4 @@
+import { resolveRepeatabilityComponent } from "./repeatabilityComponent";
 import { inputSymbol } from "./budgetScope";
 import { resolveDynamicComponents } from "./dynamicBudgetComponents";
 import { budgetUnitMismatch, unresolvedComponent } from "./incompleteBudget";
@@ -28,6 +29,7 @@ export function resolvePointBudgetComponents(point, sessionData, instruments = [
     // already-added budget row without reintroducing equation-variable assignment.
     const refreshedTmdeComponents = rawComponents
       .map((component) => {
+        if (component.type === "A" && component.savedInputs) return resolveRepeatabilityComponent(component, getReferencePoint(component));
         if (component?.uutResolutionBudgetSource) {
           const source = Array.isArray(uutToleranceData)
             ? uutToleranceData.map((tolerance, index) =>

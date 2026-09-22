@@ -1,3 +1,5 @@
+import { inputBinding, inputSymbol } from "../../utils/budgetScope";
+import { resolveRepeatabilityComponent } from "../../utils/repeatabilityComponent";
 import { removeDynamicBudgetComponent } from "../../utils/dynamicBudgetComponents";
 /**
  * src/features/analysis/Analysis.jsx
@@ -670,25 +672,16 @@ function Analysis({
     }
   };
 
+  const repeatabilityNominal = manualComponentScope?.nominalPoint ||
+    (testPointData.measurementType === "derived" && editingComponent
+      ? testPointData.variableNominals?.[inputSymbol(editingComponent, testPointData.variableMappings)] : null) || uutNominal;
+
   const handleSaveRepeatability = (data) => {
     // When opened from a derived subbudget header, manualComponentScope carries
     // the variable this Type A component belongs to. Convert relative to that
     // variable's nominal (falling back to the UUT nominal for direct points).
     const scope = manualComponentScope;
-    const nominalForConv = scope?.nominalPoint || uutNominal;
-    const { value: ppm, warning } = convertToPPM(
-      data.stdDev,
-      data.unit,
-      nominalForConv?.value,
-      nominalForConv?.unit,
-      null,
-      true,
-    );
-    if (warning) {
-      setNotification({ title: "Conversion Error", message: warning });
-      return;
-    }
-
+    const nominalForConv = repeatabilityNominal;
     const isEditing =
       editingComponent &&
       editingComponent.id.toString().includes("repeatability");
@@ -698,14 +691,13 @@ function Analysis({
     // Route into the right subbudget: explicit scope on add, else preserve the
     // existing component's variable on edit.
     const variableType = scope?.variableType ?? editingComponent?.variableType;
-    const componentData = {
+    const componentData = resolveRepeatabilityComponent({
       id: newId,
       name: "Repeatability",
       sourcePointLabel: scope?.label
         ? `${scope.label} • N=${data.count}`
         : `N=${data.count}, Mean=${data.mean.toPrecision(5)}`,
       type: "A",
-      value: ppm,
       value_native: data.stdDev,
       unit_native: data.unit,
       dof: data.dof,
@@ -713,7 +705,9 @@ function Analysis({
       isCore: false,
       savedInputs: data,
       ...(variableType ? { variableType } : {}),
-    };
+      ...(editingComponent?.variableSymbol ? { variableSymbol: editingComponent.variableSymbol } : {}),
+      ...inputBinding(scope),
+    }, nominalForConv);
 
     const updatedComponents = isEditing
       ? manualComponents.map((c) => (c.id === newId ? componentData : c))
@@ -938,7 +932,7 @@ function Analysis({
           setManualComponentScope(null);
         }}
         onSave={handleSaveRepeatability}
-        uutNominal={manualComponentScope?.nominalPoint || uutNominal}
+        uutNominal={repeatabilityNominal}
         existingData={editingComponent}
         position={modalPosition}
       />

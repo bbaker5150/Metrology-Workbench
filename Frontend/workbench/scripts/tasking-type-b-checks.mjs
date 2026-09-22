@@ -54,6 +54,11 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
   await frame.getByRole("button", { name: "Instrument builder", exact: true }).click();
   await frame.locator(".library-table tbody tr").filter({ hasText: "Range action uut" }).dblclick();
   const builder = frame.locator(".instrument-builder-wrapper");
+  check("builder omits the legacy Type B cards", await builder.locator(".typeb-card").count() === 0);
+  check("active function uses the neutral border", await builder.locator(".function-spec-section.is-active").first().evaluate(node => {
+    const probe = document.createElement('div'); probe.style.border = '1px solid var(--border-color)'; node.appendChild(probe);
+    const neutral = getComputedStyle(probe).borderTopColor; probe.remove(); return getComputedStyle(node).borderTopColor === neutral;
+  }));
   const associated = builder.locator(".budget-dynamic-row").filter({ hasText: "TMDE point equation" });
   check("drag association appears when the instrument is opened in the builder", await associated.count() === 1);
   check("builder has one compact Type B add menu and no reusable help text", await builder.getByRole("button", { name: "Add Type B component", exact: true }).count() === 1 && !(await builder.innerText()).includes("Reusable components"));

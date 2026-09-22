@@ -20,7 +20,7 @@ export async function checkInputTasking({ frame, page, check, until, saved }) {
   const first = frame.locator('[data-point-id="point"]');
   await first.locator('[data-sidebar-column="pfa"]').click();
   const inputs = frame.locator('.measurement-inputs-table');
-  check('Measurement Inputs always displays Bias', await until(async () => await inputs.locator('thead th').count() === 4) && await frame.getByRole('button', { name: 'Input bias display', exact: true }).count() === 1);
+  check('Measurement Inputs displays Bias when enabled for the area', await until(async () => await inputs.locator('thead th').count() === 4) && await frame.getByRole('button', { name: 'Input bias display', exact: true }).count() === 1);
   const tmde = frame.locator('.instrument-equipment-table').nth(1);
   await tmde.locator('.cell-tolerance .inline-tolerance-summary').first().click();
   await tmde.getByRole('button', { name: 'Bias', exact: true }).click();

@@ -311,6 +311,7 @@ export const getBudgetComponentsFromTolerance = (
         type: "B",
         value: finalValuePPM,        // Passing PPM to calculation engine
         isBaseUnitValue: isBaseUnitValue, 
+        authoredTolerance: toleranceObject,
         toleranceLimit_native: unitSystem.fromBaseUnit(totalAccuracyHalfSpan_Base, nominalUnit),
         value_native: u_i_native,    // Passing Absolute to Table Display
         unit_native: nominalUnit,

@@ -21447,3 +21447,21 @@ dialog.point-columns-dialog::backdrop { background: rgb(10 18 32 / 35%); }
 .instrument-builder-wrapper .budget-order-controls { display: none; }
 
 .instrument-builder-wrapper .budget-source-cell.has-order-controls { padding-left: 8px; }
+
+/* Compact instrument editors keep action buttons at the cell's right edge. */
+.uncertainty-module .instrument-equipment-table .range-row-cell:has(.is-editing) {
+  width: 100%; grid-template-columns: minmax(max-content, 1fr) 24px 24px;
+}
+.uncertainty-module .instrument-equipment-table .range-row-cell--without-actions:has(.is-editing) { grid-template-columns: minmax(max-content, 1fr); }
+.uncertainty-module .instrument-equipment-table .inline-range-editor.is-editing { min-width: 0; width: max-content; }
+.uncertainty-module .inline-range-editor.is-editing .inline-range-main {
+  display: grid; grid-template-columns: max-content max-content max-content; gap: 3px 5px;
+}
+.uncertainty-module .inline-range-editor.is-editing .inline-range-main > .inline-unit-select { grid-row: 2; grid-column: 1 / -1; justify-self: start; }
+.uncertainty-module .instrument-equipment-table .instrument-resolution-editor {
+  display: grid; grid-template-columns: max-content max-content; min-width: 0; width: max-content; gap: 3px 5px;
+}
+.uncertainty-module .instrument-resolution-editor > .inline-resolution-dist { grid-row: 2; grid-column: 1 / -1; }
+.uncertainty-module .results-workflow-container > .sidebar-resizer::after { opacity: 0; }
+.uncertainty-module .results-workflow-container > .sidebar-resizer:is(:hover, :focus-visible)::after { opacity: 1; }
+.repeatability-unit-warning { color: var(--status-warning, #a16207); margin: 0 0 12px; }

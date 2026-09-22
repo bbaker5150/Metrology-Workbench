@@ -11,7 +11,7 @@ it.each(["direct", "derived"])("exposes a persistent net editor for %s points wi
     testPointInfo: { parameter: { name: "Voltage", value: 5, unit: "V" } } };
   function Harness() {
     const [point, setPoint] = useState(initial); saved = point;
-    return <UncertaintyPanel testPointData={point} sessionData={{ id: "s", uuts: [], tmdes: [], testPoints: [point] }}
+    return <UncertaintyPanel testPointData={point} sessionData={{ measurementAreaGroups: [{ name: "Voltage", pointCreationSettings: { showBias: true } }], id: "s", uuts: [], tmdes: [], testPoints: [point] }}
       uutNominal={point.testPointInfo.parameter} tmdeTolerancesData={[]} onUpdateTestPoint={patch => setPoint(previous => ({ ...previous, ...patch }))} />;
   }
   render(<Harness />);

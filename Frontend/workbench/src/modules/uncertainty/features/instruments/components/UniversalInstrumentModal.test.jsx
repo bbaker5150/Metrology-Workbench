@@ -569,7 +569,7 @@ describe("UniversalInstrumentModal library synchronization", () => {
     expect(screen.getByText("Type B Uncertainties")).toBeInTheDocument();
     expect(screen.queryByText("Associated Type B")).not.toBeInTheDocument();
     expect(screen.queryByText(/Type B uncertainties carried with this instrument/i)).not.toBeInTheDocument();
-    expect(screen.getByText("No Type B Uncertainties yet.")).toBeInTheDocument();
+    expect(document.querySelector(".typeb-editor table")).toBeNull();
     const typeBToolbar = screen.getByText("Type B Uncertainties").closest(".spec-sheet-toolbar");
     expect(typeBToolbar).toHaveClass("typeb-spec-toolbar");
     expect(typeBToolbar.closest(".instrument-typeb-section")).toBeNull();
@@ -655,7 +655,7 @@ describe("UniversalInstrumentModal library synchronization", () => {
     });
 
     expect(screen.getByText("No functions yet.")).toBeInTheDocument();
-    expect(screen.getByText("No Type B Uncertainties yet.")).toBeInTheDocument();
+    expect(document.querySelector(".typeb-editor table")).toBeNull();
     expect(screen.getAllByRole("button", { name: /^Add Function$/i })).toHaveLength(1);
     expect(screen.getAllByRole("button", { name: /^Add Type B component$/i })).toHaveLength(1);
   });

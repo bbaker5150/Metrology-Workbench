@@ -1,9 +1,28 @@
 import { readEditorDraft } from "./editorRecovery";
 import { v4 as uuid } from "uuid";
 import { createDynamicDefinition, createDynamicComponent, canUseDynamicDefinition, findDynamicTableRow } from "./dynamicBudgetComponents";
-import { createInlineManualComponent, normalizeInlineManualComponent } from "../features/analysis/utils/manualComponentUtils";
+import { createInlineManualComponent, normalizeInlineManualComponent, getInlineManualDraft } from "../features/analysis/utils/manualComponentUtils";
 import { inputBinding } from "./budgetScope";
 export const BUDGET_COMPONENT_MIME = "application/x-workbench-budget-component";
+
+// Upgrade authored legacy components into the shared manual editor. Empty
+// legacy placeholders are not user-authored components and should disappear.
+export function normalizeInstrumentTypeBComponents(components = []) {
+  return (Array.isArray(components) ? components : []).flatMap(record => {
+    if (record.budgetComponent) return [record];
+    const hasValue = value => value != null && String(value).trim() !== "";
+    const authored = hasValue(record.name) || hasValue(record.toleranceLimit) || hasValue(record.standardUncertainty) ||
+      Object.values(record.tolerance || {}).some(term => term && typeof term === "object" &&
+        [term.high, term.low, term.value, term.limit].some(hasValue));
+    if (!authored) return [];
+    const component = { id: record.id, name: record.name || "", type: "B", isCore: false,
+      isManual: true, isInlineManual: true, inlineDraft: false, distributionDivisor: record.distribution || "not_set",
+      originalInput: { ...record, errorDistributionDivisor: record.distribution || "not_set" } };
+    const draft = getInlineManualDraft(component);
+    const normalized = normalizeInlineManualComponent({ component, draft, referencePoint: { value: "", unit: record.unit || "" } });
+    return [{ ...record, kind: "manual", budgetComponent: normalized }];
+  });
+}
 export function portableBudgetComponent(component) {
   // Only authored fields travel; derived results, variable bindings and source
   // instrument links must be resolved afresh at the destination.
@@ -57,7 +76,7 @@ export function budgetDragProps(component) {
 // Saving the instrument includes the active editor even when its click-away
 // commit is still queued. Escape removes that draft and preserves the baseline.
 export function withInstrumentEditorDrafts(instrument) {
-  return { ...instrument, typeBComponents: (instrument.typeBComponents || []).map(record => {
+  return { ...instrument, typeBComponents: normalizeInstrumentTypeBComponents(instrument.typeBComponents).map(record => {
     const component = record.budgetComponent;
     if (!component) return record;
     const draft = readEditorDraft(`${component.dynamicDefinitionId ? "dynamic" : "manual"}:${component.id}`);
@@ -75,7 +94,7 @@ export function syncInstrumentBudgetComponents(session, instrument) {
   const result = { ...session };
   for (const list of ["uuts", "tmdes"]) {
     result[list] = (session[list] || []).map(item => {
-      if (item.instrument?.scope === "shared" || !instrument.id ||
+      if (["shared", "validated"].includes(item.instrument?.scope) || !instrument.id ||
           ![item.instrument?.id, item.libraryInstrumentId].includes(instrument.id)) return item;
       if (JSON.stringify(item.instrument?.typeBComponents || []) === JSON.stringify(instrument.typeBComponents || [])) return item;
       changed = true;

@@ -1,3 +1,4 @@
+import { checkSeptember22Followup } from "./september22-followup-checks.mjs";
 import { prepareInputTasking } from './input-tasking-checks.mjs';
 export function prepareWorkspacePolish(session) {
   prepareInputTasking(session);
@@ -120,4 +121,5 @@ export async function checkWorkspacePolish({ frame, page, saved, until, check })
   await section.dragTo(frame.locator('[data-detail-section="budget"]'));
   check('Measurement Bias reorders with other workspace sections', await until(() => saved().detailSectionOrder?.indexOf('equation') > saved().detailSectionOrder?.indexOf('budget')));
   await frame.locator('[data-point-id="point"] [data-sidebar-column="pfa"]').click();
+  await checkSeptember22Followup({ frame, page, saved, until, check });
 }

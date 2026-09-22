@@ -306,7 +306,7 @@ const buildPastedInstrumentRow = (src, kind, area, mode) => {
     id: copiedRowId,
     ...areaFields,
     instrument: sourceDefinition
-      ? { ...sourceDefinition, id: copiedDefinitionId, ...nestedArea }
+      ? { ...sourceDefinition, id: copiedDefinitionId, scope: sourceDefinition.scope || "local", ...nestedArea }
       : sourceDefinition,
   };
 
@@ -336,7 +336,7 @@ const buildPastedInstrumentRow = (src, kind, area, mode) => {
     };
   }
   if (
-    copiedRow.instrument &&
+    isLocalCopy && copiedRow.instrument &&
     sourceDefinitionId !== undefined &&
     String(copiedRow.instrument.sourceId ?? "") === String(sourceDefinitionId)
   ) {
@@ -3329,7 +3329,7 @@ export const ResolutionCellInput = ({
   return (
     <span
       ref={containerRef}
-      className="inline-resolution-editor"
+      className="inline-resolution-editor instrument-resolution-editor"
       onMouseDown={(e) => e.stopPropagation()}
       onBlur={handleBlur}
       onKeyDownCapture={(event) => {
@@ -5861,13 +5861,25 @@ const localInstrumentIdentityKeys = (item = {}) => {
   );
 };
 
+const replaceSessionDefinitionIdentity = (item, definition) => {
+  const aliases = new Set([item.instrument?.id, item.libraryInstrumentId, item.instrument?.libraryInstrumentId].filter(Boolean).map(String));
+  const next = { ...item, libraryInstrumentId: definition.id, instrument: definition };
+  for (const key of ["definitionId", "instrumentId", "sourceInstrumentId"]) {
+    if (aliases.has(String(item[key]))) next[key] = definition.id;
+  }
+  if (aliases.has(String(item.sourceInstrument?.id))) next.sourceInstrument = { ...item.sourceInstrument, id: definition.id };
+  return next;
+};
+
 // Inline table edits must never attempt to mutate the canonical shared record.
 // Fork a validated definition into a linked local copy before the edit enters
 // the session/local-library persistence pipeline. The original shared snapshot
 // remains available for diffing and an explicit future Sync action.
 export const localizeSharedInstrumentEdit = (item = {}, library = []) => {
   const definition = item?.instrument || {};
-  if (definition.scope !== "validated") return item;
+  if (definition.scope !== "validated") return definition.id && definition.scope === "local" ? item : {
+    ...item, instrument: { ...definition, id: definition.id || item.libraryInstrumentId || item.id || uuidv4(), scope: "local" },
+  };
 
   const sourceId =
     definition.sourceId ||
@@ -5882,204 +5894,38 @@ export const localizeSharedInstrumentEdit = (item = {}, library = []) => {
     ? uuidv4()
     : definition.id || uuidv4();
 
-  return {
-    ...item,
-    libraryInstrumentId: item.libraryInstrumentId || sourceId,
-    instrument: {
+  return replaceSessionDefinitionIdentity(item, {
       ...definition,
       id: localDefinitionId,
-      libraryInstrumentId: definition.libraryInstrumentId || sourceId,
+      libraryInstrumentId: localDefinitionId,
       scope: "local",
       sourceId,
       validatedSnapshot:
         definition.validatedSnapshot ||
         buildValidatedSnapshot(sharedDefinition || definition),
       localOverride: true,
-    },
-  };
-};
-
-const hasSetDistribution = (value) =>
-  value !== undefined &&
-  value !== null &&
-  String(value).trim() !== "" &&
-  String(value) !== String(DISTRIBUTION_NOT_SET);
-
-// The UUT table authors tolerance magnitudes but does not expose the TMDE
-// accuracy-distribution column. When the same local instrument occupies both
-// roles, a UUT tolerance edit must therefore preserve the distribution already
-// authored on its TMDE definition. Fold those distribution-only fields into
-// the edited tolerance without restoring terms the UUT intentionally removed.
-const mergeToleranceBandDistributions = (
-  sourceTolerance = {},
-  tmdeTolerance = {},
-) => {
-  const next = { ...(sourceTolerance || {}) };
-  BAND_DIST_KEYS.forEach((key) => {
-    const sourceComponent = sourceTolerance?.[key];
-    const tmdeDistribution = tmdeTolerance?.[key]?.distribution;
-    if (sourceComponent && hasSetDistribution(tmdeDistribution)) {
-      next[key] = {
-        ...sourceComponent,
-        distribution: tmdeDistribution,
-      };
-    }
   });
-  if (hasSetDistribution(tmdeTolerance?.bandDistribution)) {
-    next.bandDistribution = tmdeTolerance.bandDistribution;
-  }
-  return next;
 };
 
-const mergeDefinitionBandDistributions = (
-  sourceDefinition = {},
-  tmdeDefinition = {},
-) => {
-  const tmdeFunctions = Array.isArray(tmdeDefinition.functions)
-    ? tmdeDefinition.functions
-    : [];
-  const mergeRanges = (sourceRanges = [], tmdeRanges = []) =>
-    sourceRanges.map((sourceRange, index) => {
-      const sourceRangeIds = [sourceRange?.id, sourceRange?.rangeId].filter(
-        (id) => id !== undefined && id !== null && String(id) !== "",
-      );
-      const tmdeRange = sourceRangeIds.length
-        ? tmdeRanges.find((candidate) =>
-            sourceRangeIds.some((id) => rangeMatches(candidate, id)),
-          )
-        : tmdeRanges[index];
-      if (!tmdeRange) return sourceRange;
-      const sourceTolerance =
-        sourceRange?.tolerances || sourceRange?.tolerance || null;
-      const tmdeTolerance =
-        tmdeRange?.tolerances || tmdeRange?.tolerance || null;
-      if (!sourceTolerance || !tmdeTolerance) return sourceRange;
-      const toleranceKey = Object.prototype.hasOwnProperty.call(
-        sourceRange,
-        "tolerances",
-      )
-        ? "tolerances"
-        : "tolerance";
-      return {
-        ...sourceRange,
-        [toleranceKey]: mergeToleranceBandDistributions(
-          sourceTolerance,
-          tmdeTolerance,
-        ),
-      };
-    });
-
-  const next = { ...sourceDefinition };
-  if (Array.isArray(sourceDefinition.functions)) {
-    next.functions = sourceDefinition.functions.map((sourceFunction, index) => {
-      const sourceFunctionId =
-        sourceFunction?.id !== undefined &&
-        sourceFunction?.id !== null &&
-        String(sourceFunction.id) !== ""
-          ? sourceFunction.id
-          : null;
-      const sourceFunctionName = cleanFunctionName(sourceFunction?.name);
-      const hasFunctionIdentity =
-        sourceFunctionId !== null || Boolean(sourceFunctionName);
-      const matchedFunction = tmdeFunctions.find(
-        (candidate) =>
-          (sourceFunctionId !== null &&
-            sameId(candidate?.id, sourceFunctionId)) ||
-          (sourceFunctionName &&
-            functionNameMatches(candidate?.name, sourceFunctionName) &&
-            functionUnitsMatch(
-              candidate?.unit || candidate?.units?.[0] || "",
-              sourceFunction?.unit || sourceFunction?.units?.[0] || "",
-            )),
-      );
-      const tmdeFunction =
-        matchedFunction || (!hasFunctionIdentity ? tmdeFunctions[index] : null);
-      return tmdeFunction
-        ? {
-            ...sourceFunction,
-            ranges: mergeRanges(
-              sourceFunction.ranges || [],
-              tmdeFunction.ranges || [],
-            ),
-          }
-        : sourceFunction;
-    });
-  } else if (Array.isArray(sourceDefinition.ranges)) {
-    next.ranges = mergeRanges(
-      sourceDefinition.ranges,
-      tmdeDefinition.ranges || [],
-    );
-  }
-  return next;
-};
-
-// UUT and TMDE rows are two roles for one local library instrument, not two
-// independent copies. Keep their embedded definitions identical while
-// preserving row-only fields (selection, area placement, quantity, etc.).
-export const synchronizeLocalInstrumentDefinitions = (
-  session = {},
-  updatedItem = {},
-  updatedKind = "",
-) => {
-  const sourceDefinition = updatedItem?.instrument || {};
+// Editing a session instance never changes another row. Older sessions can
+// contain several rows pointing at one local definition: detach the edited row
+// once, then retain that id on subsequent edits.
+export const synchronizeLocalInstrumentDefinitions = (session = {}, updatedItem = {}, updatedKind = "") => {
+  const definition = updatedItem.instrument || {};
   const sourceKeys = localInstrumentIdentityKeys(updatedItem);
-  if (sourceDefinition.scope === "validated") {
-    return {
-      uuts: session.uuts || [],
-      tmdes: session.tmdes || [],
-    };
+  const sharedWithAnotherRow = ["uut", "tmde"].some(kind =>
+    (session[kind === "uut" ? "uuts" : "tmdes"] || []).some(item =>
+      !(kind === updatedKind && sameId(item.id, updatedItem.id)) &&
+      [...localInstrumentIdentityKeys(item)].some(key => sourceKeys.has(key))));
+  let nextItem = updatedItem;
+  if (definition.scope !== "validated" && sharedWithAnotherRow) {
+    const id = uuidv4();
+    nextItem = replaceSessionDefinitionIdentity(updatedItem, { ...definition, id, libraryInstrumentId: id, scope: "local" });
   }
-
-  const matchesSource = (item) => {
-    const keys = localInstrumentIdentityKeys(item);
-    return [...keys].some((key) => sourceKeys.has(key));
-  };
-  const matchingTmde =
-    updatedKind === "uut"
-      ? (session.tmdes || []).find(matchesSource)
-      : null;
-  const canonicalDefinition = matchingTmde
-    ? mergeDefinitionBandDistributions(
-        sourceDefinition,
-        matchingTmde.instrument || {},
-      )
-    : sourceDefinition;
-  const mergeDefinition = (item, kind) => {
-    if (kind === updatedKind && String(item.id) === String(updatedItem.id)) {
-      return canonicalDefinition === sourceDefinition
-        ? updatedItem
-        : { ...updatedItem, instrument: canonicalDefinition };
-    }
-    if (!matchesSource(item)) return item;
-    const currentDefinition = item.instrument || {};
-    const roleFields =
-      kind === "tmde"
-        ? {
-            measurementArea: currentDefinition.measurementArea || "",
-            measurementAreaColor: currentDefinition.measurementAreaColor || "",
-          }
-        : {};
-    return {
-      ...item,
-      ...(kind === "uut"
-        ? { description: canonicalDefinition.description || item.description || "" }
-        : { name: canonicalDefinition.description || item.name || "" }),
-      libraryInstrumentId:
-        updatedItem.libraryInstrumentId ||
-        canonicalDefinition.libraryInstrumentId ||
-        canonicalDefinition.id ||
-        item.libraryInstrumentId,
-      instrument: {
-        ...canonicalDefinition,
-        ...roleFields,
-      },
-    };
-  };
-
-  return {
-    uuts: (session.uuts || []).map((item) => mergeDefinition(item, "uut")),
-    tmdes: (session.tmdes || []).map((item) => mergeDefinition(item, "tmde")),
-  };
+  return Object.fromEntries(["uut", "tmde"].map(kind => {
+    const list = kind === "uut" ? "uuts" : "tmdes";
+    return [list, (session[list] || []).map(item => kind === updatedKind && sameId(item.id, updatedItem.id) ? nextItem : item)];
+  }));
 };
 
 export const countTmdeBudgetUses = (components = [], tmde = {}) => {
@@ -7267,8 +7113,7 @@ const SummaryDashboard = ({
         message: `Associate ${component.name || "this component"} with ${item.name || item.instrument?.model || "this instrument"}? It will be available from that instrument in other budgets.`,
         onConfirm: () => {
           const next = associateBudgetComponent(latestSessionDataRef.current, kind, targetId, component);
-          onSessionSave?.(next);
-          saveItemInstrumentToLocalLibrary(kind, next[kind === "uut" ? "uuts" : "tmdes"].find(item => String(item.id) === String(targetId)));
+          persistInlineItem(kind, next[kind === "uut" ? "uuts" : "tmdes"].find(item => String(item.id) === String(targetId)));
         },
       });
       return;
@@ -8590,7 +8435,6 @@ const SummaryDashboard = ({
       },
     };
     persistItem(kind, updatedItem);
-    saveItemInstrumentToLocalLibrary(kind, updatedItem);
     setTypeBEditor((prev) =>
       prev && prev.item?.id === item.id ? { ...prev, item: updatedItem } : prev,
     );
@@ -10484,8 +10328,7 @@ function DetailedView({
         message: `Associate ${component.name || "this component"} with ${item.name || item.instrument?.model || "this instrument"}? It will be available from that instrument in other budgets.`,
         onConfirm: () => {
           const next = associateBudgetComponent(latestSessionDataRef.current, kind, targetId, component);
-          onSessionSave?.(next);
-          saveItemInstrumentToLocalLibrary(kind, next[kind === "uut" ? "uuts" : "tmdes"].find(item => String(item.id) === String(targetId)));
+          persistInlineItemDetail(kind, next[kind === "uut" ? "uuts" : "tmdes"].find(item => String(item.id) === String(targetId)));
         },
       });
       return;
@@ -14902,9 +14745,10 @@ function DetailedView({
     ? resolveMeasurementBias(testPointData, sessionData, undefined, { ignoreManual: true }) : null,
   [testPointData, sessionData, equationDisplayData]);
 
-  // Always display the source breakdown and net editor. An override is only
-  // persisted after editing; viewing a point leaves its risk calculation intact.
-  const showInputBias = true;
+  // Visibility is an area preference; hiding controls never deletes authored bias.
+  const showInputBias = Boolean((sessionData.measurementAreaGroups || []).find(
+    area => makeFunctionKey(area.name) === activePointFunctionKey,
+  )?.pointCreationSettings?.showBias);
 
   const equationVariableInputs =
     hasUsableEquation ? (
@@ -15581,7 +15425,7 @@ function DetailedView({
       </div>
 
       {/* --- MIDDLE ROW: EQUATION --- */}
-      {(
+      {(isDerived || showInputBias) && (
         <DetailWorkspaceSectionToggle
           label={isDerived ? "Measurement Equation" : "Measurement Bias"}
           collapsed={collapsedDetailSections.has("equation")}
@@ -15591,7 +15435,7 @@ function DetailedView({
           className="detail-workspace-section-toggle--equation"
         />
       )}
-      <div
+      {(isDerived || showInputBias) && <div
         className={`measurement-equation-section detail-workspace-content detail-workspace-content--equation${
           collapsedDetailSections.has("equation") ? " is-collapsed" : ""
         }`}
@@ -15683,32 +15527,6 @@ function DetailedView({
                     </div>
                   </div>
                 </div>
-              {equationValidation &&
-                (equationValidation.status === "invalid" ||
-                  equationValidation.warnings.length > 0) && (
-                <div
-                  className="measurement-equation-validation"
-                  role="status"
-                  style={{ marginTop: "6px", fontSize: "0.84rem" }}
-                >
-                  {equationValidation.status === "invalid" ? (
-                    <span style={{ color: "var(--status-bad, #dc2626)" }}>
-                      <FontAwesomeIcon icon={faExclamationTriangle} />{" "}
-                      {equationValidation.error}
-                    </span>
-                  ) : (
-                    equationValidation.warnings.map((warning, idx) => (
-                      <span
-                        key={idx}
-                        style={{ display: "block", color: "#b45309" }}
-                      >
-                        <FontAwesomeIcon icon={faExclamationTriangle} />{" "}
-                        {warning}
-                      </span>
-                    ))
-                  )}
-                </div>
-              )}
               {symbolMenu}
               {isLibraryOpen &&
                 ReactDOM.createPortal(
@@ -15771,12 +15589,38 @@ function DetailedView({
                     <span className="measurement-equation-preview-empty">
                       {equationPreview.status === "empty"
                         ? "Set measurement equation"
-                        : "Edit measurement equation"}
+                        : testPointData.equationString}
                     </span>
                   )}
                 </button>
               )}
 
+              {equationValidation &&
+                (equationValidation.status === "invalid" ||
+                  equationValidation.warnings.length > 0) && (
+                <div
+                  className="measurement-equation-validation"
+                  role="status"
+                  style={{ marginTop: "6px", fontSize: "0.84rem" }}
+                >
+                  {equationValidation.status === "invalid" ? (
+                    <span style={{ color: "var(--status-bad, #dc2626)" }}>
+                      <FontAwesomeIcon icon={faExclamationTriangle} />{" "}
+                      {equationValidation.error}
+                    </span>
+                  ) : (
+                    equationValidation.warnings.map((warning, idx) => (
+                      <span
+                        key={idx}
+                        style={{ display: "block", color: "#b45309" }}
+                      >
+                        <FontAwesomeIcon icon={faExclamationTriangle} />{" "}
+                        {warning}
+                      </span>
+                    ))
+                  )}
+                </div>
+              )}
               </div>
             </div>
 
@@ -15798,7 +15642,7 @@ function DetailedView({
         </div>
         )}
 
-      </div>
+      </div>}
 
       {/* --- BOTTOM ROW: TMDEs (Kept as is) --- */}
       <div

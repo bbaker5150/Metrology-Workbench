@@ -1310,6 +1310,7 @@ describe("UncertaintyApp", () => {
         mode: "derived",
         reuseEquation: true,
         reuseBudget: true,
+        showBias: false,
       });
     });
   }, 15000);

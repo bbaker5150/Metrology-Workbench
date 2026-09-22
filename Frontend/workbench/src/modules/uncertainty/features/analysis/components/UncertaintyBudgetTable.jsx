@@ -1221,7 +1221,7 @@ const UncertaintyBudgetTable = ({
                     onCommit={commitManualValue}
                     suffix={getUnitDisplayLabel(component.manualUnit || tolLimit.unit)}
                   />
-                ) : component.pendingReason && component.authoredTolerance ? (
+                ) : component.authoredTolerance ? (
                   formatToleranceSummary?.(component.authoredTolerance)?.[0] || "Pending measurement value"
                 ) : component.isPropagationSummary ? (
                   `± ${formatNumber(std.value, getGroupSigFigs(group))} ${getUnitDisplayLabel(std.unit)}`

@@ -319,7 +319,7 @@ describe("local instrument persistence", () => {
 
     const editedDefinition = {
       ...savedLocal,
-      id: "new-session-row-id",
+      id: savedLocal.id,
       functions: [
         {
           name: "Voltage",
@@ -402,4 +402,19 @@ it("replays recovered notes after a numeric-ID session save completes", async ()
   await act(async () => finishSave({}));
   await waitFor(() => expect(axios.patch).toHaveBeenCalledWith(expect.stringMatching(/sessions\/1\/notes\/$/), { notes: "Latest paragraph" }));
   await waitFor(() => expect(readRecovery().notes).toEqual({}));
+});
+
+
+it("persists independent local copies with the same name and shared lineage by id", async () => {
+  const first = { id: "local-one", scope: "local", sourceId: "shared", description: "Meter", manufacturer: "Acme", model: "DMM", functions: [] };
+  axios.get.mockImplementation(url => Promise.resolve({ data: url.includes("/instruments/") ? [first] : [] }));
+  axios.post.mockImplementation((url, payload) => Promise.resolve({ data: payload }));
+  const { result } = renderHook(() => useSessionManager());
+  await waitFor(() => expect(result.current.instruments).toHaveLength(1));
+  const second = { ...first, id: "local-two", functions: [{ name: "Voltage", ranges: [{ min: 0, max: 20 }] }] };
+  await act(async () => { await result.current.saveInstrument(second); });
+  expect(result.current.instruments).toEqual([expect.objectContaining(first), expect.objectContaining(second)]);
+  await act(async () => { await result.current.saveInstrument({ ...second, functions: [] }); });
+  expect(result.current.instruments).toHaveLength(2);
+  expect(result.current.instruments[0]).toEqual(first);
 });

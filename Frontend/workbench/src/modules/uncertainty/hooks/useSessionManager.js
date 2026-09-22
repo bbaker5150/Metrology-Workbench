@@ -187,33 +187,12 @@ const useSessionManager = () => {
     return nextInstruments;
   }, []);
 
-  const dedupeLibraryInstruments = useCallback((items) => {
-    const seenLinkedLocal = new Set();
-    return (items || []).filter((instrument) => {
-      if (instrument?.scope !== "local" || !instrument.sourceId) return true;
-      const owner = instrument.owner || getDeviceKey();
-      const key = `${owner}:${instrument.sourceId}`;
-      if (seenLinkedLocal.has(key)) return false;
-      seenLinkedLocal.add(key);
-      return true;
-    });
+  // Identity is the record id. Copies may legitimately share names and shared
+  // lineage while containing independent specifications.
+  const dedupeLibraryInstruments = useCallback(items => {
+    const byId = new Map((items || []).map(item => [String(item.id), item]));
+    return [...byId.values()];
   }, []);
-
-  // A local library record represents the instrument identified by its Mfr.,
-  // Model, and optional Name. Specifications (functions, ranges, tolerances,
-  // resolution, etc.) are deliberately *not* part of that identity: editing a
-  // specification must update the existing local record instead of creating a
-  // second version of the same instrument.
-  const sameLocalInstrumentIdentity = (left = {}, right = {}) => {
-    const normalize = (value) => String(value || "").trim().toLowerCase();
-    const identity = ["manufacturer", "model", "description"];
-    return (
-      identity.some((field) => normalize(left[field]) || normalize(right[field])) &&
-      identity.every((field) =>
-        normalize(left[field]) === normalize(right[field]),
-      )
-    );
-  };
 
   const replaceSessions = useCallback((updater) => {
     const nextSessions = (typeof updater === "function" ? updater(sessionsRef.current) : updater).map(session => trackInstrumentOnboarding(inheritMissingPointUnits(migrateMeasurementAreas(session)), sessionsRef.current.find(previous => previous.id === session.id)));
@@ -479,47 +458,9 @@ const useSessionManager = () => {
       scope: instrument.scope || "local",
     };
 
-    if (payload.scope === "local" && payload.sourceId) {
-      const existingLinkedLocal = instrumentsRef.current.find(
-        (i) =>
-          i.scope === "local" &&
-          i.sourceId === payload.sourceId &&
-          (i.owner || getDeviceKey()) === payload.owner,
-      );
-      if (existingLinkedLocal) {
-        payload = { ...payload, id: existingLinkedLocal.id };
-      }
-    } else if (payload.scope === "local") {
-      const sameDefinition = instrumentsRef.current.find((i) => {
-        if (i.scope !== "local" || i.sourceId) return false;
-        if ((i.owner || getDeviceKey()) !== payload.owner) return false;
-        return sameLocalInstrumentIdentity(i, payload);
-      });
-      if (sameDefinition) {
-        payload = { ...payload, id: sameDefinition.id };
-      }
-    }
-
-    replaceInstruments((prev) => {
-      const existingIdx = prev.findIndex((i) => i.id === payload.id);
-      const withoutDuplicateLinkedLocals =
-        payload.scope === "local" && payload.sourceId
-          ? prev.filter(
-              (i) =>
-                i.id === payload.id ||
-                i.scope !== "local" ||
-                i.sourceId !== payload.sourceId ||
-                (i.owner || getDeviceKey()) !== payload.owner,
-            )
-          : prev;
-      if (existingIdx > -1) {
-        const next = [...withoutDuplicateLinkedLocals];
-        const nextIdx = next.findIndex((i) => i.id === payload.id);
-        next[nextIdx] = payload;
-        return next;
-      }
-      return [...withoutDuplicateLinkedLocals, payload];
-    });
+    replaceInstruments(prev => prev.some(item => String(item.id) === String(payload.id))
+      ? prev.map(item => String(item.id) === String(payload.id) ? payload : item)
+      : [...prev, payload]);
 
     // Writing to the validated (shared) library is password-gated on the
     // backend. Those writes must go through the password-carrying sync flow

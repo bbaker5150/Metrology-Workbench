@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { cutInstrumentsFromSession, pasteInstrumentIntoSession, pasteRangeIntoItem, sortRangesInItem } from "./UncertaintyPanel";
+import { cutInstrumentsFromSession, pasteInstrumentIntoSession, pasteRangeIntoItem, sortRangesInItem, localizeSharedInstrumentEdit, synchronizeLocalInstrumentDefinitions, addRangeToItem } from "./UncertaintyPanel";
 import { makeMeasurementAreaKey } from "../../../utils/measurementAreaGrouping";
 import { formatInstrumentIdentity } from "../../../utils/instrumentIdentity";
 const item = (id, area) => ({ id, nickname: "Tag", measurementAreaNames: [area], instrument: {
@@ -80,4 +80,24 @@ it.each(["uut", "tmde"])("keeps repeated copies independent in %s", kind => {
   expect(second.row.sourceId).toBe(second.row.id);
   expect(second.row.definitionId).toBe(second.row.instrument.id);
   expect(source.measurementAreaNames).toEqual(["Torque"]);
+});
+
+
+it.each(["local", "validated"])("forks copied %s instruments on edits while preserving shared lineage", scope => {
+  const source = item("source", "Torque");
+  Object.assign(source.instrument, { scope, sourceId: scope === "validated" ? source.instrument.id : undefined });
+  const session = { uuts: [source], tmdes: [], measurementAreaGroups: [{ name: "Torque" }] };
+  const pasted = pasteInstrumentIntoSession(session, { kind: "uut", mode: "copy", item: source }, "tmde", "torque");
+  const edited = addRangeToItem(pasted.row, "r2").item;
+  const local = localizeSharedInstrumentEdit(edited, [source.instrument]);
+  const saved = synchronizeLocalInstrumentDefinitions(pasted.session, local, "tmde");
+  expect(saved.uuts[0]).toBe(source);
+  expect(saved.uuts[0].instrument.functions[0].ranges).toHaveLength(2);
+  expect(saved.tmdes[0].instrument.functions[0].ranges).toHaveLength(3);
+  expect(saved.tmdes[0].instrument.id).not.toBe(source.instrument.id);
+  expect(saved.tmdes[0].instrument.scope).toBe("local");
+  if (scope === "validated") expect(saved.tmdes[0].instrument.sourceId).toBe(source.instrument.id);
+  const again = synchronizeLocalInstrumentDefinitions(saved, addRangeToItem(saved.tmdes[0], "r2").item, "tmde");
+  expect(again.tmdes[0].instrument.id).toBe(saved.tmdes[0].instrument.id);
+  expect(again.uuts[0]).toBe(source);
 });

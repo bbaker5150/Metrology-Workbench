@@ -184,6 +184,7 @@ const DEFAULT_FUNCTION_POINT_SETTINGS = Object.freeze({
   mode: "direct",
   reuseEquation: false,
   reuseBudget: false,
+  showBias: false,
 });
 
 const clonePointSettingValue = (value) => {
@@ -5539,6 +5540,11 @@ function App({ showThemeToggle = false }) {
               <div className="function-point-settings-heading">
                 <strong>Measurement Area Settings</strong>
               </div>
+              <label className="function-point-setting-check">
+                <input type="checkbox" checked={Boolean(settings.showBias)}
+                  onChange={event => updateFunctionPointSettings(fnGroup, { showBias: event.target.checked })} />
+                <span><strong>Show measurement bias</strong><small>Show bias controls for points in this area. Existing bias values remain applied when hidden.</small></span>
+              </label>
               <div className="function-point-type-options" role="radiogroup" aria-label="New point type">
                 {[
                   ["direct", "Direct"],
