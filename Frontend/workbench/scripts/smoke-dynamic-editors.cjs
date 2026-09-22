@@ -98,7 +98,7 @@ app.whenReady().then(async () => {
     await table.getByRole('button',{name:'Resize Error Limit column',exact:true}).press('ArrowLeft');
     const initialWidths=await widths();
     await add.click();
-    await page.getByRole('button',{name:'Add tabular uncertainty',exact:true}).click();
+    await page.getByRole('button',{name:'Add tabular component',exact:true}).click();
     const tabular=page.getByRole('group',{name:'Tabular uncertainty editor',exact:true});
     await tabular.waitFor();
     const name=page.getByRole('textbox',{name:'Error source name',exact:true});
@@ -127,7 +127,7 @@ app.whenReady().then(async () => {
     initialWidths.forEach((w,i)=>assert.ok(Math.abs(w-afterClose[i])<2,'Closing an editor must restore saved column widths'));
     console.log('PASS: tabular creation opens directly; shared selectors stay inside the editor; only active columns expand and all saved widths return');
     await add.click();
-    await page.getByRole('button',{name:'Add equation uncertainty',exact:true}).click();
+    await page.getByRole('button',{name:'Add equation component',exact:true}).click();
     const equation=page.getByRole('group',{name:'Equation uncertainty editor',exact:true});
     await equation.waitFor();
     await page.getByRole('textbox',{name:'Error source name',exact:true}).fill('Transfer equation');

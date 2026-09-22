@@ -30,7 +30,7 @@ export async function checkDynamicEquationCopies({ frame, page, saved, until, ch
   };
   await selectPoint(points.first());
   await frame.getByRole('button', { name: 'Add component to budget', exact: true }).last().click();
-  await frame.getByRole('button', { name: 'Add equation uncertainty', exact: true }).click();
+  await frame.getByRole('button', { name: 'Add equation component', exact: true }).click();
   await frame.getByLabel('Uncertainty equation', { exact: true }).fill('x/10');
   await frame.getByRole('button', { name: 'Edit error limit distribution', exact: true }).click();
   await frame.getByLabel('Error limit distribution', { exact: true }).selectOption('1.000');
@@ -62,7 +62,7 @@ export async function checkDynamicEquationCopies({ frame, page, saved, until, ch
   if (process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await page.screenshot({ path: `${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/copied-equation.png` });
   await outside();
   await frame.getByRole('button', { name: 'Add component to budget', exact: true }).last().click();
-  await frame.getByRole('button', { name: 'Add tabular uncertainty', exact: true }).click();
+  await frame.getByRole('button', { name: 'Add tabular component', exact: true }).click();
   const tableRow = frame.locator('.budget-dynamic-row').last();
   check('new tabular entry starts at the current measurement point', await frame.getByLabel('Measurement point row 1', { exact: true }).inputValue() === '7');
   await frame.getByLabel('Uncertainty row 1', { exact: true }).fill('.2');

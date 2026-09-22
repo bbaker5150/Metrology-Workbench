@@ -1,6 +1,6 @@
 import React from "react";
-import { render, screen } from "@testing-library/react";
-import { expect, it } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { expect, it, vi } from "vitest";
 import DecisionRiskCards from "./DecisionRiskCards";
 
 const formatValue = value => Number(value).toPrecision(4);
@@ -29,4 +29,16 @@ it("retains uncalculated cards and preserves valid zero results", () => {
   rerender(<DecisionRiskCards results={{ pfa: 0, pfr: "" }} formatValue={formatValue} />);
   expect(screen.getByText("PFA")).toBeInTheDocument();
   expect(screen.getByText("PFR")).toBeInTheDocument();
+});
+
+it("opens the appropriate breakdown only on modified click or keyboard activation", () => {
+  const show = vi.fn();
+  const { container } = render(<DecisionRiskCards results={{ pfa: 1, pfr: 3 }} formatValue={formatValue} onShowBreakdown={show} />);
+  const pfa = screen.getByText("PFA").parentElement;
+  const pfr = screen.getByText("PFR").parentElement;
+  fireEvent.click(pfa); expect(show).not.toHaveBeenCalled();
+  fireEvent.click(pfa, { ctrlKey: true }); expect(show).toHaveBeenLastCalledWith("pfa");
+  fireEvent.click(pfr, { metaKey: true }); expect(show).toHaveBeenLastCalledWith("pfr");
+  fireEvent.keyDown(pfa, { key: "Enter" }); expect(show).toHaveBeenLastCalledWith("pfa");
+  expect(container.querySelector(".budget-decision-caption")).toBeNull();
 });

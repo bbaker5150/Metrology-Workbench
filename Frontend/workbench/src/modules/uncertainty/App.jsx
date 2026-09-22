@@ -2345,6 +2345,7 @@ function App({ showThemeToggle = false }) {
     const saved = readUiSizingPreferences().sidebarWidth;
     return Number.isFinite(saved) ? saved : 550;
   });
+  const [workspacePane, setWorkspacePane] = useState(() => readUiSizingPreferences().workspacePane || "split");
   const [isSessionInfoOpen, setIsSessionInfoOpen] = useState(true);
   const [isRiskInputsOpen, setIsRiskInputsOpen] = useState(true);
   const [isMitigationInputsOpen, setIsMitigationInputsOpen] = useState(true);
@@ -2562,6 +2563,7 @@ function App({ showThemeToggle = false }) {
         Math.min(pointer, effectiveLimit),
       );
 
+      setWorkspacePane("split");
       setSidebarWidth(newWidth);
     };
 
@@ -2677,7 +2679,7 @@ function App({ showThemeToggle = false }) {
       // Editors/popovers own the first Escape (cancel or dismiss). Outside
       // those controls, clear both the multi-selection and the active point;
       // clearing only the former leaves the active-point glow behind.
-      if (event.target.closest?.('input, textarea, [contenteditable="true"], [role="dialog"], [role="listbox"], [role="menu"]')) return;
+      if (event.target.closest?.('input, textarea, select, [aria-haspopup], .sidebar-resizer, [contenteditable="true"], [role="dialog"], [role="listbox"], [role="menu"]')) return;
       setSelectedTestPointId(null);
       setSelectedTestPointContextUutId(null);
       setSelectedUutId(null);
@@ -2867,7 +2869,7 @@ function App({ showThemeToggle = false }) {
     try {
       window.localStorage.setItem(
         UNCERTAINTY_UI_SIZING_KEY,
-        JSON.stringify({ sidebarWidth, scopedZoomLevels, sidebarColumnWidths, resultsScaleVersion: 2 }),
+        JSON.stringify({ sidebarWidth, workspacePane, scopedZoomLevels, sidebarColumnWidths, resultsScaleVersion: 2 }),
       );
     } catch (error) {
       console.warn("Unable to save uncertainty sizing preferences", error);
@@ -2876,6 +2878,7 @@ function App({ showThemeToggle = false }) {
     hadStoredUiSizingAtMount,
     loadedPreferencesSessionId,
     sidebarWidth,
+    workspacePane,
     scopedZoomLevels,
     sidebarColumnWidths,
   ]);
@@ -3344,6 +3347,7 @@ function App({ showThemeToggle = false }) {
       ) {
         e.preventDefault();
         setSidebarWidth(550);
+        setWorkspacePane("split");
         setSidebarColumnWidths({});
         setScopedZoomLevels({});
         try {
@@ -5974,7 +5978,7 @@ function App({ showThemeToggle = false }) {
             </div>
           </header>
 
-          <div className="results-workflow-container" ref={resultsContainerRef}>
+          <div className={`results-workflow-container workspace-pane-${workspacePane}`} ref={resultsContainerRef}>
             <aside
               className="results-sidebar"
               style={{
@@ -5986,12 +5990,6 @@ function App({ showThemeToggle = false }) {
                 flexDirection: "column",
               }}
             >
-              {/* NEW: DRAG HANDLE */}
-              <div
-                className="sidebar-resizer"
-                onMouseDown={startResizing}
-                title="Drag to resize sidebar"
-              />
               <div
                 className="sidebar-header"
                 style={{ alignItems: "flex-end" }}
@@ -6036,7 +6034,7 @@ function App({ showThemeToggle = false }) {
                       title="Delete Session"
                       className="sidebar-action-button delete"
                     >
-                      <FontAwesomeIcon icon={faTrashAlt} />
+                      <FontAwesomeIcon icon={faTimes} />
                     </button>
                   )}
                 </div>
@@ -6323,7 +6321,23 @@ function App({ showThemeToggle = false }) {
                 </div>
               </div>
             </aside>
-
+            <div className="sidebar-resizer" role="separator" aria-orientation="vertical" tabIndex={0}
+              aria-label="Resize measurement point list" aria-valuetext={workspacePane === "points" ? "Measurement points only" : workspacePane === "tables" ? "Tables only" : "Split view"}
+              onMouseDown={startResizing}
+              onDoubleClick={() => setWorkspacePane(current => current === "points" ? "tables" : "points")}
+              onKeyDown={event => {
+                if (event.key === "Enter") { event.preventDefault(); setWorkspacePane(current => current === "points" ? "tables" : "points"); }
+                if (event.key === "Escape") { event.preventDefault(); setWorkspacePane("split"); }
+                if (["ArrowLeft", "ArrowRight"].includes(event.key)) {
+                  event.preventDefault();
+                  const container = resultsContainerRef.current;
+                  const style = window.getComputedStyle(container);
+                  const available = container.clientWidth - (parseFloat(style.paddingLeft) || 0) - (parseFloat(style.paddingRight) || 0) - 320;
+                  setWorkspacePane("split");
+                  setSidebarWidth(width => Math.max(300, Math.min(1800, available, width + (event.key === "ArrowLeft" ? -40 : 40))));
+                }
+              }}
+              title="Drag to resize. Double-click to alternate full-width points and tables. Escape restores split view." />
             <main className="results-content">
               {displayData ? (
                 <TestPointDetailView

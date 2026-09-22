@@ -112,6 +112,11 @@ jobs:
         env:
           TASKING_TYPE_B_SMOKE: '1'
 
+      - name: Verify workspace divider, pickers and bias layout
+        run: node scripts/smoke-forge-srcdoc.mjs
+        env:
+          WORKSPACE_POLISH_SMOKE: '1'
+
       - name: Checksum
         id: checksum
         run: |

@@ -4,7 +4,7 @@ import { decisionRiskLimit, decisionRiskStatus } from "../../../utils/decisionRi
 const names = { pfa: "Probability of false acceptance", pfr: "Probability of false rejection" };
 const statusLabels = { good: "Within threshold", warning: "Above threshold", bad: "Above threshold", neutral: "Unavailable" };
 
-export default function DecisionRiskCards({ results, requiredPfa, formatValue }) {
+export default function DecisionRiskCards({ results, requiredPfa, formatValue, onShowBreakdown }) {
   const boundary = results?.riskMethod === "risk8-pfa-boundary";
   // Keep the final result slots visible even before inputs are complete. A dash
   // denotes unavailable data; zero remains a valid, color-coded probability.
@@ -19,12 +19,14 @@ export default function DecisionRiskCards({ results, requiredPfa, formatValue })
           ? boundary && metric === "pfr" ? "PFR is unavailable when the measured value is unknown." : `${names[metric]} is unavailable until the risk calculation is complete.`
           : `${names[metric]}. ${statusLabels[status]}. ${metric === "pfr" ? "Color uses the Required PFA reference threshold" : "Required PFA"}: ${decisionRiskLimit(requiredPfa)}%.`;
         return (
-          <div key={metric} className={`budget-decision-card is-${status}`} title={explanation}>
+          <div key={metric} className={`budget-decision-card is-${status}`} title={`${explanation} Ctrl/Cmd-click or press Enter for the breakdown.`}
+            tabIndex={onShowBreakdown ? 0 : undefined}
+            onClick={event => { if (event.ctrlKey || event.metaKey) onShowBreakdown?.(metric); }}
+            onKeyDown={event => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onShowBreakdown?.(metric); } }}>
             <dt>{label}</dt>
             <dd aria-label={`${label}: ${status === "neutral" ? "Unavailable" : `${formatValue(value)} percent, ${statusLabels[status]}`}`}>
               {status === "neutral" ? "—" : <>{formatValue(value)}<span className="budget-decision-unit"> %</span></>}
             </dd>
-            <dd className="budget-decision-caption">{names[metric]}</dd>
           </div>
         );
       })}

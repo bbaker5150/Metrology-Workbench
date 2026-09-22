@@ -31,7 +31,7 @@ export async function checkTaskingFeedback({ frame, page, saved, until, check })
   check('picker specifications wrap without truncation', await frame.locator('.budget-tmde-picker-detail').evaluateAll(nodes => nodes.every(n =>
     getComputedStyle(n).whiteSpace === 'normal' && n.scrollWidth <= n.clientWidth + 1)));
   check('mismatched unit is offered with a warning', await frame.locator('.budget-tmde-picker-menu [aria-label*="Unit mismatch"]').count() > 0);
-  await frame.getByRole('button', { name: 'Add tabular uncertainty', exact: true }).click();
+  await frame.getByRole('button', { name: 'Add tabular component', exact: true }).click();
   check('dynamic source name stays collapsed while its limit editor opens', await frame.getByRole('button', { name: 'Edit error source name', exact: true }).innerText() === 'Tabular component 1');
   check('dynamic editor inherits measurement units without a selector', await frame.getByRole('button', { name: 'Measurement unit', exact: true }).count() === 0);
   await frame.getByRole('button', { name: 'Edit error source name', exact: true }).click();
@@ -56,7 +56,7 @@ export async function checkTaskingFeedback({ frame, page, saved, until, check })
   await frame.getByLabel('Error limit distribution', { exact: true }).selectOption('1.732');
   check('distribution changes and is saved', await until(() => saved().dynamicBudgetDefinitions[0].mode === 'tolerance' && saved().dynamicBudgetDefinitions[0].distribution === '1.732'));
   await openPicker();
-  await frame.getByRole('button', { name: 'Add equation uncertainty', exact: true }).click();
+  await frame.getByRole('button', { name: 'Add equation component', exact: true }).click();
   await frame.getByRole('button', { name: 'Edit error source name', exact: true }).last().click();
   await frame.getByLabel('Error source name', { exact: true }).fill('Equation verification');
   await frame.getByLabel('Uncertainty equation', { exact: true }).fill('x/1000');

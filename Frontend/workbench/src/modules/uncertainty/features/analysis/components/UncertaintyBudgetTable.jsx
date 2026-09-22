@@ -1742,7 +1742,7 @@ const UncertaintyBudgetTable = ({
             {group === groups.at(-1) && (
               <div className="budget-decision-zoom-surface" data-scoped-zoom-key="budget-decision">
                 <div className="scoped-zoom-content">
-                  <DecisionRiskCards results={riskResults} requiredPfa={riskRequirements?.reqPFA} formatValue={value => formatNumber(value, 4)} />
+                  <DecisionRiskCards onShowBreakdown={onShowRiskBreakdown} results={riskResults} requiredPfa={riskRequirements?.reqPFA} formatValue={value => formatNumber(value, 4)} />
                 </div>
               </div>
             )}

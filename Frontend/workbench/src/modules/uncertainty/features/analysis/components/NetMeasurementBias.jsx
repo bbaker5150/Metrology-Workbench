@@ -57,5 +57,7 @@ export function NetBiasCell({ point, session, onChange, mode = "bias" }) {
         aria-label="Remove Net Bias" onClick={restoreSources}>
         <FontAwesomeIcon icon={faTimes} size="xs" />
       </button>}
-    </div>{spec.corrected && <span className="measurement-net-bias-help">Saved as corrected; editing the bias makes it active.</span>}</div>;
+    </div>{(point.measurementType === "derived" || manual) && <small className="measurement-calculated-value" title="Calculated net bias in the measurement unit">
+      Calculated {resolved.error || !Number.isFinite(resolved.calBias) ? "Not Set" : `${Number(resolved.calBias.toPrecision(8))} ${getUnitDisplayLabel(parameter.unit || "")}`}
+    </small>}{spec.corrected && <span className="measurement-net-bias-help">Saved as corrected; editing the bias makes it active.</span>}</div>;
 }

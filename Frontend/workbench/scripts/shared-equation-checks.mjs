@@ -26,7 +26,7 @@ export async function checkSharedEquations({ frame, page, saved, until, check })
   const bound = () => frame.locator('.dynamic-bound-value').innerText();
   await select(0);
   await picker();
-  await frame.getByRole('button', { name: 'Add equation uncertainty', exact: true }).click();
+  await frame.getByRole('button', { name: 'Add equation component', exact: true }).click();
   await frame.getByLabel('Uncertainty equation', { exact: true }).fill('x/10');
   await frame.getByRole('button', { name: 'Edit error limit distribution', exact: true }).click();
   await frame.getByLabel('Error limit distribution', { exact: true }).selectOption('1.000');
@@ -55,13 +55,13 @@ export async function checkSharedEquations({ frame, page, saved, until, check })
   // Unfinished creation resumes the same draft on repeated Add clicks.
   for (let attempt = 0; attempt < 2; attempt++) {
     await picker();
-    await frame.getByRole('button', { name: 'Add equation uncertainty', exact: true }).click();
+    await frame.getByRole('button', { name: 'Add equation component', exact: true }).click();
     await outside();
   }
   check('repeated New resumes one named unfinished equation', await until(() => saved().dynamicBudgetDefinitions.length === 2 && saved().testPoints[0].components.length === 2));
   await select(1);
   await picker(false);
-  await frame.getByRole('button', { name: 'Add tabular uncertainty', exact: true }).click();
+  await frame.getByRole('button', { name: 'Add tabular component', exact: true }).click();
   await frame.getByLabel('Uncertainty row 1', { exact: true }).fill('4');
   await frame.locator('.budget-dynamic-row').last().getByRole('button', { name: 'Edit error limit distribution', exact: true }).click();
   await frame.getByLabel('Error limit distribution', { exact: true }).selectOption('1.000');

@@ -14453,8 +14453,9 @@ function DetailedView({
                       onClick={event => { event.stopPropagation(); onSessionSave(removeDynamicDefinitionFromPicker(latestSessionDataRef.current, definition.id)); }}>×</button>}
                   </div>;
                 })}
-                {[['table', 'Add tabular uncertainty'], ['equation', 'Add equation uncertainty']].map(([kind, label]) => <button key={kind} type="button" aria-label={label} style={itemStyle}
-                  onClick={() => { onAddManualComponent?.(budgetTmdePicker.scope || null, kind); setBudgetTmdePicker(null); }}><FontAwesomeIcon icon={faPlus}/><span>{kind === "table" ? "New tabular component" : "New equation component"}</span></button>)}
+                {[['table', 'Add tabular component', 'Look up uncertainty for a matching measurement point'], ['equation', 'Add equation component', 'Calculate uncertainty from a formula and the measurement point']].map(([kind, label, description]) => <button key={kind} type="button" aria-label={label} style={itemStyle}
+                  onClick={() => { onAddManualComponent?.(budgetTmdePicker.scope || null, kind); setBudgetTmdePicker(null); }}>
+                  <FontAwesomeIcon icon={faPlus} style={{ marginTop: "2px" }}/><span className="budget-add-component-copy"><span>{label}</span><small>{description}</small></span></button>)}
               </>}
               {budgetTmdePicker.canAddRepeatability && (
                 <button
@@ -14855,27 +14856,6 @@ function DetailedView({
 
   const calcStatus = getCalculatedStatus();
 
-  const calcStatusStyle = {
-    match: {
-      borderColor: "var(--status-good)",
-      backgroundColor: "rgba(76, 175, 80, 0.1)",
-      color: "var(--status-good)",
-      icon: faCheckCircle,
-    },
-    mismatch: {
-      borderColor: "var(--status-bad)",
-      backgroundColor: "rgba(255, 82, 82, 0.1)",
-      color: "var(--status-bad)",
-      icon: faTimesCircle,
-    },
-    neutral: {
-      borderColor: "var(--border-color)",
-      backgroundColor: "transparent",
-      color: "var(--text-color-muted)",
-      icon: null,
-    },
-  }[calcStatus];
-
   const primaryUutId = activePointUutId;
   const primaryUut = (sessionData.uuts || []).find((u) => u.id === primaryUutId);
 
@@ -14953,7 +14933,9 @@ function DetailedView({
               <td><MeasurementInputNameCell symbol="output"
                 value={testPointData.outputQuantityName ?? uutNominal?.name ?? testPointData.testPointInfo?.measurementArea ?? "Output"}
                 onChange={outputQuantityName => onUpdateTestPoint({ outputQuantityName })} /></td>
-              <td>{uutNominal?.value === "" || uutNominal?.value == null ? <span className="is-empty">Not Set</span> : `${uutNominal.value}${uutNominal.unit ? ` ${getUnitDisplayLabel(uutNominal.unit)}` : ""}`}</td>
+              <td><div className="measurement-output-nominal"><span>{uutNominal?.value === "" || uutNominal?.value == null ? <span className="is-empty">Not Set</span> : `Target ${uutNominal.value}${uutNominal.unit ? ` ${getUnitDisplayLabel(uutNominal.unit)}` : ""}`}</span>
+                {Number.isFinite(calculatedNominal) && <small className={`measurement-calculated-value is-${calcStatus}`} title={calcStatus === "mismatch" ? "The calculated nominal differs from the target" : "Nominal calculated from the equation inputs"}>Calculated {calculatedNominal.toPrecision(6)} {getUnitDisplayLabel(uutNominal?.unit || "")}</small>}
+              </div></td>
               {showInputBias && <td><NetBiasCell key={testPointData.id} point={testPointData} session={sessionData} onChange={onUpdateTestPoint} mode={inputBiasDisplay} /></td>}
             </tr>
             {equationDisplayData.variables.map((variable) => (
@@ -15591,9 +15573,9 @@ function DetailedView({
       </div>
 
       {/* --- MIDDLE ROW: EQUATION --- */}
-      {isDerived && (
+      {(
         <DetailWorkspaceSectionToggle
-          label="Measurement Equation"
+          label={isDerived ? "Measurement Equation" : "Measurement Bias"}
           collapsed={collapsedDetailSections.has("equation")}
           onToggle={() => toggleDetailSection("equation")}
           style={detailSectionStyle("equation")}
@@ -15603,12 +15585,11 @@ function DetailedView({
       )}
       <div
         className={`measurement-equation-section detail-workspace-content detail-workspace-content--equation${
-          isDerived && collapsedDetailSections.has("equation") ? " is-collapsed" : ""
+          collapsedDetailSections.has("equation") ? " is-collapsed" : ""
         }`}
         style={detailSectionStyle("equation", 1)}
       >
         {!isDerived && <div className="measurement-equation-input-panel panel-card">
-          <div className="panel-card-header"><div className="panel-card-title"><FontAwesomeIcon icon={faFlask} /><span>Measurement Bias</span></div></div>
           <div className="panel-table-container measurement-inputs-table-wrap" data-scoped-zoom-key="measurement-inputs">
             <table className="instrument-summary-table industry-table measurement-inputs-table measurement-bias-table">
               <colgroup><col style={{ width: "40%" }} /><col style={{ width: "30%" }} /><col style={{ width: "30%" }} /></colgroup>
@@ -15802,25 +15783,7 @@ function DetailedView({
             </div>
             <div className="measurement-equation-inputs-card">
                 {equationVariableInputs}
-                {calcStatus !== "neutral" && (
-                  <div
-                    className="measurement-equation-status"
-                    style={{ color: calcStatusStyle.color }}
-                  >
-                    <div className="measurement-equation-status-main">
-                      <FontAwesomeIcon icon={calcStatusStyle.icon} />
-                      <span>
-                        Calculated:{" "}
-                        <strong>
-                          {calculatedNominal?.toPrecision(6)} {uutNominal?.unit}
-                        </strong>
-                      </span>
-                    </div>
-                    <div className="measurement-equation-status-target">
-                      Target {targetNominal?.toPrecision(6)} {uutNominal?.unit}
-                    </div>
-                  </div>
-                )}
+
             </div>
           </div>
           )}

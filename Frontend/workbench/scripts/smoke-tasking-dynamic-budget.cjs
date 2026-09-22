@@ -90,7 +90,7 @@ app.whenReady().then(async () => {
     const selectPoint=async(index)=>{await rows.nth(index).locator('.point-metric').first().click();await page.locator('[data-tour="tab-budget"]').click();};
     await selectPoint(0);
     await page.getByRole('button',{name:'Add component to budget',exact:true}).first().click();
-    await page.getByRole('button',{name:'Add tabular uncertainty',exact:true}).click();
+    await page.getByRole('button',{name:'Add tabular component',exact:true}).click();
     const dynamic=page.locator('.budget-dynamic-row');
     await dynamic.getByLabel('Error source name',{exact:true}).fill('Head correction');
     await dynamic.getByRole('button',{name:'Not Set',exact:true}).click();
@@ -108,7 +108,7 @@ app.whenReady().then(async () => {
     await dynamic.getByRole('button',{name:'0.023 V',exact:true}).waitFor();
     console.log('PASS existing definition offered for a matching point');
     await page.getByRole('button',{name:'Add component to budget',exact:true}).first().click();
-    await page.getByRole('button',{name:'Add equation uncertainty',exact:true}).click();
+    await page.getByRole('button',{name:'Add equation component',exact:true}).click();
     const equation=dynamic.last();
     await equation.getByLabel('Error source name',{exact:true}).fill('Ambient correction');
     await equation.getByRole('button',{name:'Not Set',exact:true}).click();

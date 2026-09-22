@@ -23,10 +23,12 @@ it.each(["direct", "derived"])("exposes a persistent net editor for %s points wi
   let net = edit();
   fireEvent.focus(net); fireEvent.blur(net);
   expect(saved.measurementBias).toBeUndefined();
+  expect(table.querySelectorAll(".measurement-calculated-value")).toHaveLength(type === "direct" ? 0 : 1);
   expect(screen.queryByRole('button', { name: 'Add Net Bias' })).toBeNull();
   net = edit();
   fireEvent.change(net, { target: { value: '.25' } }); fireEvent.blur(net);
   expect(saved.measurementBias).toMatchObject({ mode: 'manual', value: '.25', unit: 'V' });
+  expect(table.querySelector(".measurement-calculated-value")).toHaveTextContent("Calculated 0.25 V");
   fireEvent.click(screen.getByRole('button', { name: 'Remove Net Bias' }));
   expect(saved.measurementBias).toBeNull();
   expect(screen.getByRole('button', { name: 'Edit net measurement system bias' })).toHaveTextContent('0');
