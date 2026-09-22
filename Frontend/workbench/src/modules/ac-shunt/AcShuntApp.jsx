@@ -7,6 +7,7 @@ import { OrbitControls, useGLTF, Stage } from '@react-three/drei';
 import axios from "axios";
 import SessionSetup from "./components/session/SessionSetup";
 import useCalibrationETA from "./hooks/useCalibrationETA";
+import { useObserverTab } from "./hooks/useObserverTab";
 import InstrumentStatusTab from "./components/session/InstrumentStatusTab";
 import Calibration from "./components/calibration/Calibration";
 import CalibrationResults from "./components/calibration/CalibrationResults";
@@ -432,7 +433,6 @@ function ObserversPill({ observers }) {
 
 function AppContent() {
   const workbenchIssues = useWorkbenchIssues();
-  const [activeTab, setActiveTab] = useState("sessionSetup");
   const [sessionsList, setSessionsList] = useState([]);
   const [isLoadingSessions, setIsLoadingSessions] = useState(false);
   // Toasts are raised through the shared workbench NotificationProvider.
@@ -468,6 +468,10 @@ function AppContent() {
     readerSwitchDriverAddress,
     readerSwitchSettlingTime,
   } = useInstruments();
+
+  const [activeTab, setActiveTab] = useObserverTab(
+    selectedSessionId, isRemoteViewer, "mainTab", "sessionSetup"
+  );
 
   const isBulkRunning = bulkRunProgress && bulkRunProgress.total > 0;
   // True whenever the host is collecting data, regardless of run type
@@ -817,6 +821,18 @@ function AppContent() {
     });
     return Array.from(pointMap.values());
   }, [tpData]);
+
+  // A resumed observer may have missed the Forward -> Reverse transition.
+  // Match the authoritative running point ID so Readings shows live data
+  // instead of the other direction's saved measurements after a reload.
+  useEffect(() => {
+    const pointId = activeCollectionDetails?.tpId;
+    if (!isRemoteViewer || pointId == null) return;
+    const point = uniqueTestPoints.find(p =>
+      String(p.forward?.id) === String(pointId) || String(p.reverse?.id) === String(pointId)
+    );
+    if (point) setActiveDirection(String(point.reverse?.id) === String(pointId) ? "Reverse" : "Forward");
+  }, [isRemoteViewer, activeCollectionDetails?.tpId, uniqueTestPoints]);
 
   useEffect(() => {
     const newPointsMap = new Map(uniqueTestPoints.map((p) => [p.key, p]));
@@ -1593,11 +1609,9 @@ function AppContent() {
             onFocus={(point) => {
               setFocusedTestPoint(point);
               // Clicking a test point always jumps to the Calibration view so
-              // the user immediately sees that point's charts / settings. The
-              // sub-tab within Calibration ("settings" / "readings" /
-              // "calculate") is preserved automatically by the module-level
-              // ``rememberedCalSubTab`` inside Calibration.js, so this keeps
-              // whichever sub-tab they last used.
+              // the user immediately sees that point's charts / settings.
+              // Calibration preserves its sub-tab, including across a full
+              // page reload for remote observers.
               setActiveTab("runCalibration");
             }}
             onToggleSelect={handleToggleSelect}
