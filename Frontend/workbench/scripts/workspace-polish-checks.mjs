@@ -1,6 +1,10 @@
 import { prepareInputTasking } from './input-tasking-checks.mjs';
 export function prepareWorkspacePolish(session) {
   prepareInputTasking(session);
+  // A genuinely short identity keeps the <200px regression independent of
+  // the runner's system font. Long text is exercised separately below.
+  session.uuts[0].description = "UUT";
+  session.uuts[0].instrument.description = "UUT";
   session.testPoints[0].testPointInfo.qualifier = { value: "Extended calibration verification qualifier" };
   const direct = structuredClone(session.testPoints[0]);
   Object.assign(direct, { id: 'direct-polish', measurementType: 'direct', equationString: '', variableMappings: {}, variableNominals: {}, measurementBias: null });
@@ -34,8 +38,22 @@ export async function checkWorkspacePolish({ frame, page, saved, until, check })
   const expand = frame.getByRole('button', { name: 'Expand measurement area', exact: true });
   if (await expand.count()) await expand.first().click();
   const point = frame.locator('[data-point-id="point"]');
-  check('automatic UUT width fits its text without retaining the old 200px minimum', await until(async () => point.locator('[data-sidebar-column="uut"]').evaluate(node => { const text = node.querySelector('.point-uut-summary'); return node.clientWidth < 200 && text.scrollWidth <= text.clientWidth + 1; })));
+  const uutWidth = () => point.locator('[data-sidebar-column="uut"]').evaluate(node => {
+    const text = node.querySelector('.point-uut-summary');
+    return { column: node.clientWidth, visible: text.clientWidth, content: text.scrollWidth, font: getComputedStyle(text).font };
+  });
+  check('automatic UUT width fits its text without retaining the old 200px minimum', await until(async () => { const w = await uutWidth(); return w.column < 200 && w.content <= w.visible + 1; }), JSON.stringify(await uutWidth()));
   const defaultWidth = await point.locator('[data-sidebar-column="uut"]').evaluate(node => node.clientWidth);
+  // Wide typography must grow the column, rather than satisfy an arbitrary
+  // pixel ceiling at the cost of clipping. This also exercises font changes.
+  await frame.evaluate(() => {
+    const style = document.createElement('style'); style.id = 'smoke-wide-uut';
+    style.textContent = '.point-uut-summary { font: 64px monospace !important; }';
+    document.head.appendChild(style); window.dispatchEvent(new Event('resize'));
+  });
+  check('automatic UUT width grows beyond 200px when its rendered text needs it', await until(async () => { const w = await uutWidth(); return w.column > 200 && w.content <= w.visible + 1; }), JSON.stringify(await uutWidth()));
+  await frame.evaluate(() => { document.getElementById('smoke-wide-uut').remove(); window.dispatchEvent(new Event('resize')); });
+  check('automatic UUT width contracts when the text becomes compact again', await until(async () => Math.abs((await uutWidth()).column - defaultWidth) < 2), JSON.stringify(await uutWidth()));
   const resize = frame.locator('.sidebar-column-header-cell--uut .sidebar-column-resizer');
   await resize.scrollIntoViewIfNeeded();
   const edge = await resize.boundingBox();
