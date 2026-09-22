@@ -1080,9 +1080,26 @@ export const InstrumentContextProvider = ({ children }) => {
   }, [selectedSessionId, setSwitchStatus, clearLiveReadings, isRemoteViewer]);
 
   useEffect(() => {
-    const handleVisibilityChange = () => {
+    let lastResumeAt = -Infinity;
+    const handleVisibilityChange = (event) => {
       if (document.visibilityState === "visible") {
-        if (
+        if (isRemoteViewer && selectedSessionId) {
+          // Sleeping tabs can leave a half-open socket marked OPEN. Replace
+          // the observer transport on wake; onopen requests an authoritative
+          // live snapshot, including the current point, cycle and timers.
+          // Coalesce pageshow/resume/visibility events for the same wake.
+          if (Date.now() - lastResumeAt < 1000) return;
+          lastResumeAt = Date.now();
+          reportLifecycle("observer_resumed", { session_id: selectedSessionId, reason: event.type });
+          const socket = readingWs.current;
+          readingWs.current = null;
+          if (socket) {
+            socket.onopen = socket.onmessage = socket.onerror = socket.onclose = null;
+            socket.close();
+          }
+          lastLiveSyncSigRef.current = { sig: null, ts: 0 };
+          connectWebSocket();
+        } else if (
           selectedSessionId &&
           (!readingWs.current ||
             readingWs.current.readyState === WebSocket.CLOSED)
@@ -1092,10 +1109,16 @@ export const InstrumentContextProvider = ({ children }) => {
       }
     };
     document.addEventListener("visibilitychange", handleVisibilityChange);
+    document.addEventListener("resume", handleVisibilityChange);
+    window.addEventListener("pageshow", handleVisibilityChange);
+    window.addEventListener("online", handleVisibilityChange);
     return () => {
       document.removeEventListener("visibilitychange", handleVisibilityChange);
+      document.removeEventListener("resume", handleVisibilityChange);
+      window.removeEventListener("pageshow", handleVisibilityChange);
+      window.removeEventListener("online", handleVisibilityChange);
     };
-  }, [selectedSessionId, connectWebSocket]);
+  }, [selectedSessionId, connectWebSocket, isRemoteViewer]);
 
   useEffect(() => {
     if (selectedSessionId) connectWebSocket();

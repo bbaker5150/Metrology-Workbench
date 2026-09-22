@@ -28,6 +28,7 @@ import HarmonicProjectionInfoModal from "./HarmonicProjectionInfoModal";
 import LiveStabilityTracker from "./LiveStabilityTracker";
 import CycleStatisticsTracker from "./CycleStatisticsTracker";
 import useCycleAnalytics from "../../hooks/useCycleAnalytics";
+import { useObserverTab } from "../../hooks/useObserverTab";
 import { listAvailableCycles, resolveEffectiveCycle } from "../../utils/resolveEffectiveCycle";
 import { resolveSessionNCycles } from "../../utils/resolveSessionNCycles";
 import {
@@ -297,10 +298,10 @@ const SubNav = ({ activeTab, setActiveTab }) => (
 
 // DirectionToggle component definition removed
 
-// Remembers the last sub-tab the user was viewing in the Calibration pane
+// Remembers the last sub-tab the operator was viewing in the Calibration pane
 // (Settings / Readings / Calculations) so that navigating away to another
 // main tab and coming back restores their place. Module scope keeps it
-// alive across unmount/remount for the app session without any persistence.
+// alive across unmount/remount. Observers use persisted, session-scoped state.
 let rememberedCalSubTab = "settings";
 
 // Readings sub-tab: side-by-side is the default, while an explicit user
@@ -502,11 +503,13 @@ function Calibration({
     model.includes("5790")
   );
 
-  const [activeTab, setActiveTabState] = useState(rememberedCalSubTab);
+  const [activeTab, setActiveTabState] = useObserverTab(
+    selectedSessionId, isRemoteViewer, "calibrationTab", rememberedCalSubTab
+  );
   const setActiveTab = useCallback((value) => {
-    rememberedCalSubTab = value;
+    if (!isRemoteViewer) rememberedCalSubTab = value;
     setActiveTabState(value);
-  }, []);
+  }, [isRemoteViewer, setActiveTabState]);
   const [calibrationConfigurations, setCalibrationConfigurations] = useState(
     {}
   );

@@ -243,7 +243,9 @@ if (process.env.INSTRUMENT_ZOOM_LEVEL) {
 }
 
 await page.goto(`http://127.0.0.1:${PORT}/sites/ISEA/pages/app.aspx`, { waitUntil: 'networkidle' });
-await page.waitForTimeout(4000);
+// Wait for the actual boot result rather than sampling a loading screen on
+// slower browsers. The unprovisioned-site assertion below remains unchanged.
+await page.frameLocator('iframe#app').getByText(/not set up yet/i).waitFor({ timeout: 30000 });
 
 const frame = page.frames().find((f) => f.url() === 'about:srcdoc');
 const frameText = frame ? await frame.locator('body').innerText().catch(() => '') : '';
@@ -393,7 +395,9 @@ if (/not set up yet/i.test(frameText)) {
   await page.keyboard.press('Delete');
   check('builder bulk removal archives only the selected records without a dialog', await until(() => instrumentItems.every(item => JSON.parse(item.PayloadJson)._uncertaintyArchive)) && dialogs.length === 0);
   await page.reload({ waitUntil: 'networkidle' });
-  const reloaded = page.frames().find(f => f.url() === 'about:srcdoc');
+  // The iframe can attach after navigation's network-idle event. Resolve it
+  // lazily so the following action waits for the reloaded application.
+  const reloaded = page.frameLocator('iframe#app');
   await reloaded.getByRole('button', { name: 'Instrument builder', exact: true }).click();
   check('archived instruments stay absent after reload', await reloaded.getByText('DMM-301', { exact: true }).count() === 0 && await reloaded.getByText('DMM-302', { exact: true }).count() === 0);
   check('records remain recoverable in SharePoint', sessions.size === 2 && instrumentItems.every(item => JSON.parse(item.PayloadJson).description === 'Archive smoke instrument'));
