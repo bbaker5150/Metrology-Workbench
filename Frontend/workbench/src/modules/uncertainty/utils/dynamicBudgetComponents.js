@@ -1,3 +1,4 @@
+import { inputSymbol, inputBinding, belongsToInput } from "./budgetScope";
 import { evaluate, parse } from "mathjs";
 import { v4 as uuid } from "uuid";
 import { unitSystem, getUnitDisplayLabel } from "./uncertaintyMath";
@@ -28,7 +29,7 @@ export const createDynamicComponent = (definition, outputId, scope) => ({
   id: uuid(), name: definition.name, type: "B", isManual: true, isCore: false,
   dynamicDefinitionId: definition.id, dynamicOutputId: outputId || definition.columns[0].id,
   dynamicDefinition: definition, value: null, value_native: null, dof: Infinity,
-  ...(scope?.kind === "input" ? { variableType: scope.variableType } : {}),
+  ...inputBinding(scope),
 });
 // A portable definition carries its binding, never the source point's evaluated result.
 export const clearDynamicComponentResults = component => {
@@ -39,8 +40,8 @@ export const clearDynamicComponentResults = component => {
 export const getDynamicDefinition = (component, session = {}) =>
   (session.dynamicBudgetDefinitions || []).find(d => d.id === component.dynamicDefinitionId) || component.dynamicDefinition;
 export const componentReferencePoint = (component, point) => {
-  if (component.variableType && point.measurementType === "derived") {
-    const symbol = Object.keys(point.variableMappings || {}).find(key => point.variableMappings[key] === component.variableType);
+  if ((component.variableSymbol || component.variableType) && point.measurementType === "derived") {
+    const symbol = inputSymbol(component, point.variableMappings);
     return point.variableNominals?.[symbol] || {};
   }
   return point.testPointInfo?.parameter || {};
@@ -188,7 +189,7 @@ const nextDefinitionName = (kind, definitions) => {
 export function attachDynamicComponent(session, pointId, kind, scope, existing, outputId) {
   const point = (session.testPoints || []).find(point => String(point.id) === String(pointId));
   if (!point) return { session, component: null };
-  const nominal = componentReferencePoint({ variableType: scope?.kind === 'input' ? scope.variableType : undefined }, point);
+  const nominal = componentReferencePoint(inputBinding(scope), point);
   const definitions = availableDynamicDefinitions(session);
   let definition = existing ? definitions.find(d => d.id === existing.id) || existing
     : definitions.find(d => d.kind === kind && isEmptyDefinition(d) && canUseDynamicDefinition(d, nominal));
@@ -202,7 +203,7 @@ export function attachDynamicComponent(session, pointId, kind, scope, existing, 
   }
   const variableType = scope?.kind === 'input' ? scope.variableType : undefined;
   const column = outputId || definition.columns[0].id;
-  const component = (point.components || []).find(c => c.dynamicDefinitionId === definition.id && (c.dynamicOutputId || definition.columns[0].id) === column && (c.variableType || '') === (variableType || '')) || createDynamicComponent(definition, column, scope);
+  const component = (point.components || []).find(c => c.dynamicDefinitionId === definition.id && (c.dynamicOutputId || definition.columns[0].id) === column && belongsToInput(c, inputSymbol(inputBinding(scope), point.variableMappings), point.variableMappings)) || createDynamicComponent(definition, column, scope);
   const next = updateDynamicDefinition(session, definition);
   const openEditor = !existing || kind !== 'table' || Boolean(resolveDynamicComponent(component, definition, nominal).pendingReason);
   return { component, openEditor, session: { ...next, testPoints: next.testPoints.map(p => String(p.id) !== String(point.id) || p.components?.some(c => c.id === component.id) ? p : { ...p, components: [...(p.components || []), component] }) } };

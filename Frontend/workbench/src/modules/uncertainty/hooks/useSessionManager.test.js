@@ -1,5 +1,6 @@
 import { act, renderHook, waitFor } from "@testing-library/react";
 import axios from "axios";
+import { journalSession, readRecovery } from "../utils/sessionRecovery";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import useSessionManager, {
   prepareImportedSession,
@@ -11,14 +12,17 @@ vi.mock("axios", () => ({
     get: vi.fn(),
     post: vi.fn(),
     put: vi.fn(),
+    patch: vi.fn(),
   },
 }));
 
 beforeEach(() => {
   vi.clearAllMocks();
+  localStorage.clear();
   axios.delete.mockResolvedValue({});
   axios.post.mockResolvedValue({});
   axios.put.mockResolvedValue({});
+  axios.patch.mockResolvedValue({});
   axios.get.mockImplementation((url) =>
     Promise.resolve({
       data: url.endsWith("/sessions/")
@@ -370,4 +374,32 @@ it("preserves clipboard order when inserting a batch below one row", async () =>
   expect(points.map(point => point.testPointInfo.parameter.value)).toEqual([1, 2, 3, 4, 9]);
   expect(new Set(points.map(point => point.id)).size).toBe(5);
   expect(points.every(point => !("_insertAfterPointId" in point))).toBe(true);
+});
+
+
+it("recovers an edit even if unmounted before the debounce fires", async () => {
+  const first = renderHook(() => useSessionManager());
+  await waitFor(() => expect(first.result.current.currentSessionData?.name).toBe("Original"));
+  act(() => first.result.current.updateSession({ ...first.result.current.currentSessionData, name: "Recovered immediately", testPoints: [{ id: "p", components: [{ id: "authored", name: "Source" }] }] }));
+  act(() => first.result.current.setSelectedTestPointId("p"));
+  first.unmount();
+  const second = renderHook(() => useSessionManager());
+  await waitFor(() => expect(second.result.current.currentSessionData?.name).toBe("Recovered immediately"));
+  expect(second.result.current.selectedTestPointId).toBe("p");
+  expect(second.result.current.currentSessionData.testPoints[0].components[0].name).toBe("Source");
+  await waitFor(() => expect(axios.put).toHaveBeenCalledWith(expect.stringMatching(/sessions\/1\/$/), expect.objectContaining({ name: "Recovered immediately" })));
+});
+
+it("replays recovered notes after a numeric-ID session save completes", async () => {
+  journalSession("saves", 1, { session: { id: 1, name: "Recovered", notes: "Older", testPoints: [] } });
+  journalSession("notes", "1", { notes: "Latest paragraph" });
+  let finishSave;
+  axios.put.mockImplementationOnce(() => new Promise(resolve => { finishSave = resolve; }));
+  const view = renderHook(() => useSessionManager());
+  await waitFor(() => expect(axios.put).toHaveBeenCalled());
+  expect(view.result.current.currentSessionData.notes).toBe("Latest paragraph");
+  expect(axios.patch).not.toHaveBeenCalled();
+  await act(async () => finishSave({}));
+  await waitFor(() => expect(axios.patch).toHaveBeenCalledWith(expect.stringMatching(/sessions\/1\/notes\/$/), { notes: "Latest paragraph" }));
+  await waitFor(() => expect(readRecovery().notes).toEqual({}));
 });

@@ -308,3 +308,13 @@ it('clears cached totals and shows the incompatible UUT unit reason', async () =
   expect(final.results).toMatchObject({ combined: null, expanded: null, pendingReason: expect.stringMatching(/Unit mismatch/) });
   expect(onDataSave).toHaveBeenCalledWith(expect.objectContaining({ combined_uncertainty_absolute_base: null, expanded_uncertainty_absolute_base: null, is_detailed_uncertainty_calculated: false }));
 });
+
+
+it("keeps manual, tabular and equation components in only their unnamed input budget", async () => {
+ const components = ["manual", "table", "equation"].map((name, index) => ({ id: name, name, variableSymbol: ["a", "b", "d"][index], variableType: "", pendingReason: "Set input nominal" }));
+ const { result } = renderDirectCalculation({ measurementType: "derived", equationString: "a+b+d+d/c", variableMappings: { a: "", b: "", c: "", d: "" }, variableNominals: {} }, { nominal: { value: "", unit: "" }, tmdeTolerances: [], uutTolerance: {}, manualComponents: components });
+ await waitFor(() => expect(result.current.calcResults).not.toBeNull());
+ expect(result.current.calcResults.calculatedBudgetGroups.map(group => [group.variable, group.components.map(c => c.id)])).toEqual([
+ ["a", ["manual"]], ["b", ["table"]], ["c", []], ["d", ["equation"]], [undefined, []],
+ ]);
+});

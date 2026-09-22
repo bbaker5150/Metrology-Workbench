@@ -1,3 +1,7 @@
+import { FLUSH_EDITORS } from "../../../hooks/usePageExitRecovery";
+import { readEditorDraft, saveEditorDraft, clearEditorDraft } from "../../../utils/editorRecovery";
+import { BUDGET_COMPONENT_MIME, associateBudgetComponent, canUseInstrumentBudgetComponent, instantiateInstrumentBudgetComponent } from "../../../utils/instrumentBudgetComponents";
+import { inputSymbol, inputBinding } from "../../../utils/budgetScope";
 import useExclusiveMenu from "../../../hooks/useExclusiveMenu";
 import { claimWorkspaceClipboard, ownsWorkspaceClipboard } from "../../../utils/workspaceClipboard";
 import { getPointRequirements } from "../../../utils/pointRequirements";
@@ -7250,6 +7254,21 @@ const SummaryDashboard = ({
   };
 
   const handleInstrumentDropOnFunction = (kind, targetFunction, targetId = null) => (event) => {
+    if (event.dataTransfer.types?.includes(BUDGET_COMPONENT_MIME)) {
+      event.preventDefault(); event.stopPropagation();
+      if (targetId == null) return;
+      let component;
+      try { component = JSON.parse(event.dataTransfer.getData(BUDGET_COMPONENT_MIME)); } catch { return; }
+      if (!component || component.type !== "B" || (!component.isInlineManual && !component.dynamicDefinitionId)) return;
+      const item = (latestSessionDataRef.current[kind === "uut" ? "uuts" : "tmdes"] || []).find(item => String(item.id) === String(targetId));
+      if (!item) return;
+      confirmViaNotification(setNotification, {
+        title: "Associate Type B component",
+        message: `Associate ${component.name || "this component"} with ${item.name || item.instrument?.model || "this instrument"}? It will be available from that instrument in other budgets.`,
+        onConfirm: () => onSessionSave?.(associateBudgetComponent(latestSessionDataRef.current, kind, targetId, component)),
+      });
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
     let payload;
@@ -9083,7 +9102,7 @@ const SummaryDashboard = ({
                               onDragStart={handleInstrumentDragStart("uut", uut, uutFnKey)}
                               onDragEnd={handleInstrumentDragEnd}
                               data-measurement-area={uutFnKey}
-                        onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
+                        onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = event.dataTransfer.types?.includes(BUDGET_COMPONENT_MIME) ? "copy" : "move"; }}
                         data-instrument-id={uut.id}
                         onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === uutFnKey); if (area) handleInstrumentDropOnFunction("uut", area, uut.id)(event); }}
                         onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "uut", uut, uutFnKey, selectedInstrumentAreasRef.current); }}
@@ -9172,7 +9191,7 @@ const SummaryDashboard = ({
                             : undefined
                         }
                         data-measurement-area={uutFnKey}
-                        onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
+                        onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = event.dataTransfer.types?.includes(BUDGET_COMPONENT_MIME) ? "copy" : "move"; }}
                         data-instrument-id={uut.id}
                         onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === uutFnKey); if (area) handleInstrumentDropOnFunction("uut", area, uut.id)(event); }}
                         onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "uut", uut, uutFnKey, selectedInstrumentAreasRef.current); }}
@@ -9421,7 +9440,7 @@ const SummaryDashboard = ({
                           className={`instrument-function-row spec-row ${isSelected ? "selected-spec-row" : ""} ${hoveredRowId === uut.id ? "hovered-spec-row" : ""}`}
                           onMouseEnter={() => setHoveredRowId(uut.id)}
                           data-measurement-area={uutFnKey}
-                        onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
+                        onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = event.dataTransfer.types?.includes(BUDGET_COMPONENT_MIME) ? "copy" : "move"; }}
                         data-instrument-id={uut.id}
                         onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === uutFnKey); if (area) handleInstrumentDropOnFunction("uut", area, uut.id)(event); }}
                         onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "uut", uut, uutFnKey, selectedInstrumentAreasRef.current); }}
@@ -9574,7 +9593,7 @@ const SummaryDashboard = ({
                               onDragStart={handleInstrumentDragStart("tmde", tmde, tmdeFnKey)}
                               onDragEnd={handleInstrumentDragEnd}
                               data-measurement-area={tmdeFnKey}
-                        onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
+                        onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = event.dataTransfer.types?.includes(BUDGET_COMPONENT_MIME) ? "copy" : "move"; }}
                         data-instrument-id={tmde.id}
                         onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === tmdeFnKey); if (area) handleInstrumentDropOnFunction("tmde", area, tmde.id)(event); }}
                         onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "tmde", tmde, tmdeFnKey, selectedInstrumentAreasRef.current); }}
@@ -9663,7 +9682,7 @@ const SummaryDashboard = ({
                             : undefined
                         }
                         data-measurement-area={tmdeFnKey}
-                        onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
+                        onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = event.dataTransfer.types?.includes(BUDGET_COMPONENT_MIME) ? "copy" : "move"; }}
                         data-instrument-id={tmde.id}
                         onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === tmdeFnKey); if (area) handleInstrumentDropOnFunction("tmde", area, tmde.id)(event); }}
                         onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "tmde", tmde, tmdeFnKey, selectedInstrumentAreasRef.current); }}
@@ -9943,7 +9962,7 @@ const SummaryDashboard = ({
                           key={`${tmde.id}-spec-${sIdx}`}
                           className={`instrument-function-row spec-row ${isSelected ? "selected-spec-row" : ""} ${hoveredRowId === tmde.id ? "hovered-spec-row" : ""}`}
                           data-measurement-area={tmdeFnKey}
-                        onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
+                        onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = event.dataTransfer.types?.includes(BUDGET_COMPONENT_MIME) ? "copy" : "move"; }}
                         data-instrument-id={tmde.id}
                         onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === tmdeFnKey); if (area) handleInstrumentDropOnFunction("tmde", area, tmde.id)(event); }}
                         onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "tmde", tmde, tmdeFnKey, selectedInstrumentAreasRef.current); }}
@@ -10375,7 +10394,7 @@ function DetailedView({
   const handleDetailSectionDragOver = (event) => {
     if (!draggingDetailSectionRef.current) return;
     event.preventDefault();
-    event.dataTransfer.dropEffect = "move";
+    event.dataTransfer.dropEffect = event.dataTransfer.types?.includes(BUDGET_COMPONENT_MIME) ? "copy" : "move";
   };
   const finishDetailSectionDrag = () => {
     draggingDetailSectionRef.current = null;
@@ -10448,6 +10467,21 @@ function DetailedView({
 
 
   const handleDetailInstrumentDropOnFunction = (kind, targetFunction, targetId = null) => (event) => {
+    if (event.dataTransfer.types?.includes(BUDGET_COMPONENT_MIME)) {
+      event.preventDefault(); event.stopPropagation();
+      if (targetId == null) return;
+      let component;
+      try { component = JSON.parse(event.dataTransfer.getData(BUDGET_COMPONENT_MIME)); } catch { return; }
+      if (!component || component.type !== "B" || (!component.isInlineManual && !component.dynamicDefinitionId)) return;
+      const item = (latestSessionDataRef.current[kind === "uut" ? "uuts" : "tmdes"] || []).find(item => String(item.id) === String(targetId));
+      if (!item) return;
+      confirmViaNotification(setNotification, {
+        title: "Associate Type B component",
+        message: `Associate ${component.name || "this component"} with ${item.name || item.instrument?.model || "this instrument"}? It will be available from that instrument in other budgets.`,
+        onConfirm: () => onSessionSave?.(associateBudgetComponent(latestSessionDataRef.current, kind, targetId, component)),
+      });
+      return;
+    }
     event.preventDefault();
     event.stopPropagation();
     let payload;
@@ -11796,17 +11830,26 @@ function DetailedView({
     top: 0,
     left: 0,
   });
-  const [isEquationEditorOpen, setIsEquationEditorOpen] = useState(false);
-  const [equationDraft, setEquationDraft] = useState(testPointData.equationString || "");
+  const equationDraftKey = `equation:${sessionData.id}:${testPointData.id}`;
+  const [isEquationEditorOpen, setIsEquationEditorOpen] = useState(() => readEditorDraft(equationDraftKey) !== null);
+  const [equationDraft, setEquationDraft] = useState(() => readEditorDraft(equationDraftKey) ?? testPointData.equationString ?? "");
   const equationDraftRef = useRef(equationDraft);
   const equationCommitRef = useRef(null);
-  const changeEquationDraft = value => { equationDraftRef.current = value; setEquationDraft(value); };
+  const changeEquationDraft = value => { equationDraftRef.current = value; setEquationDraft(value); saveEditorDraft(equationDraftKey, value); };
   useEffect(() => {
-    changeEquationDraft(testPointData.equationString || "");
+    const saved = readEditorDraft(equationDraftKey);
+    equationDraftRef.current = saved ?? testPointData.equationString ?? "";
+    setEquationDraft(equationDraftRef.current);
+    if (saved !== null) setIsEquationEditorOpen(true);
   }, [testPointData.id, testPointData.equationString]);
-  const commitEquationDraft = () => equationCommitRef.current?.(equationDraftRef.current);
+  const commitEquationDraft = () => { equationCommitRef.current?.(equationDraftRef.current); clearEditorDraft(equationDraftKey); };
 
 
+  useEffect(() => {
+    if (!isEquationEditorOpen) return;
+    window.addEventListener(FLUSH_EDITORS, commitEquationDraft);
+    return () => window.removeEventListener(FLUSH_EDITORS, commitEquationDraft);
+  });
   const openEquationEditor = useCallback(() => {
     setIsEquationEditorOpen(true);
     // Focus after the editor is mounted so the equation can be edited without
@@ -12404,7 +12447,7 @@ function DetailedView({
       style={functionBadgeStyle(fn.key)}
       onDragOver={(event) => {
         event.preventDefault();
-        event.dataTransfer.dropEffect = "move";
+        event.dataTransfer.dropEffect = event.dataTransfer.types?.includes(BUDGET_COMPONENT_MIME) ? "copy" : "move";
         setDetailDragOverFunctionTarget(`${kind}:${fn.key}`);
       }}
       onDragLeave={() => setDetailDragOverFunctionTarget(null)}
@@ -12822,7 +12865,10 @@ function DetailedView({
     // Explicit clears remain authoritative after removing/readding the symbol.
     rememberedVariableNamesRef.current[symbol] = trimmedNewName;
 
-    const patch = { variableMappings: newMappings };
+    const patch = { variableMappings: newMappings,
+      components: (testPointData.components || []).map(component => inputSymbol(component, currentMappings) === symbol
+        ? { ...component, variableSymbol: symbol, variableType: newName } : component),
+    };
     const currentNominal = testPointData.variableNominals?.[symbol];
     const inferredUnit = inferVariableUnit(trimmedNewName);
     if (trimmedNewName && inferredUnit && !currentNominal?.unit) {
@@ -12901,6 +12947,10 @@ function DetailedView({
       equationString: nextEquation,
       variableMappings: nextMappings,
       variableNominals: nextNominals,
+      components: (testPointData.components || []).map(component => inputSymbol(component, currentMappings) === oldSymbol
+        ? { ...component, variableSymbol: newSymbol } : component),
+      tmdeTolerances: tmdeTolerancesData.map(component => inputSymbol(component, currentMappings) === oldSymbol
+        ? { ...component, variableSymbol: newSymbol } : component),
     });
   };
 
@@ -13246,14 +13296,8 @@ function DetailedView({
         draft: updates.inlineManualDraft,
         referencePoint:
           updates.referencePoint ||
-          (manualComp.variableType
-            ? Object.entries(testPointData.variableMappings || {}).reduce(
-                (point, [symbol, variableType]) =>
-                  String(variableType || "") === String(manualComp.variableType)
-                    ? testPointData.variableNominals?.[symbol] || point
-                    : point,
-                null,
-              )
+          ((manualComp.variableSymbol || manualComp.variableType)
+            ? testPointData.variableNominals?.[inputSymbol(manualComp, testPointData.variableMappings)]
             : uutNominal),
       });
       onUpdateTestPoint({
@@ -13845,7 +13889,7 @@ function DetailedView({
       // scopes always do). The UUT's own measuring resolution belongs to that
       // final budget — not to any single equation input — and equation TMDEs are
       // assigned per input, so the final scope offers ONLY resolution sources.
-      const isDerivedFinalScope = isDerived && !scope?.variableType;
+      const isDerivedFinalScope = isDerived && scope?.kind !== "input";
       const byLabel = (a, b) =>
         getEquationTmdeLabel(a).localeCompare(getEquationTmdeLabel(b));
       // Match the inventory shown for this Measurement Area, then select
@@ -13898,9 +13942,7 @@ function DetailedView({
       // offered from the live TMDE masters. Derived budgets no longer require a
       // TMDE assignment to an equation variable, so use the same unit-matched
       // master list as the primary accuracy choices.
-      const typeBSourceTmdes = isDerived
-        ? areaTmdes.filter(isMatch)
-        : contributingTmdeInstances;
+      const typeBSourceTmdes = [...areaTmdes, ...(sessionData.uuts || []).filter(item => instrumentHasMeasurementArea(item, activePointFunctionKey))];
       const typeBHasMagnitude = (comp) => {
         const raw =
           comp?.inputMode === "standard"
@@ -13946,14 +13988,17 @@ function DetailedView({
         freshTypeBFor(tmde)
           .filter(
             (comp) =>
-              typeBHasMagnitude(comp) &&
+              comp.budgetComponent ? canUseInstrumentBudgetComponent(comp, budgetNominal) : typeBHasMagnitude(comp) &&
               getBudgetComponentsFromTolerance(
                 { name: comp.name || "Type B" },
                 budgetNominal,
                 [comp],
               ).length > 0,
           )
-          .map((comp) => ({ tmde, comp })),
+          .flatMap(comp => comp.budgetComponent?.dynamicDefinition?.columns?.length > 1
+            ? comp.budgetComponent.dynamicDefinition.columns.map(column => ({ tmde, comp: { ...comp,
+              name: `${comp.name || "Type B"} — ${column.name}`, budgetComponent: { ...comp.budgetComponent, dynamicOutputId: column.id } } }))
+            : [{ tmde, comp }]),
       );
 
       // Manual components and repeatability are always addable to an input/final
@@ -14081,7 +14126,7 @@ function DetailedView({
           sourcePointLabel: nominalLabel
             ? `${sourceName} · ${nominalLabel}`
             : sourceName,
-          ...(isDerived && variableType ? { variableType } : {}),
+          ...inputBinding(scope),
           isCore: true,
           originalInput: {
             inputMode: "tolerance",
@@ -14195,9 +14240,7 @@ function DetailedView({
             isCore: false,
             isBudgetInstance: true,
             quantity: 1,
-            ...(isDerived && scope.variableType
-              ? { variableType: scope.variableType }
-              : {}),
+            ...inputBinding(scope),
           },
         ],
       });
@@ -14211,6 +14254,11 @@ function DetailedView({
   const addBudgetTypeB = (tmde, comp) => {
     if (!budgetTmdePicker || !tmde || !comp) return;
     const scope = budgetTmdePicker.scope;
+    if (comp.budgetComponent) {
+      const component = instantiateInstrumentBudgetComponent(comp, scope);
+      onUpdateTestPoint?.({ components: [...(testPointData.components || []), component] });
+      return;
+    }
     const nominal =
       (isDerived ? scope?.nominalPoint : uutNominal) ||
       tmde.measurementPoint ||
@@ -14248,6 +14296,7 @@ function DetailedView({
       // the remove action delete the whole TMDE. This is a standalone component.
       typeBSourceId: comp.id,
       typeBSourceTmdeId: tmde.id ?? tmde.sourceId,
+      ...inputBinding(scope),
       ...(isDerived && scope?.variableType
         ? {
             variableType: scope.variableType,
@@ -14643,7 +14692,7 @@ function DetailedView({
                     : comp.toleranceLimit;
                 return (
                   <button
-                    key={`typeb-${tmde.id ?? tmde.sourceId}-${comp.id}`}
+                    key={`typeb-${tmde.id ?? tmde.sourceId}-${comp.id}-${comp.budgetComponent?.dynamicOutputId || ""}`}
                     type="button"
                     style={itemStyle}
                     onClick={() => addBudgetTypeB(tmde, comp)}
@@ -15128,7 +15177,7 @@ function DetailedView({
                                     )}
                               onDragEnd={handleDetailInstrumentDragEnd}
                               data-measurement-area={uutFnKey}
-                        onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
+                        onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = event.dataTransfer.types?.includes(BUDGET_COMPONENT_MIME) ? "copy" : "move"; }}
                         data-instrument-id={uut.id}
                         onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === uutFnKey); if (area) handleDetailInstrumentDropOnFunction("uut", area, uut.id)(event); }}
                         onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "uut", uut, uutFnKey, selectedInstrumentAreasRef.current); }}
@@ -15220,7 +15269,7 @@ function DetailedView({
                           openInstrumentRowMenu(event, "uut", uut)
                         }
                         data-measurement-area={uutFnKey}
-                        onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
+                        onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = event.dataTransfer.types?.includes(BUDGET_COMPONENT_MIME) ? "copy" : "move"; }}
                         data-instrument-id={uut.id}
                         onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === uutFnKey); if (area) handleDetailInstrumentDropOnFunction("uut", area, uut.id)(event); }}
                         onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "uut", uut, uutFnKey, selectedInstrumentAreasRef.current); }}
@@ -15503,7 +15552,7 @@ function DetailedView({
                           className={`instrument-function-row spec-row ${isSelected ? `selected-spec-row selected-instrument-continuation ${sIdx === specRows.length - 2 ? "selected-instrument-end" : ""}` : ""} ${isActivePointUut ? "active-point-uut-spec-row" : ""} ${hoveredRowId === uut.id ? "hovered-spec-row" : ""}`}
                           onMouseEnter={() => setHoveredRowId(uut.id)}
                           data-measurement-area={uutFnKey}
-                        onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
+                        onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = event.dataTransfer.types?.includes(BUDGET_COMPONENT_MIME) ? "copy" : "move"; }}
                         data-instrument-id={uut.id}
                         onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === uutFnKey); if (area) handleDetailInstrumentDropOnFunction("uut", area, uut.id)(event); }}
                         onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "uut", uut, uutFnKey, selectedInstrumentAreasRef.current); }}
@@ -15980,7 +16029,7 @@ function DetailedView({
                                         )}
                                   onDragEnd={handleDetailInstrumentDragEnd}
                                   data-measurement-area={tmdeFnKey}
-                        onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
+                        onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = event.dataTransfer.types?.includes(BUDGET_COMPONENT_MIME) ? "copy" : "move"; }}
                         data-instrument-id={masterTmde.id}
                         onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === tmdeFnKey); if (area) handleDetailInstrumentDropOnFunction("tmde", area, masterTmde.id)(event); }}
                         onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "tmde", masterTmde, tmdeFnKey, selectedInstrumentAreasRef.current); }}
@@ -16071,7 +16120,7 @@ function DetailedView({
                               openInstrumentRowMenu(event, "tmde", masterTmde)
                             }
                             data-measurement-area={tmdeFnKey}
-                        onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = "move"; }}
+                        onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = event.dataTransfer.types?.includes(BUDGET_COMPONENT_MIME) ? "copy" : "move"; }}
                         data-instrument-id={masterTmde.id}
                         onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === tmdeFnKey); if (area) handleDetailInstrumentDropOnFunction("tmde", area, masterTmde.id)(event); }}
                         onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, "tmde", masterTmde, tmdeFnKey, selectedInstrumentAreasRef.current); }}

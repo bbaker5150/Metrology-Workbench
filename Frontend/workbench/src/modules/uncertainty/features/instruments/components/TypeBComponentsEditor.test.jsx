@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("plotly.js-dist", () => ({ default: {} }));
 
+import { withInstrumentEditorDrafts } from "../../../utils/instrumentBudgetComponents";
 import TypeBComponentsEditor from "./TypeBComponentsEditor";
 
 describe("TypeBComponentsEditor", () => {
@@ -175,4 +176,26 @@ describe("TypeBComponentsEditor", () => {
     );
     expect(onChange).toHaveBeenCalled();
   });
+});
+
+
+it("uses the budget equation editor and includes an active draft in an instrument save", async () => {
+ localStorage.clear();
+ let latest = [];
+ function Wrapper() {
+   const [components, setComponents] = React.useState([]);
+   return <TypeBComponentsEditor components={components} referenceUnit="V" onChange={next => { latest = next; setComponents(next); }} />;
+ }
+ const first = render(<Wrapper />);
+ fireEvent.click(screen.getByRole("button", { name: "Add equation", exact: true }));
+ const equation = await screen.findByLabelText("Uncertainty equation");
+ fireEvent.change(equation, { target: { value: "x/100" } });
+ const saved = withInstrumentEditorDrafts({ typeBComponents: latest });
+ expect(saved.typeBComponents[0].budgetComponent.dynamicDefinition.equation).toBe("x/100");
+ const component = latest[0];
+ first.unmount();
+ render(<TypeBComponentsEditor components={[component]} referenceUnit="V" onChange={() => {}} />);
+ expect(screen.getByLabelText("Uncertainty equation")).toHaveValue("x/100");
+ fireEvent.keyDown(screen.getByLabelText("Uncertainty equation"), { key: "Escape" });
+ expect(withInstrumentEditorDrafts({ typeBComponents: latest }).typeBComponents[0].budgetComponent.dynamicDefinition.equation).toBe("");
 });

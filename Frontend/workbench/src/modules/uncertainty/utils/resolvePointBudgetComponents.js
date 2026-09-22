@@ -1,3 +1,4 @@
+import { inputSymbol } from "./budgetScope";
 import { resolveDynamicComponents } from "./dynamicBudgetComponents";
 import { budgetUnitMismatch, unresolvedComponent } from "./incompleteBudget";
 import { unitSystem } from "./uncertaintyMath";
@@ -15,11 +16,8 @@ export function resolvePointBudgetComponents(point, sessionData, instruments = [
   const tmdeTolerancesData = refreshTmdeInstancesFromMasters(reconcileTmdeInstances(point.tmdeTolerances || [], sessionData.tmdes || []), sessionData.tmdes || []);
     const rawComponents = resolveDynamicComponents(point.components, point, sessionData);
     const getReferencePoint = (component) => {
-      if (point.measurementType === "derived" && component?.variableType) {
-        const symbol = Object.entries(point.variableMappings || {}).find(
-          ([, name]) =>
-            String(name || "").trim() === String(component.variableType || "").trim(),
-        )?.[0];
+      if (point.measurementType === "derived" && (component?.variableSymbol || component?.variableType)) {
+        const symbol = inputSymbol(component, point.variableMappings);
         return symbol ? point.variableNominals?.[symbol] : null;
       }
       return uutNominal;

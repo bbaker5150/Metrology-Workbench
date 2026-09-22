@@ -1,3 +1,4 @@
+import { readRecovery, journalSession, acknowledgeSession, recoverSessions, saveNavigation } from "../utils/sessionRecovery";
 import { syncPointTolerances } from "../utils/pointToleranceSync";
 import { trackInstrumentOnboarding } from "../utils/instrumentOnboarding";
 import { inheritMissingPointUnits } from "../utils/pointUnits";
@@ -155,8 +156,8 @@ const useSessionManager = () => {
   const [instruments, setInstruments] = useState([]);
   const [customEquations, setCustomEquations] = useState([]);
   const [bugReports, setBugReports] = useState([]);
-  const [selectedSessionId, setSelectedSessionId] = useState(null);
-  const [selectedTestPointId, setSelectedTestPointId] = useState(null);
+  const [selectedSessionId, setSelectedSessionId] = useState(() => readRecovery().navigation?.sessionId ?? null);
+  const [selectedTestPointId, setSelectedTestPointId] = useState(() => readRecovery().navigation?.pointId ?? null);
   const sessionsRef = useRef([]);
   const selectedSessionIdRef = useRef(null);
   const selectedTestPointIdRef = useRef(null);
@@ -276,18 +277,20 @@ const useSessionManager = () => {
   const loadData = useCallback(async () => {
     try {
       const res = await axios.get(`${UNCERTAINTY_API}/sessions/`);
-      const loaded = Array.isArray(res.data) ? res.data : [];
+      const loaded = recoverSessions(Array.isArray(res.data) ? res.data : []);
       undoHistoryRef.current.length = 0;
       replaceSessions(loaded);
       if (loaded.length > 0) {
         setSelectedSessionId((prev) =>
           prev && loaded.find((s) => s.id === prev) ? prev : loaded[0].id
         );
-        // Default to Session Overview (null), not the first point.
-        setSelectedTestPointId(null);
+        const navigation = readRecovery().navigation;
+        const session = loaded.find(s => s.id === navigation?.sessionId) || loaded[0];
+        setSelectedTestPointId(session.testPoints?.some(p => p.id === navigation?.pointId) ? navigation.pointId : null);
       }
     } catch (err) {
       console.error("Failed to load sessions from backend", err);
+      replaceSessions(recoverSessions([]));
     } finally {
       setSessionsLoaded(true);
     }
@@ -355,7 +358,12 @@ const useSessionManager = () => {
   const persistSession = useCallback((sessionToSave, newImages = []) => {
     if (!sessionToSave || sessionToSave.id == null) return;
 
-    const key = sessionToSave.id;
+    const key = String(sessionToSave.id);
+    clearTimeout(persistTimersRef.current.get(key));
+    persistTimersRef.current.delete(key);
+    pendingPersistRef.current.delete(key);
+    const token = journalSession("saves", key, { session: sessionToSave, images: newImages });
+    const imagesToSave = readRecovery().saves?.[key]?.images || newImages;
     const previousSave = persistQueuesRef.current.get(key) || Promise.resolve();
 
     const queuedSave = previousSave
@@ -367,7 +375,7 @@ const useSessionManager = () => {
             sessionToSave
           );
 
-          for (const img of newImages) {
+          for (const img of imagesToSave) {
             if (img.fileObject) {
               await axios.post(
                 `${UNCERTAINTY_API}/sessions/${sessionToSave.id}/images/`,
@@ -379,6 +387,7 @@ const useSessionManager = () => {
               );
             }
           }
+          acknowledgeSession("saves", key, token);
         } catch (err) {
           console.error("Failed to save session to backend", err);
         }
@@ -399,6 +408,8 @@ const useSessionManager = () => {
   // uploads), while avoiding a relational rebuild for every paragraph edit.
   const persistSessionNotes = useCallback((sessionId, notes) => {
     if (sessionId == null) return Promise.resolve();
+    sessionId = String(sessionId);
+    const token = journalSession("notes", sessionId, { notes });
 
     const previousSave =
       persistQueuesRef.current.get(sessionId) || Promise.resolve();
@@ -416,7 +427,7 @@ const useSessionManager = () => {
         persistQueuesRef.current.delete(sessionId);
       }
     };
-    queuedSave.then(releaseQueue, (error) => {
+    queuedSave.then(() => { acknowledgeSession("notes", sessionId, token); releaseQueue(); }, (error) => {
       releaseQueue();
       console.error("Failed to save session notes", error);
     });
@@ -427,7 +438,8 @@ const useSessionManager = () => {
     (sessionToSave, delayMs = 600) => {
       if (!sessionToSave || sessionToSave.id == null) return;
 
-      const key = sessionToSave.id;
+      const key = String(sessionToSave.id);
+      journalSession("saves", key, { session: sessionToSave });
       pendingPersistRef.current.set(key, sessionToSave);
 
       const existingTimer = persistTimersRef.current.get(key);
@@ -669,6 +681,11 @@ const useSessionManager = () => {
   }, [replaceSessions]);
 
   const deleteSessionFromDisk = useCallback((sessionId) => {
+    sessionId = String(sessionId);
+    clearTimeout(persistTimersRef.current.get(sessionId));
+    persistTimersRef.current.delete(sessionId);
+    pendingPersistRef.current.delete(sessionId);
+    const token = journalSession("deletes", sessionId, {});
     // Serialize DELETE with the same per-session queue used by PUT. If the user
     // immediately undoes an Add/Delete, the restoring PUT is guaranteed to run
     // after this DELETE instead of racing it and leaving the backend missing a
@@ -679,6 +696,7 @@ const useSessionManager = () => {
       .then(async () => {
         try {
           await axios.delete(`${UNCERTAINTY_API}/sessions/${sessionId}/`);
+          acknowledgeSession("deletes", sessionId, token);
         } catch (e) {
           console.error("Failed to delete session from backend", e);
         }
@@ -692,6 +710,24 @@ const useSessionManager = () => {
     });
     return queuedDelete;
   }, []);
+
+  const recoveryReplayed = useRef(false);
+  useEffect(() => {
+    if (!sessionsLoaded || recoveryReplayed.current) return;
+    recoveryReplayed.current = true;
+    const retry = () => {
+      const recovery = readRecovery();
+      for (const entry of Object.values(recovery.saves || {})) persistSession(entry.session, entry.images || []);
+      for (const [id, entry] of Object.entries(recovery.notes || {})) persistSessionNotes(id, entry.notes);
+      for (const id of Object.keys(recovery.deletes || {})) deleteSessionFromDisk(id);
+    };
+    retry();
+    window.addEventListener("online", retry);
+    return () => { window.removeEventListener("online", retry); recoveryReplayed.current = false; };
+  }, [sessionsLoaded, persistSession, persistSessionNotes, deleteSessionFromDisk]);
+  useEffect(() => {
+    if (sessionsLoaded) saveNavigation(selectedSessionId, selectedTestPointId);
+  }, [sessionsLoaded, selectedSessionId, selectedTestPointId]);
 
   // --- 5. CRUD Operations ---
   const updateSession = useCallback(

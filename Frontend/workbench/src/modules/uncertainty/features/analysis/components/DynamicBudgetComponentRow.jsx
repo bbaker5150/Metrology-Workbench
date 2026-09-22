@@ -1,3 +1,6 @@
+import { FLUSH_EDITORS } from "../../../hooks/usePageExitRecovery";
+import { readEditorDraft, saveEditorDraft, clearEditorDraft } from "../../../utils/editorRecovery";
+import { budgetDragProps } from "../../../utils/instrumentBudgetComponents";
 import GrowingNumericInput from "../../../components/common/GrowingNumericInput";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { v4 as uuid } from "uuid";
@@ -20,8 +23,10 @@ export default function DynamicBudgetComponentRow({
   component, referencePoint, measurementPoint = referencePoint, showDof, onCommit, onRemove, onMoveUp, onMoveDown,
   UnitSelectComponent = FallbackUnitSelect, autoEdit = false, onEditorOpened,
 }) {
-  const [draft, setDraft] = useState(() => implicitUnits(component.dynamicDefinition, referencePoint, measurementPoint));
-  const [editing, setEditing] = useState(autoEdit);
+  const draftKey = `dynamic:${component.id}`;
+  const recovered = useRef(readEditorDraft(draftKey));
+  const [draft, setDraft] = useState(() => recovered.current || implicitUnits(component.dynamicDefinition, referencePoint, measurementPoint));
+  const [editing, setEditing] = useState(autoEdit || Boolean(recovered.current));
   const [naming, setNaming] = useState(false);
   const [distributionEditing, setDistributionEditing] = useState(false);
   const editorActive = editing || naming || distributionEditing;
@@ -30,7 +35,7 @@ export default function DynamicBudgetComponentRow({
   const draftRef = useRef(draft);
   const definitionRef = useRef(component.dynamicDefinition);
   const commitRef = useRef(onCommit);
-  const dirty = useRef(false);
+  const dirty = useRef(Boolean(recovered.current));
   const pendingCommit = useRef(null);
   const variableCache = useRef(draft?.variables || {});
   definitionRef.current = component.dynamicDefinition;
@@ -54,7 +59,8 @@ export default function DynamicBudgetComponentRow({
     dirty.current = true;
     draftRef.current = next;
     setDraft(next);
-  }, []);
+    saveEditorDraft(draftKey, next);
+  }, [draftKey]);
   const finish = useCallback((cancel = false) => {
     if (cancel) {
       draftRef.current = definitionRef.current;
@@ -64,11 +70,19 @@ export default function DynamicBudgetComponentRow({
       pendingCommit.current = { previous: JSON.stringify(definitionRef.current) };
       commitRef.current?.(draftRef.current);
     }
+    clearEditorDraft(draftKey);
     dirty.current = false;
     setEditing(false);
     setNaming(false);
     setDistributionEditing(false);
-  }, []);
+  }, [draftKey]);
+
+  useEffect(() => {
+    if (!editorActive) return;
+    const flush = () => finish();
+    window.addEventListener(FLUSH_EDITORS, flush);
+    return () => window.removeEventListener(FLUSH_EDITORS, flush);
+  }, [editorActive, finish]);
 
   const focusEditor = useCallback(() => {
     requestAnimationFrame(() => {
@@ -221,7 +235,7 @@ export default function DynamicBudgetComponentRow({
           restoreTriggerFocus();
         }
       }}>
-      <td className="budget-source-cell has-order-controls">
+      <td className="budget-source-cell has-order-controls"><span className="budget-component-drag" {...budgetDragProps(component)} aria-label="Drag Type B component">⠿</span>
         <div className="budget-order-controls">
           <button type="button" title="Move component up" aria-label="Move component up" onClick={onMoveUp}><FontAwesomeIcon icon={faArrowUp} /></button>
           <button type="button" title="Move component down" aria-label="Move component down" onClick={onMoveDown}><FontAwesomeIcon icon={faArrowDown} /></button>

@@ -1,3 +1,4 @@
+import { inputSymbol } from "./budgetScope";
 import { toleranceUnitMismatch } from "./incompleteBudget";
 import { registerUnitPrefixes } from "./siPrefixes";
 import { getUnitSearchNames } from "./unitNames";
@@ -2024,6 +2025,30 @@ export const calculateDerivedUncertainty = (
   manualComponents = [],
   calculationOptions = {},
 ) => {
+  if (variableMappings && !calculationOptions.symbolScoped) {
+    const entries = Object.entries(variableMappings);
+    const blankSymbols = entries.filter(([, name]) => !name).map(([symbol]) => symbol);
+    const orphaned = [...(tmdeTolerances || []), ...(manualComponents || [])].some(component =>
+      component.variableType && !component.variableSymbol && !entries.some(([, name]) => name === component.variableType));
+    if (blankSymbols.length && orphaned) return { combinedUncertaintyNative: NaN, breakdown: [], nominalResult: NaN,
+      missingInputs: true, error: `Restore the input name or reassign its sources: ${blankSymbols.join(", ")}.` };
+    const keys = Object.fromEntries(entries.map(([symbol]) => [symbol, `__input:${symbol}__`]));
+    const bind = component => {
+      const symbol = inputSymbol(component, variableMappings);
+      return symbol ? { ...component, variableType: keys[symbol] } : component;
+    };
+    const result = calculateDerivedUncertainty(equationString, keys,
+      (tmdeTolerances || []).map(bind), derivedNominalPoint, (manualComponents || []).map(bind),
+      { ...calculationOptions, symbolScoped: true });
+    const displayText = text => typeof text === "string" ? entries.reduce((value, [symbol, name]) => value.replaceAll(keys[symbol], name || symbol), text) : text;
+    return { ...result, error: displayText(result.error), missingTypes: result.missingTypes?.map(displayText),
+      unitMismatch: result.unitMismatch ? { ...result.unitMismatch, variableType: displayText(result.unitMismatch.variableType) } : result.unitMismatch,
+      breakdown: (result.breakdown || []).map(row => ({ ...row,
+      type: variableMappings[row.variable] || "",
+      componentId: entries.filter(([, name]) => name && name === variableMappings[row.variable]).length === 1
+        ? variableMappings[row.variable] : `input:${row.variable}`,
+    })) };
+  }
   const strictUnitValidation = Boolean(calculationOptions?.strictUnitValidation);
   const allowFiniteDifference = Boolean(calculationOptions?.allowFiniteDifference);
   // 1. Basic Validation

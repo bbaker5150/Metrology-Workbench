@@ -1,3 +1,4 @@
+import ReusableTypeBEditor from "./ReusableTypeBEditor";
 import GrowingNumericInput from "../../../components/common/GrowingNumericInput";
 /**
  * TypeBComponentsEditor
@@ -131,8 +132,9 @@ const TypeBComponentsEditor = ({
         </small>
       )}
 
+      <ReusableTypeBEditor components={list} onChange={onChange} referenceUnit={referenceUnit} onActivate={onActivate} />
       <div className="typeb-cards">
-        {list.map((mc) => {
+        {list.filter(mc => !mc.budgetComponent).map((mc) => {
           const isStandard = mc.inputMode === "standard";
           const scope = mc.scope || "instrument";
           const selectedFunction =

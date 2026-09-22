@@ -1,0 +1,83 @@
+import { prepareInputTasking } from "./input-tasking-checks.mjs";
+export function prepareTaskingTypeB(session) {
+  prepareInputTasking(session);
+  const component = (kind, name, point) => {
+    const id = `${kind}-${point}`;
+    const def = { id, kind, name, measurementUnit: "V", outputUnit: "V", mode: "standard", distribution: "1", columns: [{ id: "u", name: "Uncertainty" }], rows: [{ id: "r", point, values: { u: { value: .1 } } }], equation: "x/100", pointVariable: "x", variables: { x: { value: "" } } };
+    return { id: `record-${id}`, kind, name, budgetComponent: { id: `component-${id}`, name, type: "B", isManual: true, dynamicDefinitionId: id, dynamicOutputId: "u", dynamicDefinition: def } };
+  };
+  session.uuts[0].instrument.typeBComponents = [component("table", "UUT matching table", 5), component("table", "UUT nonmatching table", 9), component("equation", "UUT point equation", 5)];
+  session.tmdes[0].instrument.typeBComponents = [component("equation", "TMDE point equation", 5)];
+  const blank = structuredClone(session.testPoints[0]);
+  Object.assign(blank, { id: "blank-inputs", equationString: "a+b+d+d/c", variableMappings: { a: "", b: "", c: "", d: "" }, variableNominals: {}, components: [] });
+  blank.testPointInfo.parameter.value = "";
+  session.testPoints.push(blank);
+}
+export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
+  await page.setViewportSize({ width: 1600, height: 1050 });
+  const expand = frame.getByRole("button", { name: "Expand measurement area", exact: true });
+  if (await expand.count()) await expand.first().click();
+  const point = frame.locator('[data-point-id="point"]');
+  await point.locator('[data-sidebar-column="pfa"]').click();
+  const add = frame.getByRole("button", { name: "Add component to budget", exact: true });
+  await add.first().click();
+  const menu = frame.getByRole("dialog", { name: "Add component to budget", exact: true });
+  check("matching instrument tables are offered from the UUT", await menu.getByRole("button", { name: /UUT matching table/ }).count() === 1);
+  check("nonmatching instrument tables are omitted", await menu.getByRole("button", { name: /UUT nonmatching table/ }).count() === 0);
+  check("TMDE equations are available without adding its accuracy first", await menu.getByRole("button", { name: /TMDE point equation/ }).count() === 1);
+  await menu.getByRole("button", { name: /UUT matching table/ }).click();
+  await menu.getByRole("button", { name: /TMDE point equation/ }).click();
+  await frame.locator(".analysis-tabs").click({ position: { x: 5, y: 5 } });
+  check("reusable components attach only to the selected input", await until(() => saved().testPoints[0].components.filter(c => c.associatedTypeBId).length === 2 && saved().testPoints[0].components.filter(c => c.associatedTypeBId).every(c => c.variableSymbol === "a")));
+  check("instrument equation evaluates at the destination nominal", await until(async () => (await frame.locator(".budget-dynamic-row").filter({ hasText: "TMDE point equation" }).innerText()).includes("0.05")));
+  const row = frame.locator(".budget-dynamic-row").filter({ hasText: "TMDE point equation" });
+  const target = frame.locator(".instrument-equipment-table").first().locator("tr.instrument-function-row").first();
+  const handle = row.locator(".budget-component-drag");
+  await handle.scrollIntoViewIfNeeded();
+  const start = await handle.boundingBox();
+  await page.mouse.move(start.x + start.width / 2, start.y + start.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(start.x + start.width / 2 + 15, start.y + start.height / 2, { steps: 8 });
+  await target.scrollIntoViewIfNeeded();
+  const end = await target.boundingBox();
+  await page.mouse.move(end.x + 30, end.y + end.height / 2, { steps: 12 });
+  await page.mouse.move(end.x + 32, end.y + end.height / 2);
+  await page.mouse.up();
+  if (process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await page.screenshot({ path: `${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/tasking-drop.png` });
+  check("dropping a budget component requests association confirmation", await until(async () => await frame.getByText("Associate Type B component", { exact: true }).count() === 1));
+  await frame.getByRole("button", { name: "Confirm", exact: true }).click();
+  check("confirmed drop stores an instrument definition without source input binding", await until(() => saved().uuts[0].instrument.typeBComponents.length === 4 && !saved().uuts[0].instrument.typeBComponents.at(-1).budgetComponent.variableSymbol));
+  // The row surface is continuous even under wide columns and horizontal scroll.
+  const blank = frame.locator('[data-point-id="blank-inputs"]');
+  await frame.locator(".analysis-tabs").hover();
+  const before = await blank.evaluate(node => getComputedStyle(node).backgroundColor);
+  await blank.locator('[data-sidebar-column="value"]').hover();
+  check("hover highlights the entire measurement row", await blank.evaluate(node => getComputedStyle(node).backgroundColor) !== before);
+  check("measurement-area background reaches the full row width", await point.evaluate(node => {
+    const group = node.closest(".measurement-group-container");
+    const header = group.querySelector(".area-header-sticky").getBoundingClientRect();
+    const row = node.getBoundingClientRect();
+    return header.right >= row.right - 1;
+  }));
+  await blank.locator('[data-sidebar-column="pfa"]').click();
+  await add.first().click();
+  await frame.getByRole("button", { name: /^Add manual component/ }).click();
+  const name = frame.getByRole("textbox", { name: "Error source name", exact: true });
+  await name.fill("Recovered draft source");
+  await until(() => saved().testPoints.find(p => p.id === "blank-inputs").components.length === 1);
+  await frame.evaluate(() => location.reload());
+  await frame.getByRole("combobox", { name: "Analysis Session" }).waitFor();
+  check("refresh restores the selected point and an uncommitted manual draft", await until(async () => (await frame.getByRole("textbox", { name: "Error source name", exact: true }).count() === 1 && await frame.getByRole("textbox", { name: "Error source name", exact: true }).inputValue() === "Recovered draft source") || await frame.locator(".budget-inline-manual-row").filter({ hasText: "Recovered draft source" }).count() === 1));
+  await frame.locator(".analysis-tabs").click({ position: { x: 5, y: 5 } });
+  check("unnamed input components appear in just one budget", await until(async () => await frame.locator(".budget-inline-manual-row").filter({ hasText: "Recovered draft source" }).count() === 1));
+  check("the recovered component keeps its equation-symbol binding", await until(() => saved().testPoints.find(p => p.id === "blank-inputs").components[0].variableSymbol === "a"));
+  if (process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await page.screenshot({ path: `${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/tasking-recovered-input.png` });
+  await point.locator('[data-sidebar-column="pfa"]').click();
+  await point.locator('[data-sidebar-column="pfa"]').click({ modifiers: ["Control"] });
+  const breakdown = frame.locator(".breakdown-modal-content").filter({ has: frame.locator(".risk-input-trace") });
+  await breakdown.waitFor();
+  check("risk breakdown traces manual and reusable uncertainty sources", await breakdown.getByText("UUT matching table", { exact: true }).count() > 0 && await breakdown.getByText("TMDE point equation", { exact: true }).count() > 0);
+  check("risk breakdown explains signed bias and metric equations", await breakdown.getByText("3. Apply signed bias", { exact: true }).count() === 1 && await breakdown.getByText("4. Follow the calculation for this metric", { exact: true }).count() === 1);
+  if (process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await page.screenshot({ path: `${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/tasking-risk-breakdown.png` });
+  await breakdown.locator(".modal-close-button").click();
+}

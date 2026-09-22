@@ -1,3 +1,5 @@
+import { withInstrumentEditorDrafts } from "../../../utils/instrumentBudgetComponents";
+import { readEditorDraft, saveEditorDraft, clearEditorDraft } from "../../../utils/editorRecovery";
 import { useConfirmRecordDeletes } from "../../../contexts/RecordDeletePolicy";
 import { validateInstrumentSpecifications } from "../../../utils/instrumentValidation";
 import BuilderSpecificationRow from "./BuilderSpecificationRow";
@@ -334,6 +336,7 @@ const UniversalInstrumentModal = ({
         defaultHeight: Math.min(850, window.innerHeight * 0.85)
     });
     const { syncToShared, getDiff } = useInstrumentSync(onInstrumentSynced);
+    const builderDraftKey = `builder:${mode}:${initialData?.id || "new"}`;
 
     useEffect(() => {
         if (isOpen) {
@@ -409,6 +412,12 @@ const UniversalInstrumentModal = ({
                 setActiveFunctionId(null);
                 setActiveTypeBId(null);
             }
+            const recovered = readEditorDraft(builderDraftKey);
+            if (recovered?.instrumentDef) {
+                setInstrumentDef(recovered.instrumentDef); setMetaData(recovered.metaData);
+                setActiveFunctionId(recovered.activeFunctionId); setActiveTypeBId(recovered.activeTypeBId);
+                setViewMode("edit");
+            }
         }
     }, [isOpen, initialData, mode]);
 
@@ -425,6 +434,7 @@ const UniversalInstrumentModal = ({
         };
         builderUndoStateRef.current = snapshot;
         if (!builderUndoReadyRef.current) return;
+        if (isOpen && viewMode === "edit") saveEditorDraft(builderDraftKey, snapshot);
 
         if (builderApplyingUndoRef.current) {
             builderApplyingUndoRef.current = false;
@@ -1049,7 +1059,7 @@ const UniversalInstrumentModal = ({
         if (effectiveMode === 'uut' || effectiveMode === 'tmde') {
             const shouldRemainShared = saveToLibrary && savedLibraryId;
             const sessionInstrument = {
-                ...instrumentDef,
+                ...withInstrumentEditorDrafts(instrumentDef),
                 scope: shouldRemainShared ? "validated" : "local",
                 ...(savedLibraryId
                     ? {
@@ -1081,7 +1091,7 @@ const UniversalInstrumentModal = ({
                 instrumentDef.libraryInstrumentId ||
                 (editingSharedInstrument ? instrumentDef.id : null);
             finalData = {
-                ...instrumentDef,
+                ...withInstrumentEditorDrafts(instrumentDef),
                 id: editingSharedInstrument ? uuidv4() : instrumentDef.id,
                 description: metaData.name,
                 measurementArea: metaData.measurementArea, 
@@ -1111,6 +1121,7 @@ const UniversalInstrumentModal = ({
             libraryInstrumentId || linkedLibraryInstrument?.id || null;
         const finalData = buildSaveData(savedLibraryId, { saveToLibrary: false });
         console.log("[UniversalInstrumentModal] Saving Data:", finalData);
+        clearEditorDraft(builderDraftKey);
         onSave(finalData);
 
         setLibraryInstrumentId(savedLibraryId);
@@ -1131,7 +1142,7 @@ const UniversalInstrumentModal = ({
 
         const libraryInstrument = isLibraryMode
             ? {
-                ...instrumentDef,
+                ...withInstrumentEditorDrafts(instrumentDef),
                 id: savedLibraryId,
                 scope: "validated",
                 sourceId: instrumentDef.sourceId || savedLibraryId,
@@ -1142,7 +1153,7 @@ const UniversalInstrumentModal = ({
                 type: 'library'
             }
             : {
-                ...instrumentDef,
+                ...withInstrumentEditorDrafts(instrumentDef),
                 id: savedLibraryId,
                 scope: "validated",
                 sourceId: savedLibraryId,
@@ -1175,7 +1186,8 @@ const UniversalInstrumentModal = ({
         if (!isLibraryMode) {
             const finalData = buildSaveData(savedLibraryId, { saveToLibrary: true });
             console.log("[UniversalInstrumentModal] Saving Data:", finalData);
-            onSave(finalData);
+            clearEditorDraft(builderDraftKey);
+        onSave(finalData);
         }
 
         setLibraryInstrumentId(savedLibraryId);

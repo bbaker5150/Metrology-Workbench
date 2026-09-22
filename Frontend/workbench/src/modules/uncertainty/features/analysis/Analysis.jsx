@@ -959,6 +959,7 @@ function Analysis({
           modalType={type}
           data={{
             results: riskResults,
+            trace: { point: testPointData, session: sessionData, calculation: calcResults },
             inputs: riskResults
               ? {
                   LLow: parseFloat(riskInputs.LLow),

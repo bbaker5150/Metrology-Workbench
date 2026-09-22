@@ -107,6 +107,11 @@ jobs:
         env:
           SEPTEMBER22_SMOKE: '1'
 
+      - name: Verify session recovery and reusable instrument components
+        run: node scripts/smoke-forge-srcdoc.mjs
+        env:
+          TASKING_TYPE_B_SMOKE: '1'
+
       - name: Checksum
         id: checksum
         run: |

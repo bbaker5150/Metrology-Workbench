@@ -1,3 +1,4 @@
+import { inputSymbol } from "./budgetScope";
 /**
  * Native-unit bias ownership and propagation (app layer, not workbook VBA).
  * ==========================================================================
@@ -91,10 +92,10 @@ export function getPointBiasSources(point = {}, session = {}) {
   const nominal = point.testPointInfo?.parameter || {};
   const derived = point.measurementType === "derived";
   const sources = [];
-  const add = (key, name, variableType, reference, spec, quantity = 1) => {
+  const add = (key, name, variableType, reference, spec, quantity = 1, variableSymbol = null) => {
     if (sources.some(row => row.key === key)) return;
     const override = point.measurementBias?.sources?.[key];
-    sources.push({ key, name, variableType, reference, inherited: spec, spec: override ?? spec, overridden: override != null, quantity: Number(quantity) || 1 });
+    sources.push({ key, name, variableType, variableSymbol, reference, inherited: spec, spec: override ?? spec, overridden: override != null, quantity: Number(quantity) || 1 });
   };
   const referenceFor = (variableType, fallback) => {
     // Re-read destination input values rather than storing a numeric bias during
@@ -109,13 +110,13 @@ export function getPointBiasSources(point = {}, session = {}) {
     const key = component.tmdeBudgetSourceId
       ? `tmde:${component.tmdeBudgetSourceId}:${component.tmdeBudgetFunctionId || ""}:${component.tmdeBudgetRangeId || ""}:${component.variableType || ""}`
       : `component:${component.id}`;
-    add(key, component.name || "Component", component.variableType, referenceFor(component.variableType), biasOf(range) ?? biasOf(component) ?? biasOf(master), component.quantity);
+    add(key, component.name || "Component", component.variableType, (component.variableSymbol ? point.variableNominals?.[component.variableSymbol] : referenceFor(component.variableType)), biasOf(range) ?? biasOf(component) ?? biasOf(master), component.quantity, inputSymbol(component, point.variableMappings));
   }
   const instances = refreshTmdeInstancesFromMasters(reconcileTmdeInstances(point.tmdeTolerances || [], session.tmdes || []), session.tmdes || []);
   for (const instance of instances) {
     const master = (session.tmdes || []).find(item => same(item.id, instance.sourceId || instance.id));
     const range = master && selectedRange(master, instance.rangeId || instance.tolerance?.rangeId, instance.functionId);
-    add(`instance:${instance.id}`, instance.name || master?.name || "TMDE", instance.variableType, referenceFor(instance.variableType, instance.measurementPoint), biasOf(range) ?? biasOf(instance) ?? biasOf(master), instance.quantity);
+    add(`instance:${instance.id}`, instance.name || master?.name || "TMDE", instance.variableType, referenceFor(instance.variableType, instance.measurementPoint), biasOf(range) ?? biasOf(instance) ?? biasOf(master), instance.quantity, inputSymbol(instance, point.variableMappings));
   }
   return sources;
 }
@@ -159,7 +160,7 @@ export function resolveMeasurementBias(point = {}, session = {}, calculatedAvera
     const active = result.sources.filter(row => configured(row.spec) && !row.spec.corrected);
     if (!active.length) return result;
     let breakdown = [];
-    if (point.measurementType === "derived" && active.some(row => row.variableType)) {
+    if (point.measurementType === "derived" && active.some(row => row.variableSymbol || row.variableType)) {
       const instances = refreshTmdeInstancesFromMasters(reconcileTmdeInstances(point.tmdeTolerances || [], session.tmdes || []), session.tmdes || []);
       // Reuse the uncertainty evaluator's nominal units and SIGNED derivatives.
       // This is first-order propagation b_y = sum(q_i * df/dx_i * b_i), not RSS
@@ -174,8 +175,8 @@ export function resolveMeasurementBias(point = {}, session = {}, calculatedAvera
       breakdown = derived.breakdown || [];
     }
     for (const row of active) {
-      const mapped = point.measurementType === "derived" && Object.values(point.variableMappings || {}).includes(row.variableType);
-      const input = mapped ? breakdown.find(input => input.type === row.variableType) : null;
+      const mapped = point.measurementType === "derived" && Boolean(row.variableSymbol || row.variableType && Object.values(point.variableMappings || {}).includes(row.variableType));
+      const input = mapped ? breakdown.find(input => row.variableSymbol ? input.variable === row.variableSymbol : input.type === row.variableType) : null;
       if (mapped && (!input || !Number.isFinite(input.ci))) throw new Error(`Cannot calculate bias sensitivity for ${row.variableType}.`);
       const referencePoint = input ? { value: input.nominal, unit: input.unit } : reference;
       // Convert b_i to the derivative's input unit before multiplication; ci then

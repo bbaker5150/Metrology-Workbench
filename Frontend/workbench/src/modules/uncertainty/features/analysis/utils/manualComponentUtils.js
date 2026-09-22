@@ -1,3 +1,4 @@
+import { inputBinding } from "../../../utils/budgetScope";
 import { hasNominalValue, toleranceNeedsNominal, unresolvedComponent, absoluteBudgetComponent, relativeBudgetUnit } from "../../../utils/incompleteBudget";
 import {
   unitSystem,
@@ -158,6 +159,7 @@ export const createInlineManualComponent = ({
           sourcePointLabel: `${scope.label || variableType} - Manual`,
         }
       : { sourcePointLabel: "Manual" }),
+    ...inputBinding(scope),
     originalInput: {
       inputMode: "tolerance",
       toleranceLimit: "",

@@ -1,3 +1,6 @@
+import { FLUSH_EDITORS } from "../../../hooks/usePageExitRecovery";
+import { readEditorDraft, saveEditorDraft, clearEditorDraft } from "../../../utils/editorRecovery";
+import { budgetDragProps } from "../../../utils/instrumentBudgetComponents";
 import { rawDecimal } from "../../../utils/rawDecimal";
 import GrowingNumericInput from "../../../components/common/GrowingNumericInput";
 import InlineMenuSelect from "../../../components/common/InlineMenuSelect";
@@ -353,7 +356,7 @@ const ManualValueCell = ({ component, onCommit, suffix }) => {
   );
 };
 
-const InlineManualComponentRow = ({
+export const InlineManualComponentRow = ({
   component,
   referencePoint,
   showDof,
@@ -368,18 +371,19 @@ const InlineManualComponentRow = ({
 }) => {
   const rowRef = useRef(null);
   const nameInputRef = useRef(null);
-  const [editing, setEditing] = useState(Boolean(component.inlineDraft));
+  const draftKey = `manual:${component.id}`;
+  const recovered = useRef(readEditorDraft(draftKey));
+  const [editing, setEditing] = useState(Boolean(component.inlineDraft || recovered.current));
   const [activeField, setActiveField] = useState("name");
-  const [draft, setDraft] = useState(() => getInlineManualDraft(component));
+  const [draft, setDraft] = useState(() => recovered.current || getInlineManualDraft(component));
   const draftRef = useRef(draft);
   const pendingFinishRef = useRef(null);
 
   const updateDraft = (updater) => {
-    setDraft((current) => {
-      const next = typeof updater === "function" ? updater(current) : updater;
-      draftRef.current = next;
-      return next;
-    });
+    const next = typeof updater === "function" ? updater(draftRef.current) : updater;
+    draftRef.current = next;
+    saveEditorDraft(draftKey, next);
+    setDraft(next);
   };
 
   useEffect(() => {
@@ -412,8 +416,16 @@ const InlineManualComponentRow = ({
       pendingFinishRef.current = null;
     }
     onCommit?.(draftRef.current);
+    clearEditorDraft(draftKey);
     setEditing(false);
   };
+
+  useEffect(() => {
+    if (!editing) return;
+    const flush = () => finish();
+    window.addEventListener(FLUSH_EDITORS, flush);
+    return () => window.removeEventListener(FLUSH_EDITORS, flush);
+  });
 
   useEffect(() => {
     if (!editing) return undefined;
@@ -517,6 +529,7 @@ const InlineManualComponentRow = ({
     if (event.key === "Escape") {
       event.preventDefault();
       updateDraft(getInlineManualDraft(component));
+      clearEditorDraft(draftKey);
       setEditing(false);
     }
   };
@@ -563,6 +576,7 @@ const InlineManualComponentRow = ({
         onClick={event => activateField(fields[event.target.closest("td")?.cellIndex] || "name")}
       >
         <td className="budget-source-cell has-order-controls" data-budget-field="name">
+          <span className="budget-component-drag" {...budgetDragProps(component)} aria-label="Drag Type B component">⠿</span>
           <BudgetOrderControls onMoveUp={onMoveUp} onMoveDown={onMoveDown} />
           {fieldSummary("name", component.name)}
         </td>
@@ -625,7 +639,8 @@ const InlineManualComponentRow = ({
       onKeyDown={handleRowKeyDown}
     >
       <td className="budget-source-cell has-order-controls" data-budget-field="name">
-        <BudgetOrderControls onMoveUp={onMoveUp} onMoveDown={onMoveDown} />
+        <span className="budget-component-drag" {...budgetDragProps(component)} aria-label="Drag Type B component">⠿</span>
+          <BudgetOrderControls onMoveUp={onMoveUp} onMoveDown={onMoveDown} />
         {activeField === "name" ? <InlineSourceNameEditor
           ref={nameInputRef}
           className="budget-inline-input budget-inline-name"
@@ -1301,6 +1316,7 @@ const UncertaintyBudgetTable = ({
   const getGroupScope = (group) => ({
     kind: group.kind,
     variableType: group.variableType,
+    variableSymbol: group.variableSymbol || group.variable,
     label: group.label.replace(/\s+Uncertainty Budget$/i, ""),
     nominalPoint: group.nominalPoint || (group.kind === "final" ? referencePoint : {
       value: group.nominalValue,

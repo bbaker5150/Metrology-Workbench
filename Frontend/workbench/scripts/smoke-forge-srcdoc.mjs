@@ -1,3 +1,4 @@
+import { prepareTaskingTypeB, checkTaskingTypeB } from "./tasking-type-b-checks.mjs";
 import { prepareSeptember21, checkSeptember21 } from "./september21-checks.mjs";
 import { prepareSeptember21Followup, checkSeptember21Followup } from "./september21-followup-checks.mjs";
 import { prepareSeptember21BiasUi, checkSeptember21BiasUi } from "./september21-bias-ui-checks.mjs";
@@ -142,6 +143,7 @@ if (process.env.SEPTEMBER21_SMOKE) for (const session of sessions.values()) prep
 if (process.env.SEPTEMBER21_FOLLOWUP_SMOKE) for (const session of sessions.values()) prepareSeptember21Followup(session);
 if (process.env.SEPTEMBER21_BIAS_UI_SMOKE) for (const session of sessions.values()) prepareSeptember21BiasUi(session);
 if (process.env.SEPTEMBER21_COLLAPSE_SMOKE) for (const session of sessions.values()) prepareSeptember21Collapse(session);
+if (process.env.TASKING_TYPE_B_SMOKE) for (const session of sessions.values()) prepareTaskingTypeB(session);
 if (process.env.SEPTEMBER22_SMOKE) for (const session of sessions.values()) prepareSeptember22(session);
 if (process.env.INPUT_TASKING_SMOKE) for (const session of sessions.values()) prepareInputTasking(session);
 if (process.env.POINT_POLISH_SMOKE) for (const session of sessions.values()) preparePointPolish(session);
@@ -320,6 +322,7 @@ if (/not set up yet/i.test(frameText)) {
   if (process.env.SEPTEMBER21_FOLLOWUP_SMOKE) await checkSeptember21Followup({ frame, page, saved, until, check });
   if (process.env.SEPTEMBER21_BIAS_UI_SMOKE) await checkSeptember21BiasUi({ frame, page, saved, until, check });
   if (process.env.SEPTEMBER21_COLLAPSE_SMOKE) await checkSeptember21Collapse({ frame, page, saved, until, check });
+  if (process.env.TASKING_TYPE_B_SMOKE) await checkTaskingTypeB({ frame, page, saved, until, check });
   if (process.env.SEPTEMBER22_SMOKE) await checkSeptember22({ frame, page, saved, until, check });
   if (process.env.INPUT_TASKING_SMOKE) await checkInputTasking({ frame, page, saved, until, check });
   if (process.env.POINT_POLISH_SMOKE) await checkPointPolish({ frame, page, saved, until, check });

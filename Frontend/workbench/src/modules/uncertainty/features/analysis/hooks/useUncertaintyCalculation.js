@@ -1,3 +1,4 @@
+import { belongsToInput, inputSymbol } from "../../../utils/budgetScope";
 import { sessionForPoint } from "../../../utils/pointRequirements";
 import { useMemo } from "react";
 import { formatErrorSourceDescription, formatErrorSourceKind } from "../../../utils/instrumentIdentity";
@@ -267,15 +268,15 @@ export const useUncertaintyCalculation = (
             results: { combined, expanded: combined == null ? null : combined * k, k_value: k, effective_dof: effectiveDof,
               pendingReason: pendingReason || (!rows.length ? "Add budget components to calculate uncertainty." : null) } };
         };
-        const sourceRows = (nominal, variableType) => [
-          ...manualComponents.filter(c => (c.variableType || "") === (variableType || "")),
-          ...tmdeTolerancesData.filter(t => !derived || t.variableType === variableType).flatMap((tmde, index) =>
+        const sourceRows = (nominal, variableType, symbol) => [
+          ...manualComponents.filter(c => belongsToInput(c, symbol, testPointData.variableMappings)),
+          ...tmdeTolerancesData.filter(t => !derived || belongsToInput(t, symbol, testPointData.variableMappings)).flatMap((tmde, index) =>
             getBudgetComponentsFromTolerance(tmde, nominal || {}).map((c, i) => ({ ...qualifyTmdeComponent(c, tmde, index), id: `${c.id}_${index}_${i}`, sourceTmdeId: tmde.id }))),
         ];
         // Input identity comes from the equation symbol, even before its optional
         // display name is entered. A blank name must never make it the final budget.
         const groups = derived ? Object.entries(testPointData.variableMappings || {}).map(([symbol, name]) =>
-          ({ ...groupFor(testPointData.variableNominals?.[symbol] || {}, sourceRows(testPointData.variableNominals?.[symbol] || {}, name), `${name || symbol} Uncertainty Budget`, `input_${symbol}`, name), kind: "input" })) : [];
+          ({ ...groupFor(testPointData.variableNominals?.[symbol] || {}, sourceRows(testPointData.variableNominals?.[symbol] || {}, name, symbol), `${name || symbol} Uncertainty Budget`, `input_${symbol}`, name), kind: "input", variable: symbol, variableSymbol: symbol })) : [];
         const finalRows = sourceRows(uutNominal || {}, "");
         const resolution = getUutResolutionComponent(uutToleranceData, uutNominal || {});
         if (resolution) finalRows.push(resolution);
@@ -477,11 +478,11 @@ export const useUncertaintyCalculation = (
             });
 
             const contributingTmde = tmdeTolerancesData.find(
-                (tmde) => tmde.variableType === item.type
+                (tmde) => belongsToInput(tmde, item.variable, testPointData.variableMappings)
             );
             
             const contributingManual = !contributingTmde 
-                ? manualComponents.find(m => (m.variableType || m.name) === item.type) 
+                ? manualComponents.find(m => belongsToInput(m, item.variable, testPointData.variableMappings))
                 : null;
 
             let distributionLabel = "N/A";
@@ -501,7 +502,7 @@ export const useUncertaintyCalculation = (
             }
 
             const allContributingTmdes = tmdeTolerancesData.filter(
-                (tmde) => tmde.variableType === item.type
+                (tmde) => belongsToInput(tmde, item.variable, testPointData.variableMappings)
             );
             const inputBudgetComponents = allContributingTmdes.flatMap(
                 (tmde, tmdeIndex) => {
@@ -536,7 +537,7 @@ export const useUncertaintyCalculation = (
                 }
             );
             const mappedManualComponents = (manualComponents || [])
-              .filter((comp) => (comp.variableType || "") === item.type)
+              .filter((comp) => belongsToInput(comp, item.variable, testPointData.variableMappings))
               .map((comp, compIndex) => ({
                 ...comp,
                 id: comp.id || `manual_${item.variable}_${compIndex}`,
@@ -603,7 +604,7 @@ export const useUncertaintyCalculation = (
         if (manualComponents && manualComponents.length > 0) {
             manualComponents.forEach((comp, idx) => {
                 const varType = comp.variableType || comp.name;
-                const isMappedVariable = mappedVariableTypes.has(varType);
+                const isMappedVariable = Boolean(inputSymbol(comp, testPointData.variableMappings)) || mappedVariableTypes.has(varType);
 
                 if (!isMappedVariable) {
                     const absUncNative = (comp.value / 1e6) * Math.abs(derivedNominalValue);
@@ -842,7 +843,7 @@ export const useUncertaintyCalculation = (
           ...componentsForBudgetTable.filter(
             (component) =>
               !component.name.startsWith("Input:") &&
-              !mappedVariableTypes.has(component.variableType)
+              !component.variableSymbol && !mappedVariableTypes.has(component.variableType)
           ),
         ];
         const finalDofDenominator = finalBudgetComponents.reduce((sum, comp) => {

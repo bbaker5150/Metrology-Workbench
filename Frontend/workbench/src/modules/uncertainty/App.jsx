@@ -1,3 +1,6 @@
+import usePageExitRecovery from "./hooks/usePageExitRecovery";
+import useWorkspaceScrollRecovery from "./hooks/useWorkspaceScrollRecovery";
+import { readEditorDraft, saveEditorDraft, clearEditorDraft } from "./utils/editorRecovery";
 import { claimWorkspaceClipboard, ownsWorkspaceClipboard, WORKSPACE_CLIPBOARD_EVENT } from "./utils/workspaceClipboard";
 import { normalizeSizingPreferences, physicalScopedZoom } from "./utils/scopedZoom";
 import useSelectInputText from "./hooks/useSelectInputText";
@@ -2289,12 +2292,16 @@ function App({ showThemeToggle = false }) {
   // Instrument Manager Modal State
   // We use this boolean to open the modal in 'library' mode from the Tools menu.
   // Editing specific instances (UUT/TMDE) is handled via handlers passed to Analysis.
-  const [isInstrumentBuilderOpen, setIsInstrumentBuilderOpen] = useState(false);
-  const [instrumentModalConfig, setInstrumentModalConfig] = useState({
+  const [isInstrumentBuilderOpen, setIsInstrumentBuilderOpen] = useState(() => Boolean(readEditorDraft("open-instrument-builder")));
+  const [instrumentModalConfig, setInstrumentModalConfig] = useState(() => readEditorDraft("open-instrument-builder") || {
     mode: "library",
     data: null,
     associateToPointId: null,
   });
+  useEffect(() => {
+    if (isInstrumentBuilderOpen) saveEditorDraft("open-instrument-builder", instrumentModalConfig);
+    else clearEditorDraft("open-instrument-builder");
+  }, [isInstrumentBuilderOpen, instrumentModalConfig]);
 
   const [isBugReportOpen, setIsBugReportOpen] = useState(false);
   const [isWalkthroughOpen, setIsWalkthroughOpen] = useState(false);
@@ -2344,6 +2351,8 @@ function App({ showThemeToggle = false }) {
   const [analysisMode, setAnalysisMode] = useState("overview");
   const analysisScrollPositionsRef = useRef({});
   const lastSelectedPointBySessionRef = useRef({});
+  usePageExitRecovery();
+  useWorkspaceScrollRecovery(selectedSessionId, selectedTestPointId, analysisMode);
   const [showContribution, setShowContribution] = useState(true);
   const [scopedZoomLevels, setScopedZoomLevels] = useState(
     () => readUiSizingPreferences().scopedZoomLevels || {},

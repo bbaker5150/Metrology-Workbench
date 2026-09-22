@@ -1,3 +1,4 @@
+import RiskInputTrace from "./RiskInputTrace";
 import React from "react";
 import ReactDOM from "react-dom";
 import * as Breakdowns from "./RiskBreakdownContent";
@@ -65,6 +66,7 @@ const RiskBreakdownModal = ({ isOpen, onClose, modalType, data }) => {
         </h3>
         
         <div className="modal-body-scrollable">
+            <RiskInputTrace modalType={modalType} results={results} trace={data.trace} />
             {isKnownMeasurementRisk8 ? (
               <Risk8BreakdownContent modalType={modalType} results={results} inputs={inputs} />
             ) : (

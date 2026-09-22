@@ -1,3 +1,4 @@
+import { inputSymbol } from "./budgetScope";
 import { toleranceUnitMismatch } from "./incompleteBudget";
 import { sessionForPoint } from "./pointRequirements";
 import { resolveMeasurementBias } from "./measurementBias";
@@ -209,7 +210,7 @@ export function computeUncertaintyForPoint(point, sessionData) {
       });
       (manualComponents || []).forEach((comp) => {
         const varType = comp.variableType || comp.name;
-        const isMappedVariable = Object.values(
+        const isMappedVariable = Boolean(inputSymbol(comp, point.variableMappings)) || Object.values(
           point.variableMappings || {},
         ).includes(varType);
         if (!isMappedVariable) {

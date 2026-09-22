@@ -211,3 +211,14 @@ it("reuses an authored table at a new point and shares later edits without alter
   expect(distinct.dynamicBudgetDefinitions).toHaveLength(2);
   expect(distinct.dynamicBudgetDefinitions[1].name).toBe('Tabular component 2');
 });
+
+
+it.each(["table", "equation"])("isolates %s instances for blank input names", kind => {
+ const point = { id: "p", measurementType: "derived", variableMappings: { a: "", b: "", c: "", d: "" }, variableNominals: {}, components: [] };
+ const first = attachDynamicComponent({ testPoints: [point] }, "p", kind, { kind: "input", variableSymbol: "a", variableType: "" });
+ const second = attachDynamicComponent(first.session, "p", kind, { kind: "input", variableSymbol: "b", variableType: "" });
+ expect(first.component.id).not.toBe(second.component.id);
+ expect(second.session.testPoints[0].components.map(c => c.variableSymbol)).toEqual(["a", "b"]);
+ const final = attachDynamicComponent(second.session, "p", kind, { kind: "final" });
+ expect(final.session.testPoints[0].components).toHaveLength(3);
+});
