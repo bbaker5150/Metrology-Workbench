@@ -111,7 +111,6 @@ import { symbolCategories } from "../../../utils/equationSymbols";
 
 // Sub-components
 import UncertaintyBudgetTable from "./UncertaintyBudgetTable";
-import BiasDistributionVisualizer, { hasActivePointBias } from "./BiasDistributionVisualizer";
 import EquationLibraryMenu from "./EquationLibraryMenu";
 import {
   validateEquation,
@@ -9933,8 +9932,6 @@ const DetailWorkspaceSectionToggle = ({
   onDragOver,
   onDrop,
   onDragEnd,
-  onMoveEarlier,
-  onMoveLater,
   style,
   className = "",
 }) => (
@@ -9943,7 +9940,7 @@ const DetailWorkspaceSectionToggle = ({
       canReorder ? " is-reorderable" : ""
     }${isDragging ? " is-dragging" : ""}${
       isDropTarget ? " is-drop-target" : ""
-    }${onMoveEarlier || onMoveLater ? " has-move-actions" : ""} ${className}`.trim()}
+    } ${className}`.trim()}
     draggable={canReorder}
     data-detail-section={sectionId}
     onDragStart={onDragStart}
@@ -9957,12 +9954,6 @@ const DetailWorkspaceSectionToggle = ({
   >
     <span className="detail-workspace-section-label">{label}</span>
     <span className="detail-workspace-section-rule" aria-hidden="true" />
-    {(onMoveEarlier || onMoveLater) && <span className="detail-workspace-move-actions">
-      <button type="button" aria-label={`Move ${label} earlier`} title={`Move ${label} earlier`}
-        disabled={!onMoveEarlier} onClick={event => { event.stopPropagation(); onMoveEarlier?.(); }}><FontAwesomeIcon icon={faArrowUp}/></button>
-      <button type="button" aria-label={`Move ${label} later`} title={`Move ${label} later`}
-        disabled={!onMoveLater} onClick={event => { event.stopPropagation(); onMoveLater?.(); }}><FontAwesomeIcon icon={faArrowDown}/></button>
-    </span>}
     <button type="button" className="detail-workspace-collapse-button" onClick={onToggle}
       aria-expanded={!collapsed} aria-label={`${collapsed ? "Expand" : "Collapse"} ${label} section`}>
     <FontAwesomeIcon
@@ -14711,13 +14702,6 @@ function DetailedView({
   const canShowBudgetSection =
     !isDerived ||
     hasUsableEquation;
-  const showBiasDistribution = canShowBudgetSection && hasActivePointBias(testPointData, sessionData);
-  const visibleDetailOrder = detailSectionOrder.filter(section => isDerived || section !== "equation");
-  const biasSectionIndex = visibleDetailOrder.indexOf("bias");
-  const moveBiasSection = (direction) => {
-    const target = visibleDetailOrder[biasSectionIndex + direction];
-    if (target && onSessionSave) onSessionSave({ ...sessionData, detailSectionOrder: moveDetailSection(detailSectionOrder, "bias", target) });
-  };
 
   // --- Monte Carlo (GUM-S1) propagation mode ---
   // Linear stays the default (workbook parity); the MC path is offered when
@@ -16506,28 +16490,6 @@ function DetailedView({
       </div>
       </>
       )}
-      {showBiasDistribution && <>
-        <DetailWorkspaceSectionToggle
-          label="Bias Distribution"
-          collapsed={collapsedDetailSections.has("bias")}
-          onToggle={() => toggleDetailSection("bias")}
-          onMoveEarlier={onSessionSave && biasSectionIndex > 0 ? () => moveBiasSection(-1) : undefined}
-          onMoveLater={onSessionSave && biasSectionIndex < visibleDetailOrder.length - 1 ? () => moveBiasSection(1) : undefined}
-          style={detailSectionStyle("bias")}
-          {...detailSectionDragProps("bias")}
-          className="detail-workspace-section-toggle--bias"
-        />
-        <div className={`detail-workspace-content detail-workspace-content--bias${collapsedDetailSections.has("bias") ? " is-collapsed" : ""}`}
-          style={detailSectionStyle("bias", 1)}>
-          <BiasDistributionVisualizer
-            point={testPointData}
-            session={sessionData}
-            referencePoint={uutNominal}
-            calcResults={calcResults}
-            riskResults={riskResults}
-          />
-        </div>
-      </>}
       </div>
       {renderBudgetTmdePicker()}
       <ContextMenu menu={rowMenu} onClose={() => setRowMenu(null)} />

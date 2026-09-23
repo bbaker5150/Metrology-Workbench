@@ -1,4 +1,4 @@
-export const DETAIL_SECTION_IDS = ["instruments", "equation", "budget", "bias"];
+export const DETAIL_SECTION_IDS = ["instruments", "equation", "budget"];
 
 export const normalizeDetailSectionOrder = (order = []) => {
   const valid = new Set(DETAIL_SECTION_IDS);
