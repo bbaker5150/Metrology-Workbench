@@ -20201,11 +20201,11 @@ body.uncertainty-active .context-menu li.destructive:hover {
   width: max-content;
 }
 
-.uncertainty-module .measurement-points-table { container-type: inline-size; }
+.uncertainty-module .measurement-points-table { container-type: normal; }
 .uncertainty-module .measurement-points-table .area-header-sticky {
   position: sticky;
   left: 0;
-  width: 100cqw;
+  width: calc(100cqw / var(--scoped-content-zoom, 1));
   min-width: 0;
   box-sizing: border-box;
 }
@@ -20568,7 +20568,7 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
 .measurement-equation-card.is-editor-collapsed > .scoped-zoom-content { min-height: 96px; justify-content: center; }
 .measurement-equation-preview-trigger { border: 0; border-radius: 0; }
 .measurement-equation-preview-empty { font-size: 1rem; font-style: normal; }
-.measurement-point-empty-hint { display: flex; align-items: center; justify-content: flex-end; gap: 6px; position: sticky; left: 0; width: 100cqw; box-sizing: border-box; padding: 14px 14px 14px 18px; color: var(--text-color-muted); text-align: right; font-size: .75rem; cursor: default; }
+.measurement-point-empty-hint { display: flex; align-items: center; justify-content: flex-end; gap: 6px; position: sticky; left: 0; width: calc(100cqw / var(--scoped-content-zoom, 1)); box-sizing: border-box; padding: 14px 14px 14px 18px; color: var(--text-color-muted); text-align: right; font-size: .75rem; cursor: default; }
 .uncertainty-module .instrument-column-insert-button { top: -8px; bottom: auto; right: -8px; }
 .uncertainty-module .instrument-resizable-header { padding-top: 8px; padding-bottom: 8px; }
 .uncertainty-module .instrument-column-resize-handle { top: 0; height: 100%; }
@@ -21416,8 +21416,8 @@ body.dark-mode .uncertainty-module .measurement-group-container .point-grid-item
 /* Keep a visible, generous divider hit area even at either full-width edge. */
 .uncertainty-module .results-workflow-container > .sidebar-resizer {
   flex-basis: 16px; width: 16px; min-width: 16px; opacity: 1;
-  background: color-mix(in srgb, var(--primary-color) 7%, var(--component-bg));
-  border-inline: 1px solid var(--border-color); box-sizing: border-box;
+  background: transparent;
+  border-inline: 1px solid transparent; box-sizing: border-box;
 }
 .uncertainty-module .results-workflow-container > .sidebar-resizer::after {
   content: '↔'; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
@@ -21464,10 +21464,15 @@ body.light-mode .uncertainty-module :is(.content-area, .results-content, .result
 /* September 23 tasking: use the whole work area and keep the point controls
    anchored to the visible sidebar while its table scrolls horizontally. */
 .uncertainty-module .results-workflow-container { padding: 0; }
-.uncertainty-module .results-sidebar { container-type: inline-size; }
+.uncertainty-module .measurement-point-list { container-type: inline-size; }
+/* The sticky toolbar travels within the actual table width. Translating it by
+   scrollLeft would add overflow at the right edge and extend the scrollbar. */
+.uncertainty-module .measurement-points-zoom-surface,
+.uncertainty-module .measurement-points-zoom-surface > .scoped-zoom-content { width: max-content; }
+.uncertainty-module .measurement-points-table { width: max-content; min-width: 100%; }
 .uncertainty-module .measurement-points-zoom-surface .sidebar-global-actions {
-  position: relative; left: 0; right: auto; width: calc(100cqw / var(--scoped-content-zoom, 1));
-  transform: translateX(calc(var(--point-horizontal-scroll, 0px) / var(--scoped-content-zoom, 1)));
+  position: sticky; left: 0; right: auto; width: calc(100cqw / var(--scoped-content-zoom, 1));
+  transform: none;
   box-sizing: border-box; z-index: 12;
 }
 .uncertainty-module .measurement-points-table .function-point-actions {
@@ -21506,10 +21511,6 @@ body.light-mode .uncertainty-module :is(.content-area, .results-content, .result
   min-width: 58px; width: 58px; max-width: 58px;
 }
 .uncertainty-module .session-header-field--requirement .session-field-size-text { padding-right: 4px; }
-.uncertainty-module .session-header-field--requirement .session-header-value {
-  border: 1px solid var(--border-color); border-radius: 4px;
-  background: var(--input-background);
-}
 .uncertainty-module .session-header-field--requirement .session-field-size:has(input)[data-unit]:not([data-unit=""])::after {
   content: attr(data-unit); position: absolute; top: 3px; right: 5px;
   font-size: .8rem; pointer-events: none;
@@ -21532,10 +21533,6 @@ body.light-mode .uncertainty-module .instrument-equipment-table thead th:not(:la
   position: sticky; top: var(--instrument-header-offset, 0px);
   z-index: 20; background: var(--component-bg);
 }
-.uncertainty-module .workspace-pane-autofit > .sidebar-resizer {
-  background: color-mix(in srgb, var(--primary-color) 22%, var(--component-bg));
-}
-.uncertainty-module .workspace-pane-autofit > .sidebar-resizer::after { opacity: 1; }
 .uncertainty-module #session-select::picker-icon { margin-inline-start: auto; }
 .uncertainty-module #session-select { background-position: right 8px center; }
 @supports (appearance: base-select) { .uncertainty-module #session-select { padding-inline-end: 8px; } }

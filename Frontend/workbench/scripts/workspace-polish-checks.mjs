@@ -19,10 +19,15 @@ export async function checkWorkspacePolish({ frame, page, saved, until, check })
   const dividerIsReachable = () => divider.evaluate(node => { const r = node.getBoundingClientRect(); return r.width >= 12 && document.elementFromPoint(r.x + r.width / 2, r.y + 60) === node && getComputedStyle(node, '::after').content.includes('↔'); });
   await divider.dblclick();
   check('auto-fit keeps a visible, directly reachable divider', await dividerIsReachable());
-  check('first divider double-click fits the point table while retaining both panes', await until(async () =>
+  check('first divider double-click fits point columns using the full workspace when needed', await until(async () =>
     await frame.locator('.workspace-pane-autofit').count() === 1 &&
-    await frame.locator('.results-sidebar').isVisible() && await frame.locator('.results-content').isVisible() &&
-    await frame.locator('.results-sidebar').evaluate(node => node.clientWidth >= Math.min(node.querySelector('.measurement-points-table-content').scrollWidth, node.parentElement.clientWidth - 340) - 4)));
+    await frame.locator('.results-sidebar').isVisible() && await frame.locator('.results-sidebar').evaluate(node => {
+      const tableWidth = node.querySelector('.measurement-points-table-content').getBoundingClientRect().width;
+      const available = node.parentElement.clientWidth - 16;
+      const pointsOnly = node.parentElement.classList.contains('workspace-pane-points');
+      return node.clientWidth >= Math.min(tableWidth, available) - 4 &&
+        (pointsOnly ? tableWidth > available - 322 : tableWidth <= available - 318);
+    })));
   await frame.evaluate(() => location.reload());
   await frame.getByRole('combobox', { name: 'Analysis Session' }).waitFor();
   check('auto-fit mode survives refresh', await frame.locator('.workspace-pane-autofit').count() === 1 && await frame.locator('.results-content').isVisible());

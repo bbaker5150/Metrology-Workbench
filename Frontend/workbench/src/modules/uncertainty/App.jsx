@@ -4800,21 +4800,29 @@ function App({ showThemeToggle = false }) {
   }, [currentSessionData, currentTestPoints]);
 
   useLayoutEffect(() => {
-    if (!sidebarAutoFit || workspacePane !== "split") return undefined;
+    if (!sidebarAutoFit || workspacePane === "tables") return undefined;
     const container = resultsContainerRef.current;
     const content = container?.querySelector(".measurement-points-table-content");
     if (!container || !content) return undefined;
     const fitToPoints = () => {
       const style = window.getComputedStyle(container);
       const available = container.clientWidth - (parseFloat(style.paddingLeft) || 0) -
-        (parseFloat(style.paddingRight) || 0) - 320 - 16;
-      // The content's 100% minimum follows the old sidebar size. Remove it
-      // only while measuring so auto-fit can shrink after a column is hidden.
-      const previousMinWidth = content.style.minWidth;
-      content.style.minWidth = "0px";
-      const naturalWidth = content.scrollWidth;
-      content.style.minWidth = previousMinWidth;
-      const nextWidth = Math.max(300, Math.min(1800, available, naturalWidth + 2));
+        (parseFloat(style.paddingRight) || 0) - 16;
+      // Measure the columns themselves. The sticky area headings and toolbar
+      // use the viewport width and must not feed that width back into auto-fit.
+      const columns = content.querySelector(".sidebar-column-headers") || content;
+      const previousMinWidth = columns.style.minWidth;
+      const previousWidth = columns.style.width;
+      columns.style.minWidth = "0px";
+      columns.style.width = "max-content";
+      const naturalWidth = columns.getBoundingClientRect().width;
+      columns.style.minWidth = previousMinWidth;
+      columns.style.width = previousWidth;
+      // Auto-fit may use the full workspace when the table cannot fit beside
+      // the instrument pane. The divider stays reachable at the right edge.
+      const pointsOnly = naturalWidth + 2 > available - 320;
+      setWorkspacePane(pointsOnly ? "points" : "split");
+      const nextWidth = Math.max(300, Math.min(available, naturalWidth + 2));
       setSidebarWidth(current => Math.abs(current - nextWidth) < 1 ? current : nextWidth);
     };
     fitToPoints();
@@ -4826,7 +4834,7 @@ function App({ showThemeToggle = false }) {
       observer?.disconnect();
       window.removeEventListener("resize", fitToPoints);
     };
-  }, [sidebarAutoFit, workspacePane, sidebarData, sidebarColumns, sidebarColumnOrder, sidebarColumnWidths]);
+  }, [sidebarAutoFit, workspacePane, sidebarData, sidebarColumns, sidebarColumnOrder, sidebarColumnWidths, scopedZoomLevels]);
 
   useEffect(() => {
     if (!pendingPointValueAdvance) return;
@@ -6060,8 +6068,7 @@ function App({ showThemeToggle = false }) {
               </div>
 
               {/* === SIDEBAR LIST === */}
-              <div className="measurement-point-list" onPointerDownCapture={() => claimWorkspaceSelection("points")}
-                onScroll={event => event.currentTarget.style.setProperty("--point-horizontal-scroll", `${event.currentTarget.scrollLeft}px`)}>
+              <div className="measurement-point-list" onPointerDownCapture={() => claimWorkspaceSelection("points")}>
                 <div className="sidebar-session-info-zoom-surface">
                   <div className="scoped-zoom-content">
                     {/* Session metadata stays in the sidebar; Instrument Overview
