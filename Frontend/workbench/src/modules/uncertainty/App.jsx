@@ -6374,6 +6374,7 @@ function App({ showThemeToggle = false }) {
                   testPointData={displayData}
                 >
                   <Analysis
+                    showToast={showToast}
                     sessionData={currentSessionData}
                     testPointData={displayData}
                     onDataSave={handleAnalysisDataSave}

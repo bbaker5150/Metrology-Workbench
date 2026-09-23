@@ -663,6 +663,21 @@ export const getBudgetComponentsFromTolerance = (
   const mismatch = [toleranceObject.unit, ...["reading", "range", "floor", "readings_iv"].map(key => toleranceObject[key]?.unit)]
     .map(unit => budgetUnitMismatch(unit, nominalUnit, unitSystem)).find(Boolean);
   return budgetComponents.map(component => {
+    // A missing or incompatible point unit cannot supply the native display
+    // frame. Retain the instrument frame; internal PPM/base values stay intact.
+    const physicalUnit = unit => unit && !relativeBudgetUnit(unit) ? unit : null;
+    const sourceUnit = (component.isResolution
+      ? toleranceObject.resolutionUnit || toleranceObject.measuringResolutionUnit
+      : component.isManual ? physicalUnit(component.manualUnit) : null)
+      || toleranceObject.unit || toleranceObject.functionUnit
+      || ["floor", "readings_iv", "reading", "range"].map(key => physicalUnit(toleranceObject[key]?.unit)).find(Boolean);
+    if (sourceUnit && (!nominalUnit || budgetUnitMismatch(sourceUnit, nominalUnit, unitSystem))) {
+      const scale = (unitSystem.units[component.unit_native]?.to_si || 1) / (unitSystem.units[sourceUnit]?.to_si || 1);
+      component = { ...component, unit_native: sourceUnit,
+        value_native: component.value_native == null ? null : component.value_native * scale,
+        ...(component.toleranceLimit_native != null ? { toleranceLimit_native: component.toleranceLimit_native * scale } : {}),
+      };
+    }
     const resolutionMismatch = component.isResolution ? budgetUnitMismatch(toleranceObject.resolutionUnit || toleranceObject.measuringResolutionUnit, nominalUnit, unitSystem) : null;
     if (resolutionMismatch || mismatch) {
       // Preserve the source specification for display. Numeric uncertainty stays

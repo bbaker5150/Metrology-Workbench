@@ -3202,7 +3202,7 @@ const moveToNextInlineTableColumn = (event) => {
       "button.inline-tolerance-summary:not([disabled])",
     );
     const existingControl = nextCell.querySelector?.(
-      "input:not([disabled]), select:not([disabled]), button.inline-unit-combobox:not([disabled])",
+      INLINE_COLUMN_CONTROL_SELECTOR,
     );
     if (openButton || existingControl) {
       event.preventDefault();
@@ -4355,8 +4355,8 @@ const SingleSidedToleranceEditor = ({
   const limitLabel = direction === "low" ? "Lower limit" : "Upper limit";
   const unit = component.unit || activeRange?.unit || "";
   const measurementOptions = [
-    { value: "known", label: "Known value" },
-    { value: "unknown", label: "Unknown value" },
+    { value: "known", label: "Known nominal" },
+    { value: "unknown", label: "Unknown nominal" },
   ];
 
   const selectMeasurement = (next) => {
@@ -4951,7 +4951,11 @@ export const RangeCell = ({
     if (onPatchRange) onPatchRange(patch);
     else if (raw !== String(toPlainNumber(activeRange[field]))) onEditBound?.(field, raw);
   };
-  const openToleranceFromUnit = () => {
+  const openToleranceFromUnit = (event) => {
+    if (moveToNextInlineTableColumn(event)) {
+      dismissRangeEditor();
+      return;
+    }
     if (!onOpenTolerance) return;
     dismissRangeEditor();
     onOpenTolerance();
@@ -5287,8 +5291,8 @@ export const getSpecRows = (tolerance) => {
     const unit = getUnitDisplayLabel(singleSided.unit || "");
     const measurement =
       singleSided.measurement === "unknown"
-        ? "unknown value"
-        : "known value";
+        ? "Unknown nominal"
+        : "Known nominal";
     return [
       `${isLow ? "≥" : "≤"} ${singleSided.limit}${unit ? ` ${unit}` : ""} (${measurement})`,
     ];
@@ -6488,6 +6492,7 @@ const SummaryDashboard = ({
   onSaveInstrument,
   onInstrumentSynced,
   setNotification,
+  showToast,
   collapsedFunctionKeys,
   setCollapsedFunctionKeys,
   keyboardShortcutsEnabled = true,
@@ -8447,6 +8452,7 @@ const SummaryDashboard = ({
       });
     claimWorkspaceClipboard("instrument");
     instrumentClipboard = { mode, items: JSON.parse(JSON.stringify(items)), detached: mode === "cut" };
+    showToast?.(`${items.length} Instrument${items.length === 1 ? "" : "s"} ${mode === "cut" ? "cut" : "copied"} to clipboard`);
     if (mode === "cut") {
       onSessionSave?.(cutInstrumentsFromSession(latestSessionDataRef.current, items));
       setSelectedUutIds([]);
@@ -8498,6 +8504,7 @@ const SummaryDashboard = ({
     rangeClipboard = null;
     claimWorkspaceClipboard("instrument");
     instrumentClipboard = { mode, items: JSON.parse(JSON.stringify(items)), detached: mode === "cut" };
+    showToast?.(`${items.length} Instrument${items.length === 1 ? "" : "s"} ${mode === "cut" ? "cut" : "copied"} to clipboard`);
     if (mode === "cut") {
       onSessionSave?.(cutInstrumentsFromSession(latestSessionDataRef.current, items));
       setSelectedUutIds([]); setSelectedTmdeIds([]);
@@ -8559,7 +8566,7 @@ const SummaryDashboard = ({
   };
 
   // --- Range-row clipboard (copy/cut/paste a single range) ---
-  const copyRange = (kind, item, rangeId) => {
+  const copyRange = (kind, item, rangeId, mode = "copy") => {
     const selected = lastSelectionTarget === "range" && hasSelectedRangeIds(selectedRangeIds)
       ? [["uut", sessionData.uuts || []], ["tmde", sessionData.tmdes || []]].flatMap(([role, items]) => items.flatMap(source =>
         (selectedRangeIds[itemStateKey(role, source.id)] || []).map(id => ({ source, id }))))
@@ -8574,10 +8581,11 @@ const SummaryDashboard = ({
     instrumentClipboard = null;
     claimWorkspaceClipboard("range");
     rangeClipboard = { kind, range: ranges[0].range, ranges };
+    showToast?.(`${ranges.length} Range${ranges.length === 1 ? "" : "s"} ${mode === "cut" ? "cut" : "copied"} to clipboard`);
   };
   const cutRange = (kind, item, range) => {
     const rangeId = rangeIdOf(range);
-    copyRange(kind, item, rangeId);
+    copyRange(kind, item, rangeId, "cut");
     if (hasSelectedRangeIds(selectedRangeIds) && lastSelectionTarget === "range") handleDeleteSelectedRanges();
     else if (rangeId) handleRemoveRange(kind, item, rangeId);
   };
@@ -8701,7 +8709,7 @@ const SummaryDashboard = ({
           if (key === "c" || key === "x") {
             e.preventDefault();
             e.stopImmediatePropagation();
-            copyRange(kind, target.item, rangeIdOf(target.activeRange));
+            copyRange(kind, target.item, rangeIdOf(target.activeRange), key === "x" ? "cut" : "copy");
             if (key === "x") handleDeleteSelectedRanges();
             return;
           }
@@ -9997,6 +10005,7 @@ function DetailedView({
   onUpdateTestPoint,
   riskResults,
   setNotification,
+  showToast,
   onToggleUut,
   activeRangeIndices = {},
   onRangeSelectionChange,
@@ -10408,6 +10417,7 @@ function DetailedView({
       });
     claimWorkspaceClipboard("instrument");
     instrumentClipboard = { mode, items: JSON.parse(JSON.stringify(items)), detached: mode === "cut" };
+    showToast?.(`${items.length} Instrument${items.length === 1 ? "" : "s"} ${mode === "cut" ? "cut" : "copied"} to clipboard`);
     if (mode === "cut") {
       onSessionSave?.(cutInstrumentsFromSession(latestSessionDataRef.current, items));
       setSelectedUutIds([]);
@@ -10458,6 +10468,7 @@ function DetailedView({
     rangeClipboard = null;
     claimWorkspaceClipboard("instrument");
     instrumentClipboard = { mode, items: JSON.parse(JSON.stringify(items)), detached: mode === "cut" };
+    showToast?.(`${items.length} Instrument${items.length === 1 ? "" : "s"} ${mode === "cut" ? "cut" : "copied"} to clipboard`);
     if (mode === "cut") {
       onSessionSave?.(cutInstrumentsFromSession(latestSessionDataRef.current, items));
       setSelectedUutIds([]); setSelectedTmdeIds([]);
@@ -10519,7 +10530,7 @@ function DetailedView({
   };
 
   // --- Range-row clipboard (copy/cut/paste a single range) ---
-  const copyRange = (kind, item, rangeId) => {
+  const copyRange = (kind, item, rangeId, mode = "copy") => {
     const selected = lastSelectionTarget === "range" && hasSelectedRangeIds(selectedRangeIds)
       ? [["uut", sessionData.uuts || []], ["tmde", sessionData.tmdes || []]].flatMap(([role, items]) => items.flatMap(source =>
         (selectedRangeIds[itemStateKey(role, source.id)] || []).map(id => ({ source, id }))))
@@ -10534,10 +10545,11 @@ function DetailedView({
     instrumentClipboard = null;
     claimWorkspaceClipboard("range");
     rangeClipboard = { kind, range: ranges[0].range, ranges };
+    showToast?.(`${ranges.length} Range${ranges.length === 1 ? "" : "s"} ${mode === "cut" ? "cut" : "copied"} to clipboard`);
   };
   const cutRange = (kind, item, range) => {
     const rangeId = rangeIdOf(range);
-    copyRange(kind, item, rangeId);
+    copyRange(kind, item, rangeId, "cut");
     if (hasSelectedRangeIds(selectedRangeIds) && lastSelectionTarget === "range") handleDeleteSelectedRanges();
     else if (rangeId) handleRemoveRangeDetail(kind, item, rangeId);
   };
@@ -10653,7 +10665,7 @@ function DetailedView({
           if (key === "c" || key === "x") {
             e.preventDefault();
             e.stopImmediatePropagation();
-            copyRange(kind, target.item, rangeIdOf(target.activeRange));
+            copyRange(kind, target.item, rangeIdOf(target.activeRange), key === "x" ? "cut" : "copy");
             if (key === "x") handleDeleteSelectedRanges();
             return;
           }
@@ -14722,7 +14734,7 @@ function DetailedView({
   const targetNominal = parseFloat(uutNominal?.value);
 
   const getCalculatedStatus = () => {
-    if (isNaN(calculatedNominal) || isNaN(targetNominal)) return "neutral";
+    if (calculatedNominal == null || !Number.isFinite(calculatedNominal) || !Number.isFinite(targetNominal)) return "neutral";
     const diff = Math.abs(calculatedNominal - targetNominal);
     const tolerance = Math.max(Math.abs(targetNominal * 0.0001), 1e-9);
     return diff <= tolerance ? "match" : "mismatch";
@@ -14848,6 +14860,16 @@ function DetailedView({
               </tr>
             ))}
           </tbody>
+          {calcStatus !== "neutral" && (
+            <tfoot>
+              <tr className="measurement-inputs-match-status">
+                <td colSpan={3} style={{ color: calcStatusStyle.color, backgroundColor: calcStatusStyle.backgroundColor }}>
+                  <FontAwesomeIcon icon={calcStatusStyle.icon} />{" "}
+                  {calcStatus === "match" ? "Matches measurement point" : "Does not match measurement point"}
+                </td>
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
     ) : (
@@ -15458,11 +15480,11 @@ function DetailedView({
               <div
                 ref={equationEditorSurfaceRef}
                 className={`measurement-equation-card measurement-equation-zoom-surface ${
-                  isEquationEditorOpen || !hasEquationText ? "is-editor-open" : "is-editor-collapsed"
+                  isEquationEditorOpen || !hasEquationText || equationValidation?.status === "invalid" ? "is-editor-open" : "is-editor-collapsed"
                 }${!hasEquationText ? " is-empty" : ""}`}
               >
               <div className="scoped-zoom-content">
-              {isEquationEditorOpen || !hasEquationText ? (
+              {isEquationEditorOpen || !hasEquationText || equationValidation?.status === "invalid" ? (
                 <>
                 <div
                   className="measurement-equation-editor-stack"
@@ -16562,6 +16584,7 @@ const UncertaintyPanel = (props) => {
         instruments={props.instruments || []}
         onSaveInstrument={props.onSaveInstrument}
         onInstrumentSynced={props.onInstrumentSynced}
+        showToast={props.showToast}
         setNotification={props.setNotification}
         collapsedFunctionKeys={collapsedFunctionKeys}
         setCollapsedFunctionKeys={setCollapsedFunctionKeys}
