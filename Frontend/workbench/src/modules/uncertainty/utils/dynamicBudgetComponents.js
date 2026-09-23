@@ -1,5 +1,5 @@
 import { inputSymbol, inputBinding, belongsToInput } from "./budgetScope";
-import { evaluate, parse } from "mathjs";
+import { evaluate, parse } from "./equationMath";
 import { v4 as uuid } from "uuid";
 import { unitSystem, getUnitDisplayLabel } from "./uncertaintyMath";
 import { validateEquation } from "./equationValidation";

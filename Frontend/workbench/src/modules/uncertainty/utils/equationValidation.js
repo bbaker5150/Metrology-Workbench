@@ -18,7 +18,7 @@
 // (UncertaintyPanel handleEquationChange): a SymbolNode whose name exists on
 // the mathjs namespace is a constant, except E (the electrical input symbol).
 
-import * as math from "mathjs";
+import * as math from "./equationMath";
 
 // Constants the editor treats as math constants even though their lowercase
 // names are guarded specially there.

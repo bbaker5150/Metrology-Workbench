@@ -67,6 +67,30 @@ export default function useInstrumentTableLayout(containerRef) {
     const setProperty = (node, name, value) => {
       if (node.style.getPropertyValue(name) !== value) node.style.setProperty(name, value);
     };
+    const syncHeaderOffset = () => {
+      if (!container.getClientRects().length) return;
+      const zoom = parseFloat(getComputedStyle(table).zoom) || 1;
+      // Sticky cells normally stop at their own scroller's top, even when that
+      // scroller has moved behind the analysis tabs. Offset them to the visible
+      // page edge; the native table/scroller still clips them at its bottom.
+      const rect = container.getBoundingClientRect();
+      const containerScale = rect.width / container.offsetWidth || 1;
+      let top = 0;
+      for (let parent = container.parentElement; parent; parent = parent.parentElement) {
+        if (/(auto|scroll|hidden)/.test(getComputedStyle(parent).overflowY)) {
+          top = Math.max(top, parent.getBoundingClientRect().top + parent.clientTop);
+        }
+      }
+      const tabs = container.closest(".analysis-container")?.querySelector(":scope > .analysis-tabs");
+      if (tabs) top = Math.max(top, tabs.getBoundingClientRect().bottom);
+      const headerHeight = table.tHead?.getBoundingClientRect().height || 0;
+      const offset = Math.min(
+        Math.max(0, top - rect.top - container.clientTop * containerScale),
+        Math.max(0, container.clientHeight * containerScale - headerHeight),
+      );
+      // Keep scroll-only styling outside the observed table subtree.
+      setProperty(container, "--instrument-header-offset", `${offset / (containerScale * zoom)}px`);
+    };
     const sync = () => {
       // Hidden tables (and non-layout test renderers) have no geometry to
       // synchronize. ResizeObserver will schedule again when they are shown.
@@ -126,25 +150,7 @@ export default function useInstrumentTableLayout(containerRef) {
       setProperty(table, "--instrument-live-table-width", `${tableWidth}px`);
       card?.style.removeProperty("--instrument-panel-width");
 
-      // Sticky cells normally stop at their own scroller's top, even when that
-      // scroller has moved behind the analysis tabs. Offset them to the visible
-      // page edge; the native table/scroller still clips them at its bottom.
-      const rect = container.getBoundingClientRect();
-      const containerScale = rect.width / container.offsetWidth || 1;
-      let top = 0;
-      for (let parent = container.parentElement; parent; parent = parent.parentElement) {
-        if (/(auto|scroll|hidden)/.test(getComputedStyle(parent).overflowY)) {
-          top = Math.max(top, parent.getBoundingClientRect().top + parent.clientTop);
-        }
-      }
-      const tabs = container.closest(".analysis-container")?.querySelector(":scope > .analysis-tabs");
-      if (tabs) top = Math.max(top, tabs.getBoundingClientRect().bottom);
-      const headerHeight = table.tHead?.getBoundingClientRect().height || 0;
-      const offset = Math.min(
-        Math.max(0, top - rect.top - container.clientTop * containerScale),
-        Math.max(0, container.clientHeight * containerScale - headerHeight),
-      );
-      setProperty(table, "--instrument-header-offset", `${offset / (containerScale * zoom)}px`);
+      syncHeaderOffset();
       updateInstrumentCellHighlights(table, hoveredRow, hoveredCell);
       selectionOutline.sync();
     };
@@ -168,7 +174,10 @@ export default function useInstrumentTableLayout(containerRef) {
     resize?.observe(container);
     resize?.observe(table);
     container.addEventListener("focusin", schedule);
-    window.addEventListener("scroll", schedule, true);
+    // Scroll only changes the sticky offset, not column widths. Update it in
+    // the scroll event instead of deferring an entire table measurement a frame.
+    const onScroll = () => { syncHeaderOffset(); selectionOutline.sync(); };
+    window.addEventListener("scroll", onScroll, { capture: true, passive: true });
     window.addEventListener("resize", schedule);
     sync();
     return () => {
@@ -184,7 +193,7 @@ export default function useInstrumentTableLayout(containerRef) {
       mutation.disconnect();
       resize?.disconnect();
       container.removeEventListener("focusin", schedule);
-      window.removeEventListener("scroll", schedule, true);
+      window.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("resize", schedule);
     };
   }, [container]);

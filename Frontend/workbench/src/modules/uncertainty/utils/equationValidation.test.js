@@ -1,9 +1,18 @@
 import { describe, expect, it } from "vitest";
+import { evaluate, derivative, compile } from "./equationMath";
 import {
   validateEquation,
   extractEquationVariables,
   stripEquationPrefix,
 } from "./equationValidation";
+
+it("preserves the micro sign through validation, evaluation and differentiation", () => {
+  expect(validateEquation("µ * V + μ")).toMatchObject({ status: "ok", variables: ["µ", "V", "μ"] });
+  const scope = { "µ": 2, V: 3, "μ": 4 };
+  expect(evaluate("µ * V + μ", scope)).toBe(10);
+  expect(compile("µ * V + μ").evaluate(scope)).toBe(10);
+  expect(derivative("µ * V + μ", "µ").evaluate(scope)).toBe(3);
+});
 
 describe("stripEquationPrefix", () => {
   it("strips a result-name prefix and tolerates missing one", () => {
@@ -155,7 +164,7 @@ describe("extractEquationVariables — editor-rule parity", () => {
 });
 
 it("keeps Greek symbols in the equation input order", () => {
-  expect(extractEquationVariables("θ * V + μ + θ + Δ")).toEqual(["θ", "V", "μ", "Δ"]);
+  expect(extractEquationVariables("θ * V + µ + μ + θ + Δ")).toEqual(["θ", "V", "µ", "μ", "Δ"]);
   expect(validateEquation("θ * V + μ + Δ")).toMatchObject({ status: "ok", variables: ["θ", "V", "μ", "Δ"] });
 });
 

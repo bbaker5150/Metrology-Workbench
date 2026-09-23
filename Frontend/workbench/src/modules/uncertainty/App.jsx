@@ -2120,7 +2120,7 @@ const SidebarSessionHeader = ({
             className="session-header-value"
             title={helpText}
           >
-            {inputType === "date" ? formatDate(value) : value === "" || value == null ? "-" : `${value}${unitSuffix}`}
+            {inputType === "date" ? formatDate(value) : value === "" || value == null ? "-" : `${value}${unitSuffix === "mo." ? " " : ""}${unitSuffix}`}
           </div>
         )}
         </span>
@@ -2877,6 +2877,9 @@ function App({ showThemeToggle = false }) {
         contents.forEach((content) => {
           const physical = physicalScopedZoom(key, zoom);
           if (content.style.zoom !== String(physical)) content.style.zoom = String(physical);
+          if (content.style.getPropertyValue("--scoped-content-zoom") !== String(physical)) {
+            content.style.setProperty("--scoped-content-zoom", String(physical));
+          }
         });
       });
     };
@@ -3526,8 +3529,10 @@ function App({ showThemeToggle = false }) {
 
       surface.dataset.zoomLevel = String(nextZoom);
       content.style.zoom = String(physicalScopedZoom(getScopedZoomKey(surface), nextZoom));
+      content.style.setProperty("--scoped-content-zoom", content.style.zoom);
       linkedContents.forEach((linkedContent) => {
         linkedContent.style.zoom = String(physicalScopedZoom(getScopedZoomKey(surface), nextZoom));
+        linkedContent.style.setProperty("--scoped-content-zoom", linkedContent.style.zoom);
       });
       const zoomKey = getScopedZoomKey(surface);
       if (zoomKey) {

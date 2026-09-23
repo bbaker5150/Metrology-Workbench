@@ -1,4 +1,5 @@
 import { prepareWorkspacePolish, checkWorkspacePolish } from "./workspace-polish-checks.mjs";
+import { audit as checkDocumentOne, auditFinal as checkDocumentOneEquations } from "./tasking-document-one-checks.mjs";
 import { prepareTaskingTypeB, checkTaskingTypeB } from "./tasking-type-b-checks.mjs";
 import { prepareSeptember21, checkSeptember21 } from "./september21-checks.mjs";
 import { prepareSeptember21Followup, checkSeptember21Followup } from "./september21-followup-checks.mjs";
@@ -144,7 +145,7 @@ if (process.env.SEPTEMBER21_SMOKE) for (const session of sessions.values()) prep
 if (process.env.SEPTEMBER21_FOLLOWUP_SMOKE) for (const session of sessions.values()) prepareSeptember21Followup(session);
 if (process.env.SEPTEMBER21_BIAS_UI_SMOKE) for (const session of sessions.values()) prepareSeptember21BiasUi(session);
 if (process.env.SEPTEMBER21_COLLAPSE_SMOKE) for (const session of sessions.values()) prepareSeptember21Collapse(session);
-if (process.env.WORKSPACE_POLISH_SMOKE) for (const session of sessions.values()) prepareWorkspacePolish(session);
+if (process.env.WORKSPACE_POLISH_SMOKE || process.env.DOCUMENT_ONE_SMOKE) for (const session of sessions.values()) prepareWorkspacePolish(session);
 if (process.env.TASKING_TYPE_B_SMOKE) for (const session of sessions.values()) prepareTaskingTypeB(session);
 if (process.env.SEPTEMBER22_SMOKE) for (const session of sessions.values()) prepareSeptember22(session);
 if (process.env.INPUT_TASKING_SMOKE) for (const session of sessions.values()) prepareInputTasking(session);
@@ -332,6 +333,10 @@ if (/not set up yet/i.test(frameText)) {
   if (process.env.SEPTEMBER21_BIAS_UI_SMOKE) await checkSeptember21BiasUi({ frame, page, saved, until, check });
   if (process.env.SEPTEMBER21_COLLAPSE_SMOKE) await checkSeptember21Collapse({ frame, page, saved, until, check });
   if (process.env.WORKSPACE_POLISH_SMOKE) await checkWorkspacePolish({ frame, page, saved, until, check });
+  if (process.env.DOCUMENT_ONE_SMOKE) {
+    await checkDocumentOne({ frame, page, saved, until, check });
+    await checkDocumentOneEquations({ frame, page, saved, until, check });
+  }
   if (process.env.TASKING_TYPE_B_SMOKE) await checkTaskingTypeB({ frame, page, saved, until, check });
   if (process.env.SEPTEMBER22_SMOKE) await checkSeptember22({ frame, page, saved, until, check });
   if (process.env.INPUT_TASKING_SMOKE) await checkInputTasking({ frame, page, saved, until, check });

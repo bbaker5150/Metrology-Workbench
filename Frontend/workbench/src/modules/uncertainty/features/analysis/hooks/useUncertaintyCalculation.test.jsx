@@ -322,6 +322,19 @@ it('keeps a mismatched budget source visible while withholding the total', async
   expect(final.results.combined).toBeNull();
 });
 
+it('keeps an ampere budget present when the UUT range is A and its floor tolerance is V', async () => {
+  const { result } = renderDirectCalculation({}, {
+    nominal: { value: '5', unit: 'A', name: 'Current' },
+    uutTolerance: { min: 0, max: 10, unit: 'A', floor: { high: 1, low: -1, unit: 'V', distribution: '1.732' } },
+  });
+  await waitFor(() => expect(result.current.calcResults?.is_detailed_uncertainty_calculated).toBe(true));
+  expect(result.current.calculationError).toBeNull();
+  const budget = result.current.calcResults.calculatedBudgetGroups.at(-1);
+  expect(budget.unit).toBe('A');
+  expect(budget.components.length).toBeGreaterThan(0);
+  expect(budget.results.combined).toBeGreaterThan(0);
+});
+
 
 it("keeps manual, tabular and equation components in only their unnamed input budget", async () => {
  const components = ["manual", "table", "equation"].map((name, index) => ({ id: name, name, variableSymbol: ["a", "b", "d"][index], variableType: "", pendingReason: "Set input nominal" }));

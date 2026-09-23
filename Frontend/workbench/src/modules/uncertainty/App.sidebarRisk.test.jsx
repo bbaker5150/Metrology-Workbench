@@ -159,6 +159,22 @@ describe("measurement-point value editing", () => {
     });
   });
 
+  test("selecting one point highlights every tile of its empty Info run", () => {
+    const points = [{ id: "one" }, { id: "two" }];
+    const { container } = render(<>{points.map((point, index) => <SidebarPointItem
+      key={point.id} point={point} diagnostics={[]} onSave={vi.fn()} onSelect={vi.fn()}
+      visibleColumns={{ warningIcons: true }} highlightedPointIds={["two"]}
+      cellGroups={{ warningIcons: getConsecutiveSidebarCellGroup(points, index, () => "") }}
+    />)}</>);
+    const cells = [...container.querySelectorAll('.point-information')];
+    expect(cells).toHaveLength(2);
+    cells.forEach(cell => {
+      expect(cell).toHaveAttribute('data-run', 'warningIcons:one');
+      expect(cell).toHaveClass('point-grouped-cell--highlighted');
+      expect(cell).toBeEmptyDOMElement();
+    });
+  });
+
   const renderGroupedUutRow = (props) =>
     render(
       <SidebarPointItem
