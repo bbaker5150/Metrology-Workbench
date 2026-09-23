@@ -12,6 +12,7 @@ describe("detail section ordering", () => {
       "budget",
       "instruments",
       "equation",
+      "bias",
     ]);
     expect(normalizeDetailSectionOrder()).toEqual(DETAIL_SECTION_IDS);
   });
@@ -19,12 +20,18 @@ describe("detail section ordering", () => {
   it("moves a dragged section to the target position", () => {
     expect(
       moveDetailSection(["instruments", "equation", "budget"], "budget", "instruments"),
-    ).toEqual(["budget", "instruments", "equation"]);
+    ).toEqual(["budget", "instruments", "equation", "bias"]);
   });
 
   it("assigns adjacent order values to a section header and its content", () => {
-    const order = ["budget", "instruments", "equation"];
+    const order = ["budget", "instruments", "equation", "bias"];
     expect(detailSectionOrderValue(order, "instruments")).toBe(10);
     expect(detailSectionOrderValue(order, "instruments", 2)).toBe(12);
+    expect(detailSectionOrderValue(order, "bias")).toBe(30);
+  });
+
+  it("lets the bias section move ahead of the budget tables", () => {
+    expect(moveDetailSection(DETAIL_SECTION_IDS, "bias", "budget"))
+      .toEqual(["instruments", "equation", "bias", "budget"]);
   });
 });
