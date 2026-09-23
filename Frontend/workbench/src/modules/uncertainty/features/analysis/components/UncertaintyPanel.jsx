@@ -8,6 +8,7 @@ import { getPointRequirements } from "../../../utils/pointRequirements";
 import { claimWorkspaceSelection, WORKSPACE_SELECTION_EVENT } from "../../../utils/workspaceSelection";
 import GrowingNumericInput from "../../../components/common/GrowingNumericInput";
 import BiasValueEditor from "../../../components/common/BiasValueEditor";
+import PointRiskVisualizer from "./PointRiskVisualizer";
 import LegacyPointBiasNotice from "./LegacyPointBiasNotice";
 import { measureTableColumnWidths } from "../../../utils/measureTableColumnWidths";
 import { setInstrumentDragPreview } from "../../../utils/instrumentDragPreview";
@@ -16490,6 +16491,19 @@ function DetailedView({
       </div>
       </>
       )}
+      <DetailWorkspaceSectionToggle
+        label="Risk Distributions"
+        collapsed={collapsedDetailSections.has("risk-distributions")}
+        onToggle={() => toggleDetailSection("risk-distributions")}
+        style={detailSectionStyle("risk-distributions")}
+        {...detailSectionDragProps("risk-distributions")}
+      />
+      <div
+        className={`detail-workspace-content detail-workspace-content--risk-distributions${collapsedDetailSections.has("risk-distributions") ? " is-collapsed" : ""}`}
+        style={detailSectionStyle("risk-distributions", 1)}
+      >
+        <PointRiskVisualizer key={testPointData.id} riskResults={riskResults} nominal={uutNominal} />
+      </div>
       </div>
       {renderBudgetTmdePicker()}
       <ContextMenu menu={rowMenu} onClose={() => setRowMenu(null)} />

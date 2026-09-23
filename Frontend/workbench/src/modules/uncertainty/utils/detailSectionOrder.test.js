@@ -12,6 +12,7 @@ describe("detail section ordering", () => {
       "budget",
       "instruments",
       "equation",
+      "risk-distributions",
     ]);
     expect(normalizeDetailSectionOrder()).toEqual(DETAIL_SECTION_IDS);
   });
@@ -19,7 +20,7 @@ describe("detail section ordering", () => {
   it("moves a dragged section to the target position", () => {
     expect(
       moveDetailSection(["instruments", "equation", "budget"], "budget", "instruments"),
-    ).toEqual(["budget", "instruments", "equation"]);
+    ).toEqual(["budget", "instruments", "equation", "risk-distributions"]);
   });
 
   it("assigns adjacent order values to a section header and its content", () => {
