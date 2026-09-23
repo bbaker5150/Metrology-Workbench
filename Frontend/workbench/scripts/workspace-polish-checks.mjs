@@ -18,19 +18,24 @@ export async function checkWorkspacePolish({ frame, page, saved, until, check })
   const divider = frame.getByRole('separator', { name: 'Resize measurement point list' });
   const dividerIsReachable = () => divider.evaluate(node => { const r = node.getBoundingClientRect(); return r.width >= 12 && document.elementFromPoint(r.x + r.width / 2, r.y + 60) === node && getComputedStyle(node, '::after').content.includes('↔'); });
   await divider.dblclick();
-  check('full-width list keeps a visible, directly reachable divider', await dividerIsReachable());
-  check('first divider double-click shows the measurement list at full width', await frame.locator('.results-sidebar').isVisible() && !await frame.locator('.results-content').isVisible() && await frame.locator('.results-sidebar').evaluate(node => node.clientWidth > node.parentElement.clientWidth - 70));
+  check('auto-fit keeps a visible, directly reachable divider', await dividerIsReachable());
+  check('first divider double-click fits the point table while retaining both panes', await until(async () =>
+    await frame.locator('.workspace-pane-autofit').count() === 1 &&
+    await frame.locator('.results-sidebar').isVisible() && await frame.locator('.results-content').isVisible() &&
+    await frame.locator('.results-sidebar').evaluate(node => node.clientWidth >= Math.min(node.querySelector('.measurement-points-table-content').scrollWidth, node.parentElement.clientWidth - 340) - 4)));
   await frame.evaluate(() => location.reload());
   await frame.getByRole('combobox', { name: 'Analysis Session' }).waitFor();
-  check('full-width pane choice survives refresh', !await frame.locator('.results-content').isVisible());
+  check('auto-fit mode survives refresh', await frame.locator('.workspace-pane-autofit').count() === 1 && await frame.locator('.results-content').isVisible());
   await divider.dblclick();
   check('second divider double-click shows tables at full width and keeps the divider reachable', !await frame.locator('.results-sidebar').isVisible() && await frame.locator('.results-content').isVisible() && await divider.isVisible());
   check('full-width tables keep a visible, directly reachable divider', await dividerIsReachable());
   await divider.focus(); await divider.press('Escape');
   check('keyboard restores the split workspace', await frame.locator('.results-sidebar').isVisible() && await frame.locator('.results-content').isVisible());
   const start = await divider.boundingBox();
-  await page.mouse.move(start.x + 3, start.y + 80); await page.mouse.down(); await page.mouse.move(start.x + 103, start.y + 80, { steps: 8 }); await page.mouse.up();
-  check('dragging still resizes the split view', (await divider.boundingBox()).x > start.x + 80);
+  const dragDistance = start.x > 500 ? -100 : 100;
+  await page.mouse.move(start.x + 3, start.y + 80); await page.mouse.down(); await page.mouse.move(start.x + 3 + dragDistance, start.y + 80, { steps: 8 }); await page.mouse.up();
+  check('dragging still resizes the split view', ((await divider.boundingBox()).x - start.x) * Math.sign(dragDistance) > 80);
+  check('dragging returns the divider to free-hand mode', await frame.locator('.workspace-pane-autofit').count() === 0);
   const session = frame.getByRole('combobox', { name: 'Analysis Session' });
   await session.click();
   check('analysis session uses the styled top-layer picker', await session.evaluate(node => getComputedStyle(node).appearance === 'base-select' && getComputedStyle(node, '::picker(select)').borderRadius === '6px' && node.matches(':open')));
@@ -83,7 +88,7 @@ export async function checkWorkspacePolish({ frame, page, saved, until, check })
   await capture('polish-point-unit-menu'); await unit.press('Escape');
   const output = frame.locator('.measurement-equation-status');
   check('calculated nominal and target use the original status below the input table', await output.innerText().then(text => text.includes('Calculated: 5.00000 V') && text.includes('Target 5.00000 V')));
-  check('measurement inputs contain only Variable, Name and Nominal', JSON.stringify(await frame.locator('.measurement-inputs-table thead th').allTextContents()) === JSON.stringify(['Variable', 'Name', 'Nominal']));
+  check('measurement inputs contain Symbol, Name and Nominal', JSON.stringify(await frame.locator('.measurement-inputs-table thead th').allTextContents()) === JSON.stringify(['Symbol', 'Name', 'Nominal']));
   check('no output row or net bias editor remains', await frame.locator('.measurement-output-row, .measurement-bias-table').count() === 0 && await frame.getByRole('button', { name: 'Edit net measurement system bias', exact: true }).count() === 0);
   await frame.getByRole('button', { name: 'Add component to budget', exact: true }).first().click();
   for (const kind of ['tabular', 'equation']) {

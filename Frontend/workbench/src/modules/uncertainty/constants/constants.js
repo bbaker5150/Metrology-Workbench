@@ -11,8 +11,8 @@ export const UNCERTAINTY_API = `${API_BASE_URL}/uncertainty`;
 export const RISK_INPUT_FIELDS = [
   {
     name: "uncertaintyConfidence",
-    sidebarLabel: "Confidence (%)",
-    label: "Uncertainty Confidence (%)",
+    sidebarLabel: "Confidence Level",
+    label: "Confidence Level",
     tooltip:
       "Probability level used to determine the coverage factor (k) that converts combined standard uncertainty into expanded uncertainty. A value of 95% is common.",
     placeholder: "e.g., 95",

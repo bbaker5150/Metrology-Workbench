@@ -141,6 +141,24 @@ describe("measurement-point value editing", () => {
     ).toEqual({ isStart: true, isEnd: true, span: 1, pointIds: ["p3"] });
   });
 
+  test("groups consecutive empty information cells and stops at a populated one", () => {
+    const points = [
+      { id: "p1", info: "" },
+      { id: "p2", info: null },
+      { id: "p3", info: "warning" },
+      { id: "p4", info: "" },
+    ];
+    expect(getConsecutiveSidebarCellGroup(points, 0, point => point.info)).toEqual({
+      isStart: true, isEnd: false, span: 2, pointIds: ["p1", "p2"],
+    });
+    expect(getConsecutiveSidebarCellGroup(points, 1, point => point.info)).toEqual({
+      isStart: false, isEnd: true, span: 2, pointIds: ["p1", "p2"],
+    });
+    expect(getConsecutiveSidebarCellGroup(points, 3, point => point.info)).toEqual({
+      isStart: true, isEnd: true, span: 1, pointIds: ["p4"],
+    });
+  });
+
   const renderGroupedUutRow = (props) =>
     render(
       <SidebarPointItem

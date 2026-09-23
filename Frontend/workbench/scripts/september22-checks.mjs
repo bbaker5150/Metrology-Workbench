@@ -19,7 +19,7 @@ export async function checkSeptember22({ frame, page, saved, until, check }) {
     if (process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await page.screenshot({ path: `${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/${name}.png` });
   };
   await size(1600, 900);
-  for (const name of ['Session Info', 'Risk Inputs', 'Mitigation Inputs']) {
+  for (const name of ['Session Info', 'Risk & Mitigation Inputs']) {
     const toggle = frame.getByRole('button', { name, exact: true });
     if (await toggle.getAttribute('aria-expanded') === 'false') await toggle.click();
   }
@@ -47,9 +47,24 @@ export async function checkSeptember22({ frame, page, saved, until, check }) {
   await sidebar.evaluate(node => { node.scrollTop = 0; });
   const info = frame.locator('.sidebar-session-info-zoom-surface');
   const infoLeft = await info.evaluate(node => node.getBoundingClientRect().left);
+  const controlPositions = () => sidebar.evaluate(node => {
+    const viewport = node.getBoundingClientRect();
+    const toolbar = node.querySelector('.sidebar-global-actions')?.getBoundingClientRect();
+    const addPoint = node.querySelector('.function-point-add-button')?.getBoundingClientRect();
+    return { viewport: { left: viewport.left, right: viewport.right },
+      toolbar: toolbar && { left: toolbar.left, right: toolbar.right },
+      addPoint: addPoint && { left: addPoint.left, right: addPoint.right } };
+  });
+  const controlsStayVisible = positions => positions.toolbar && positions.addPoint &&
+    Math.abs(positions.toolbar.right - positions.viewport.right) < 4 &&
+    positions.addPoint.left >= positions.viewport.left && positions.addPoint.right <= positions.viewport.right + 1;
+  const initialControls = await controlPositions();
+  check('measurement controls and add-point button align with the visible sidebar', controlsStayVisible(initialControls), JSON.stringify(initialControls));
   await sidebar.evaluate(node => { node.scrollLeft = node.scrollWidth; });
   check('horizontal point scrolling keeps session details anchored', await sidebar.evaluate(node => node.scrollLeft > 0) &&
     Math.abs(await info.evaluate(node => node.getBoundingClientRect().left) - infoLeft) < 2);
+  const scrolledControls = await controlPositions();
+  check('measurement controls and add-point button remain visible after horizontal scroll', controlsStayVisible(scrolledControls), JSON.stringify(scrolledControls));
   await sidebar.evaluate(node => { node.scrollLeft = 0; });
 
   const first = frame.locator('[data-point-id="point"]');

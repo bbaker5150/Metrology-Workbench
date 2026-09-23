@@ -284,14 +284,6 @@ export const getConsecutiveSidebarCellGroup = (
   valueForPoint,
 ) => {
   const value = normalizedGroupedCellValue(valueForPoint(points[index]));
-  if (!value) {
-    return {
-      isStart: true,
-      isEnd: true,
-      span: 1,
-      pointIds: [points[index]?.id],
-    };
-  }
   let start = index;
   let end = index;
   while (
@@ -1359,8 +1351,9 @@ export const SidebarPointItem = ({
       onContextMenu={(e) => onContextMenu(e, point)}
     >
             {visibleColumns.warningIcons && (
-              <span className="point-diagnostics point-information">
-                {[
+              <span className={`point-diagnostics point-information${groupedCellClass(cellGroups.warningIcons, "warningIcons")}`}
+                data-run={groupedCellRunKey(cellGroups.warningIcons, "warningIcons")}>
+                {(!cellGroups.warningIcons?.span || cellGroups.warningIcons.isStart || cellGroups.warningIcons.span === 1) && [
                   { category: "input", label: "Missing inputs", icon: faPenToSquare },
                   { category: "warning", label: "Calculation warning", icon: faExclamationTriangle },
                   { category: "refresh", label: "Recalculation needed", icon: faRotate },
@@ -1373,7 +1366,7 @@ export const SidebarPointItem = ({
                     onClick={event => { event.stopPropagation(); onSelect?.(event, point); }}>
                     <FontAwesomeIcon icon={icon} aria-hidden="true" />
                   </button>;
-                })}
+                }).filter(Boolean)}
               </span>
             )}
 
@@ -1999,10 +1992,8 @@ const SidebarSessionHeader = ({
   onUpdate,
   isSessionInfoOpen,
   onSessionInfoOpenChange,
-  isRiskInputsOpen,
-  onRiskInputsOpenChange,
-  isMitigationInputsOpen,
-  onMitigationInputsOpenChange,
+  isRequirementsOpen,
+  onRequirementsOpenChange,
 }) => {
   const [editingField, setEditingField] = useState(null);
   const [tempValue, setTempValue] = useState("");
@@ -2016,8 +2007,7 @@ const SidebarSessionHeader = ({
     "analyst",
     "document",
     "documentDate",
-    ...(isRiskInputsOpen ? RISK_INPUT_FIELDS : []).map(field => `uncReq.${field.name}`),
-    ...(isMitigationInputsOpen ? MITIGATION_INPUT_FIELDS : []).map(field => `uncReq.${field.name}`),
+    ...(isRequirementsOpen ? [...RISK_INPUT_FIELDS, ...MITIGATION_INPUT_FIELDS] : []).map(field => `uncReq.${field.name}`),
   ];
 
   const valueForField = (field) =>
@@ -2076,11 +2066,14 @@ const SidebarSessionHeader = ({
 
   const renderEditableField = (field, value, label, inputType = "text", tooltip) => {
     const isRequirement = field.startsWith("uncReq.");
+    const requirementName = isRequirement ? field.slice("uncReq.".length) : "";
+    const unitSuffix = requirementName === "calInt" ? "mo." :
+      ["uncertaintyConfidence", "measRelCalcAssumed", "reqPFA", "reliability"].includes(requirementName) ? "%" : "";
     const helpText = tooltip || `Edit ${label}`;
     return (
       // `field` is unique per row, so it doubles as the React key for the
       // requirement-list .map() (and is harmless for the fixed grid fields).
-      <div className="session-header-field" key={field}>
+      <div className={`session-header-field${isRequirement ? " session-header-field--requirement" : ""}`} key={field}>
         <span className="session-header-label" title={helpText}>
           <span>{label}</span>
           {isRequirement && (
@@ -2091,7 +2084,7 @@ const SidebarSessionHeader = ({
             />
           )}
         </span>
-        <span className="session-field-size">
+        <span className="session-field-size" data-unit={unitSuffix}>
           {/* The same text mirror sizes read/edit states. Focus never changes
               the box; typing alone grows it, without clipping adjacent fields. */}
           <span className="session-field-size-text" aria-hidden="true">{inputType === "date" ? (formatDate(value) === "-" ? "mm/dd/yyyy" : formatDate(value)) : (editingField === field && !isRequirement ? tempValue : value) || "-"}</span>
@@ -2113,6 +2106,7 @@ const SidebarSessionHeader = ({
             onKeyDown={handleKeyDown}
             onClick={(e) => e.stopPropagation()}
             className="session-header-input"
+            inputMode={isRequirement ? "decimal" : undefined}
           />
         ) : (
           <div
@@ -2126,7 +2120,7 @@ const SidebarSessionHeader = ({
             className="session-header-value"
             title={helpText}
           >
-            {inputType === "date" ? formatDate(value) : value === "" || value == null ? "-" : value}
+            {inputType === "date" ? formatDate(value) : value === "" || value == null ? "-" : `${value}${unitSuffix}`}
           </div>
         )}
         </span>
@@ -2142,14 +2136,7 @@ const SidebarSessionHeader = ({
           className="session-section-toggle"
           onClick={(e) => {
             e.stopPropagation();
-            const nextOpen = !isSessionInfoOpen;
-            if (nextOpen) {
-              // Session Info is the parent workspace for both requirement
-              // groups. Reopening it should reveal the complete input set.
-              onRiskInputsOpenChange(true);
-              onMitigationInputsOpenChange(true);
-            }
-            onSessionInfoOpenChange(nextOpen);
+            onSessionInfoOpenChange(!isSessionInfoOpen);
           }}
           aria-expanded={isSessionInfoOpen}
         >
@@ -2205,22 +2192,18 @@ const SidebarSessionHeader = ({
                 "date",
               )}
             </div>
-            {/* These are session defaults, not a projection of the selected
-                point. Point-only overrides remain on riskRequirements. */}
-            {[
-              { label: "Risk Inputs", fields: RISK_INPUT_FIELDS, open: isRiskInputsOpen, toggle: onRiskInputsOpenChange },
-              { label: "Mitigation Inputs", fields: MITIGATION_INPUT_FIELDS, open: isMitigationInputsOpen, toggle: onMitigationInputsOpenChange },
-            ].map(group => <div className="session-default-inputs" key={group.label}>
-              <button type="button" className="session-section-toggle" aria-expanded={group.open}
-                onClick={event => { event.stopPropagation(); group.toggle(!group.open); }}>
-                <span>{group.label}</span><FontAwesomeIcon icon={group.open ? faChevronDown : faChevronRight} />
-              </button>
-              {group.open && <div className="session-default-input-fields" aria-label={`Default ${group.label}`}>
-                {group.fields.map(field => renderEditableField(`uncReq.${field.name}`, requirements[field.name], field.label, "text", field.tooltip))}
-              </div>}
-            </div>)}
           </div>
         )}
+      </div>
+      <div className="session-default-inputs">
+        <button type="button" className="session-section-toggle" aria-expanded={isRequirementsOpen}
+          onClick={event => { event.stopPropagation(); onRequirementsOpenChange(!isRequirementsOpen); }}>
+          <span>Risk &amp; Mitigation Inputs</span><FontAwesomeIcon icon={isRequirementsOpen ? faChevronDown : faChevronRight} />
+        </button>
+        {isRequirementsOpen && <div className="session-default-input-fields" aria-label="Default Risk & Mitigation Inputs">
+          {[...RISK_INPUT_FIELDS, ...MITIGATION_INPUT_FIELDS].map(field =>
+            renderEditableField(`uncReq.${field.name}`, requirements[field.name], field.label, "text", field.tooltip))}
+        </div>}
       </div>
     </div>
   );
@@ -2338,9 +2321,9 @@ function App({ showThemeToggle = false }) {
     return Number.isFinite(saved) ? saved : 550;
   });
   const [workspacePane, setWorkspacePane] = useState(() => readUiSizingPreferences().workspacePane || "split");
+  const [sidebarAutoFit, setSidebarAutoFit] = useState(() => readUiSizingPreferences().sidebarAutoFit || false);
   const [isSessionInfoOpen, setIsSessionInfoOpen] = useState(true);
-  const [isRiskInputsOpen, setIsRiskInputsOpen] = useState(true);
-  const [isMitigationInputsOpen, setIsMitigationInputsOpen] = useState(true);
+  const [isRequirementsOpen, setIsRequirementsOpen] = useState(true);
   const [analysisMode, setAnalysisMode] = useState("overview");
   const analysisScrollPositionsRef = useRef({});
   const lastSelectedPointBySessionRef = useRef({});
@@ -2557,6 +2540,7 @@ function App({ showThemeToggle = false }) {
       );
 
       setWorkspacePane("split");
+      setSidebarAutoFit(false);
       setSidebarWidth(newWidth);
     };
 
@@ -2777,11 +2761,8 @@ function App({ showThemeToggle = false }) {
           : 550,
     );
     setIsSessionInfoOpen(preferences.isSessionInfoOpen ?? true);
-    const legacyRequirementsOpen = preferences.isRequirementsOpen ?? true;
-    setIsRiskInputsOpen(preferences.isRiskInputsOpen ?? legacyRequirementsOpen);
-    setIsMitigationInputsOpen(
-      preferences.isMitigationInputsOpen ?? legacyRequirementsOpen,
-    );
+    setIsRequirementsOpen(preferences.isRequirementsOpen ??
+      ((preferences.isRiskInputsOpen ?? true) || (preferences.isMitigationInputsOpen ?? true)));
     setIsGlobalExpanded(preferences.isGlobalExpanded ?? false);
     setExpandedFunctions(new Set(preferences.expandedFunctions || []));
     setExpandedUuts(new Set(preferences.expandedUuts || []));
@@ -2813,8 +2794,7 @@ function App({ showThemeToggle = false }) {
       sidebarColumns,
       sidebarColumnOrder,
       isSessionInfoOpen,
-      isRiskInputsOpen,
-      isMitigationInputsOpen,
+      isRequirementsOpen,
       isGlobalExpanded,
       expandedFunctions: Array.from(expandedFunctions),
       expandedUuts: Array.from(expandedUuts),
@@ -2845,8 +2825,7 @@ function App({ showThemeToggle = false }) {
     expandedFunctions,
     expandedUuts,
     isGlobalExpanded,
-    isRiskInputsOpen,
-    isMitigationInputsOpen,
+    isRequirementsOpen,
     isSessionInfoOpen,
     loadedPreferencesSessionId,
     selectedSessionId,
@@ -2862,7 +2841,7 @@ function App({ showThemeToggle = false }) {
     try {
       window.localStorage.setItem(
         UNCERTAINTY_UI_SIZING_KEY,
-        JSON.stringify({ sidebarWidth, workspacePane, scopedZoomLevels, sidebarColumnWidths, resultsScaleVersion: 2 }),
+        JSON.stringify({ sidebarWidth, workspacePane, sidebarAutoFit, scopedZoomLevels, sidebarColumnWidths, resultsScaleVersion: 2 }),
       );
     } catch (error) {
       console.warn("Unable to save uncertainty sizing preferences", error);
@@ -2872,6 +2851,7 @@ function App({ showThemeToggle = false }) {
     loadedPreferencesSessionId,
     sidebarWidth,
     workspacePane,
+    sidebarAutoFit,
     scopedZoomLevels,
     sidebarColumnWidths,
   ]);
@@ -3341,6 +3321,7 @@ function App({ showThemeToggle = false }) {
         e.preventDefault();
         setSidebarWidth(550);
         setWorkspacePane("split");
+        setSidebarAutoFit(false);
         setSidebarColumnWidths({});
         setScopedZoomLevels({});
         try {
@@ -4813,6 +4794,35 @@ function App({ showThemeToggle = false }) {
     return result;
   }, [currentSessionData, currentTestPoints]);
 
+  useLayoutEffect(() => {
+    if (!sidebarAutoFit || workspacePane !== "split") return undefined;
+    const container = resultsContainerRef.current;
+    const content = container?.querySelector(".measurement-points-table-content");
+    if (!container || !content) return undefined;
+    const fitToPoints = () => {
+      const style = window.getComputedStyle(container);
+      const available = container.clientWidth - (parseFloat(style.paddingLeft) || 0) -
+        (parseFloat(style.paddingRight) || 0) - 320 - 16;
+      // The content's 100% minimum follows the old sidebar size. Remove it
+      // only while measuring so auto-fit can shrink after a column is hidden.
+      const previousMinWidth = content.style.minWidth;
+      content.style.minWidth = "0px";
+      const naturalWidth = content.scrollWidth;
+      content.style.minWidth = previousMinWidth;
+      const nextWidth = Math.max(300, Math.min(1800, available, naturalWidth + 2));
+      setSidebarWidth(current => Math.abs(current - nextWidth) < 1 ? current : nextWidth);
+    };
+    fitToPoints();
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(fitToPoints) : null;
+    observer?.observe(container);
+    observer?.observe(content);
+    window.addEventListener("resize", fitToPoints);
+    return () => {
+      observer?.disconnect();
+      window.removeEventListener("resize", fitToPoints);
+    };
+  }, [sidebarAutoFit, workspacePane, sidebarData, sidebarColumns, sidebarColumnOrder, sidebarColumnWidths]);
+
   useEffect(() => {
     if (!pendingPointValueAdvance) return;
     const { functionId, uutId, unit, nextPointId, insert, afterPointId } = pendingPointValueAdvance;
@@ -5133,6 +5143,11 @@ function App({ showThemeToggle = false }) {
       (uut) => String(uut.id) === String(contextUutId),
     );
     const cellGroups = {
+      warningIcons: getConsecutiveSidebarCellGroup(
+        points,
+        index,
+        (point) => pointDiagnosticsMap[point.id]?.length ? `point:${point.id}` : "",
+      ),
       uut: getConsecutiveSidebarCellGroup(
         points,
         index,
@@ -5977,7 +5992,7 @@ function App({ showThemeToggle = false }) {
             </div>
           </header>
 
-          <div className={`results-workflow-container workspace-pane-${workspacePane}`} ref={resultsContainerRef}>
+          <div className={`results-workflow-container workspace-pane-${workspacePane}${sidebarAutoFit ? " workspace-pane-autofit" : ""}`} ref={resultsContainerRef}>
             <aside
               className="results-sidebar"
               style={{
@@ -6040,7 +6055,8 @@ function App({ showThemeToggle = false }) {
               </div>
 
               {/* === SIDEBAR LIST === */}
-              <div className="measurement-point-list" onPointerDownCapture={() => claimWorkspaceSelection("points")}>
+              <div className="measurement-point-list" onPointerDownCapture={() => claimWorkspaceSelection("points")}
+                onScroll={event => event.currentTarget.style.setProperty("--point-horizontal-scroll", `${event.currentTarget.scrollLeft}px`)}>
                 <div className="sidebar-session-info-zoom-surface">
                   <div className="scoped-zoom-content">
                     {/* Session metadata stays in the sidebar; Instrument Overview
@@ -6050,10 +6066,8 @@ function App({ showThemeToggle = false }) {
                       onUpdate={updateSession}
                       isSessionInfoOpen={isSessionInfoOpen}
                       onSessionInfoOpenChange={setIsSessionInfoOpen}
-                      isRiskInputsOpen={isRiskInputsOpen}
-                      onRiskInputsOpenChange={setIsRiskInputsOpen}
-                      isMitigationInputsOpen={isMitigationInputsOpen}
-                      onMitigationInputsOpenChange={setIsMitigationInputsOpen}
+                      isRequirementsOpen={isRequirementsOpen}
+                      onRequirementsOpenChange={setIsRequirementsOpen}
                     />
                   </div>
                 </div>
@@ -6323,22 +6337,31 @@ function App({ showThemeToggle = false }) {
               </div>
             </aside>
             <div className="sidebar-resizer" role="separator" aria-orientation="vertical" tabIndex={0}
-              aria-label="Resize measurement point list" aria-valuetext={workspacePane === "points" ? "Measurement points only" : workspacePane === "tables" ? "Tables only" : "Split view"}
+              aria-label="Resize measurement point list" aria-valuetext={sidebarAutoFit ? "Auto-fit measurement points" : workspacePane === "tables" ? "Tables only" : "Free-hand split view"}
               onMouseDown={startResizing}
-              onDoubleClick={() => setWorkspacePane(current => current === "points" ? "tables" : "points")}
+              onDoubleClick={() => {
+                if (sidebarAutoFit) {
+                  setSidebarAutoFit(false);
+                  setWorkspacePane("tables");
+                } else {
+                  setWorkspacePane("split");
+                  setSidebarAutoFit(true);
+                }
+              }}
               onKeyDown={event => {
-                if (event.key === "Enter") { event.preventDefault(); setWorkspacePane(current => current === "points" ? "tables" : "points"); }
-                if (event.key === "Escape") { event.preventDefault(); setWorkspacePane("split"); }
+                if (event.key === "Enter") { event.preventDefault(); if (sidebarAutoFit) { setSidebarAutoFit(false); setWorkspacePane("tables"); } else { setWorkspacePane("split"); setSidebarAutoFit(true); } }
+                if (event.key === "Escape") { event.preventDefault(); setSidebarAutoFit(false); setWorkspacePane("split"); }
                 if (["ArrowLeft", "ArrowRight"].includes(event.key)) {
                   event.preventDefault();
                   const container = resultsContainerRef.current;
                   const style = window.getComputedStyle(container);
                   const available = container.clientWidth - (parseFloat(style.paddingLeft) || 0) - (parseFloat(style.paddingRight) || 0) - 320;
                   setWorkspacePane("split");
+                  setSidebarAutoFit(false);
                   setSidebarWidth(width => Math.max(300, Math.min(1800, available, width + (event.key === "ArrowLeft" ? -40 : 40))));
                 }
               }}
-              title="Drag to resize. Double-click to alternate full-width points and tables. Escape restores split view." />
+              title="Drag for free-hand size. Double-click to auto-fit points; double-click again to show tables." />
             <main className="results-content">
               {displayData ? (
                 <TestPointDetailView

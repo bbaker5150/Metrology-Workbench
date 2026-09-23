@@ -12,7 +12,7 @@ it('inherits defaults, persists a point-only override and resets to inheritance'
   expect(getPointRequirements(point, session).uncertaintyConfidence).toBe(95);
   expect(getPointRequirements(changed, session).uncertaintyConfidence).toBe('90');
   expect(getPointRequirementOverrides(changed, session).map(f => f.name)).toEqual(['uncertaintyConfidence']);
-  expect(getPointDiagnosticEntries(changed, session).some(d => d.message.includes('Confidence (%)'))).toBe(true);
+  expect(getPointDiagnosticEntries(changed, session).some(d => d.message.includes('Confidence Level'))).toBe(true);
   const actual = computePointRiskMetrics(changed, session, true);
   const equivalentSession = { ...session, uncReq: { ...session.uncReq, uncertaintyConfidence: '90' } };
   expect(actual).toEqual(computePointRiskMetrics(point, equivalentSession, true));

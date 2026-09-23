@@ -442,12 +442,17 @@ describe("UncertaintyApp", () => {
     ).not.toBeInTheDocument();
     const sessionInfoToggle = screen.getByRole("button", { name: /Session Info/i });
     expect(sessionInfoToggle).toHaveAttribute("aria-expanded", "true");
-    expect(document.querySelector(".session-info-content")).toHaveTextContent("Risk Inputs");
-    expect(document.querySelector(".session-info-content")).toHaveTextContent("Mitigation Inputs");
-    expect(screen.getByRole("button", { name: "Risk Inputs", exact: true })).toHaveAttribute("aria-expanded", "true");
+    const requirementsToggle = screen.getByRole("button", { name: "Risk & Mitigation Inputs" });
+    expect(requirementsToggle).toHaveAttribute("aria-expanded", "true");
+    fireEvent.click(sessionInfoToggle);
+    expect(sessionInfoToggle).toHaveAttribute("aria-expanded", "false");
+    expect(requirementsToggle).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByText("Confidence Level")).toBeInTheDocument();
+    expect(screen.getAllByText("85%", { selector: ".session-header-value" }).length).toBeGreaterThan(0);
+    fireEvent.click(sessionInfoToggle);
     expect(screen.getByText("Document Date")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Columns", exact: true }));
-    for (const label of ["Confidence (%)", "Assumed REOP", "TUR Needed", "PFA Required", "REOP Required", "Cal Int for assumed REOP"]) {
+    for (const label of ["Confidence Level", "Assumed REOP", "TUR Needed", "PFA Required", "REOP Required", "Cal Int for assumed REOP"]) {
       expect(screen.getByRole("button", { name: `Add ${label} column`, exact: true })).toBeInTheDocument();
     }
 
@@ -503,7 +508,7 @@ describe("UncertaintyApp", () => {
     expect(dateInput).toHaveFocus();
 
     fireEvent.keyDown(dateInput, { key: "Tab" });
-    const confidenceInput = screen.getByRole("textbox", { name: "Uncertainty Confidence (%)" });
+    const confidenceInput = screen.getByRole("textbox", { name: "Confidence Level" });
     expect(confidenceInput).toHaveFocus();
     fireEvent.keyDown(confidenceInput, { key: "Tab", shiftKey: true });
     fireEvent.keyDown(screen.getByLabelText("Document Date"), { key: "Tab", shiftKey: true });

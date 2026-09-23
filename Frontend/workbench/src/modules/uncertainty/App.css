@@ -21349,14 +21349,6 @@ body.dark-mode .uncertainty-module .measurement-group-container .point-grid-item
 .uncertainty-module .measurement-points-table .area-header-sticky {
   width: 100%; min-width: 100%; position: relative; left: auto;
 }
-/* Keep column hover, and add the matching complete row highlight. */
-.uncertainty-module .measurement-group-container .point-grid-item:hover:not(.active):not(.active-point):not(.table-highlight) {
-  background: var(--sidebar-point-surface-hover) !important;
-}
-.uncertainty-module .measurement-group-container .point-grid-item:hover:is(.active, .active-point, .table-highlight) {
-  background: color-mix(in srgb, var(--sidebar-point-surface-selected) 85%, var(--sidebar-function-color)) !important;
-}
-
 .budget-component-drag { cursor: grab; display: inline-block; margin-right: 5px; opacity: .65; user-select: none; }
 .budget-component-drag:active { cursor: grabbing; }
 .instrument-reusable-typeb { margin-bottom: 16px; }
@@ -21468,6 +21460,74 @@ body.light-mode.uncertainty-active, body.light-mode .uncertainty-module {
   --background-secondary: #fff;
 }
 body.light-mode .uncertainty-module :is(.content-area, .results-content, .results-sidebar, .analysis-container, .analysis-content, .panel-card, .panel-card-header, .analysis-tabs, .budget-stack-section, .budget-section-title-row, .budget-results-card, .uncertainty-budget-table thead) { background: #fff; }
+
+/* September 23 tasking: use the whole work area and keep the point controls
+   anchored to the visible sidebar while its table scrolls horizontally. */
+.uncertainty-module .results-workflow-container { padding: 1.5rem 0; }
+.uncertainty-module .results-sidebar { container-type: inline-size; }
+.uncertainty-module .measurement-points-zoom-surface .sidebar-global-actions {
+  position: relative; left: 0; right: auto; width: 100cqw;
+  transform: translateX(calc(var(--point-horizontal-scroll, 0px) - 10px));
+  box-sizing: border-box; z-index: 12;
+}
+.uncertainty-module .measurement-points-table .function-point-actions {
+  position: sticky; right: 14px; z-index: 11;
+  padding: 2px 4px; background: var(--sidebar-background);
+}
+
+/* The equation itself is the editing target, rather than its full-width row. */
+.uncertainty-module .measurement-equation-preview-trigger {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: fit-content; min-height: 0; max-width: 100%; padding: 8px;
+}
+
+/* Both session accordions are peers; their rules span the sidebar edge. */
+.uncertainty-module .sidebar-session-header-organic { padding: 0; border-left: 0; }
+.uncertainty-module .session-info-block { padding: 10px 14px; }
+.uncertainty-module .session-default-inputs {
+  margin: 0; padding: 8px 14px 10px; border-top: 1px solid var(--border-color);
+}
+.uncertainty-module .session-default-input-fields {
+  display: grid; grid-auto-flow: column; grid-template-rows: repeat(3, max-content);
+  grid-template-columns: minmax(max-content, 1fr) max-content;
+  width: 100%; max-width: none; gap: 10px 12px;
+  padding-top: 8px;
+}
+.uncertainty-module .session-default-input-fields .session-header-field {
+  display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
+}
+.uncertainty-module .session-header-field--requirement .session-field-size {
+  min-width: 48px; width: 48px; max-width: 48px;
+}
+.uncertainty-module .session-header-field--requirement .session-field-size[data-unit="mo."] {
+  min-width: 58px; width: 58px; max-width: 58px;
+}
+.uncertainty-module .session-header-field--requirement .session-field-size-text { padding-right: 4px; }
+.uncertainty-module .session-header-field--requirement .session-field-size:has(input)[data-unit]:not([data-unit=""])::after {
+  content: attr(data-unit); position: absolute; top: 3px; right: 5px;
+  font-size: .8rem; pointer-events: none;
+}
+.uncertainty-module .session-header-field--requirement .session-field-size:has(input)[data-unit]:not([data-unit=""]) input { padding-right: 23px; }
+.uncertainty-module .session-info-content .session-header-grid {
+  grid-template-columns: minmax(max-content, 1fr) max-content;
+  width: 100%; max-width: none; gap: 7px 12px;
+}
+
+/* Insertion buttons sit across the top rule and light headers retain columns. */
+.uncertainty-module .instrument-column-insert-button { top: -9px; right: -8px; }
+body.light-mode .uncertainty-module .instrument-equipment-table thead th:not(:last-child) {
+  border-right: 1px solid #dbe3ee !important;
+}
+.uncertainty-module .instrument-equipment-table thead { position: static; }
+.uncertainty-module .instrument-equipment-table thead::before { display: none; }
+.uncertainty-module .instrument-equipment-table thead th {
+  position: sticky; top: var(--instrument-header-offset, 0px);
+  z-index: 20; background: var(--component-bg);
+}
+.uncertainty-module .workspace-pane-autofit > .sidebar-resizer {
+  background: color-mix(in srgb, var(--primary-color) 22%, var(--component-bg));
+}
+.uncertainty-module .workspace-pane-autofit > .sidebar-resizer::after { opacity: 1; }
 .uncertainty-module #session-select::picker-icon { margin-inline-start: auto; }
 .uncertainty-module #session-select { background-position: right 8px center; }
 @supports (appearance: base-select) { .uncertainty-module #session-select { padding-inline-end: 8px; } }

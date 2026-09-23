@@ -71,7 +71,9 @@ export function extractEquationVariables(expression) {
     if (n.name !== "E" && (math[n.name] || CONSTANT_NAMES.includes(n.name))) return;
     vars.add(n.name);
   });
-  return Array.from(vars).sort();
+  // Traversal follows the expression, which is also the order users expect in
+  // Measurement Inputs. Preserve it when a symbol is renamed.
+  return Array.from(vars);
 }
 
 /**
@@ -83,7 +85,7 @@ export function extractEquationVariables(expression) {
  *   error: string | null,        // set when status === "invalid"
  *   warnings: string[],          // advisory, status stays "ok"
  *   expression: string,          // text after the optional "=" prefix
- *   variables: string[],         // extracted variable symbols (sorted)
+ *   variables: string[],         // symbols in their first equation appearance
  *   nonDifferentiable: string[], // variables the symbolic engine can't handle
  * }}
  */

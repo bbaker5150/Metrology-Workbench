@@ -13606,8 +13606,18 @@ function DetailedView({
     if (!isDerived) return null;
 
     const currentMappings = testPointData.variableMappings || {};
+    let equationOrder = [];
+    try {
+      equationOrder = extractEquationVariables(
+        testPointData.equationString?.split("=").slice(-1)[0] || "",
+      );
+    } catch {
+      // Keep existing input rows while the equation editor holds partial text.
+    }
     const vars = Object.keys(currentMappings)
-      .sort()
+      .sort((a, b) =>
+        (equationOrder.indexOf(a) < 0 ? Infinity : equationOrder.indexOf(a)) -
+        (equationOrder.indexOf(b) < 0 ? Infinity : equationOrder.indexOf(b)))
       .map((symbol) => {
         const name = currentMappings[symbol];
         const assignedTmdes = tmdeTolerancesData.filter(
@@ -14786,7 +14796,7 @@ function DetailedView({
           </colgroup>
           <thead>
             <tr>
-              <th>Variable</th>
+              <th>Symbol</th>
               <th>Name</th>
               <th>Nominal</th>
             </tr>
@@ -16396,11 +16406,11 @@ function DetailedView({
         calculatedAverage={calcResults?.calculatedNominalValue}
         onChange={onUpdateTestPoint} />
       {!hasMeasurementPoint && <p className="form-section-warning" role="status">Enter a measurement value when ready. You can build the uncertainty budget now; value-dependent components will show a warning until a value is assigned.</p>}
-      {calculationError && hasMeasurementPoint ? (
+      {calculationError && hasMeasurementPoint && (
           <div className="form-section-warning">
             <p>Calculation Error: {calculationError}</p>
           </div>
-        ) : (
+        )}
           <>
             <UncertaintyBudgetTable
               measurementAreaColor={resolveSessionMeasurementAreas(sessionData).find(area =>
@@ -16471,7 +16481,6 @@ function DetailedView({
               propagationWarnings={isDerived && testPointData.budgetPropagationMethod !== "montecarlo" ? nonlinearityWarnings : []}
             />
           </>
-        )}
       </div>
       </>
       )}

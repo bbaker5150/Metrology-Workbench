@@ -77,12 +77,12 @@ it("distinguishes inherited requirements from saved overrides and restores inher
   render(<Harness />);
   const cell = () => document.querySelector(".point-requirement-cell");
   expect(cell()).toHaveClass("is-inherited");
-  fireEvent.click(screen.getByRole("button", { name: "Edit Uncertainty Confidence (%)" }));
+  fireEvent.click(screen.getByRole("button", { name: "Edit Confidence Level" }));
   fireEvent.change(screen.getByRole("textbox"), { target: { value: "99" } });
   fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" });
   expect(saved.riskRequirements.uncertaintyConfidence).toBe("99");
   expect(cell()).toHaveClass("is-override");
-  fireEvent.click(screen.getByRole("button", { name: "Edit Uncertainty Confidence (%)" }));
+  fireEvent.click(screen.getByRole("button", { name: "Edit Confidence Level" }));
   fireEvent.change(screen.getByRole("textbox"), { target: { value: "" } });
   fireEvent.keyDown(screen.getByRole("textbox"), { key: "Enter" });
   expect(saved.riskRequirements).toEqual({});

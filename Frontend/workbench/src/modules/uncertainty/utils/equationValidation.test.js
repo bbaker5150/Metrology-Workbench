@@ -54,7 +54,7 @@ describe("validateEquation — accepts sophisticated metrology equations", () =>
     const result = validateEquation("P = V * Irms * cos(theta)");
     expect(result.status).toBe("ok");
     expect(result.expression).toBe("V * Irms * cos(theta)");
-    expect(result.variables).toEqual(["Irms", "V", "theta"]);
+    expect(result.variables).toEqual(["V", "Irms", "theta"]);
   });
 });
 
@@ -145,13 +145,18 @@ describe("validateEquation — warnings", () => {
 describe("extractEquationVariables — editor-rule parity", () => {
   it("drops mathjs namespace symbols and never treats function names as variables", () => {
     expect(extractEquationVariables("V * Irms * cos(theta)")).toEqual([
-      "Irms",
       "V",
+      "Irms",
       "theta",
     ]);
     // `i`, `pi`, `e` are constants; `sqrt` is a call.
     expect(extractEquationVariables("sqrt(x) + pi + e")).toEqual(["x"]);
   });
+});
+
+it("keeps Greek symbols in the equation input order", () => {
+  expect(extractEquationVariables("θ * V + μ + θ + Δ")).toEqual(["θ", "V", "μ", "Δ"]);
+  expect(validateEquation("θ * V + μ + Δ")).toMatchObject({ status: "ok", variables: ["θ", "V", "μ", "Δ"] });
 });
 
 it("capital E is an input while lowercase e remains Euler's constant", () => {

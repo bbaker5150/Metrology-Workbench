@@ -299,14 +299,27 @@ it("keeps unnamed incomplete equation inputs distinct from the final measurement
   expect(groups.at(-1)).toMatchObject({ id: "final_budget", unit: "N-m" });
 });
 
-it('clears cached totals and shows the incompatible UUT unit reason', async () => {
+it('keeps the budget calculated when only the UUT tolerance unit differs', async () => {
   const { result, onDataSave } = renderDirectCalculation({ is_detailed_uncertainty_calculated: true }, {
     uutTolerance: { unit: 'A', reading: { high: 1, low: -1, unit: '%' } },
   });
-  await waitFor(() => expect(result.current.calculationError).toMatch(/Unit mismatch/));
+  await waitFor(() => expect(result.current.calcResults?.is_detailed_uncertainty_calculated).toBe(true));
+  expect(result.current.calculationError).toBeNull();
   const final = result.current.calcResults.calculatedBudgetGroups.at(-1);
-  expect(final.results).toMatchObject({ combined: null, expanded: null, pendingReason: expect.stringMatching(/Unit mismatch/) });
-  expect(onDataSave).toHaveBeenCalledWith(expect.objectContaining({ combined_uncertainty_absolute_base: null, expanded_uncertainty_absolute_base: null, is_detailed_uncertainty_calculated: false }));
+  expect(final.results.combined).toBeGreaterThan(0);
+  expect(final.components.some(component => component.name === 'Reference DMM - TMDE Error')).toBe(true);
+  expect(onDataSave).toHaveBeenCalledWith(expect.objectContaining({ is_detailed_uncertainty_calculated: true }));
+});
+
+it('keeps a mismatched budget source visible while withholding the total', async () => {
+  const { result } = renderDirectCalculation({}, {
+    tmdeTolerances: [{ ...tmdeAccuracy, reading: { ...tmdeAccuracy.reading, unit: 'A' } }],
+    uutTolerance: { unit: 'A', reading: { high: 1, low: -1, unit: '%' } },
+  });
+  await waitFor(() => expect(result.current.calcResults).not.toBeNull());
+  const final = result.current.calcResults.calculatedBudgetGroups.at(-1);
+  expect(final.components.some(component => component.pendingReason?.includes('Unit mismatch'))).toBe(true);
+  expect(final.results.combined).toBeNull();
 });
 
 
