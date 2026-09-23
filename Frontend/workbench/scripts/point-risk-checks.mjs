@@ -8,6 +8,8 @@ export async function checkPointRisk({ frame }) {
   const select = id => frame.locator(`[data-point-id="${id}"] [data-sidebar-column="value"]`).click({ position: { x: 2, y: 2 } });
   await select('point');
   const viz = frame.getByRole('region', { name: 'Risk distributions', exact: true });
+  assert.equal(await viz.count(), 0, 'testing section must be hidden by default');
+  await frame.locator('body').press('Control+Alt+Shift+R');
   await viz.getByRole('img', { name: 'True UUT error distribution', exact: true }).waitFor();
   assert.equal(await viz.getByRole('img').count(), 4);
   const outcomes = viz.getByRole('table', { name: 'Population risk outcomes' });

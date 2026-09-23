@@ -10202,6 +10202,29 @@ function DetailedView({
   const [collapsedDetailSections, setCollapsedDetailSections] = useState(
     () => new Set(sessionData.detailCollapsedSections || []),
   );
+  // Temporary testing access stays local to this mounted view; never save it
+  // with the session or restore it on a fresh load.
+  const [showRiskDistributions, setShowRiskDistributions] = useState(false);
+  const riskDistributionsRef = useRef(null);
+  useEffect(() => {
+    const toggleRiskDistributions = event => {
+      if (event.repeat || event.isComposing || !(event.ctrlKey || event.metaKey) ||
+          !event.altKey || !event.shiftKey || event.key.toLowerCase() !== "r") return;
+      event.preventDefault();
+      event.stopPropagation();
+      setShowRiskDistributions(visible => !visible);
+      setCollapsedDetailSections(previous => {
+        const next = new Set(previous);
+        next.delete("risk-distributions");
+        return next;
+      });
+    };
+    window.addEventListener("keydown", toggleRiskDistributions, true);
+    return () => window.removeEventListener("keydown", toggleRiskDistributions, true);
+  }, []);
+  useEffect(() => {
+    if (showRiskDistributions) riskDistributionsRef.current?.scrollIntoView?.({ block: "start", behavior: "smooth" });
+  }, [showRiskDistributions]);
   const detailSectionOrder = useMemo(
     () => normalizeDetailSectionOrder(sessionData.detailSectionOrder),
     [sessionData.detailSectionOrder],
@@ -16491,6 +16514,7 @@ function DetailedView({
       </div>
       </>
       )}
+      {showRiskDistributions && <>
       <DetailWorkspaceSectionToggle
         label="Risk Distributions"
         collapsed={collapsedDetailSections.has("risk-distributions")}
@@ -16499,11 +16523,13 @@ function DetailedView({
         {...detailSectionDragProps("risk-distributions")}
       />
       <div
+        ref={riskDistributionsRef}
         className={`detail-workspace-content detail-workspace-content--risk-distributions${collapsedDetailSections.has("risk-distributions") ? " is-collapsed" : ""}`}
         style={detailSectionStyle("risk-distributions", 1)}
       >
         <PointRiskVisualizer key={testPointData.id} riskResults={riskResults} nominal={uutNominal} />
       </div>
+      </>}
       </div>
       {renderBudgetTmdePicker()}
       <ContextMenu menu={rowMenu} onClose={() => setRowMenu(null)} />

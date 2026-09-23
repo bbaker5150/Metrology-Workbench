@@ -41,6 +41,28 @@ const EquationHarness = ({ calculated = 5 }) => {
     onUpdateTestPoint={patch => setPoint(previous => ({ ...previous, ...patch }))} />;
 };
 
+it("hides the testing risk section until its shortcut and resets on remount", () => {
+  const view = render(<EquationHarness />);
+  const region = () => screen.queryByRole("region", { name: "Risk distributions", exact: true });
+  expect(region()).not.toBeInTheDocument();
+  expect(screen.queryByText("Risk Distributions", { exact: true })).not.toBeInTheDocument();
+  fireEvent.keyDown(window, { key: "R", ctrlKey: true, shiftKey: true });
+  expect(region()).not.toBeInTheDocument();
+  const chord = { key: "R", ctrlKey: true, altKey: true, shiftKey: true };
+  fireEvent.keyDown(window, chord);
+  expect(region()).toBeVisible();
+  fireEvent.keyDown(window, { ...chord, repeat: true });
+  expect(region()).toBeVisible();
+  fireEvent.click(screen.getByRole("button", { name: "Collapse Risk Distributions section" }));
+  fireEvent.keyDown(window, chord);
+  expect(region()).not.toBeInTheDocument();
+  fireEvent.keyDown(window, chord);
+  expect(screen.getByRole("button", { name: "Collapse Risk Distributions section" })).toHaveAttribute("aria-expanded", "true");
+  view.unmount();
+  render(<EquationHarness />);
+  expect(region()).not.toBeInTheDocument();
+});
+
 it("keeps invalid syntax editable after clicking away and collapses after correction", () => {
   render(<EquationHarness />);
   fireEvent.click(screen.getByRole("button", { name: "Edit measurement equation" }));
