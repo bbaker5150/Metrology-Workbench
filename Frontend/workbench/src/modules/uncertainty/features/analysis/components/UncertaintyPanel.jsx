@@ -4779,42 +4779,8 @@ export const InlineToleranceCell = ({
         }
       }}
     >
-      {biasRole === "tmde" && <div className="instrument-source-toolbar">
-        <span className="instrument-source-title">{selectedSecondary?.name || "TMDE uncertainty"}</span>
-        <div className="instrument-source-actions">
-          {!selectedSecondary && selectedType !== "parametric" && <button type="button"
-            aria-label="Edit Bias" title="Edit Bias" aria-pressed={showBias}
-            onClick={() => {
-              if (showBias) {
-                const { bias: removedBias, ...withoutBias } = tolerance;
-                onCommit("__replace__", withoutBias);
-              }
-              setShowBias(value => !value);
-            }}>Bias</button>}
-          <button type="button" aria-label="Add a secondary uncertainty" title="Add a secondary uncertainty"
-            onClick={addSecondarySource}><FontAwesomeIcon icon={faPlus} /></button>
-          <button type="button" aria-label="Uncertainty settings" title="Uncertainty settings"
-            aria-expanded={showSourceSettings} onClick={() => setShowSourceSettings(value => !value)}>
-            <FontAwesomeIcon icon={faGear} />
-          </button>
-        </div>
-        {showSourceSettings && <div className="instrument-source-settings" role="group" aria-label="Uncertainty settings">
-          <label>Name <input type="text" value={selectedSecondary?.name || "TMDE uncertainty"}
-            disabled={!selectedSecondary} aria-label="Uncertainty name"
-            onChange={event => updateSelectedSource({ name: event.target.value })} /></label>
-          {["parametric", "table", "equation"].map(kind => <button type="button" key={kind}
-            className={selectedType === kind ? "is-active" : ""}
-            aria-pressed={selectedType === kind} onClick={() => setSelectedSourceType(kind)}>
-            {kind === "table" ? "Tabular" : kind === "equation" ? "Algebraic" : "Parametric"}
-          </button>)}
-          {selectedSecondary && <button type="button" className="instrument-source-remove" onClick={() => {
-            onCommit("__replace__", { ...tolerance, tmdeSecondaryUncertainties: secondarySources.filter(source => source.id !== selectedSecondary.id) });
-            setSelectedSourceId(null);
-            setShowSourceSettings(false);
-          }}>Remove uncertainty</button>}
-        </div>}
-      </div>}
-      {selectedType === "parametric" ? <>
+      <div className="instrument-tolerance-toolbar">
+      {selectedType === "parametric" && <>
       <div className="inline-tolerance-modebar" aria-label="Tolerance mode">
         <div className="inline-tolerance-mini-toggle" role="group" aria-label="Tolerance symmetry">
           <button
@@ -4874,6 +4840,44 @@ export const InlineToleranceCell = ({
             }}>Bias</button>
         </div>}
       </div>
+      </>}
+      {biasRole === "tmde" && <div className="instrument-source-toolbar">
+        <div className="instrument-source-actions">
+          <button type="button" aria-label="Uncertainty settings" title="Uncertainty settings"
+            aria-expanded={showSourceSettings} onClick={() => setShowSourceSettings(value => !value)}>
+            <FontAwesomeIcon icon={faGear} />
+          </button>
+          {selectedSecondary && <input className="instrument-source-name" type="text"
+            value={selectedSecondary.name} aria-label="Uncertainty name" placeholder="Uncertainty name"
+            onChange={event => updateSelectedSource({ name: event.target.value })} />}
+
+          {!selectedSecondary && selectedType !== "parametric" && <button type="button"
+            aria-label="Edit Bias" title="Edit Bias" aria-pressed={showBias}
+            onClick={() => {
+              if (showBias) {
+                const { bias: removedBias, ...withoutBias } = tolerance;
+                onCommit("__replace__", withoutBias);
+              }
+              setShowBias(value => !value);
+            }}>Bias</button>}
+          <button type="button" aria-label="Add a secondary uncertainty" title="Add a secondary uncertainty"
+            onClick={addSecondarySource}><FontAwesomeIcon icon={faPlus} /></button>
+        </div>
+        {showSourceSettings && <div className="instrument-source-settings" role="group" aria-label="Uncertainty settings">
+          {["parametric", "table", "equation"].map(kind => <button type="button" key={kind}
+            className={selectedType === kind ? "is-active" : ""}
+            aria-pressed={selectedType === kind} onClick={() => setSelectedSourceType(kind)}>
+            {kind === "table" ? "Table" : kind === "equation" ? "Equation" : "Default"}
+          </button>)}
+          {selectedSecondary && <button type="button" className="instrument-source-remove" onClick={() => {
+            onCommit("__replace__", { ...tolerance, tmdeSecondaryUncertainties: secondarySources.filter(source => source.id !== selectedSecondary.id) });
+            setSelectedSourceId(null);
+            setShowSourceSettings(false);
+          }}>Remove uncertainty</button>}
+        </div>}
+      </div>}
+      </div>
+      {selectedType === "parametric" ? <>
       {(sidedness === "single"
         ? TOLERANCE_TYPE_OPTIONS.filter((opt) => opt.key === "singleSided")
         : TOLERANCE_TYPE_OPTIONS.filter((opt) => opt.key !== "singleSided")

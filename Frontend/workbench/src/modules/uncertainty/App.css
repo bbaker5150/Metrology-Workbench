@@ -21567,34 +21567,53 @@ body.light-mode .uncertainty-module .instrument-equipment-table thead th:not(:la
   font-size: .75rem; font-weight: 700; color: var(--text-color);
 }
 .uncertainty-module .instrument-equipment-table .instrument-source-toolbar {
-  position: relative; display: flex; align-items: center; justify-content: space-between;
-  align-self: stretch; gap: 12px; padding: 2px 5px 4px;
-  border-bottom: 1px solid var(--table-divider-color);
+  position: relative; display: flex; align-items: center; margin-left: auto;
 }
-.uncertainty-module .instrument-source-title { font-size: .72rem; font-weight: 700; white-space: nowrap; }
-.uncertainty-module .instrument-source-actions { display: inline-flex; gap: 3px; }
-.uncertainty-module .instrument-source-actions button,
+.uncertainty-module .instrument-tolerance-toolbar {
+  display: flex; align-items: center; align-self: stretch; gap: 8px;
+  padding: 2px 5px 4px; border-bottom: 1px solid var(--table-divider-color);
+}
+.uncertainty-module .instrument-tolerance-toolbar .inline-tolerance-modebar {
+  padding: 0; border: 0; flex: 0 0 auto;
+}
+.uncertainty-module .instrument-source-actions { display: inline-flex; align-items: center; gap: 3px; }
 .uncertainty-module .instrument-secondary-pill,
 .uncertainty-module .instrument-dynamic-add-row {
   color: var(--text-color); background: var(--input-background);
   border: 1px solid var(--tolerance-control-outline, var(--border-color));
   border-radius: 5px; cursor: pointer;
 }
-.uncertainty-module .instrument-source-actions button { width: 22px; height: 22px; padding: 2px; }
+.uncertainty-module .instrument-source-actions button {
+  width: 22px; height: 22px; padding: 2px; border: 0; border-radius: 4px;
+  background: transparent; color: var(--text-color-muted); cursor: pointer;
+}
+.uncertainty-module .instrument-source-actions button:is(:hover, :focus-visible, [aria-expanded="true"]) {
+  background: var(--table-divider-color); color: var(--primary-color);
+}
+.uncertainty-module .instrument-equipment-table .instrument-source-name {
+  width: 100px; min-width: 0; padding: 3px 5px; font: inherit; font-size: .72rem;
+  color: var(--text-color); background: transparent;
+  border: 1px solid var(--table-divider-color); border-radius: 4px;
+}
+.uncertainty-module .instrument-equipment-table .instrument-source-name:focus {
+  border-color: var(--primary-color); outline: none; background: var(--input-background);
+}
 .uncertainty-module .instrument-source-actions button[aria-label="Edit Bias"] { width: auto; padding-inline: 5px; font-size: .68rem; }
 .uncertainty-module .instrument-source-settings {
   position: absolute; z-index: 40; top: 100%; right: 0; display: flex;
-  flex-direction: column; gap: 4px; min-width: 160px; padding: 8px;
+  flex-direction: column; gap: 2px; min-width: 132px; padding: 4px;
   background: var(--component-bg); color: var(--text-color);
   border: 1px solid var(--border-color); border-radius: 7px; box-shadow: var(--box-shadow-glow);
 }
-.uncertainty-module .instrument-source-settings label { display: flex; flex-direction: column; gap: 3px; font-size: .68rem; }
-.uncertainty-module .instrument-source-settings :is(input, button) {
-  padding: 4px 6px; color: var(--text-color); background: var(--input-background);
-  border: 1px solid var(--tolerance-control-outline, var(--border-color)); border-radius: 4px;
+.uncertainty-module .instrument-equipment-table .instrument-source-settings button {
+  padding: 5px 7px; color: var(--text-color-muted); background: transparent;
+  border: 0; border-radius: 4px; font: inherit; font-size: .78rem;
+  text-align: left; cursor: pointer; white-space: nowrap;
 }
-.uncertainty-module .instrument-source-settings button { text-align: left; cursor: pointer; }
-.uncertainty-module .instrument-source-settings button.is-active { color: var(--primary-color); font-weight: 700; }
+.uncertainty-module .instrument-equipment-table .instrument-source-settings button:is(.is-active, :hover, :focus-visible) {
+  color: var(--text-color); background: var(--table-divider-color);
+}
+.uncertainty-module .instrument-source-settings button.is-active { font-weight: 700; }
 .uncertainty-module .instrument-secondary-pills { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 5px; }
 .uncertainty-module .instrument-secondary-pill { padding: 3px 7px; font-size: .7rem; white-space: nowrap; }
 .uncertainty-module .instrument-secondary-pill.is-active { border-color: var(--primary-color); color: var(--primary-color); }

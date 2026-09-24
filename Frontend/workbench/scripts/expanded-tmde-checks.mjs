@@ -24,6 +24,9 @@ export async function checkExpandedTmde({ frame, page, saved }) {
   const cell = table.locator('tr.instrument-function-row').first().locator('.cell-tolerance');
   await click(cell.locator('.inline-tolerance-summary'));
   const editor = cell.locator('.inline-tolerance-editor');
+  const mode = await editor.getByRole('group', { name: 'Tolerance symmetry' }).boundingBox();
+  const settings = await editor.getByRole('button', { name: 'Uncertainty settings', exact: true }).boundingBox();
+  assert.ok(Math.abs(mode.y - settings.y) < 5, 'settings share the tolerance toolbar');
   const symmetric = await editor.evaluate(el => el.getBoundingClientRect().width);
   await click(editor.getByTitle('Asymmetric tolerance', { exact: true }));
   const asymmetric = await editor.evaluate(el => el.getBoundingClientRect().width);
@@ -38,9 +41,12 @@ export async function checkExpandedTmde({ frame, page, saved }) {
   await click(editor.getByRole('button', { name: 'Add a secondary uncertainty' }));
   console.log('expanded: secondary opened');
   await editor.getByRole('textbox', { name: 'Uncertainty name' }).fill('Thermal Expansion');
+  const nameBox = await editor.getByRole('textbox', { name: 'Uncertainty name' }).boundingBox();
+  const addBox = await editor.getByRole('button', { name: 'Add a secondary uncertainty' }).boundingBox();
+  assert.ok(Math.abs(nameBox.y - addBox.y) < 5 && addBox.x - (nameBox.x + nameBox.width) < 8, 'name is beside the add button');
   console.log('expanded: secondary named');
   await page.screenshot({path:'tmp/expanded-tasking/settings-light.png'});
-  await click(editor.getByRole('button', { name: 'Parametric', exact: true }));
+  await click(editor.getByRole('button', { name: 'Default', exact: true }));
   assert.equal(await editor.getByRole('button', { name: 'Bias', exact: true }).count(), 0);
   const floor = editor.locator('.inline-tolerance-term-group').nth(2).locator('input').first();
   await floor.fill('0.3'); await floor.press('Enter');
@@ -51,8 +57,8 @@ export async function checkExpandedTmde({ frame, page, saved }) {
   console.log('expanded: primary table');
   await click(editor.getByRole('button', { name: 'TMDE uncertainty', exact: true }));
   await click(editor.getByRole('button', { name: 'Uncertainty settings', exact: true }));
-  assert.equal(await editor.getByRole('textbox', { name: 'Uncertainty name' }).isDisabled(), true);
-  await click(editor.getByRole('button', { name: 'Tabular', exact: true }));
+  assert.equal(await editor.getByRole('textbox', { name: 'Uncertainty name' }).count(), 0);
+  await click(editor.getByRole('button', { name: 'Table', exact: true }));
   await editor.getByRole('textbox', { name: 'TMDE table measurement 1', exact: true }).fill('5');
   await editor.getByRole('textbox', { name: 'TMDE table uncertainty 1', exact: true }).fill('0.2');
   await click(editor.getByRole('button', { name: 'TMDE uncertainty interpretation', exact: true }));
@@ -64,7 +70,8 @@ export async function checkExpandedTmde({ frame, page, saved }) {
   assert.ok(interpretation.height < 35, 'dynamic selector keeps a compact height');
   await page.screenshot({ path: 'tmp/expanded-tasking/tabular-dark.png' });
   await click(editor.getByRole('button', { name: 'Uncertainty settings', exact: true }));
-  await click(editor.getByRole('button', { name: 'Algebraic', exact: true }));
+  await page.screenshot({ path: 'tmp/expanded-tasking/settings-dark.png' });
+  await click(editor.getByRole('button', { name: 'Equation', exact: true }));
   await editor.getByRole('textbox', { name: 'TMDE uncertainty equation', exact: true }).fill('x / 25');
   await click(editor.getByRole('button', { name: 'TMDE uncertainty interpretation', exact: true }));
   await click(frame.getByRole('option', { name: 'Standard uncertainty', exact: true }));

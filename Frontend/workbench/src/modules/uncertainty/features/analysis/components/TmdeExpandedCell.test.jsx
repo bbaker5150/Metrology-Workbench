@@ -15,8 +15,8 @@ it("authors primary and secondary TMDE sources in one expanded cell", () => {
   render(<Harness />);
   expect(screen.getByRole("button", { name: "Add a secondary uncertainty" })).toHaveAttribute("title", "Add a secondary uncertainty");
   fireEvent.click(screen.getByRole("button", { name: "Uncertainty settings" }));
-  expect(screen.getByRole("textbox", { name: "Uncertainty name" })).toBeDisabled();
-  fireEvent.click(screen.getByRole("button", { name: "Tabular" }));
+  expect(screen.queryByRole("textbox", { name: "Uncertainty name" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Table" }));
   expect(saved.tmdeUncertaintyDefinition.kind).toBe("table");
   expect(screen.getByRole("group", { name: "Tabular TMDE uncertainty" })).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Add a secondary uncertainty" }));
@@ -24,13 +24,13 @@ it("authors primary and secondary TMDE sources in one expanded cell", () => {
   expect(screen.queryByRole("button", { name: "Bias", exact: true })).toBeNull();
   fireEvent.change(screen.getByRole("textbox", { name: "Uncertainty name" }), { target: { value: "Thermal Expansion" } });
   expect(saved.tmdeSecondaryUncertainties[0].name).toBe("Thermal Expansion");
-  fireEvent.click(screen.getByRole("button", { name: "Parametric", exact: true }));
+  fireEvent.click(screen.getByRole("button", { name: "Default", exact: true }));
   fireEvent.click(screen.getByRole("button", { name: "Secondary uncertainty distribution" }));
   fireEvent.click(screen.getByRole("option", { name: "Triangular", exact: true }));
   expect(saved.tmdeSecondaryUncertainties[0].tolerance.bandDistribution).toBe("2.449");
   expect(saved.tmdeUncertaintyDefinition.distribution).toBe("");
   fireEvent.click(screen.getByRole("button", { name: "Uncertainty settings", exact: true }));
-  fireEvent.click(screen.getByRole("button", { name: "Algebraic" }));
+  fireEvent.click(screen.getByRole("button", { name: "Equation" }));
   expect(saved.tmdeSecondaryUncertainties[0]).toMatchObject({ kind: "equation", dynamicDefinition: { kind: "equation" } });
   fireEvent.click(screen.getByRole("button", { name: "TMDE uncertainty" }));
   expect(screen.getByRole("group", { name: "Tabular TMDE uncertainty" })).toBeInTheDocument();
