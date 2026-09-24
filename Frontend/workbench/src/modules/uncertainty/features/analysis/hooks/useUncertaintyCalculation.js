@@ -60,7 +60,7 @@ const qualifyTmdeComponent = (component, tmde, fallbackIndex = 0) => {
   const displayName = formatErrorSourceDescription(tmde, `TMDE ${fallbackIndex + 1}`);
   const rawName = String(component?.name || "Uncertainty component");
   const separatorIndex = rawName.lastIndexOf(" - ");
-  const componentType =
+  const componentType = component.tmdeUncertaintySourceName ||
     formatErrorSourceKind(separatorIndex >= 0 ? rawName.slice(separatorIndex + 3) : rawName);
   const point = `${tmde?.measurementPoint?.value ?? ""} ${
     tmde?.measurementPoint?.unit ?? ""

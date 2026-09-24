@@ -21538,3 +21538,88 @@ body.light-mode .uncertainty-module .instrument-equipment-table thead th:not(:la
 @supports (appearance: base-select) { .uncertainty-module #session-select { padding-inline-end: 8px; } }
 .uncertainty-module .analysis-content:has(.configuration-panel) { padding-top: 0; }
 .uncertainty-module .detail-workspace-section-toggle--instruments { margin-top: 0; }
+
+/* Expanded instrument specifications use compact rows and legible control
+   outlines against both light and dark function tints. */
+.uncertainty-module .instrument-equipment-table .inline-tolerance-editor {
+  width: max-content; min-width: 0; align-items: flex-start; gap: 1px;
+  --tolerance-control-outline: color-mix(in srgb, var(--text-color) 48%, var(--instrument-function-color, var(--border-color)));
+}
+.uncertainty-module .instrument-equipment-table .inline-tolerance-modebar { align-self: stretch; }
+.uncertainty-module .instrument-equipment-table .inline-tolerance-term-group {
+  width: max-content; min-height: 24px; padding: 2px 5px;
+}
+.uncertainty-module .instrument-equipment-table .inline-tolerance-editor--all > .inline-tolerance-term-group + .inline-tolerance-term-group {
+  margin-top: 0; padding-top: 2px; border-top: 0;
+}
+.uncertainty-module .instrument-equipment-table .inline-tolerance-editor :is(.inline-tolerance-input, .inline-menu-select-trigger, .inline-unit-base-button, .bias-value-input) {
+  border-color: var(--tolerance-control-outline);
+}
+.uncertainty-module .instrument-equipment-table .inline-tolerance-footer {
+  padding: 2px 5px 4px; border-top: 0;
+}
+.uncertainty-module .instrument-equipment-table .inline-tolerance-greater-toggle { padding-left: 0; }
+.uncertainty-module .instrument-equipment-table .instrument-bias-editor {
+  margin-top: 4px; padding: 7px 5px 3px;
+  border-top: 1px solid var(--tolerance-control-outline);
+}
+.uncertainty-module .instrument-equipment-table .instrument-bias-label {
+  font-size: .75rem; font-weight: 700; color: var(--text-color);
+}
+.uncertainty-module .instrument-equipment-table .instrument-source-toolbar {
+  position: relative; display: flex; align-items: center; justify-content: space-between;
+  align-self: stretch; gap: 12px; padding: 2px 5px 4px;
+  border-bottom: 1px solid var(--table-divider-color);
+}
+.uncertainty-module .instrument-source-title { font-size: .72rem; font-weight: 700; white-space: nowrap; }
+.uncertainty-module .instrument-source-actions { display: inline-flex; gap: 3px; }
+.uncertainty-module .instrument-source-actions button,
+.uncertainty-module .instrument-secondary-pill,
+.uncertainty-module .instrument-dynamic-add-row {
+  color: var(--text-color); background: var(--input-background);
+  border: 1px solid var(--tolerance-control-outline, var(--border-color));
+  border-radius: 5px; cursor: pointer;
+}
+.uncertainty-module .instrument-source-actions button { width: 22px; height: 22px; padding: 2px; }
+.uncertainty-module .instrument-source-actions button[aria-label="Edit Bias"] { width: auto; padding-inline: 5px; font-size: .68rem; }
+.uncertainty-module .instrument-source-settings {
+  position: absolute; z-index: 40; top: 100%; right: 0; display: flex;
+  flex-direction: column; gap: 4px; min-width: 160px; padding: 8px;
+  background: var(--component-bg); color: var(--text-color);
+  border: 1px solid var(--border-color); border-radius: 7px; box-shadow: var(--box-shadow-glow);
+}
+.uncertainty-module .instrument-source-settings label { display: flex; flex-direction: column; gap: 3px; font-size: .68rem; }
+.uncertainty-module .instrument-source-settings :is(input, button) {
+  padding: 4px 6px; color: var(--text-color); background: var(--input-background);
+  border: 1px solid var(--tolerance-control-outline, var(--border-color)); border-radius: 4px;
+}
+.uncertainty-module .instrument-source-settings button { text-align: left; cursor: pointer; }
+.uncertainty-module .instrument-source-settings button.is-active { color: var(--primary-color); font-weight: 700; }
+.uncertainty-module .instrument-secondary-pills { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 5px; }
+.uncertainty-module .instrument-secondary-pill { padding: 3px 7px; font-size: .7rem; white-space: nowrap; }
+.uncertainty-module .instrument-secondary-pill.is-active { border-color: var(--primary-color); color: var(--primary-color); }
+.uncertainty-module .instrument-dynamic-definition { display: flex; flex-direction: column; gap: 7px; padding: 7px 5px; font-size: .72rem; }
+.uncertainty-module .instrument-dynamic-settings { display: flex; flex-wrap: wrap; gap: 6px; }
+.uncertainty-module .instrument-dynamic-settings label,
+.uncertainty-module .instrument-dynamic-equation label { display: flex; flex-direction: column; gap: 3px; }
+.uncertainty-module .instrument-dynamic-definition label > .inline-menu-select {
+  flex: 0 0 auto; width: max-content; min-width: var(--inline-unit-width);
+}
+.uncertainty-module .instrument-dynamic-definition .inline-menu-select-trigger > span {
+  overflow: visible; text-overflow: clip; white-space: nowrap;
+}
+.uncertainty-module .instrument-dynamic-table { display: flex; flex-direction: column; gap: 3px; }
+.uncertainty-module .instrument-dynamic-table-heading,
+.uncertainty-module .instrument-dynamic-table-row { display: grid; grid-template-columns: 90px 90px 18px; gap: 3px; }
+.uncertainty-module .instrument-dynamic-definition input {
+  min-width: 0; padding: 3px 5px; color: var(--text-color); background: var(--input-background);
+  border: 1px solid var(--tolerance-control-outline, var(--border-color)); border-radius: 4px;
+}
+.uncertainty-module .instrument-dynamic-table-row button { border: 0; background: transparent; color: var(--text-color); cursor: pointer; }
+.uncertainty-module .instrument-dynamic-add-row { align-self: flex-start; padding: 3px 6px; }
+.uncertainty-module .instrument-dynamic-equation { display: flex; flex-direction: column; gap: 5px; }
+.uncertainty-module .instrument-dynamic-warning { color: var(--status-warning, #c47a00); }
+
+
+
+.uncertainty-module .instrument-secondary-distribution { display: flex; align-items: center; gap: 8px; padding: 3px 5px; font-size: .72rem; }

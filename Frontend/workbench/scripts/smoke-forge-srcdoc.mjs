@@ -1,3 +1,4 @@
+import { checkExpandedTmde } from "./expanded-tmde-checks.mjs";
 import { checkPointRisk } from "./point-risk-checks.mjs";
 import { checkSidebarLayoutFollowup } from "./sidebar-layout-followup-checks.mjs";
 import { prepareWorkspacePolish, checkWorkspacePolish } from "./workspace-polish-checks.mjs";
@@ -147,7 +148,7 @@ if (process.env.SEPTEMBER21_SMOKE) for (const session of sessions.values()) prep
 if (process.env.SEPTEMBER21_FOLLOWUP_SMOKE) for (const session of sessions.values()) prepareSeptember21Followup(session);
 if (process.env.SEPTEMBER21_BIAS_UI_SMOKE) for (const session of sessions.values()) prepareSeptember21BiasUi(session);
 if (process.env.SEPTEMBER21_COLLAPSE_SMOKE) for (const session of sessions.values()) prepareSeptember21Collapse(session);
-if (process.env.POINT_RISK_SMOKE || process.env.WORKSPACE_POLISH_SMOKE || process.env.DOCUMENT_ONE_SMOKE || process.env.SIDEBAR_LAYOUT_FOLLOWUP_SMOKE) for (const session of sessions.values()) prepareWorkspacePolish(session);
+if (process.env.EXPANDED_TMDE_SMOKE || process.env.POINT_RISK_SMOKE || process.env.WORKSPACE_POLISH_SMOKE || process.env.DOCUMENT_ONE_SMOKE || process.env.SIDEBAR_LAYOUT_FOLLOWUP_SMOKE) for (const session of sessions.values()) prepareWorkspacePolish(session);
 if (process.env.TASKING_TYPE_B_SMOKE) for (const session of sessions.values()) prepareTaskingTypeB(session);
 if (process.env.SEPTEMBER22_SMOKE) for (const session of sessions.values()) prepareSeptember22(session);
 if (process.env.INPUT_TASKING_SMOKE) for (const session of sessions.values()) prepareInputTasking(session);
@@ -334,6 +335,7 @@ if (/not set up yet/i.test(frameText)) {
   if (process.env.SEPTEMBER21_FOLLOWUP_SMOKE) await checkSeptember21Followup({ frame, page, saved, until, check });
   if (process.env.SEPTEMBER21_BIAS_UI_SMOKE) await checkSeptember21BiasUi({ frame, page, saved, until, check });
   if (process.env.SEPTEMBER21_COLLAPSE_SMOKE) await checkSeptember21Collapse({ frame, page, saved, until, check });
+  if (process.env.EXPANDED_TMDE_SMOKE) await checkExpandedTmde({ frame, page, saved });
   if (process.env.POINT_RISK_SMOKE) await checkPointRisk({ frame });
   if (process.env.SIDEBAR_LAYOUT_FOLLOWUP_SMOKE) await checkSidebarLayoutFollowup({ frame, page });
   if (process.env.WORKSPACE_POLISH_SMOKE) await checkWorkspacePolish({ frame, page, saved, until, check });
