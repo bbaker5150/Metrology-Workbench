@@ -25,9 +25,9 @@ export async function checkSeptember22Followup({ frame, page, saved, until, chec
   await frame.getByRole('button', { name: 'Edit measurement equation', exact: true }).click();
   const equation = frame.getByRole('textbox', { name: 'Measurement equation', exact: true });
   await equation.fill('/asd'); await equation.press('Enter');
-  check('invalid equation remains visible after blur with its error below', await frame.getByRole('button', { name: 'Edit measurement equation', exact: true }).innerText() === '/asd' && await frame.getByText(/Equation does not parse/).isVisible());
+  await frame.locator('.analysis-tabs').click({ position: { x: 5, y: 5 } });
+  check('invalid equation stays editable after Enter and blur with its error below', await equation.isVisible() && await equation.inputValue() === '/asd' && await frame.getByText(/Equation does not parse/).isVisible());
   await capture('followup-invalid-equation');
-  await frame.getByRole('button', { name: 'Edit measurement equation', exact: true }).click();
   await equation.fill('a'); await equation.press('Enter');
 
   check('light mode uses clean white content and budget surfaces', await frame.locator('.content-area, .results-content, .budget-section-title-row, .budget-results-card').evaluateAll(nodes => nodes.length > 2 && nodes.every(node => getComputedStyle(node).backgroundColor === 'rgb(255, 255, 255)')));
@@ -84,9 +84,10 @@ export async function checkSeptember22Followup({ frame, page, saved, until, chec
   const modal = frame.locator('.repeatability-modal');
   const readings = modal.getByLabel('Measurement', { exact: true });
   for (const value of ['1', '2', '3']) { await readings.fill(value); await readings.press('Enter'); }
-  const repeatUnit = modal.getByRole('combobox', { name: 'Repeatability unit' });
-  await repeatUnit.fill('A');
-  await frame.locator('.react-select__menu').getByRole('option', { name: 'A', exact: true }).click();
+  await modal.getByRole('button', { name: 'Repeatability unit base unit', exact: true }).click();
+  await frame.getByPlaceholder('Search units...', { exact: true }).fill('A');
+  await frame.getByRole('listbox', { name: 'Repeatability unit', exact: true }).getByRole('option')
+    .filter({ has: frame.getByText('A', { exact: true }) }).click();
   check('repeatability warns about incompatible units before adding', await modal.getByText(/Unit mismatch: A/).isVisible());
   await modal.getByRole('button', { name: 'Add repeatability', exact: true }).click();
   check('incompatible repeatability is saved with its readings', await until(() => saved().testPoints.find(p => p.id === 'point').components.some(c => c.type === 'A' && c.variableSymbol === 'a' && c.savedInputs?.unit === 'A' && c.savedInputs.readings.length === 3)));
