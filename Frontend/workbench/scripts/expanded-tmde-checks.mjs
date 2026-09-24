@@ -133,5 +133,34 @@ export async function checkExpandedTmde({ frame, page, saved }) {
     return Math.abs(arrow.x + arrow.width / 2 - add.x - add.width / 2) < 2;
   }), 'empty point hint arrow aligns with add button'); }
   await page.screenshot({ path: 'tmp/expanded-tasking/final-point-dark.png' });
+  console.log('expanded: uncertainty row selection and deletion');
+  const originalRanges = saved().tmdes[0].ranges.map(range => range.id);
+  await detailSource.locator('.instrument-source-range-note').click();
+  assert.equal(await detailSource.getAttribute('data-range-selected'), 'true');
+  await page.keyboard.press('Delete');
+  await waitForSave(data => !data.tmdes[0].instrument.tmdeSecondaryUncertainties.length);
+  assert.deepEqual(saved().tmdes[0].ranges.map(range => range.id), originalRanges, 'deleting a source preserves actual ranges');
+
+  await frame.locator('[data-tour="tab-overview"]').click();
+  for (const name of ['Delete test A', 'Delete test B']) {
+    await click(cell.locator('.inline-tolerance-summary').first());
+    await click(editor.getByRole('button', { name: 'Add a secondary uncertainty' }));
+    await click(editor.getByRole('button', { name: 'Manual', exact: true }));
+    const row = table.locator('tr[data-uncertainty-source-id]').last();
+    const input = row.getByRole('textbox', { name: 'Uncertainty name' });
+    await input.fill(name);
+    await input.press('Tab');
+    assert.equal(await row.getByRole('button', { name: 'Uncertainty settings', exact: true }).count(), 0, 'source rows have no redundant gear');
+    await page.keyboard.press('Escape');
+  }
+  await waitForSave(data => data.tmdes[0].instrument.tmdeSecondaryUncertainties.length === 2);
+  const rows = table.locator('tr[data-uncertainty-source-id]');
+  await rows.first().locator('.instrument-source-range-note').click();
+  await rows.last().locator('.instrument-source-range-note').click({ modifiers: ['Shift'] });
+  assert.equal(await table.locator('tr[data-uncertainty-source-id][data-range-selected="true"]').count(), 2);
+  await rows.last().locator('.instrument-source-range-note').click({ button: 'right' });
+  await frame.getByText('Delete Selected Rows', { exact: true }).click();
+  await waitForSave(data => !data.tmdes[0].instrument.tmdeSecondaryUncertainties.length);
+  assert.deepEqual(saved().tmdes[0].ranges.map(range => range.id), originalRanges);
   console.log('PASS expanded TMDE primary/secondary authoring, distribution, compact widths, type selection, and budget addition');
 }

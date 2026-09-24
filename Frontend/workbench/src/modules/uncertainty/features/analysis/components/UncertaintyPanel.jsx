@@ -1292,7 +1292,15 @@ export const pasteRangeIntoItem = (item, activeRangeId, clipRange) => {
   };
 };
 
+export const uncertaintyRowId = id => `uncertainty:${id}`;
+const isUncertaintyRowId = id => String(id).startsWith("uncertainty:");
+
 export const removeRangeFromItem = (item, rangeId) => {
+  if (isUncertaintyRowId(rangeId)) {
+    const sources = instrumentUncertaintySources(item);
+    const remaining = sources.filter(source => uncertaintyRowId(source.id) !== rangeId);
+    return remaining.length === sources.length ? item : withInstrumentUncertaintySources(item, remaining);
+  }
   const inst = item?.instrument || {};
   const filt = (ranges) => (ranges || []).filter((r) => !rangeMatches(r, rangeId));
   if (Array.isArray(item.ranges) && item.ranges.length > 0) {
@@ -4583,8 +4591,8 @@ const InstrumentDynamicDefinitionFields = ({ definition, onChange }) => {
 // editor open while users move among other table cells or tolerance controls.
 // The close is deferred so a blurred input commits before the editor unmounts.
 // Independent sources share the instrument description, but never participate
-// in range selection. Their own distribution is edited in the table column.
-export const InstrumentUncertaintyRow = ({ source, activeRange, referencePoint, style, onChange, onRemove, renderCustomAfter = () => null }) => {
+// in range calculations. Selection and deletion share the range-row controls.
+export const InstrumentUncertaintyRow = ({ source, activeRange, referencePoint, style, onChange, onRemove, rowProps = {}, selected = false, renderCustomAfter = () => null }) => {
   const [editingName, setEditingName] = useState(!source.name);
   const [openEditor, setOpenEditor] = useState(false);
   const [name, setName] = useState(source.name || "");
@@ -4599,9 +4607,11 @@ export const InstrumentUncertaintyRow = ({ source, activeRange, referencePoint, 
     ? getCollapsedSpecRows(tolerance, referencePoint).join("; ") || "Not Set"
     : resolved?.dynamicSummary || resolved?.pendingReason || label;
   const commitName = () => { if (name !== source.name) onChange({ ...source, name }); };
-  return <tr className="instrument-function-row instrument-uncertainty-row" data-uncertainty-source-id={source.id} style={style}>
+  return <tr {...rowProps} className={`instrument-function-row inline-range-row instrument-uncertainty-row${selected ? " instrument-selected is-selected-range" : ""}`}
+    data-range-cell data-range-id={uncertaintyRowId(source.id)} data-range-selected={selected}
+    data-uncertainty-source-id={source.id} style={style}>
     {renderCustomAfter("description")}
-    <td className="cell-range">
+    <td className="cell-range" data-range-cell>
       <div className="instrument-source-row-name">
         {editingName ? <input className="instrument-custom-field-input" aria-label="Uncertainty name" value={name} autoFocus
           placeholder="Uncertainty name" onChange={event => setName(event.target.value)}
@@ -4901,7 +4911,7 @@ export const InlineToleranceCell = ({
         </div>}
       </div>
       </>}
-      {["tmde", "source"].includes(biasRole) && <div className="instrument-source-toolbar">
+      {biasRole === "tmde" && <div className="instrument-source-toolbar">
         <div className="instrument-source-actions">
           <button type="button" aria-label="Uncertainty settings" title="Uncertainty settings"
             aria-expanded={showSourceSettings} onClick={() => { setAddingSource(false); setShowSourceSettings(value => !value); }}>
@@ -7601,16 +7611,17 @@ const SummaryDashboard = ({
       setPendingRangeEditKey(`${itemStateKey(kind, item.id)}:${newRangeId}`);
     }
   };
-  const handleDeleteSelectedRanges = () => {
+  const handleDeleteSelectedRanges = (selection = selectedRangeIds) => {
     if (!onSessionSave) return;
     const next = { ...latestSessionDataRef.current };
     for (const kind of ["uut", "tmde"]) {
       const list = kind === "uut" ? "uuts" : "tmdes";
       next[list] = (next[list] || []).map(item => {
-        const ids = selectedRangeIds[itemStateKey(kind, item.id)];
+        const ids = selection[itemStateKey(kind, item.id)];
         return ids?.length ? removeSelectedRangesFromItem(item, ids) : item;
       });
     }
+    latestSessionDataRef.current = next;
     onSessionSave(next);
     setSelectedRangeIds({});
   };
@@ -8126,8 +8137,8 @@ const SummaryDashboard = ({
     setLastSelectionTarget(next.mode === "range" ? "range" : kind);
     setSelectedUutIds((sessionData.uuts || []).filter(row => next.ranges[itemStateKey("uut", row.id)]?.length).map(row => row.id));
     setSelectedTmdeIds((sessionData.tmdes || []).filter(row => next.ranges[itemStateKey("tmde", row.id)]?.length).map(row => row.id));
-    setLocalRangeIndices(previous => kind === "uut" ? { ...previous, [item.id]: index, [stateItemId]: index } : previous);
-    setTmdeRangeIndices(previous => kind === "tmde" ? { ...previous, [item.id]: index, [stateItemId]: index } : previous);
+    setLocalRangeIndices(previous => kind === "uut" && Number.isInteger(index) ? { ...previous, [item.id]: index, [stateItemId]: index } : previous);
+    setTmdeRangeIndices(previous => kind === "tmde" && Number.isInteger(index) ? { ...previous, [item.id]: index, [stateItemId]: index } : previous);
     if (event.ctrlKey || event.metaKey || event.shiftKey) { event.preventDefault(); event.stopPropagation(); }
   };
   const openRangeTolerance = (kind, item, range) => {
@@ -8889,6 +8900,21 @@ const SummaryDashboard = ({
     if (pruned === item) return;
     handleRemoveRange(kind, item, rangeId);
   };
+  const openUncertaintyRowMenu = (event, item, source) => {
+    event.preventDefault(); event.stopPropagation();
+    const key = itemStateKey("tmde", item.id), id = uncertaintyRowId(source.id);
+    const selection = lastSelectionTarget === "range" && selectedRangeIds[key]?.includes(id)
+      ? selectedRangeIds : { [key]: [id] };
+    setSelectedRangeIds(selection);
+    setLastSelectionTarget("range");
+    setSelectedUutIds((sessionData.uuts || []).filter(row => selection[itemStateKey("uut", row.id)]?.length).map(row => row.id));
+    setSelectedTmdeIds((sessionData.tmdes || []).filter(row => selection[itemStateKey("tmde", row.id)]?.length).map(row => row.id));
+    const count = Object.values(selection).reduce((sum, ids) => sum + ids.length, 0);
+    setRowMenu({ x: event.clientX, y: event.clientY, items: [{
+      label: count > 1 ? "Delete Selected Rows" : "Delete Uncertainty", icon: faTrashAlt, className: "destructive",
+      action: () => handleDeleteSelectedRanges(selection),
+    }] });
+  };
   const openRangeRowMenu = (e, kind, item, range, index) => {
     if (!onSessionSave) return;
     e.preventDefault();
@@ -8972,6 +8998,10 @@ const SummaryDashboard = ({
         return;
       }
       const key = e.key.toLowerCase();
+      if ((key === "c" || key === "x") && lastSelectionTarget === "range" &&
+          Object.values(selectedRangeIds).some(ids => ids.some(isUncertaintyRowId))) {
+        e.preventDefault(); e.stopImmediatePropagation(); return;
+      }
       const oneUut = selectedUutIds.length === 1 ? selectedUutIds[0] : null;
       const oneTmde = selectedTmdeIds.length === 1 ? selectedTmdeIds[0] : null;
       const kind = selectedUutIds.length ? "uut" : selectedTmdeIds.length ? "tmde" : null;
@@ -9791,6 +9821,15 @@ const SummaryDashboard = ({
                           );
                         })}
                       {sources.map(source => <InstrumentUncertaintyRow key={source.id} source={source}
+                            selected={selectedRangeIds[itemStateKey("tmde", tmde.id)]?.includes(uncertaintyRowId(source.id)) ?? isSelected}
+                            rowProps={{
+                              "data-selection-key": itemStateKey("tmde", tmde.id),
+                              "data-range-group": itemStateKey("tmde", tmdeRowKey),
+                              "data-measurement-area": tmdeFnKey,
+                              onMouseDownCapture: event => selectRangeRow(event, "tmde", tmde, null, uncertaintyRowId(source.id), tmdeRowKey),
+                              onClickCapture: event => { if (event.ctrlKey || event.metaKey || event.shiftKey) { event.preventDefault(); event.stopPropagation(); } },
+                              onContextMenu: event => openUncertaintyRowMenu(event, tmde, source),
+                            }}
                             style={functionRowStyle(tmdeFnKey)}
                             activeRange={activeRange}
 
@@ -10871,6 +10910,21 @@ function DetailedView({
     const newIdx = resolved.findIndex((r) => sameId(r.id, newRangeId));
     if (newIdx >= 0) setIdx((prev) => ({ ...prev, [item.id]: newIdx }));
   };
+  const openUncertaintyRowMenu = (event, item, source) => {
+    event.preventDefault(); event.stopPropagation();
+    const key = itemStateKey("tmde", item.id), id = uncertaintyRowId(source.id);
+    const selection = lastSelectionTarget === "range" && selectedRangeIds[key]?.includes(id)
+      ? selectedRangeIds : { [key]: [id] };
+    setSelectedRangeIds(selection);
+    setLastSelectionTarget("range");
+    setSelectedUutIds((sessionData.uuts || []).filter(row => selection[itemStateKey("uut", row.id)]?.length).map(row => row.id));
+    setSelectedTmdeIds((sessionData.tmdes || []).filter(row => selection[itemStateKey("tmde", row.id)]?.length).map(row => row.id));
+    const count = Object.values(selection).reduce((sum, ids) => sum + ids.length, 0);
+    setRowMenu({ x: event.clientX, y: event.clientY, items: [{
+      label: count > 1 ? "Delete Selected Rows" : "Delete Uncertainty", icon: faTrashAlt, className: "destructive",
+      action: () => handleDeleteSelectedRanges(selection),
+    }] });
+  };
   const openRangeRowMenu = (e, kind, item, range, index) => {
     if (!onSessionSave) return;
     e.preventDefault();
@@ -10954,6 +11008,10 @@ function DetailedView({
         return;
       }
       const key = e.key.toLowerCase();
+      if ((key === "c" || key === "x") && lastSelectionTarget === "range" &&
+          Object.values(selectedRangeIds).some(ids => ids.some(isUncertaintyRowId))) {
+        e.preventDefault(); e.stopImmediatePropagation(); return;
+      }
       const oneUut = selectedUutIds.length === 1 ? selectedUutIds[0] : null;
       const oneTmde = selectedTmdeIds.length === 1 ? selectedTmdeIds[0] : null;
       const kind = selectedUutIds.length ? "uut" : selectedTmdeIds.length ? "tmde" : null;
@@ -11547,16 +11605,17 @@ function DetailedView({
       setPendingRangeEditKey(`${itemStateKey(kind, item.id)}:${newRangeId}`);
     }
   };
-  const handleDeleteSelectedRanges = () => {
+  const handleDeleteSelectedRanges = (selection = selectedRangeIds) => {
     if (!onSessionSave) return;
     const next = { ...latestSessionDataRef.current };
     for (const kind of ["uut", "tmde"]) {
       const list = kind === "uut" ? "uuts" : "tmdes";
       next[list] = (next[list] || []).map(item => {
-        const ids = selectedRangeIds[itemStateKey(kind, item.id)];
+        const ids = selection[itemStateKey(kind, item.id)];
         return ids?.length ? removeSelectedRangesFromItem(item, ids) : item;
       });
     }
+    latestSessionDataRef.current = next;
     onSessionSave(next);
     setSelectedRangeIds({});
   };
@@ -11760,8 +11819,8 @@ function DetailedView({
     setLastSelectionTarget(next.mode === "range" ? "range" : kind);
     setSelectedUutIds((sessionData.uuts || []).filter(row => next.ranges[itemStateKey("uut", row.id)]?.length).map(row => row.id));
     setSelectedTmdeIds((sessionData.tmdes || []).filter(row => next.ranges[itemStateKey("tmde", row.id)]?.length).map(row => row.id));
-    setLocalRangeIndices(previous => kind === "uut" ? { ...previous, [item.id]: index, [stateItemId]: index } : previous);
-    setTmdeRangeIndices(previous => kind === "tmde" ? { ...previous, [item.id]: index, [stateItemId]: index } : previous);
+    setLocalRangeIndices(previous => kind === "uut" && Number.isInteger(index) ? { ...previous, [item.id]: index, [stateItemId]: index } : previous);
+    setTmdeRangeIndices(previous => kind === "tmde" && Number.isInteger(index) ? { ...previous, [item.id]: index, [stateItemId]: index } : previous);
     if (event.ctrlKey || event.metaKey || event.shiftKey) { event.preventDefault(); event.stopPropagation(); }
   };
   const openRangeToleranceDetail = (kind, item, range) => {
@@ -16285,6 +16344,15 @@ function DetailedView({
                               );
                             })}
                           {sources.map(source => <InstrumentUncertaintyRow key={source.id} source={source}
+                            selected={selectedRangeIds[itemStateKey("tmde", masterTmde.id)]?.includes(uncertaintyRowId(source.id)) ?? isSelectedRow}
+                            rowProps={{
+                              "data-selection-key": itemStateKey("tmde", masterTmde.id),
+                              "data-range-group": itemStateKey("tmde", tmdeRowKey),
+                              "data-measurement-area": tmdeFnKey,
+                              onMouseDownCapture: event => selectRangeRowDetail(event, "tmde", masterTmde, null, uncertaintyRowId(source.id), tmdeRowKey),
+                              onClickCapture: event => { if (event.ctrlKey || event.metaKey || event.shiftKey) { event.preventDefault(); event.stopPropagation(); } },
+                              onContextMenu: event => openUncertaintyRowMenu(event, masterTmde, source),
+                            }}
                             style={functionBadgeStyle(tmdeFnKey)}
                             activeRange={activeRange}
                             referencePoint={getInstrumentToleranceNominal("tmde", masterTmde, activeRange)}

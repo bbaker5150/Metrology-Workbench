@@ -935,3 +935,18 @@ it("detaches legacy identity aliases when a shared local definition forks", () =
   expect(edited.sourceInstrument.id).toBe(edited.instrument.id);
   expect(result.tmdes[1]).toBe(other);
 });
+
+it("deletes selected uncertainty rows alongside ranges without deleting their parent instrument", () => {
+  const item = { id: "tmde", instrument: { id: "definition", tmdeSecondaryUncertainties: [
+    { id: "a", name: "Head Height", kind: "table" }, { id: "b", name: "Temperature", kind: "parametric" },
+  ] }, ranges: [{ id: "range-1", unit: "V", min: 0, max: 10 }, { id: "range-2", unit: "V", min: 10, max: 20 }] };
+  const one = removeSelectedRangesFromItem(item, ["uncertainty:a"]);
+  expect(one.id).toBe(item.id);
+  expect(one.ranges).toEqual(item.ranges);
+  expect(one.instrument.tmdeSecondaryUncertainties.map(source => source.id)).toEqual(["b"]);
+  const mixed = removeSelectedRangesFromItem(item, ["range-1", "uncertainty:a", "uncertainty:b"]);
+  expect(mixed.id).toBe(item.id);
+  expect(mixed.ranges.map(range => range.id)).toEqual(["range-2"]);
+  expect(mixed.instrument.tmdeSecondaryUncertainties).toEqual([]);
+  expect(item.instrument.tmdeSecondaryUncertainties).toHaveLength(2);
+});

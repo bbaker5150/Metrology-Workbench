@@ -27,10 +27,7 @@ it("chooses a source type before creating an independent row and tabs from its n
   expect(within(row).getByRole("group", { name: "Tolerance symmetry" })).toBeInTheDocument();
   expect(within(row).queryByRole("button", { name: "Bias", exact: true })).toBeNull();
   expect(within(row).getByText("N/A", { exact: true })).toBeInTheDocument();
-  fireEvent.click(within(row).getByRole("button", { name: "Uncertainty settings", exact: true }));
-  fireEvent.click(within(row).getByRole("button", { name: "Equation", exact: true }));
-  expect(saved).toMatchObject({ id: "source", name: "Thermal Expansion", kind: "equation", dynamicDefinition: { kind: "equation" } });
-  expect(within(row).getByRole("group", { name: "Algebraic TMDE uncertainty" })).toBeInTheDocument();
+  expect(within(row).queryByRole("button", { name: "Uncertainty settings", exact: true })).toBeNull();
   fireEvent.click(within(row).getByRole("button", { name: "Remove Thermal Expansion" }));
   expect(saved).toBeNull();
 });
