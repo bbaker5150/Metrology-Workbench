@@ -52,7 +52,7 @@ export async function checkExpandedTmde({ frame, page, saved }) {
   await floor.fill('0.3'); await floor.press('Enter');
   await click(editor.getByRole('button', { name: 'Secondary uncertainty distribution', exact: true }));
   await click(frame.getByRole('option', { name: 'Rectangular', exact: true }));
-  await waitForSave(data => data.tmdes[0].ranges[0].tolerances.tmdeSecondaryUncertainties?.[0]?.tolerance.floor.high === '0.3');
+  await waitForSave(data => data.tmdes[0].ranges[0].tolerances.tmdeSecondaryUncertainties?.[0]?.tolerance?.floor?.high === '0.3');
   await page.screenshot({ path: 'tmp/expanded-tasking/secondary-light.png' });
   console.log('expanded: primary table');
   await click(editor.getByRole('button', { name: 'TMDE uncertainty', exact: true }));
