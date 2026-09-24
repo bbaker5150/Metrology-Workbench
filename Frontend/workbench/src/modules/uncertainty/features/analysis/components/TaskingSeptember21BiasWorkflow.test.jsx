@@ -14,7 +14,7 @@ it.each(["direct", "derived"])("keeps bias authoring out of the %s measurement i
   expect(screen.queryByRole("button", { name: /net measurement system bias/i })).toBeNull();
   expect(container.querySelector('.measurement-output-row')).toBeNull();
   if (type === "derived") {
-    expect(within(container.querySelector('.measurement-inputs-table')).getAllByRole('columnheader').map(n => n.textContent)).toEqual(['Variable', 'Name', 'Nominal']);
+    expect(within(container.querySelector('.measurement-inputs-table')).getAllByRole('columnheader').map(n => n.textContent)).toEqual(['Symbol', 'Name', 'Nominal']);
     const status = container.querySelector('.measurement-equation-status');
     expect(status).toHaveTextContent('Calculated: 5.00000 V');
     expect(status).toHaveStyle({ color: 'var(--status-good)' });

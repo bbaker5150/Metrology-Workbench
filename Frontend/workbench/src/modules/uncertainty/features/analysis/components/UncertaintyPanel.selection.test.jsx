@@ -8,7 +8,7 @@ const instrument = (id, name) => ({
   instrument: { functions: [{ name: "Voltage", unit: "V", ranges: [{ id: `${id}-range`, min: 0, max: 10, unit: "V" }] }] },
 });
 
-const Harness = ({ viewMode, onDeleteUut, onDeleteTmdeDefinition, multiRange = false }) => {
+const Harness = ({ viewMode, onDeleteUut, onDeleteTmdeDefinition, multiRange = false, showToast }) => {
   const [session, setSession] = useState({
     id: "selection-test", name: "Selection test", measurementAreas: [],
     uuts: [instrument("u1", "First UUT"), instrument("u2", "Second UUT")].map(item => multiRange ? { ...item, instrument: { functions: [{ ...item.instrument.functions[0], ranges: [...item.instrument.functions[0].ranges, { id: item.id + "-second", min: 20, max: 30, unit: "V" }] }] } } : item),
@@ -18,7 +18,7 @@ const Harness = ({ viewMode, onDeleteUut, onDeleteTmdeDefinition, multiRange = f
   const [selected, setSelected] = useState([]);
   return <><UncertaintyPanel
     testPointData={{ id: "selection-test", viewMode, testPointInfo: { parameter: { name: "Voltage", unit: "V" } }, nominal: { value: 5, unit: "V" }, associatedUutIds: ["u1"], components: [], tmdeTolerances: [], specifications: {} }}
-    sessionData={session} onSessionSave={setSession} currentUutSelection={selected} setCurrentUutSelection={setSelected}
+    showToast={showToast} sessionData={session} onSessionSave={setSession} currentUutSelection={selected} setCurrentUutSelection={setSelected}
     tmdeTolerancesData={[]} uutNominal={{ value: 5, unit: "V" }}
     onDeleteUut={onDeleteUut} onDeleteTmdeDefinition={onDeleteTmdeDefinition}
     setNotification={() => {}} onInstrumentSynced={() => {}}
@@ -130,5 +130,28 @@ describe.each(["session", "point"])("instrument selection in %s view", viewMode 
     fireEvent.keyDown(window, { key: "v", ctrlKey: true });
     expect(screen.getAllByText("First TMDE")).toHaveLength(2);
     expect(screen.getAllByText("First UUT")).toHaveLength(1);
+  });
+});
+
+
+describe.each(["session", "point"])("clipboard feedback in %s view", viewMode => {
+  it("reports copy/cut entity and selection count for keyboard and context menu actions", () => {
+    const showToast = vi.fn();
+    render(<Harness viewMode={viewMode} multiRange showToast={showToast} />);
+    const rangeCell = () => document.querySelector('tr[data-range-group="uut:u1"] [data-range-cell]');
+    fireEvent.contextMenu(rangeCell());
+    fireEvent.click(screen.getByText("Copy Range"));
+    expect(showToast).toHaveBeenLastCalledWith("1 Range copied to clipboard");
+    fireEvent.mouseDown(rangeCell());
+    fireEvent.keyDown(window, { key: "x", ctrlKey: true });
+    expect(showToast).toHaveBeenLastCalledWith("1 Range cut to clipboard");
+    fireEvent.contextMenu(screen.getByText("First TMDE").closest("tr"));
+    fireEvent.click(screen.getByText("Copy Instrument"));
+    expect(showToast).toHaveBeenLastCalledWith("1 Instrument copied to clipboard");
+    fireEvent.mouseDown(screen.getByText("First UUT").closest("td"));
+    fireEvent.mouseDown(screen.getByText("Second UUT").closest("td"), { ctrlKey: true });
+    fireEvent.keyDown(window, { key: "x", ctrlKey: true });
+    expect(showToast).toHaveBeenLastCalledWith("2 Instruments cut to clipboard");
+    expect(showToast).toHaveBeenCalledTimes(4);
   });
 });

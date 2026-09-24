@@ -1114,7 +1114,7 @@ const UncertaintyBudgetTable = ({
       const ids = [component.sourceTmdeId, component.sourceTmdeMasterId, component.tmdeBudgetSourceId].filter(id => id != null).map(String);
       const source = budgetInstruments.find(instrument => [instrument.id, instrument.sourceId].some(id => id != null && ids.includes(String(id))));
       if (!source) return component;
-      const kind = component.tmdeBudgetComponentKind || String(component.name || "Tolerance").split(" - ").at(-1);
+      const kind = component.tmdeUncertaintySourceName || component.tmdeBudgetComponentKind || String(component.name || "Tolerance").split(" - ").at(-1);
       const name = `${formatErrorSourceDescription(source)} - ${formatErrorSourceKind(kind)}`;
       const ranges = getInstrumentRangeRows(source, { flattenTolerances: true });
       return { ...component, name, sourceDisplayName: name, budgetRangeOptions: ranges };

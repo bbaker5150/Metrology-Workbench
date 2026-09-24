@@ -536,3 +536,66 @@ it.each(["tolerance", "tolerances"])("keeps range-level resolution when unpackin
   expect(resolution).toBeDefined();
   expect(resolution.value_native).toBeCloseTo(0.01 / Math.sqrt(12), 8);
 });
+
+test("a tabular TMDE primary replaces its inactive parametric error", () => {
+  const definition = {
+    id: "primary-table", kind: "table", name: "TMDE Error", measurementUnit: "V", outputUnit: "V",
+    mode: "tolerance", distribution: "1.732", columns: [{ id: "u", name: "Uncertainty" }],
+    rows: [{ id: "r", point: 10, values: { u: { value: 2 } } }],
+  };
+  const rows = getBudgetComponentsFromTolerance({
+    name: "Reference", reading: { high: 10, low: -10, unit: "%", distribution: "1.732" },
+    tmdeUncertaintyDefinition: definition,
+  }, { value: 10, unit: "V" });
+  expect(rows).toHaveLength(1);
+  expect(rows[0]).toMatchObject({ name: "Reference - TMDE Error", dynamicDefinitionId: "primary-table", pendingReason: null });
+  expect(rows[0].value_native).toBeCloseTo(2 / 1.732, 8);
+});
+
+test("TMDE secondary uncertainties join the budget without a bias term", () => {
+  const rows = getBudgetComponentsFromTolerance({
+    name: "Reference",
+    reading: { high: 1, low: -1, unit: "%", distribution: "1.732" },
+    tmdeSecondaryUncertainties: [
+      { id: "thermal", name: "Thermal Expansion", kind: "parametric",
+        tolerance: { floor: { high: 0.2, low: -0.2, unit: "V", distribution: "1.732" }, bias: { value: 2, unit: "V" } } },
+      { id: "lookup", name: "Lookup", kind: "table", dynamicDefinition: {
+        id: "lookup-table", kind: "table", measurementUnit: "V", outputUnit: "V",
+        mode: "standard", columns: [{ id: "u", name: "Uncertainty" }],
+        rows: [{ id: "r", point: 10, values: { u: { value: 0.3 } } }],
+      } },
+    ],
+  }, { value: 10, unit: "V" });
+  expect(rows.map(row => row.name)).toEqual([
+    "Reference - Accuracy", "Thermal Expansion - Accuracy", "Lookup",
+  ]);
+  expect(rows[1].value_native).toBeCloseTo(0.2 / Math.sqrt(3), 8);
+  expect(rows[2].value_native).toBeCloseTo(0.3, 8);
+  expect(rows.some(row => row.name.includes("Bias"))).toBe(false);
+});
+
+test("dynamic TMDE uncertainties require the real measurement value, not a placeholder", () => {
+  const definition = { id: "table", kind: "table", columns: [{ id: "u" }], measurementUnit: "V", outputUnit: "V", mode: "standard",
+    rows: [{ point: 1, values: { u: { value: .2 } } }] };
+  const [component] = getBudgetComponentsFromTolerance({ tmdeUncertaintyDefinition: definition }, { value: "", unit: "V" });
+  expect(component.value_native).toBeNull();
+  expect(component.pendingReason).toBeTruthy();
+});
+
+test("a blank secondary source remains visible and unresolved", () => {
+  const rows = getBudgetComponentsFromTolerance({ unit: "V", tmdeSecondaryUncertainties: [{ id: "blank", name: "Thermal", kind: "parametric", tolerance: {} }] }, { value: 10, unit: "V" });
+  expect(rows).toHaveLength(1);
+  expect(rows[0].pendingReason).toBeTruthy();
+});
+
+test("missing nominal is checked independently for each parametric source", () => {
+  const rows = getBudgetComponentsFromTolerance({ unit: "V",
+    floor: { high: 1, low: -1, unit: "V", distribution: "1.732" },
+    tmdeSecondaryUncertainties: [{ id: "relative", name: "Loading", kind: "parametric",
+      tolerance: { reading: { high: 1, low: -1, unit: "%", distribution: "1.732" } } }],
+  }, { value: "", unit: "V" });
+  expect(rows[0].pendingReason).toBeNull();
+  expect(rows[0].value_native).toBeCloseTo(1 / Math.sqrt(3), 10);
+  expect(rows[1].value_native).toBeNull();
+  expect(rows[1].pendingReason).toBeTruthy();
+});

@@ -987,11 +987,11 @@ describe("inline range editing", () => {
     fireEvent.click(screen.getByRole("button", { name: /Set tolerance/ }));
     fireEvent.click(screen.getByTitle("Asymmetric tolerance"));
     fireEvent.click(screen.getByTitle("Single-sided tolerance"));
-    fireEvent.click(screen.getByRole("radio", { name: "Unknown value" }));
-    fireEvent.change(screen.getByLabelText("Unknown value Upper limit"), {
+    fireEvent.click(screen.getByRole("radio", { name: "Unknown nominal" }));
+    fireEvent.change(screen.getByLabelText("Unknown nominal Upper limit"), {
       target: { value: "600" },
     });
-    fireEvent.blur(screen.getByLabelText("Unknown value Upper limit"));
+    fireEvent.blur(screen.getByLabelText("Unknown nominal Upper limit"));
 
     expect(onCommit).toHaveBeenLastCalledWith(
       "singleSided",

@@ -77,6 +77,7 @@ import { createInlineManualComponent } from "./utils/manualComponentUtils";
  * @param {Function} props.onSaveTestPoint - Callback to save test point to the list.
  */
 function Analysis({
+  showToast,
   sessionData,
   testPointData,
   defaultTestPoint,
@@ -986,6 +987,7 @@ function Analysis({
           >
             {analysisMode === "notes" ? notesWorkspace : (
               <UncertaintyPanel
+                showToast={showToast}
             // Data
             testPointData={testPointData}
             sessionData={sessionData}
@@ -1038,6 +1040,7 @@ function Analysis({
 
             {analysisMode === "overview" && (
               <UncertaintyPanel
+                showToast={showToast}
                 testPointData={{ viewMode: "session", id: sessionData.id }}
                 sessionData={sessionData}
                 onSessionSave={onSessionSave}
@@ -1067,6 +1070,7 @@ function Analysis({
             {analysisMode === "uncertaintyTool" && (
               <>
               <UncertaintyPanel
+                showToast={showToast}
                 // Data
                 testPointData={testPointData}
                 sessionData={sessionData}

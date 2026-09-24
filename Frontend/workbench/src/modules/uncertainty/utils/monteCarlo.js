@@ -17,7 +17,7 @@
 // across sessions and machines. The engine is pure and synchronous; UI code
 // should call it through monteCarlo.worker.js to stay off the render thread.
 
-import * as math from "mathjs";
+import * as math from "./equationMath";
 import {
   CumNorm,
   normalQuantile,

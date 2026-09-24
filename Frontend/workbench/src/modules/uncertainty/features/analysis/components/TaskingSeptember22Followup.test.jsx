@@ -5,7 +5,7 @@ import UncertaintyPanel, { getSpecRows } from "./UncertaintyPanel";
 import { getBudgetComponentsFromTolerance } from "../utils/budgetUtils";
 vi.mock("plotly.js-dist", () => ({ default: {} }));
 
-it("retains an invalid equation and its error after editing ends", () => {
+it("retains an invalid equation in its editor and shows its error after Enter", () => {
   function Harness() {
     const [point, setPoint] = useState({ id: "p", measurementType: "derived", equationString: "a", variableMappings: { a: "Input" }, variableNominals: {}, components: [], testPointInfo: { parameter: { value: 5, unit: "V" } } });
     return <UncertaintyPanel testPointData={point} sessionData={{ id: "s", uuts: [], tmdes: [], testPoints: [point] }} uutNominal={point.testPointInfo.parameter}
@@ -16,9 +16,10 @@ it("retains an invalid equation and its error after editing ends", () => {
   const input = screen.getByLabelText("Measurement equation");
   fireEvent.change(input, { target: { value: "/asd" } });
   fireEvent.keyDown(input, { key: "Enter" });
-  expect(screen.getByRole("button", { name: "Edit measurement equation" })).toHaveTextContent("/asd");
+  expect(screen.getByLabelText("Measurement equation")).toHaveValue("/asd");
+  expect(screen.getByRole("button", { name: "f(x)" })).toBeInTheDocument();
   expect(screen.getByText(/Equation does not parse/)).toBeVisible();
-  fireEvent.click(screen.getByRole("button", { name: "Edit measurement equation" }));
+  fireEvent.click(document.body);
   expect(screen.getByLabelText("Measurement equation")).toHaveValue("/asd");
 });
 

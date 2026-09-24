@@ -2,7 +2,7 @@ import { belongsToInput, inputSymbol } from "../../../utils/budgetScope";
 import { sessionForPoint } from "../../../utils/pointRequirements";
 import { useMemo } from "react";
 import { formatErrorSourceDescription, formatErrorSourceKind } from "../../../utils/instrumentIdentity";
-import { hasNominalValue, toleranceUnitMismatch } from "../../../utils/incompleteBudget";
+import { hasNominalValue } from "../../../utils/incompleteBudget";
 import { useState, useEffect } from "react";
 import {
   unitSystem,
@@ -60,7 +60,7 @@ const qualifyTmdeComponent = (component, tmde, fallbackIndex = 0) => {
   const displayName = formatErrorSourceDescription(tmde, `TMDE ${fallbackIndex + 1}`);
   const rawName = String(component?.name || "Uncertainty component");
   const separatorIndex = rawName.lastIndexOf(" - ");
-  const componentType =
+  const componentType = component.tmdeUncertaintySourceName ||
     formatErrorSourceKind(separatorIndex >= 0 ? rawName.slice(separatorIndex + 3) : rawName);
   const point = `${tmde?.measurementPoint?.value ?? ""} ${
     tmde?.measurementPoint?.unit ?? ""
@@ -229,12 +229,13 @@ export const useUncertaintyCalculation = (
       // Keep authored source rows available before a nominal is supplied.
       // Partial totals never flow into risk: only independent absolute terms
       // may be displayed, and any unresolved row suppresses the total.
-      const uutUnitError = toleranceUnitMismatch(uutToleranceData, uutNominal?.unit, unitSystem);
-      if (uutUnitError) setCalculationError(uutUnitError);
+      // A UUT range or tolerance may use a different unit from the point.
+      // Tolerance compatibility belongs to risk evaluation; the tolerance is
+      // not itself a budget row. Budget validation checks its actual sources.
       const incompleteInputs = testPointData.measurementType === "derived" &&
         Object.keys(testPointData.variableMappings || {}).some(symbol =>
           !hasNominalValue(testPointData.variableNominals?.[symbol]) || !testPointData.variableNominals?.[symbol]?.unit);
-      if (uutUnitError || !hasNominalValue(uutNominal) || (!uutNominal?.unit && testPointData.measurementType === "derived") || incompleteInputs || manualComponents.some(c => c.pendingReason || c.inlineValidation) || getUutResolutionComponent(uutToleranceData, uutNominal)?.pendingReason || tmdeTolerancesData.some(tmde => {
+      if (!hasNominalValue(uutNominal) || (!uutNominal?.unit && testPointData.measurementType === "derived") || incompleteInputs || manualComponents.some(c => c.pendingReason || c.inlineValidation) || getUutResolutionComponent(uutToleranceData, uutNominal)?.pendingReason || tmdeTolerancesData.some(tmde => {
         const symbol = Object.entries(testPointData.variableMappings || {}).find(([, name]) => name === tmde.variableType)?.[0];
         const nominal = testPointData.measurementType === "derived" ? (testPointData.variableNominals?.[symbol] || tmde.measurementPoint) : uutNominal;
         return getBudgetComponentsFromTolerance(tmde, nominal || {}).some(c => c.pendingReason);
@@ -282,7 +283,6 @@ export const useUncertaintyCalculation = (
         if (resolution) finalRows.push(resolution);
         const final = groupFor(uutNominal, finalRows, `${uutNominal?.name || "Final"} Uncertainty Budget`, "final_budget");
         if (derived) final.results = { combined: null, expanded: null, pendingReason: "Complete the equation input values and units to calculate total uncertainty." };
-        if (uutUnitError) final.results = { ...final.results, combined: null, expanded: null, pendingReason: uutUnitError };
         groups.push(final);
         setCalcResults({ calculatedBudgetComponents: groups.flatMap(g => g.components), calculatedBudgetGroups: groups, is_detailed_uncertainty_calculated: false });
         if (testPointData.is_detailed_uncertainty_calculated) onDataSave({
@@ -1225,7 +1225,28 @@ export const useUncertaintyCalculation = (
     } catch (error) {
       console.error("Error during uncertainty calculation useEffect:", error);
       setCalculationError(error.message);
-      setCalcResults(null);
+      // A calculation failure must not remove the budget the user is editing.
+      // Rebuild source rows independently of the failed total so incompatible
+      // units can be corrected in place.
+      const fallbackSources = tmdeTolerancesData.flatMap((tmde, index) => {
+        try {
+          return getBudgetComponentsFromTolerance(tmde, uutNominal || {}).map((row, rowIndex) => ({
+            ...qualifyTmdeComponent(row, tmde, index),
+            id: `${row.id}_${index}_${rowIndex}`,
+            sourceTmdeId: tmde.id,
+          }));
+        } catch {
+          return [createMissingTmdeComponent(tmde, index, "calculation")];
+        }
+      });
+      const authoredRows = componentsForBudgetTable.length
+        ? componentsForBudgetTable
+        : [...manualComponents, ...fallbackSources];
+      setCalcResults({
+        calculatedBudgetComponents: authoredRows,
+        calculatedBudgetGroups,
+        is_detailed_uncertainty_calculated: false,
+      });
       if (testPointData.is_detailed_uncertainty_calculated) {
         onDataSave({
           combined_uncertainty: null,

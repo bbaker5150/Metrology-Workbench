@@ -47,7 +47,7 @@ export async function checkFieldStability({ frame, page, check }) {
     await row.locator('.sidebar-inline-input.value').press('Escape');
   }
   const requirementFields = [
-    ['Confidence (%)', 'Uncertainty Confidence (%)'], ['Assumed REOP', 'Assumed REOP'],
+    ['Confidence Level', 'Confidence Level'], ['Assumed REOP', 'Assumed REOP'],
     ['TUR Needed', 'TUR Needed'], ['PFA Required', 'PFA Required'],
     ['REOP Required', 'REOP Required'], ['Cal Int for assumed REOP', 'Cal Int for assumed REOP'],
   ];

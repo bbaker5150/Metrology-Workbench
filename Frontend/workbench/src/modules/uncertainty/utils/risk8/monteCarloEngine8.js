@@ -22,7 +22,7 @@
  * only and is not persisted as an application seed.
  */
 
-import * as math from "mathjs";
+import * as math from "../equationMath";
 import { getCorrelation } from "../uncertaintyMath";
 
 export const RISK8_MC_DEFAULT_TRIALS = 10000;

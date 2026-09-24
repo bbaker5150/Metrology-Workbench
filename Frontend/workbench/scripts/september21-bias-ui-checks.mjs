@@ -15,10 +15,13 @@ export async function checkSeptember21BiasUi({ frame, page, saved, until, check 
   const info = frame.getByRole('button', { name: 'Session Info', exact: true });
   if (await info.getAttribute('aria-expanded') === 'false') await info.click();
   check('session defaults omit redundant explanatory text', await frame.getByText('Defaults for points without overrides', { exact: true }).count() === 0);
-  check('Analyst and Document Date align with default input values', await frame.locator('.session-info-content').evaluate(node => {
+  check('session and risk inputs keep compact paired columns', await frame.locator('.sidebar-session-header-organic').evaluate(node => {
     const row = label => [...node.querySelectorAll('.session-header-field')].find(row => row.querySelector('.session-header-label > span')?.textContent === label);
     const x = label => row(label).querySelector('.session-field-size').getBoundingClientRect().left;
-    return Math.abs(x('Analyst') - x('Uncertainty Confidence (%)')) < 1 && Math.abs(x('Document Date') - x('PFA Required')) < 1;
+    const defaults = node.querySelector('.session-default-input-fields').getBoundingClientRect();
+    return Math.abs(x('Analyst') - x('Document Date')) < 1 &&
+      Math.abs(x('Confidence Level') - x('Assumed REOP')) < 1 &&
+      Math.abs(x('PFA Required') - x('REOP Required')) < 1 && defaults.width <= 392;
   }));
   await capture('d661-session-defaults');
   await info.click();

@@ -8,13 +8,14 @@ import { getPointRequirements } from "../../../utils/pointRequirements";
 import { claimWorkspaceSelection, WORKSPACE_SELECTION_EVENT } from "../../../utils/workspaceSelection";
 import GrowingNumericInput from "../../../components/common/GrowingNumericInput";
 import BiasValueEditor from "../../../components/common/BiasValueEditor";
+import PointRiskVisualizer from "./PointRiskVisualizer";
 import LegacyPointBiasNotice from "./LegacyPointBiasNotice";
 import { measureTableColumnWidths } from "../../../utils/measureTableColumnWidths";
 import { setInstrumentDragPreview } from "../../../utils/instrumentDragPreview";
 import { instrumentRowSelectionFromEvent } from "../../../utils/instrumentCellSelection";
 import { SI_PREFIX_OPTIONS, prefixedUnitKey } from "../../../utils/siPrefixes";
 import { updateSharedDynamicDefinition } from "../../../utils/riskCompute";
-import { availableDynamicDefinitions, canUseDynamicDefinition, dynamicDefinitionLabel, removeDynamicDefinitionFromPicker } from "../../../utils/dynamicBudgetComponents";
+import { availableDynamicDefinitions, canUseDynamicDefinition, createDynamicDefinition, dynamicDefinitionLabel, removeDynamicDefinitionFromPicker, validateBudgetEquation } from "../../../utils/dynamicBudgetComponents";
 import { budgetUnitMismatch } from "../../../utils/incompleteBudget";
 import MeasurementAreaEntry from "../../../components/common/MeasurementAreaEntry";
 import { showFirstInstrumentHint } from "../../../utils/instrumentOnboarding";
@@ -31,7 +32,7 @@ import React, {
   useCallback,
 } from "react";
 import ReactDOM from "react-dom";
-import * as math from "mathjs";
+import * as math from "../../../utils/equationMath";
 import katex from "katex";
 import "katex/dist/katex.min.css";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -61,6 +62,7 @@ import {
   faArrowDown,
   faEye,
   faEyeSlash,
+  faGear,
 } from "@fortawesome/free-solid-svg-icons";
 import ContextMenu from "../../../components/common/ContextMenu";
 import useInstrumentTableLayout from "../../../hooks/useInstrumentTableLayout";
@@ -111,7 +113,6 @@ import { symbolCategories } from "../../../utils/equationSymbols";
 
 // Sub-components
 import UncertaintyBudgetTable from "./UncertaintyBudgetTable";
-import BiasDistributionVisualizer, { hasActivePointBias } from "./BiasDistributionVisualizer";
 import EquationLibraryMenu from "./EquationLibraryMenu";
 import {
   validateEquation,
@@ -1746,6 +1747,8 @@ const BAND_DIST_KEYS = ["reading", "readings_iv", "range", "floor"];
 // carries no band component (so the cell can render an em-dash, not a dropdown).
 const getBandDistDivisor = (tolerance = {}) => {
   if (!tolerance || typeof tolerance !== "object") return null;
+  const dynamic = tolerance.tmdeUncertaintyDefinition;
+  if (dynamic) return dynamic.mode === "standard" ? "1" : dynamic.distribution || null;
   const key = BAND_DIST_KEYS.find((k) => tolerance[k]);
   if (key) return tolerance[key].distribution || "1.732";
   return tolerance.bandDistribution || null;
@@ -1842,6 +1845,9 @@ const formatInstrumentRangeDetail = (source = {}, functionKey = null) =>
 
 // Write a new band divisor across all present band components of a tolerance.
 const applyBandDistribution = (tolerance = {}, value) => {
+  if (tolerance.tmdeUncertaintyDefinition) return { ...tolerance, tmdeUncertaintyDefinition: {
+    ...tolerance.tmdeUncertaintyDefinition, mode: "tolerance", distribution: value,
+  } };
   const next = { ...tolerance };
   let touched = false;
   BAND_DIST_KEYS.forEach((k) => {
@@ -3202,7 +3208,7 @@ const moveToNextInlineTableColumn = (event) => {
       "button.inline-tolerance-summary:not([disabled])",
     );
     const existingControl = nextCell.querySelector?.(
-      "input:not([disabled]), select:not([disabled]), button.inline-unit-combobox:not([disabled])",
+      INLINE_COLUMN_CONTROL_SELECTOR,
     );
     if (openButton || existingControl) {
       event.preventDefault();
@@ -3640,6 +3646,18 @@ export const inferToleranceEditorMode = (tolerance = {}) => {
 
 export const getTmdeAccuracyReadiness = (range = {}) => {
   const tolerance = range?.tolerances || range?.tolerance || range || {};
+  const definition = tolerance.tmdeUncertaintyDefinition;
+  if (definition?.kind === "table" || definition?.kind === "equation") {
+    const numeric = value => value !== "" && value != null && Number.isFinite(Number(value));
+    const hasValue = definition.kind === "table"
+      ? (definition.rows || []).some(row => numeric(row.point) && numeric(row.values?.[definition.columns?.[0]?.id]?.value) && Number(row.values[definition.columns[0].id].value) >= 0)
+      : validateBudgetEquation(definition.equation || "").status === "ok";
+    if (!hasValue) return { ready: false, reason: "tolerance" };
+    if (definition.mode !== "standard" && !definition.distribution) {
+      return { ready: false, reason: "distribution" };
+    }
+    return { ready: true, reason: null };
+  }
   const enteredKeys = [
     "reading",
     "range",
@@ -4355,8 +4373,8 @@ const SingleSidedToleranceEditor = ({
   const limitLabel = direction === "low" ? "Lower limit" : "Upper limit";
   const unit = component.unit || activeRange?.unit || "";
   const measurementOptions = [
-    { value: "known", label: "Known value" },
-    { value: "unknown", label: "Unknown value" },
+    { value: "known", label: "Known nominal" },
+    { value: "unknown", label: "Unknown nominal" },
   ];
 
   const selectMeasurement = (next) => {
@@ -4482,6 +4500,75 @@ const SingleSidedToleranceEditor = ({
   );
 };
 
+const InstrumentDynamicDefinitionFields = ({ definition, onChange }) => {
+  const column = definition.columns?.[0];
+  const rows = definition.rows || [];
+  const setRow = (index, patch) => onChange({ ...definition, rows: rows.map((row, rowIndex) =>
+    rowIndex === index ? { ...row, ...patch } : row) });
+  const setValue = (index, value) => setRow(index, {
+    values: { ...rows[index].values, [column.id]: { ...rows[index].values?.[column.id], value } },
+  });
+  const setEquation = equation => {
+    const validation = validateBudgetEquation(equation);
+    if (validation.status !== "ok") { onChange({ ...definition, equation }); return; }
+    const symbols = validation.variables || [];
+    onChange({ ...definition, equation,
+      pointVariable: symbols.includes(definition.pointVariable) ? definition.pointVariable : symbols[0] || "",
+      variables: Object.fromEntries(symbols.map(symbol => [symbol, definition.variables?.[symbol] || { name: symbol, value: "" }])),
+    });
+  };
+  const validation = definition.kind === "equation" ? validateBudgetEquation(definition.equation || "") : null;
+  return <div className="instrument-dynamic-definition" role="group"
+    aria-label={`${definition.kind === "table" ? "Tabular" : "Algebraic"} TMDE uncertainty`}>
+    <div className="instrument-dynamic-settings">
+      <label>Measurement unit <UnitSelect value={definition.measurementUnit || ""}
+        ariaLabel="TMDE uncertainty measurement unit" width="82px"
+        onChange={measurementUnit => onChange({ ...definition, measurementUnit })} /></label>
+      <label>Output unit <UnitSelect value={definition.outputUnit || ""}
+        ariaLabel="TMDE uncertainty output unit" width="82px"
+        onChange={outputUnit => onChange({ ...definition, outputUnit })} /></label>
+      <label>Interpretation <InlineMenuSelect value={definition.mode === "standard" ? "standard" : "tolerance"}
+        ariaLabel="TMDE uncertainty interpretation" width="118px" showOptionMeta={false}
+        options={[{ value: "tolerance", label: "Error limit" }, { value: "standard", label: "Standard uncertainty" }]}
+        onChange={mode => onChange({ ...definition, mode, distribution: mode === "standard" ? "1" : definition.distribution === "1" ? "1.732" : definition.distribution })} /></label>
+      {definition.mode !== "standard" && <label>Distribution <InlineMenuSelect
+        value={definition.distribution || ""} ariaLabel="TMDE uncertainty distribution"
+        width="138px" options={oldErrorDistributions} showOptionMeta={false}
+        onChange={distribution => onChange({ ...definition, distribution })} /></label>}
+    </div>
+    {definition.kind === "table" ? <div className="instrument-dynamic-table">
+      <div className="instrument-dynamic-table-heading"><span>Measurement</span><span>Uncertainty</span></div>
+      {rows.map((row, index) => <div className="instrument-dynamic-table-row" key={row.id}>
+        <input type="text" inputMode="decimal" aria-label={`TMDE table measurement ${index + 1}`}
+          value={row.point ?? ""} onChange={event => setRow(index, { point: event.target.value })} />
+        <input type="text" inputMode="decimal" aria-label={`TMDE table uncertainty ${index + 1}`}
+          value={row.values?.[column?.id]?.value ?? ""} onChange={event => setValue(index, event.target.value)} />
+        <button type="button" aria-label={`Remove TMDE table row ${index + 1}`}
+          disabled={rows.length === 1} onClick={() => onChange({ ...definition, rows: rows.filter((_, rowIndex) => rowIndex !== index) })}>×</button>
+      </div>)}
+      <button type="button" className="instrument-dynamic-add-row"
+        onClick={() => onChange({ ...definition, rows: [...rows, { id: uuidv4(), point: "", values: {} }] })}>+ Add row</button>
+    </div> : <div className="instrument-dynamic-equation">
+      <label>Uncertainty equation <input type="text" aria-label="TMDE uncertainty equation"
+        value={definition.equation || ""} onChange={event => setEquation(event.target.value)} /></label>
+      {validation?.status === "invalid" && <span role="status" className="instrument-dynamic-warning">{validation.error}</span>}
+      {Object.keys(definition.variables || {}).length > 0 && <label>Measurement variable
+        <InlineMenuSelect value={definition.pointVariable || ""} ariaLabel="TMDE measurement variable"
+          width="100px" showOptionMeta={false}
+          options={Object.keys(definition.variables).map(symbol => ({ value: symbol, label: symbol }))}
+          onChange={pointVariable => onChange({ ...definition, pointVariable })} />
+      </label>}
+      {Object.keys(definition.variables || {}).map(symbol => <label key={symbol}>
+        {symbol === definition.pointVariable ? `${symbol} (measurement)` : symbol}
+        {symbol !== definition.pointVariable && <input type="text" inputMode="decimal"
+          aria-label={`TMDE equation variable ${symbol}`} value={definition.variables[symbol]?.value ?? ""}
+          onChange={event => onChange({ ...definition, variables: { ...definition.variables,
+            [symbol]: { ...definition.variables[symbol], value: event.target.value } } })} />}
+      </label>)}
+    </div>}
+  </div>;
+};
+
 // Two-view tolerance / error-limit cell.
 //   • Read view (default): a compact, clean "±(n %IV + n %FS + n lb)" summary —
 //     only terms that actually carry a value are shown, so the column stays
@@ -4508,6 +4595,16 @@ export const InlineToleranceCell = ({
   onEditingChange,
 }) => {
   const [isEditing, setIsEditing] = useState(openRequested);
+  const [selectedSourceId, setSelectedSourceId] = useState(null);
+  const [showSourceSettings, setShowSourceSettings] = useState(false);
+  const secondarySources = biasRole === "tmde" ? tolerance.tmdeSecondaryUncertainties || [] : [];
+  const selectedSecondary = secondarySources.find(source => source.id === selectedSourceId);
+  const selectedTolerance = selectedSecondary?.tolerance || tolerance;
+  const selectedDefinition = selectedSecondary?.dynamicDefinition ||
+    (!selectedSecondary && tolerance.tmdeUncertaintyDefinition);
+  const selectedType = selectedSecondary?.kind ||
+    (!selectedSecondary && selectedDefinition?.kind) || "parametric";
+  const activeBiasRole = selectedSecondary ? null : biasRole;
   const containerRef = useRef(null);
   const onEditingChangeRef = useRef(onEditingChange);
   const inferredMode = inferToleranceEditorMode(tolerance);
@@ -4518,10 +4615,10 @@ export const InlineToleranceCell = ({
   const [showBias, setShowBias] = useState(() => Boolean(biasRole && tolerance.bias?.value != null && tolerance.bias.value !== ""));
 
   useLayoutEffect(() => {
-    const next = inferToleranceEditorMode(tolerance);
+    const next = inferToleranceEditorMode(selectedTolerance);
     setShapeMode(next.shape);
     setSidedness(next.sidedness);
-  }, [rangeIdOf(activeRange), tolerance?._editorMode?.shape, tolerance?._editorMode?.sidedness]);
+  }, [selectedSourceId, rangeIdOf(activeRange), selectedTolerance?._editorMode?.shape, selectedTolerance?._editorMode?.sidedness]);
   useLayoutEffect(() => {
     setShowBias(Boolean(biasRole && tolerance.bias?.value != null && tolerance.bias.value !== ""));
     // Range navigation restores its configured bias; editing a number or mode
@@ -4553,15 +4650,48 @@ export const InlineToleranceCell = ({
     firstControl?.focus();
   }, [isEditing]);
 
-  const dismissToleranceEditor = useCallback(() => setIsEditing(false), []);
+  const dismissToleranceEditor = useCallback(() => { setIsEditing(false); setShowSourceSettings(false); }, []);
   useInlineColumnDismiss({
     expanded: isEditing,
     rootRef: containerRef,
     onDismiss: dismissToleranceEditor,
   });
 
+  const updateSelectedSource = patch => {
+    if (selectedSecondary) {
+      onCommit("__replace__", { ...tolerance, tmdeSecondaryUncertainties: secondarySources.map(source =>
+        source.id === selectedSecondary.id ? { ...source, ...patch } : source) });
+    } else {
+      onCommit("__replace__", { ...tolerance, ...patch });
+    }
+  };
+  const commitSelectedTolerance = (typeKey, component) => {
+    if (!selectedSecondary) return onCommit(typeKey, component);
+    updateSelectedSource({ tolerance: applyToleranceCaseChange(selectedTolerance, typeKey, component) });
+  };
+  const setSelectedSourceType = kind => {
+    if (selectedSecondary) {
+      updateSelectedSource({ kind, ...(kind !== "parametric" && selectedDefinition?.kind !== kind
+        ? { dynamicDefinition: createDynamicDefinition(kind, referencePoint || activeRange, referencePoint || activeRange) }
+        : {}) });
+    } else {
+      updateSelectedSource({ tmdeUncertaintyDefinition: kind === "parametric" ? null
+        : selectedDefinition?.kind === kind ? selectedDefinition
+          : createDynamicDefinition(kind, referencePoint || activeRange, referencePoint || activeRange) });
+    }
+    setShowSourceSettings(false);
+  };
+  const addSecondarySource = () => {
+    const source = { id: uuidv4(), name: `Uncertainty ${secondarySources.length + 1}`, kind: "parametric", tolerance: {} };
+    onCommit("__replace__", { ...tolerance, tmdeSecondaryUncertainties: [...secondarySources, source] });
+    setSelectedSourceId(source.id);
+    setShowSourceSettings(true);
+  };
+
   const summaryRows = getCollapsedSpecRows({ ...activeRange, ...tolerance }, referencePoint);
-  const summary = summaryRows[0] || "";
+  const summary = tolerance.tmdeUncertaintyDefinition?.kind
+    ? `${tolerance.tmdeUncertaintyDefinition.kind === "table" ? "Tabular" : "Algebraic"} TMDE uncertainty`
+    : summaryRows[0] || "";
 
   // Read-only surfaces (no save handler) just render the clean summary.
   if (!editable) {
@@ -4569,9 +4699,11 @@ export const InlineToleranceCell = ({
   }
 
   if (!isEditing) {
-    const hasValue = toleranceHasAnyValue(tolerance);
+    const hasValue = toleranceHasAnyValue(tolerance) || Boolean(tolerance.tmdeUncertaintyDefinition);
     const openEditor = (e) => {
       e.stopPropagation();
+      setSelectedSourceId(null);
+      setShowSourceSettings(false);
       setIsEditing(true);
     };
     return (
@@ -4592,6 +4724,13 @@ export const InlineToleranceCell = ({
             {Number(tolerance.bias.value) >= 0 ? "+" : "−"}{Math.abs(Number(tolerance.bias.value))}{tolerance.bias.kind === "percent" ? "%" : ` ${getUnitDisplayLabel(tolerance.bias.unit || activeRange.unit || referencePoint?.unit || "")}`} bias{tolerance.bias.corrected ? " (corrected)" : ""}
           </span>}
         </button>
+        {secondarySources.length > 0 && <span className="instrument-secondary-pills">
+          {secondarySources.map(source => <button type="button" key={source.id}
+            className="instrument-secondary-pill" title={`Edit ${source.name}`}
+            onClick={event => { event.stopPropagation(); setSelectedSourceId(source.id); setIsEditing(true); }}>
+            + {source.name}
+          </button>)}
+        </span>}
       </span>
     );
   }
@@ -4603,9 +4742,9 @@ export const InlineToleranceCell = ({
         : "double";
     setShapeMode(nextShape);
     setSidedness(normalizedSidedness);
-    onCommit(
+    commitSelectedTolerance(
       "__replace__",
-      applyToleranceEditorMode(tolerance, {
+      applyToleranceEditorMode(selectedTolerance, {
         shape: nextShape,
         sidedness: normalizedSidedness,
       }),
@@ -4640,6 +4779,8 @@ export const InlineToleranceCell = ({
         }
       }}
     >
+      <div className="instrument-tolerance-toolbar">
+      {selectedType === "parametric" && <>
       <div className="inline-tolerance-modebar" aria-label="Tolerance mode">
         <div className="inline-tolerance-mini-toggle" role="group" aria-label="Tolerance symmetry">
           <button
@@ -4686,42 +4827,80 @@ export const InlineToleranceCell = ({
             SS
           </button>
         </div>
-        {biasRole && <div className="inline-tolerance-mini-toggle" role="group" aria-label="Bias controls">
+        {activeBiasRole && <div className="inline-tolerance-mini-toggle" role="group" aria-label="Bias controls">
           <button type="button" className={showBias ? "is-active" : ""}
             aria-pressed={showBias} aria-expanded={showBias}
             title="Edit bias" onClick={() => {
               // Turning Bias off removes the offset, rather than merely hiding it.
               if (showBias) {
-                const { bias: removedBias, ...withoutBias } = tolerance;
-                onCommit("__replace__", withoutBias);
+                const { bias: removedBias, ...withoutBias } = selectedTolerance;
+                commitSelectedTolerance("__replace__", withoutBias);
               }
               setShowBias(value => !value);
             }}>Bias</button>
         </div>}
       </div>
+      </>}
+      {biasRole === "tmde" && <div className="instrument-source-toolbar">
+        <div className="instrument-source-actions">
+          <button type="button" aria-label="Uncertainty settings" title="Uncertainty settings"
+            aria-expanded={showSourceSettings} onClick={() => setShowSourceSettings(value => !value)}>
+            <FontAwesomeIcon icon={faGear} />
+          </button>
+          {selectedSecondary && <input className="instrument-source-name" type="text"
+            value={selectedSecondary.name} aria-label="Uncertainty name" placeholder="Uncertainty name"
+            onChange={event => updateSelectedSource({ name: event.target.value })} />}
+
+          {!selectedSecondary && selectedType !== "parametric" && <button type="button"
+            aria-label="Edit Bias" title="Edit Bias" aria-pressed={showBias}
+            onClick={() => {
+              if (showBias) {
+                const { bias: removedBias, ...withoutBias } = tolerance;
+                onCommit("__replace__", withoutBias);
+              }
+              setShowBias(value => !value);
+            }}>Bias</button>}
+          <button type="button" aria-label="Add a secondary uncertainty" title="Add a secondary uncertainty"
+            onClick={addSecondarySource}><FontAwesomeIcon icon={faPlus} /></button>
+        </div>
+        {showSourceSettings && <div className="instrument-source-settings" role="group" aria-label="Uncertainty settings">
+          {["parametric", "table", "equation"].map(kind => <button type="button" key={kind}
+            className={selectedType === kind ? "is-active" : ""}
+            aria-pressed={selectedType === kind} onClick={() => setSelectedSourceType(kind)}>
+            {kind === "table" ? "Table" : kind === "equation" ? "Equation" : "Default"}
+          </button>)}
+          {selectedSecondary && <button type="button" className="instrument-source-remove" onClick={() => {
+            onCommit("__replace__", { ...tolerance, tmdeSecondaryUncertainties: secondarySources.filter(source => source.id !== selectedSecondary.id) });
+            setSelectedSourceId(null);
+            setShowSourceSettings(false);
+          }}>Remove uncertainty</button>}
+        </div>}
+      </div>}
+      </div>
+      {selectedType === "parametric" ? <>
       {(sidedness === "single"
         ? TOLERANCE_TYPE_OPTIONS.filter((opt) => opt.key === "singleSided")
         : TOLERANCE_TYPE_OPTIONS.filter((opt) => opt.key !== "singleSided")
       ).map((opt) => (
         <span
-          key={opt.key}
+          key={`${selectedSourceId || "primary"}:${opt.key}`}
           className="inline-tolerance-term-group"
         >
           {opt.key === "singleSided" ? (
             <SingleSidedToleranceEditor
-              tolerance={tolerance}
+              tolerance={selectedTolerance}
               activeRange={activeRange}
-              onCommit={onCommit}
+              onCommit={commitSelectedTolerance}
             />
           ) : (
             <ToleranceTermEditor
-              tolerance={tolerance}
+              tolerance={selectedTolerance}
               activeRange={activeRange}
               typeKey={opt.key}
               showHighSign={true}
               forcedMode={shapeMode}
               showShapeControl={false}
-              onCommit={onCommit}
+              onCommit={commitSelectedTolerance}
             />
           )}
         </span>
@@ -4730,18 +4909,43 @@ export const InlineToleranceCell = ({
           instrument editors supply biasRole; editing a budget error limit must
           not accidentally author a new shared instrument default. __replace__
           retains every tolerance field while atomically updating its bias. */}
+      {selectedSecondary && <label className="instrument-secondary-distribution">Distribution
+        <InlineMenuSelect value={selectedTolerance.bandDistribution || ["reading", "range", "floor", "db"].map(key => selectedTolerance[key]?.distribution).find(Boolean) || ""}
+          ariaLabel="Secondary uncertainty distribution" width="170px" options={oldErrorDistributions} showOptionMeta={false}
+          onChange={distribution => commitSelectedTolerance("__replace__", { ...applyBandDistribution(selectedTolerance, distribution),
+            bandDistribution: distribution, ...(selectedTolerance.db ? { db: { ...selectedTolerance.db, distribution } } : {}),
+          })} />
+      </label>}
       {sidedness !== "single" && <div className="inline-tolerance-footer">
         <label className="inline-tolerance-greater-toggle">
-          <input type="checkbox" checked={Boolean(tolerance.whicheverIsGreater)}
-            onChange={event => onCommit("__replace__", { ...tolerance, whicheverIsGreater: event.target.checked })} />
+          <input type="checkbox" checked={Boolean(selectedTolerance.whicheverIsGreater)}
+            onChange={event => commitSelectedTolerance("__replace__", { ...selectedTolerance, whicheverIsGreater: event.target.checked })} />
           <span>Whichever is greater</span>
         </label>
       </div>}
-      {biasRole && showBias && <div className="instrument-bias-editor">
-        <BiasValueEditor label={biasRole === "uut" ? "Range UUT bias" : "Range source bias"}
-          value={tolerance.bias} unit={activeRange.unit || referencePoint?.unit}
-          onChange={bias => onCommit("__replace__", { ...tolerance, bias: { ...bias, corrected: false } })} />
-        {tolerance.bias?.corrected && <span className="instrument-bias-legacy-correction">Saved as corrected; editing the bias makes it active.</span>}
+      {activeBiasRole && showBias && <div className="instrument-bias-editor">
+        <span className="instrument-bias-label">Bias:</span>
+        <BiasValueEditor label={activeBiasRole === "uut" ? "Range UUT bias" : "Range source bias"}
+          value={selectedTolerance.bias} unit={activeRange.unit || referencePoint?.unit}
+          onChange={bias => commitSelectedTolerance("__replace__", { ...selectedTolerance, bias: { ...bias, corrected: false } })} />
+        {selectedTolerance.bias?.corrected && <span className="instrument-bias-legacy-correction">Saved as corrected; editing the bias makes it active.</span>}
+      </div>}
+      </> : <>
+        <InstrumentDynamicDefinitionFields definition={selectedDefinition || createDynamicDefinition(selectedType, referencePoint || activeRange)}
+          onChange={definition => updateSelectedSource(selectedSecondary ? { dynamicDefinition: definition } : { tmdeUncertaintyDefinition: definition })} />
+        {!selectedSecondary && showBias && <div className="instrument-bias-editor">
+          <span className="instrument-bias-label">Bias:</span>
+          <BiasValueEditor label="Range source bias" value={tolerance.bias}
+            unit={activeRange.unit || referencePoint?.unit}
+            onChange={bias => onCommit("__replace__", { ...tolerance, bias: { ...bias, corrected: false } })} />
+        </div>}
+      </>}
+      {secondarySources.length > 0 && <div className="instrument-secondary-pills">
+        <button type="button" className={!selectedSecondary ? "instrument-secondary-pill is-active" : "instrument-secondary-pill"}
+          onClick={() => { setSelectedSourceId(null); setShowSourceSettings(false); }}>TMDE uncertainty</button>
+        {secondarySources.map(source => <button type="button" key={source.id}
+          className={source.id === selectedSourceId ? "instrument-secondary-pill is-active" : "instrument-secondary-pill"}
+          onClick={() => { setSelectedSourceId(source.id); setShowSourceSettings(false); }}>+ {source.name}</button>)}
       </div>}
     </div>
   );
@@ -4951,7 +5155,11 @@ export const RangeCell = ({
     if (onPatchRange) onPatchRange(patch);
     else if (raw !== String(toPlainNumber(activeRange[field]))) onEditBound?.(field, raw);
   };
-  const openToleranceFromUnit = () => {
+  const openToleranceFromUnit = (event) => {
+    if (moveToNextInlineTableColumn(event)) {
+      dismissRangeEditor();
+      return;
+    }
     if (!onOpenTolerance) return;
     dismissRangeEditor();
     onOpenTolerance();
@@ -5273,6 +5481,8 @@ const handleRowSelection = (
 // stores explicit sub-tolerances still expands to one line per sub-tolerance.)
 export const getSpecRows = (tolerance) => {
   if (!tolerance) return ["-"];
+  const definition = tolerance.tmdeUncertaintyDefinition || tolerance.tolerances?.tmdeUncertaintyDefinition || tolerance.tolerance?.tmdeUncertaintyDefinition;
+  if (definition) return [`${definition.kind === "table" ? "Tabular" : "Algebraic"} TMDE uncertainty`];
 
   // Explicit sub-components (recursion): one combined line per sub-tolerance.
   if (Array.isArray(tolerance.tolerances) && tolerance.tolerances.length > 0) {
@@ -5287,8 +5497,8 @@ export const getSpecRows = (tolerance) => {
     const unit = getUnitDisplayLabel(singleSided.unit || "");
     const measurement =
       singleSided.measurement === "unknown"
-        ? "unknown value"
-        : "known value";
+        ? "Unknown nominal"
+        : "Known nominal";
     return [
       `${isLow ? "≥" : "≤"} ${singleSided.limit}${unit ? ` ${unit}` : ""} (${measurement})`,
     ];
@@ -6488,6 +6698,7 @@ const SummaryDashboard = ({
   onSaveInstrument,
   onInstrumentSynced,
   setNotification,
+  showToast,
   collapsedFunctionKeys,
   setCollapsedFunctionKeys,
   keyboardShortcutsEnabled = true,
@@ -8447,6 +8658,7 @@ const SummaryDashboard = ({
       });
     claimWorkspaceClipboard("instrument");
     instrumentClipboard = { mode, items: JSON.parse(JSON.stringify(items)), detached: mode === "cut" };
+    showToast?.(`${items.length} Instrument${items.length === 1 ? "" : "s"} ${mode === "cut" ? "cut" : "copied"} to clipboard`);
     if (mode === "cut") {
       onSessionSave?.(cutInstrumentsFromSession(latestSessionDataRef.current, items));
       setSelectedUutIds([]);
@@ -8498,6 +8710,7 @@ const SummaryDashboard = ({
     rangeClipboard = null;
     claimWorkspaceClipboard("instrument");
     instrumentClipboard = { mode, items: JSON.parse(JSON.stringify(items)), detached: mode === "cut" };
+    showToast?.(`${items.length} Instrument${items.length === 1 ? "" : "s"} ${mode === "cut" ? "cut" : "copied"} to clipboard`);
     if (mode === "cut") {
       onSessionSave?.(cutInstrumentsFromSession(latestSessionDataRef.current, items));
       setSelectedUutIds([]); setSelectedTmdeIds([]);
@@ -8559,7 +8772,7 @@ const SummaryDashboard = ({
   };
 
   // --- Range-row clipboard (copy/cut/paste a single range) ---
-  const copyRange = (kind, item, rangeId) => {
+  const copyRange = (kind, item, rangeId, mode = "copy") => {
     const selected = lastSelectionTarget === "range" && hasSelectedRangeIds(selectedRangeIds)
       ? [["uut", sessionData.uuts || []], ["tmde", sessionData.tmdes || []]].flatMap(([role, items]) => items.flatMap(source =>
         (selectedRangeIds[itemStateKey(role, source.id)] || []).map(id => ({ source, id }))))
@@ -8574,10 +8787,11 @@ const SummaryDashboard = ({
     instrumentClipboard = null;
     claimWorkspaceClipboard("range");
     rangeClipboard = { kind, range: ranges[0].range, ranges };
+    showToast?.(`${ranges.length} Range${ranges.length === 1 ? "" : "s"} ${mode === "cut" ? "cut" : "copied"} to clipboard`);
   };
   const cutRange = (kind, item, range) => {
     const rangeId = rangeIdOf(range);
-    copyRange(kind, item, rangeId);
+    copyRange(kind, item, rangeId, "cut");
     if (hasSelectedRangeIds(selectedRangeIds) && lastSelectionTarget === "range") handleDeleteSelectedRanges();
     else if (rangeId) handleRemoveRange(kind, item, rangeId);
   };
@@ -8701,7 +8915,7 @@ const SummaryDashboard = ({
           if (key === "c" || key === "x") {
             e.preventDefault();
             e.stopImmediatePropagation();
-            copyRange(kind, target.item, rangeIdOf(target.activeRange));
+            copyRange(kind, target.item, rangeIdOf(target.activeRange), key === "x" ? "cut" : "copy");
             if (key === "x") handleDeleteSelectedRanges();
             return;
           }
@@ -9925,8 +10139,6 @@ const DetailWorkspaceSectionToggle = ({
   onDragOver,
   onDrop,
   onDragEnd,
-  onMoveEarlier,
-  onMoveLater,
   style,
   className = "",
 }) => (
@@ -9935,7 +10147,7 @@ const DetailWorkspaceSectionToggle = ({
       canReorder ? " is-reorderable" : ""
     }${isDragging ? " is-dragging" : ""}${
       isDropTarget ? " is-drop-target" : ""
-    }${onMoveEarlier || onMoveLater ? " has-move-actions" : ""} ${className}`.trim()}
+    } ${className}`.trim()}
     draggable={canReorder}
     data-detail-section={sectionId}
     onDragStart={onDragStart}
@@ -9949,12 +10161,6 @@ const DetailWorkspaceSectionToggle = ({
   >
     <span className="detail-workspace-section-label">{label}</span>
     <span className="detail-workspace-section-rule" aria-hidden="true" />
-    {(onMoveEarlier || onMoveLater) && <span className="detail-workspace-move-actions">
-      <button type="button" aria-label={`Move ${label} earlier`} title={`Move ${label} earlier`}
-        disabled={!onMoveEarlier} onClick={event => { event.stopPropagation(); onMoveEarlier?.(); }}><FontAwesomeIcon icon={faArrowUp}/></button>
-      <button type="button" aria-label={`Move ${label} later`} title={`Move ${label} later`}
-        disabled={!onMoveLater} onClick={event => { event.stopPropagation(); onMoveLater?.(); }}><FontAwesomeIcon icon={faArrowDown}/></button>
-    </span>}
     <button type="button" className="detail-workspace-collapse-button" onClick={onToggle}
       aria-expanded={!collapsed} aria-label={`${collapsed ? "Expand" : "Collapse"} ${label} section`}>
     <FontAwesomeIcon
@@ -9997,6 +10203,7 @@ function DetailedView({
   onUpdateTestPoint,
   riskResults,
   setNotification,
+  showToast,
   onToggleUut,
   activeRangeIndices = {},
   onRangeSelectionChange,
@@ -10201,6 +10408,29 @@ function DetailedView({
   const [collapsedDetailSections, setCollapsedDetailSections] = useState(
     () => new Set(sessionData.detailCollapsedSections || []),
   );
+  // Temporary testing access stays local to this mounted view; never save it
+  // with the session or restore it on a fresh load.
+  const [showRiskDistributions, setShowRiskDistributions] = useState(false);
+  const riskDistributionsRef = useRef(null);
+  useEffect(() => {
+    const toggleRiskDistributions = event => {
+      if (event.repeat || event.isComposing || !(event.ctrlKey || event.metaKey) ||
+          !event.altKey || !event.shiftKey || event.key.toLowerCase() !== "r") return;
+      event.preventDefault();
+      event.stopPropagation();
+      setShowRiskDistributions(visible => !visible);
+      setCollapsedDetailSections(previous => {
+        const next = new Set(previous);
+        next.delete("risk-distributions");
+        return next;
+      });
+    };
+    window.addEventListener("keydown", toggleRiskDistributions, true);
+    return () => window.removeEventListener("keydown", toggleRiskDistributions, true);
+  }, []);
+  useEffect(() => {
+    if (showRiskDistributions) riskDistributionsRef.current?.scrollIntoView?.({ block: "start", behavior: "smooth" });
+  }, [showRiskDistributions]);
   const detailSectionOrder = useMemo(
     () => normalizeDetailSectionOrder(sessionData.detailSectionOrder),
     [sessionData.detailSectionOrder],
@@ -10408,6 +10638,7 @@ function DetailedView({
       });
     claimWorkspaceClipboard("instrument");
     instrumentClipboard = { mode, items: JSON.parse(JSON.stringify(items)), detached: mode === "cut" };
+    showToast?.(`${items.length} Instrument${items.length === 1 ? "" : "s"} ${mode === "cut" ? "cut" : "copied"} to clipboard`);
     if (mode === "cut") {
       onSessionSave?.(cutInstrumentsFromSession(latestSessionDataRef.current, items));
       setSelectedUutIds([]);
@@ -10458,6 +10689,7 @@ function DetailedView({
     rangeClipboard = null;
     claimWorkspaceClipboard("instrument");
     instrumentClipboard = { mode, items: JSON.parse(JSON.stringify(items)), detached: mode === "cut" };
+    showToast?.(`${items.length} Instrument${items.length === 1 ? "" : "s"} ${mode === "cut" ? "cut" : "copied"} to clipboard`);
     if (mode === "cut") {
       onSessionSave?.(cutInstrumentsFromSession(latestSessionDataRef.current, items));
       setSelectedUutIds([]); setSelectedTmdeIds([]);
@@ -10519,7 +10751,7 @@ function DetailedView({
   };
 
   // --- Range-row clipboard (copy/cut/paste a single range) ---
-  const copyRange = (kind, item, rangeId) => {
+  const copyRange = (kind, item, rangeId, mode = "copy") => {
     const selected = lastSelectionTarget === "range" && hasSelectedRangeIds(selectedRangeIds)
       ? [["uut", sessionData.uuts || []], ["tmde", sessionData.tmdes || []]].flatMap(([role, items]) => items.flatMap(source =>
         (selectedRangeIds[itemStateKey(role, source.id)] || []).map(id => ({ source, id }))))
@@ -10534,10 +10766,11 @@ function DetailedView({
     instrumentClipboard = null;
     claimWorkspaceClipboard("range");
     rangeClipboard = { kind, range: ranges[0].range, ranges };
+    showToast?.(`${ranges.length} Range${ranges.length === 1 ? "" : "s"} ${mode === "cut" ? "cut" : "copied"} to clipboard`);
   };
   const cutRange = (kind, item, range) => {
     const rangeId = rangeIdOf(range);
-    copyRange(kind, item, rangeId);
+    copyRange(kind, item, rangeId, "cut");
     if (hasSelectedRangeIds(selectedRangeIds) && lastSelectionTarget === "range") handleDeleteSelectedRanges();
     else if (rangeId) handleRemoveRangeDetail(kind, item, rangeId);
   };
@@ -10653,7 +10886,7 @@ function DetailedView({
           if (key === "c" || key === "x") {
             e.preventDefault();
             e.stopImmediatePropagation();
-            copyRange(kind, target.item, rangeIdOf(target.activeRange));
+            copyRange(kind, target.item, rangeIdOf(target.activeRange), key === "x" ? "cut" : "copy");
             if (key === "x") handleDeleteSelectedRanges();
             return;
           }
@@ -12967,6 +13200,18 @@ function DetailedView({
       }
       return;
     }
+    if (component?.tmdeUncertaintySourceId && (updates.dynamicDefinition || updates.distribution !== undefined)) {
+      const override = { ...(component.tmdeUncertaintyOverride || {}), ...updates, componentKind: component.tmdeUncertaintyComponentKind };
+      if (component.tmdeBudgetSourceId) {
+        onUpdateTestPoint({ components: (testPointData.components || []).map(row => row.id === id
+          ? { ...row, tmdeUncertaintySourceId: component.tmdeUncertaintySourceId, tmdeUncertaintyComponentKind: component.tmdeUncertaintyComponentKind, tmdeUncertaintyOverride: override } : row) });
+      } else {
+        applyTmdeInstanceChange(component.sourceTmdeId, instance => ({ ...instance,
+          tmdeUncertaintyOverrides: { ...(instance.tmdeUncertaintyOverrides || {}), [component.tmdeUncertaintySourceId]: override },
+        }), "point");
+      }
+      return;
+    }
     if (component?.dynamicDefinitionId && updates.dynamicDefinition) {
       onSessionSave?.(updateSharedDynamicDefinition(latestSessionDataRef.current, updates.dynamicDefinition));
       return;
@@ -13606,8 +13851,18 @@ function DetailedView({
     if (!isDerived) return null;
 
     const currentMappings = testPointData.variableMappings || {};
+    let equationOrder = [];
+    try {
+      equationOrder = extractEquationVariables(
+        testPointData.equationString?.split("=").slice(-1)[0] || "",
+      );
+    } catch {
+      // Keep existing input rows while the equation editor holds partial text.
+    }
     const vars = Object.keys(currentMappings)
-      .sort()
+      .sort((a, b) =>
+        (equationOrder.indexOf(a) < 0 ? Infinity : equationOrder.indexOf(a)) -
+        (equationOrder.indexOf(b) < 0 ? Infinity : equationOrder.indexOf(b)))
       .map((symbol) => {
         const name = currentMappings[symbol];
         const assignedTmdes = tmdeTolerancesData.filter(
@@ -13955,9 +14210,9 @@ function DetailedView({
       const addedAt = Date.now();
       const tmdeComponents = resolvedComponents.map((component, index) => {
         const componentName = String(component.name || "Accuracy");
-        const suffix = componentName.includes(" - ")
+        const suffix = component.tmdeUncertaintySourceName || (componentName.includes(" - ")
           ? componentName.split(" - ").slice(1).join(" - ")
-          : componentName;
+          : componentName);
         const divisor = component.distributionDivisor;
         const numericDivisor = Number(divisor);
         const toleranceLimit =
@@ -14689,13 +14944,6 @@ function DetailedView({
   const canShowBudgetSection =
     !isDerived ||
     hasUsableEquation;
-  const showBiasDistribution = canShowBudgetSection && hasActivePointBias(testPointData, sessionData);
-  const visibleDetailOrder = detailSectionOrder.filter(section => isDerived || section !== "equation");
-  const biasSectionIndex = visibleDetailOrder.indexOf("bias");
-  const moveBiasSection = (direction) => {
-    const target = visibleDetailOrder[biasSectionIndex + direction];
-    if (target && onSessionSave) onSessionSave({ ...sessionData, detailSectionOrder: moveDetailSection(detailSectionOrder, "bias", target) });
-  };
 
   // --- Monte Carlo (GUM-S1) propagation mode ---
   // Linear stays the default (workbook parity); the MC path is offered when
@@ -14712,7 +14960,7 @@ function DetailedView({
   const targetNominal = parseFloat(uutNominal?.value);
 
   const getCalculatedStatus = () => {
-    if (isNaN(calculatedNominal) || isNaN(targetNominal)) return "neutral";
+    if (calculatedNominal == null || !Number.isFinite(calculatedNominal) || !Number.isFinite(targetNominal)) return "neutral";
     const diff = Math.abs(calculatedNominal - targetNominal);
     const tolerance = Math.max(Math.abs(targetNominal * 0.0001), 1e-9);
     return diff <= tolerance ? "match" : "mismatch";
@@ -14786,7 +15034,7 @@ function DetailedView({
           </colgroup>
           <thead>
             <tr>
-              <th>Variable</th>
+              <th>Symbol</th>
               <th>Name</th>
               <th>Nominal</th>
             </tr>
@@ -14838,6 +15086,16 @@ function DetailedView({
               </tr>
             ))}
           </tbody>
+          {calcStatus !== "neutral" && (
+            <tfoot>
+              <tr className="measurement-inputs-match-status">
+                <td colSpan={3} style={{ color: calcStatusStyle.color, backgroundColor: calcStatusStyle.backgroundColor }}>
+                  <FontAwesomeIcon icon={calcStatusStyle.icon} />{" "}
+                  {calcStatus === "match" ? "Matches measurement point" : "Does not match measurement point"}
+                </td>
+              </tr>
+            </tfoot>
+          )}
         </table>
       </div>
     ) : (
@@ -15448,11 +15706,11 @@ function DetailedView({
               <div
                 ref={equationEditorSurfaceRef}
                 className={`measurement-equation-card measurement-equation-zoom-surface ${
-                  isEquationEditorOpen || !hasEquationText ? "is-editor-open" : "is-editor-collapsed"
+                  isEquationEditorOpen || !hasEquationText || equationValidation?.status === "invalid" ? "is-editor-open" : "is-editor-collapsed"
                 }${!hasEquationText ? " is-empty" : ""}`}
               >
               <div className="scoped-zoom-content">
-              {isEquationEditorOpen || !hasEquationText ? (
+              {isEquationEditorOpen || !hasEquationText || equationValidation?.status === "invalid" ? (
                 <>
                 <div
                   className="measurement-equation-editor-stack"
@@ -16396,11 +16654,11 @@ function DetailedView({
         calculatedAverage={calcResults?.calculatedNominalValue}
         onChange={onUpdateTestPoint} />
       {!hasMeasurementPoint && <p className="form-section-warning" role="status">Enter a measurement value when ready. You can build the uncertainty budget now; value-dependent components will show a warning until a value is assigned.</p>}
-      {calculationError && hasMeasurementPoint ? (
+      {calculationError && hasMeasurementPoint && (
           <div className="form-section-warning">
             <p>Calculation Error: {calculationError}</p>
           </div>
-        ) : (
+        )}
           <>
             <UncertaintyBudgetTable
               measurementAreaColor={resolveSessionMeasurementAreas(sessionData).find(area =>
@@ -16471,31 +16729,24 @@ function DetailedView({
               propagationWarnings={isDerived && testPointData.budgetPropagationMethod !== "montecarlo" ? nonlinearityWarnings : []}
             />
           </>
-        )}
       </div>
       </>
       )}
-      {showBiasDistribution && <>
-        <DetailWorkspaceSectionToggle
-          label="Bias Distribution"
-          collapsed={collapsedDetailSections.has("bias")}
-          onToggle={() => toggleDetailSection("bias")}
-          onMoveEarlier={onSessionSave && biasSectionIndex > 0 ? () => moveBiasSection(-1) : undefined}
-          onMoveLater={onSessionSave && biasSectionIndex < visibleDetailOrder.length - 1 ? () => moveBiasSection(1) : undefined}
-          style={detailSectionStyle("bias")}
-          {...detailSectionDragProps("bias")}
-          className="detail-workspace-section-toggle--bias"
-        />
-        <div className={`detail-workspace-content detail-workspace-content--bias${collapsedDetailSections.has("bias") ? " is-collapsed" : ""}`}
-          style={detailSectionStyle("bias", 1)}>
-          <BiasDistributionVisualizer
-            point={testPointData}
-            session={sessionData}
-            referencePoint={uutNominal}
-            calcResults={calcResults}
-            riskResults={riskResults}
-          />
-        </div>
+      {showRiskDistributions && <>
+      <DetailWorkspaceSectionToggle
+        label="Risk Distributions"
+        collapsed={collapsedDetailSections.has("risk-distributions")}
+        onToggle={() => toggleDetailSection("risk-distributions")}
+        style={detailSectionStyle("risk-distributions")}
+        {...detailSectionDragProps("risk-distributions")}
+      />
+      <div
+        ref={riskDistributionsRef}
+        className={`detail-workspace-content detail-workspace-content--risk-distributions${collapsedDetailSections.has("risk-distributions") ? " is-collapsed" : ""}`}
+        style={detailSectionStyle("risk-distributions", 1)}
+      >
+        <PointRiskVisualizer key={testPointData.id} riskResults={riskResults} nominal={uutNominal} />
+      </div>
       </>}
       </div>
       {renderBudgetTmdePicker()}
@@ -16553,6 +16804,7 @@ const UncertaintyPanel = (props) => {
         instruments={props.instruments || []}
         onSaveInstrument={props.onSaveInstrument}
         onInstrumentSynced={props.onInstrumentSynced}
+        showToast={props.showToast}
         setNotification={props.setNotification}
         collapsedFunctionKeys={collapsedFunctionKeys}
         setCollapsedFunctionKeys={setCollapsedFunctionKeys}

@@ -1,4 +1,6 @@
+import { applyTmdeUncertaintyOverrides } from "../../../utils/tmdeUncertaintySources";
 import { hasNominalValue, toleranceNeedsNominal, unresolvedComponent, absoluteBudgetComponent, relativeBudgetUnit, budgetUnitMismatch } from "../../../utils/incompleteBudget";
+import { resolveDynamicComponent } from "../../../utils/dynamicBudgetComponents";
 /**
  * * This utility file contains helper functions for breaking down tolerance objects
  * * into individual uncertainty budget components.
@@ -98,11 +100,13 @@ export const getBudgetComponentsFromTolerance = (
     const unit = referenceMeasurementPoint.unit || rawToleranceObject?.unit || "V";
     return getBudgetComponentsFromTolerance(rawToleranceObject, { ...referenceMeasurementPoint, value: 1, unit }, instrumentTypeBComponents, scopeContext)
       .map(component => {
-        const tolerance = rawToleranceObject?.tolerances || rawToleranceObject?.tolerance || rawToleranceObject || {};
+        if (component.dynamicDefinitionId) return resolveDynamicComponent(component, component.dynamicDefinition, referenceMeasurementPoint);
+        const parentTolerance = rawToleranceObject?.tolerances || rawToleranceObject?.tolerance || rawToleranceObject || {};
+        const tolerance = parentTolerance.tmdeSecondaryUncertainties?.find(source => source.id === component.tmdeUncertaintySourceId)?.tolerance || parentTolerance;
         if (!component.isResolution && !component.isManual) component = { ...component,
           authoredTolerance: Object.fromEntries(["reading", "range", "floor", "readings_iv", "db"].filter(key => tolerance[key]).map(key => [key, tolerance[key]])) };
         const needsValue = component.isManual ? relativeBudgetUnit(component.manualUnit)
-          : !component.isResolution && (toleranceNeedsNominal(rawToleranceObject) || /dB/.test(component.name));
+          : !component.isResolution && (toleranceNeedsNominal(tolerance) || /dB/.test(component.name));
         return !referenceMeasurementPoint.unit || needsValue
           ? unresolvedComponent(component, !referenceMeasurementPoint.unit ? "Assign a measurement unit to calculate uncertainty." : undefined)
           : absoluteBudgetComponent(component, unitSystem);
@@ -161,6 +165,60 @@ export const getBudgetComponentsFromTolerance = (
     !hasValidValue
   ) {
     return [];
+  }
+
+  toleranceObject = applyTmdeUncertaintyOverrides(toleranceObject);
+  const secondaryComponents = (toleranceObject.tmdeSecondaryUncertainties || []).flatMap(source => {
+    const emptySource = { id: `tmde_secondary_${source.id}`, name: source.name, type: "B", dof: Infinity,
+      tmdeUncertaintySourceId: source.id, tmdeUncertaintySourceName: source.name,
+      tmdeUncertaintyComponentKind: "uncertainty", unit_native: toleranceObject.unit || referenceMeasurementPoint.unit };
+    if (source.kind === "table" || source.kind === "equation") {
+      const definition = source.dynamicDefinition;
+      if (!definition) return [unresolvedComponent(emptySource, "Define this secondary uncertainty.")];
+      return [resolveDynamicComponent({
+        id: `tmde_secondary_${source.id}`,
+        name: source.name,
+        type: "B", dof: Infinity, tmdeUncertaintySourceId: source.id, tmdeUncertaintySourceName: source.name,
+        tmdeUncertaintyComponentKind: "uncertainty",
+        dynamicDefinitionId: definition.id,
+        dynamicOutputId: definition.columns?.[0]?.id,
+        dynamicDefinition: definition,
+      }, { ...definition, name: source.name }, referenceMeasurementPoint)];
+    }
+    const parametric = { ...source.tolerance };
+    delete parametric.bias;
+    const components = getBudgetComponentsFromTolerance(
+      { unit: toleranceObject.unit, functionUnit: toleranceObject.functionUnit, max: toleranceObject.max, ...parametric, name: source.name || "TMDE uncertainty", id: source.id },
+      referenceMeasurementPoint, [], scopeContext,
+    );
+    return (components.length ? components : [unresolvedComponent(emptySource, "Define this secondary uncertainty.")]).map(component => ({ ...component, tmdeUncertaintySourceId: source.id, tmdeUncertaintySourceName: source.name,
+      tmdeUncertaintyComponentKind: component.name.split(" - ").at(-1),
+    }));
+  });
+
+  // A TMDE can author its primary uncertainty as a table or equation. Keep
+  // resolution and any separately authored Type B terms, but do not combine
+  // the inactive parametric specification with the selected primary source.
+  const primaryDefinition = toleranceObject.tmdeUncertaintyDefinition;
+  if (["table", "equation"].includes(primaryDefinition?.kind)) {
+    const supplemental = { ...toleranceObject };
+    for (const key of ["tmdeUncertaintyOverrides", "tmdeUncertaintyDefinition", "tmdeSecondaryUncertainties", "reading", "range", "floor", "readings_iv", "offset", "linearity", "db", "singleSided", "_doubleSidedTerms", "whicheverIsGreater", "bandDistribution"]) {
+      delete supplemental[key];
+    }
+    delete supplemental.tolerance;
+    delete supplemental.tolerances;
+    const remaining = getBudgetComponentsFromTolerance(
+      supplemental, referenceMeasurementPoint, instrumentTypeBComponents, scopeContext,
+    );
+    const primary = resolveDynamicComponent({
+      id: `tmde_primary_${primaryDefinition.id}`,
+      name: "TMDE Error",
+      type: "B", dof: Infinity, tmdeUncertaintySourceId: "primary", tmdeUncertaintyComponentKind: "uncertainty",
+      dynamicDefinitionId: primaryDefinition.id,
+      dynamicOutputId: primaryDefinition.columns?.[0]?.id,
+      dynamicDefinition: primaryDefinition,
+    }, primaryDefinition, referenceMeasurementPoint);
+    return [{ ...primary, name: `${toleranceObject.name || "TMDE"} - TMDE Error`, isCore: true }, ...remaining, ...secondaryComponents];
   }
 
   toleranceObject = selectGreatestTolerance(toleranceObject, referenceMeasurementPoint);
@@ -662,7 +720,23 @@ export const getBudgetComponentsFromTolerance = (
 
   const mismatch = [toleranceObject.unit, ...["reading", "range", "floor", "readings_iv"].map(key => toleranceObject[key]?.unit)]
     .map(unit => budgetUnitMismatch(unit, nominalUnit, unitSystem)).find(Boolean);
-  return budgetComponents.map(component => {
+  return [...budgetComponents.map(component => {
+    // A missing or incompatible point unit cannot supply the native display
+    // frame. Retain the instrument frame; internal PPM/base values stay intact.
+    const physicalUnit = unit => unit && !relativeBudgetUnit(unit) ? unit : null;
+    const sourceUnit = (component.isResolution
+      ? toleranceObject.resolutionUnit || toleranceObject.measuringResolutionUnit
+      : component.isManual ? physicalUnit(component.manualUnit) : null)
+      || toleranceObject.unit || toleranceObject.functionUnit
+      || ["floor", "readings_iv", "reading", "range"].map(key => physicalUnit(toleranceObject[key]?.unit)).find(Boolean);
+    if (sourceUnit && (!nominalUnit || budgetUnitMismatch(sourceUnit, nominalUnit, unitSystem))) {
+      const scale = (unitSystem.units[component.unit_native]?.to_si || 1) / (unitSystem.units[sourceUnit]?.to_si || 1);
+      component = { ...component, unit_native: sourceUnit,
+        value_native: component.value_native == null ? null : component.value_native * scale,
+        ...(component.toleranceLimit_native != null ? { toleranceLimit_native: component.toleranceLimit_native * scale } : {}),
+      };
+    }
+
     const resolutionMismatch = component.isResolution ? budgetUnitMismatch(toleranceObject.resolutionUnit || toleranceObject.measuringResolutionUnit, nominalUnit, unitSystem) : null;
     if (resolutionMismatch || mismatch) {
       // Preserve the source specification for display. Numeric uncertainty stays
@@ -677,7 +751,7 @@ export const getBudgetComponentsFromTolerance = (
       return unresolvedComponent(component, "Choose an error limit distribution to calculate standard uncertainty.");
     }
     return component;
-  });
+  }), ...secondaryComponents];
 };
 
 const sameId = (left, right) =>

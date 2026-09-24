@@ -133,10 +133,14 @@ export function resolvePointBudgetComponents(point, sessionData, instruments = [
             }
           : selectedRange;
         const resolved = getBudgetComponentsFromTolerance(
-          selectedSource,
+          component.tmdeUncertaintyOverride ? { ...selectedSource, tmdeUncertaintyOverrides: { [component.tmdeUncertaintySourceId]: component.tmdeUncertaintyOverride } } : selectedSource,
           referencePoint,
         );
-        const replacement = resolved.find(
+        const replacement = component.tmdeUncertaintySourceId
+          ? (resolved.find(candidate => candidate.tmdeUncertaintySourceId === component.tmdeUncertaintySourceId && candidate.tmdeUncertaintyComponentKind === component.tmdeUncertaintyComponentKind)
+            || resolved.find(candidate => candidate.tmdeUncertaintySourceId === component.tmdeUncertaintySourceId)
+            || (component.tmdeUncertaintySourceId === "primary" ? resolved.find(candidate => !candidate.tmdeUncertaintySourceId && !candidate.isResolution && !candidate.isManual) : null))
+          : resolved.find(
           (candidate) =>
             String(candidate.name || "").split(" - ").slice(1).join(" - ") ===
             String(component.tmdeBudgetComponentKind || ""),
@@ -156,6 +160,15 @@ export function resolvePointBudgetComponents(point, sessionData, instruments = [
             : "";
         return {
           ...component,
+          // Clear stale shared-definition snapshots when the source changes type.
+          dynamicDefinitionId: replacement.dynamicDefinitionId,
+          dynamicDefinition: replacement.dynamicDefinition,
+          dynamicOutputId: replacement.dynamicOutputId,
+          dynamicSummary: replacement.dynamicSummary,
+          tmdeUncertaintySourceId: replacement.tmdeUncertaintySourceId || component.tmdeUncertaintySourceId,
+          tmdeUncertaintyComponentKind: replacement.tmdeUncertaintyComponentKind || component.tmdeUncertaintyComponentKind,
+          tmdeUncertaintySourceName: replacement.tmdeUncertaintySourceName,
+          ...(replacement.tmdeUncertaintySourceName ? { name: `${component.tmdeIdentity || String(component.name).split(" - ")[0]} - ${replacement.tmdeUncertaintySourceName}` } : {}),
           pendingReason: replacement.pendingReason || null,
           authoredTolerance: replacement.authoredTolerance,
           toleranceLimit_native: replacement.toleranceLimit_native,

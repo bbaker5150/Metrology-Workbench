@@ -2,7 +2,7 @@ import { inputSymbol } from "./budgetScope";
 import { toleranceUnitMismatch } from "./incompleteBudget";
 import { registerUnitPrefixes } from "./siPrefixes";
 import { getUnitSearchNames } from "./unitNames";
-import * as math from "mathjs";
+import * as math from "./equationMath";
 
 // ==========================================
 // 1. Unit Systems & Conversions

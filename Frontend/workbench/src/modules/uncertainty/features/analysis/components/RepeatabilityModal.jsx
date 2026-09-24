@@ -2,7 +2,7 @@ import { budgetUnitMismatch } from "../../../utils/incompleteBudget";
 import GrowingNumericInput from "../../../components/common/GrowingNumericInput";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom";
-import Select from "react-select";
+import BuilderUnitSelect from "../../instruments/components/BuilderUnitSelect";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faCheck,
@@ -14,7 +14,6 @@ import {
 import {
   getUnitDisplayLabel,
   unitCategories,
-  unitFilterOption,
   unitSystem,
 } from "../../../utils/uncertaintyMath";
 import { useFloatingWindow } from "../../../hooks/useFloatingWindow";
@@ -64,11 +63,6 @@ const getCategorizedUnitOptions = (allUnits, referenceUnit) => {
     options.push({ label: "Other", options: otherOptions });
   }
   return options;
-};
-
-const selectStyles = {
-  menuPortal: (base) => ({ ...base, zIndex: 99999 }),
-  menu: (base) => ({ ...base, zIndex: 99999 }),
 };
 
 export const calculateRepeatabilityStats = (values = []) => {
@@ -127,13 +121,6 @@ const RepeatabilityModal = ({
       ),
     [allUnits, uutNominal?.unit, selectedUnit],
   );
-  const selectedUnitOption =
-    unitOptions
-      .flatMap((group) => group.options || group)
-      .find((option) => option.value === selectedUnit) || {
-      value: selectedUnit,
-      label: getUnitDisplayLabel(selectedUnit),
-    };
   const unitWarning = budgetUnitMismatch(selectedUnit, uutNominal?.unit, unitSystem) || (!uutNominal?.unit ? "Assign a measurement unit before combining repeatability." : null);
   const stats = useMemo(() => calculateRepeatabilityStats(readings), [readings]);
   const range = readings.length
@@ -221,19 +208,14 @@ const RepeatabilityModal = ({
                 }}
                 placeholder="10.001"
               />
-              <Select
-                value={selectedUnitOption}
-                onChange={(option) => setSelectedUnit(option?.value || "")}
-                options={unitOptions}
-                filterOption={unitFilterOption}
-                className="react-select-container repeatability-unit-select"
-                classNamePrefix="react-select"
-                aria-label="Repeatability unit"
-                isSearchable
-                menuPortalTarget={document.body}
-                menuPosition="fixed"
-                styles={selectStyles}
-              />
+              <div className="repeatability-unit-select">
+                <BuilderUnitSelect
+                  value={selectedUnit}
+                  onChange={setSelectedUnit}
+                  options={unitOptions}
+                  ariaLabel="Repeatability unit"
+                />
+              </div>
               <button
                 type="button"
                 className="correlation-modal-icon-button is-primary"

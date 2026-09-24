@@ -97,12 +97,20 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
   await add.first().click();
   check("deleted table is no longer offered by the Add menu", await menu.getByRole("button", { name: new RegExp(temporary.name) }).count() === 0);
   await frame.locator(".analysis-tabs").click({ position: { x: 5, y: 5 } });
-  // The row surface is continuous even under wide columns and horizontal scroll.
+  // The hovered column paints through the row's full height, including padding,
+  // while adjacent columns keep their own surface.
   const blank = frame.locator('[data-point-id="blank-inputs"]');
   await frame.locator(".analysis-tabs").hover();
-  const before = await blank.evaluate(node => getComputedStyle(node).backgroundColor);
   await blank.locator('[data-sidebar-column="value"]').hover();
-  check("hover highlights the entire measurement row", await blank.evaluate(node => getComputedStyle(node).backgroundColor) !== before);
+  check("hover fills the target column through the full measurement row", await blank.evaluate(row => {
+    const target = row.querySelector('[data-sidebar-column="value"]');
+    const sibling = row.querySelector('[data-sidebar-column="pfa"]');
+    return target.classList.contains('is-cell-hovered') &&
+      !sibling.classList.contains('is-cell-hovered') &&
+      getComputedStyle(row).backgroundImage.includes('linear-gradient') &&
+      getComputedStyle(target).backgroundColor === 'rgba(0, 0, 0, 0)' &&
+      getComputedStyle(sibling).backgroundImage === 'none';
+  }));
   check("measurement-area background reaches the full row width", await point.evaluate(node => {
     const group = node.closest(".measurement-group-container");
     const header = group.querySelector(".area-header-sticky").getBoundingClientRect();

@@ -47,37 +47,10 @@ export async function checkMeasurementBias({ frame, page, saved, until, check })
   const cards = frame.locator('.budget-decision-card dd[aria-label]');
   check('both risk cards are populated before bias edits', await until(async () => (await cards.count()) === 2 && !(await cards.allTextContents()).some(text => /Unavailable/.test(text))));
   const riskBeforeReset = await cards.allTextContents();
-  check('active bias displays the budget distribution', await frame.locator('.budget-bias-viz').count() === 1);
-  const biasHeader = frame.locator('.detail-workspace-section-toggle--bias');
-  const budgetHeader = frame.locator('.detail-workspace-section-toggle--budget');
-  check('bias chart has measured ticks, tolerance limits, and one accepted-weighted density',
-    await frame.locator('.budget-bias-viz-tick-label').count() >= 5 &&
-    await frame.locator('.budget-bias-viz-limit-label').count() === 2 &&
-    await frame.locator('[data-testid="bias-density-curve"]').count() === 1 &&
-    await frame.locator('[data-testid="bias-accepted-area"]').count() === 1 &&
-    await frame.locator('[data-testid="bias-nominal-line"],[data-testid="bias-mean-line"]').count() === 2);
-  await biasHeader.getByRole('button', { name: 'Collapse Bias Distribution section' }).click();
-  check('bias section collapses like the budget tables', await frame.locator('.detail-workspace-content--bias').evaluate(node => getComputedStyle(node).display === 'none'));
-  await biasHeader.getByRole('button', { name: 'Expand Bias Distribution section' }).click();
-  check('bias section expands with its chart intact', await frame.locator('.budget-bias-viz').isVisible());
-  await biasHeader.getByRole('button', { name: 'Move Bias Distribution earlier' }).click();
-  const reordered = await until(() => {
-    const order = saved().detailSectionOrder || [];
-    return order.indexOf('bias') >= 0 && order.indexOf('bias') < order.indexOf('budget');
-  });
-  check('bias section can move ahead of budget tables and saves its order', reordered,
-    JSON.stringify({ order: saved().detailSectionOrder, draggable: await biasHeader.getAttribute('draggable'),
-      biasStyle: await biasHeader.getAttribute('style'), budgetStyle: await budgetHeader.getAttribute('style') }));
-  await biasHeader.getByRole('button', { name: 'Move Bias Distribution later' }).click();
-  check('bias section can move back after budget tables', await until(() => {
-    const order = saved().detailSectionOrder || [];
-    return order.indexOf('bias') > order.indexOf('budget');
-  }));
   await notice.getByRole('button', { name: 'Use instrument biases', exact: true }).click();
   check('explicit reset clears both retired point overrides through the SharePoint adapter', await until(() => saved().testPoints[0].uutBias === null && saved().testPoints[0].measurementBias === null));
   check('instrument biases need no separate panel or notice', await until(async () => await notice.count() === 0) && await frame.locator('.measurement-bias-panel').count() === 0);
   check('risk recalculates after returning to instrument defaults', await until(async () => JSON.stringify(await cards.allTextContents()) !== JSON.stringify(riskBeforeReset)));
-  check('instrument biases keep the distribution visible', await frame.locator('.budget-bias-viz').count() === 1);
 
   // Author both roles in their existing instrument cells, then verify changes
   // reach the current point's risk results without a navigation-triggered refresh.
@@ -102,12 +75,6 @@ export async function checkMeasurementBias({ frame, page, saved, until, check })
       return [...panel.querySelectorAll('input,button')].every(input => { const rect = input.getBoundingClientRect(); return rect.left >= bounds.left && rect.right <= bounds.right; });
     }));
     check(`${theme} bias inputs use compact inline sizing`, await panel.locator('.bias-value-input').evaluateAll(inputs => inputs.every(input => input.getBoundingClientRect().height <= 26)));
-    const viz = frame.locator('.budget-bias-viz');
-    check(`${theme} bias distribution uses the budget surface and fits its card`, await viz.evaluate(node => {
-      const panel = document.querySelector('.budget-stack-section');
-      return getComputedStyle(node).backgroundColor === getComputedStyle(panel).backgroundColor && node.scrollWidth <= node.clientWidth + 1;
-    }));
-    if (process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await viz.screenshot({ path: `${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/bias-distribution-${theme}.png` });
     if (process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await page.screenshot({ path: `${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/measurement-bias-${theme}.png` });
   }
   await frame.evaluate(() => { document.body.classList.remove('dark-mode'); document.body.classList.add('light-mode'); });
@@ -151,8 +118,6 @@ export async function checkMeasurementBias({ frame, page, saved, until, check })
   const uutTable = frame.locator('.instrument-equipment-table').first();
   await uutTable.locator('.cell-tolerance .inline-tolerance-summary').first().click();
   await uutTable.getByRole('button', { name: 'Bias', exact: true }).click();
-  check('distribution disappears when both utilized instrument biases are removed',
-    await until(async () => await frame.locator('.budget-bias-viz').count() === 0));
   await page.keyboard.press('Escape');
   const onlyPoint = frame.locator('.point-grid-item');
   check('clipboard regression fixture contains one point', saved().testPoints.length === 1);

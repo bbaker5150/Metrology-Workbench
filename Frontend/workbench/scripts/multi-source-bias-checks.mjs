@@ -1,4 +1,3 @@
-import { authorNetBias } from './net-bias-smoke-helpers.mjs';
 import { readFileSync } from 'node:fs';
 import { multiSourceCase } from './multi-source-bias-cases.mjs';
 const vectors = JSON.parse(readFileSync(new URL('../src/modules/uncertainty/utils/risk8/suppliedBiasParityVectors.json', import.meta.url))).cases.filter(v => v.type <= 4 && v.calBias === .2);
@@ -27,7 +26,7 @@ export async function checkMultiSourceBias({ frame, page, saved, until, check })
     const add = frame.getByRole('button', { name: `Add ${label} column`, exact: true });
     if (await add.count()) await add.click();
   }
-  await frame.getByRole('button', { name: 'Columns', exact: true }).click();
+  await frame.getByRole('button', { name: 'Close column settings', exact: true }).click();
   const read = row => row.evaluate(node => Object.fromEntries([...node.querySelectorAll('[data-sidebar-column]')].map(cell => [cell.dataset.sidebarColumn, Number(cell.title)])));
   for (const vector of vectors) {
     const row = frame.locator(`[data-point-id="parity-${vector.type}"]`);
@@ -42,32 +41,32 @@ export async function checkMultiSourceBias({ frame, page, saved, until, check })
     await row.locator('[data-sidebar-column="pfa"]').click();
     const cards = frame.locator('.budget-decision-card dd[aria-label]');
     check(`detailed budget agrees with point list type ${vector.type}`, await until(async () => (await cards.allTextContents()).some(text => text.includes(vector.expected.pfa.toPrecision(4)))));
-    const components = JSON.stringify(saved().testPoints.find(p => p.id === `parity-${vector.type}`).components);
-    await authorNetBias(frame);
-    check(`source sum initializes manual net type ${vector.type}`, await until(() => Math.abs(Number(saved().testPoints.find(p => p.id === `parity-${vector.type}`).measurementBias?.value) - 2) < 1e-12));
-    const after = await read(row);
-    check(`equivalent manual net preserves every displayed metric type ${vector.type}`, Object.keys(columns).every(key => Object.is(sources[key], after[key])));
-    check(`net replacement preserves the two-source budget type ${vector.type}`, components === JSON.stringify(saved().testPoints.find(p => p.id === `parity-${vector.type}`).components));
-    await frame.getByRole('button', { name: 'Remove Net Bias', exact: true }).click();
-    check(`removing net restores two source biases type ${vector.type}`, await until(() => !saved().testPoints.find(p => p.id === `parity-${vector.type}`).measurementBias));
+    const components = saved().testPoints.find(p => p.id === `parity-${vector.type}`).components;
+    check(`selected point retains the two-source budget type ${vector.type}`,
+      JSON.stringify(components.map(component => component.tmdeBudgetSourceId)) === JSON.stringify(['first', 'second']));
+    check(`source biases remain live without a manual net editor type ${vector.type}`,
+      !saved().testPoints.find(p => p.id === `parity-${vector.type}`).measurementBias &&
+      await frame.getByRole('textbox', { name: 'Net measurement system bias', exact: true }).count() === 0);
   }
   const first = frame.locator('[data-point-id="parity-1"]');
   const before = await read(first);
   await frame.getByRole('button', { name: 'Columns', exact: true }).click();
-  check('point requirements are optional columns, hidden initially', await frame.getByRole('button', { name: 'Add Confidence (%) column', exact: true }).count() === 1);
-  await frame.getByRole('button', { name: 'Add Confidence (%) column', exact: true }).click();
+  check('point requirements are optional columns, hidden initially', await frame.getByRole('button', { name: 'Add Confidence Level column', exact: true }).count() === 1);
+  await frame.getByRole('button', { name: 'Add Confidence Level column', exact: true }).click();
   await frame.getByRole('button', { name: 'Add PFA Required column', exact: true }).click();
+  await frame.getByRole('button', { name: 'Close column settings', exact: true }).click();
   await frame.getByRole('button', { name: 'Columns', exact: true }).click();
-  check('column menu trigger remains clickable after adding many columns', await frame.getByRole('dialog', { name: 'Visible measurement point columns' }).count() === 0);
-  await first.getByRole('button', { name: 'Edit Uncertainty Confidence (%)', exact: true }).click();
-  const confidence = first.getByRole('textbox', { name: 'Uncertainty Confidence (%)', exact: true });
+  check('column menu trigger remains clickable after adding many columns', await frame.getByRole('dialog', { name: 'Visible measurement point columns' }).count() === 1);
+  await frame.getByRole('button', { name: 'Close column settings', exact: true }).click();
+  await first.getByRole('button', { name: 'Edit Confidence Level', exact: true }).click();
+  const confidence = first.getByRole('textbox', { name: 'Confidence Level', exact: true });
   await confidence.fill('90'); await confidence.press('Enter');
   check('point requirement edit persists only on that point', await until(() => saved().testPoints[0].riskRequirements?.uncertaintyConfidence === '90') && saved().uncReq.uncertaintyConfidence === 95 && !saved().testPoints[1].riskRequirements);
   const confidenceCell = first.locator('[data-sidebar-column="input_uncertaintyConfidence"]');
   check('point override recalculates risk and displays override styling', await until(async () => (await read(first)).tur !== before.tur) && await confidenceCell.evaluate(node => node.classList.contains('is-override') && node.title.endsWith('Point override') && getComputedStyle(node.querySelector('.point-value-number')).fontStyle === 'normal'));
   await first.locator('[data-sidebar-column="pfa"]').click();
   check('detailed risk uses the same point-specific confidence', await until(async () => { const expected = (await read(first)).pfa.toPrecision(4); return (await frame.locator('.budget-decision-card dd[aria-label]').allTextContents()).some(text => text.includes(expected)); }));
-  await first.getByRole('button', { name: 'Edit Uncertainty Confidence (%)', exact: true }).click();
+  await first.getByRole('button', { name: 'Edit Confidence Level', exact: true }).click();
   await confidence.fill(''); await confidence.press('Enter');
   check('blank restores session defaults and original workbook result', await until(async () => Math.abs((await read(first)).tur - before.tur) < 1e-10) && await confidenceCell.evaluate(node => node.classList.contains('is-inherited') && node.title.endsWith('Session default') && getComputedStyle(node.querySelector('.point-value-number')).fontStyle === 'italic'));
   check('calibration interval has at most two displayed decimals and keeps raw hover precision', await first.locator('[data-sidebar-column="gbCalInt"]').evaluate(node => /^\d+(\.\d{1,2})?$/.test(node.textContent.trim()) && node.title.length > node.textContent.trim().length));

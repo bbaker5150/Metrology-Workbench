@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import { extractEquationVariables } from "../../../utils/equationValidation";
 import {
   MeasurementInputNameCell,
   MeasurementInputNominalCell,
@@ -32,6 +33,13 @@ const NominalHarness = () => {
 };
 
 describe("measurement input compact editors", () => {
+  it("keeps the micro-sign input in its equation position when renamed", () => {
+    const equation = "Result = Z + µ * V + α";
+    expect(extractEquationVariables(equation.split("=")[1])).toEqual(["Z", "µ", "V", "α"]);
+    const renamed = renameEquationVariable(equation, "µ", "β");
+    expect(renamed).toBe("Result = Z + β * V + α");
+    expect(extractEquationVariables(renamed.split("=")[1])).toEqual(["Z", "β", "V", "α"]);
+  });
   it("renames a variable directly from the Variable column", () => {
     const onCommit = vi.fn();
     render(<MeasurementInputSymbolCell symbol="a" onCommit={onCommit} />);

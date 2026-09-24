@@ -15,6 +15,34 @@ const makeFixture = measurementType => {
   return {point,session:{tmdes:[master],uncReq:{uncertaintyConfidence:95,reliability:85,neededTUR:4,reqPFA:2,calInt:12}}};
 };
 
+it("refreshes secondary uncertainties by source id across renames, type changes and removal", () => {
+  const { point, session } = makeFixture("derived");
+  const tolerance = session.tmdes[0].instrument.functions[0].ranges[0].tolerances;
+  tolerance.tmdeSecondaryUncertainties = [
+    { id: "thermal", name: "Thermal", kind: "parametric", tolerance: { floor: { high: .2, low: -.2, unit: "V", distribution: "1.732" } } },
+    { id: "head", name: "Head", kind: "parametric", tolerance: { floor: { high: .3, low: -.3, unit: "V", distribution: "1.732" } } },
+  ];
+  point.components = [point.components[0], ...tolerance.tmdeSecondaryUncertainties.map(source => ({
+    ...point.components[0], id: source.id, tmdeUncertaintySourceId: source.id, tmdeUncertaintyComponentKind: "Accuracy",
+  }))];
+  let rows = resolvePointBudgetComponents(point, session);
+  expect(rows.map(row => row.value_native)).toEqual([1 / Math.sqrt(3), .2 / Math.sqrt(3), .3 / Math.sqrt(3)]);
+  tolerance.tmdeSecondaryUncertainties[0] = { id: "thermal", name: "Renamed thermal", kind: "equation", dynamicDefinition: {
+    id: "eq", kind: "equation", columns: [{ id: "u" }], name: "Renamed thermal", measurementUnit: "V", outputUnit: "V", mode: "standard",
+    equation: "x * a", variables: { x: {}, a: { value: .04 } }, pointVariable: "x",
+  } };
+  rows = resolvePointBudgetComponents(point, session);
+  expect(rows[1].value_native).toBeCloseTo(.4, 10);
+  expect(rows[1].tmdeUncertaintySourceName).toBe("Renamed thermal");
+  expect(rows[2].value_native).toBeCloseTo(.3 / Math.sqrt(3), 10);
+  point.components[2].tmdeUncertaintyOverride = { distribution: "2", componentKind: "Accuracy" };
+  rows = resolvePointBudgetComponents(point, session);
+  expect(rows[2].value_native).toBeCloseTo(.15, 10);
+  expect(rows[0].value_native).toBeCloseTo(1 / Math.sqrt(3), 10);
+  tolerance.tmdeSecondaryUncertainties.shift();
+  expect(resolvePointBudgetComponents(point, session)[1].pendingReason).toBeTruthy();
+});
+
 describe.each(["direct","derived"])("live instrument components (%s)", measurementType => {
   it("refreshes existing accuracy and resolution rows, including legacy aliases, units and distribution", () => {
     const {point,session} = makeFixture(measurementType);

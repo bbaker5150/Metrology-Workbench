@@ -1,6 +1,6 @@
 import { matchingResolution, resolutionRange } from "./pointLimitDisplay";
 import { dynamicMeasurementValue } from "./dynamicBudgetComponents";
-import { parse } from "mathjs";
+import { parse } from "./equationMath";
 import { calculateUncertaintyFromToleranceObject, unitSystem } from "./uncertaintyMath";
 import { getInstrumentRangeRows } from "./instrumentFunctionSelection";
 import { reconcileTmdeInstances, refreshTmdeInstancesFromMasters } from "./tmdeReconcile";

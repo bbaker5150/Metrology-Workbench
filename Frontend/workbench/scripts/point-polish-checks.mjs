@@ -76,7 +76,7 @@ export async function checkPointPolish({ frame, page, check, until, saved }) {
   await zoomContent.evaluate(node => { node.style.zoom = '1'; });
   await frame.getByRole('button', { name: 'Columns', exact: true }).click();
   await frame.getByRole('button', { name: 'Hide Point Information', exact: true }).click();
-  await frame.getByRole('button', { name: 'Columns', exact: true }).click();
+  await frame.getByRole('button', { name: 'Close column settings', exact: true }).click();
   await verifyGuides('hidden column');
   await first.locator('[data-sidebar-column="pfa"]').click();
   const chart = frame.locator('.contribution-plot-native');
@@ -95,10 +95,13 @@ export async function checkPointPolish({ frame, page, check, until, saved }) {
   for (const overview of [false, true]) {
     if (overview) await frame.locator('[data-tour="tab-overview"]').click();
     check(`instrument tables have no gap above their column headers (${overview ? 'overview' : 'budget'})`, await frame.locator('.instrument-panel-table-container').evaluateAll(nodes => nodes.length > 0 && nodes.every(node => getComputedStyle(node).paddingTop === '0px')));
-    check(`add-column buttons remain fully inside the header (${overview ? 'overview' : 'budget'})`, await frame.locator('.instrument-column-insert-button').evaluateAll(buttons => buttons.length > 0 && buttons.every(button => {
+    const insertPositions = await frame.locator('.instrument-column-insert-button').evaluateAll(buttons => buttons.map(button => {
       const box = button.getBoundingClientRect(), header = button.closest('th').getBoundingClientRect();
-      return box.top >= header.top && box.bottom <= header.bottom;
-    })));
+      return { top: box.top, midpoint: box.top + box.height / 2, headerTop: header.top };
+    }));
+    check(`add-column buttons sit at least halfway above the header (${overview ? 'overview' : 'budget'})`,
+      insertPositions.length > 0 && insertPositions.every(({ top, midpoint, headerTop }) => top < headerTop && midpoint <= headerTop),
+      JSON.stringify(insertPositions));
   }
   await list.evaluate(node => { node.scrollLeft = 0; node.scrollTop = 0; });
   if (process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await page.screenshot({ path: `${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/point-polish.png` });

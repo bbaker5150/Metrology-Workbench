@@ -1,4 +1,4 @@
-import * as math from 'mathjs';
+import * as math from "../../../../utils/equationMath";
 import React, { useMemo } from 'react';
 import ReactDOM from 'react-dom';
 import Latex from "../../../../components/common/Latex";
