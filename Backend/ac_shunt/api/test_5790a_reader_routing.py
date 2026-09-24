@@ -153,126 +153,163 @@ class ReaderSettingsApiTests(TestCase):
 
 
 class SequentialReaderStabilityTests(SimpleTestCase):
-    def test_shared_5790_uses_one_role_batch_even_when_initial_spread_is_high(self):
-        class Source:
-            def set_output(self, voltage, frequency):
-                self.last_output = (voltage, frequency)
+    def run_shared_stability(self, std_values, ti_values, *, bypass=False,
+                             cycle=1, max_attempts=10, stop_after=None,
+                             reader_class=Instrument5790A):
+        events = []
+        values = {'INPUT1': iter(std_values), 'INPUT2': iter(ti_values)}
+        instrument = reader_class.__new__(reader_class)
+        instrument.gpib = "GPIB0::16::INSTR"
+        instrument.standard_role_input = "INPUT1"
+        instrument.test_role_input = "INPUT2"
+        instrument.active_input = None
+        instrument.input_switch_delay = 0
+        instrument.configure_acquisition = Mock()
 
-        async def run_measurement():
-            consumer = CalibrationConsumer()
-            consumer.stop_event.clear()
-            consumer.broadcast = AsyncMock()
-            consumer.save_readings_to_db = AsyncMock()
-            consumer._buffer_append_sample = Mock()
-            consumer._buffer_replace_search_window = Mock()
-            consumer._take_reader_pair = AsyncMock()
+        def set_input(input_name):
+            instrument.active_input = input_name
+            events.append(('select', input_name))
 
-            instrument = Instrument5790A.__new__(Instrument5790A)
-            instrument.gpib = "GPIB0::16::INSTR"
-            instrument.standard_role_input = "INPUT1"
-            instrument.test_role_input = "INPUT2"
-            instrument.configure_acquisition = Mock()
-            batch = [
-                {"value": value, "timestamp": float(index), "is_stable": True}
-                for index, value in enumerate(
-                    [1.0, 1.001, 0.999],
-                    start=1,
-                )
-            ]
-            ti_batch = [
-                {**point, "value": point["value"] * 2}
-                for point in batch
-            ]
-            async def take_shared_batches(
-                std_reader,
-                ti_reader,
-                sample_count,
-                *,
-                inter_sample_delay,
-                on_sample,
-            ):
-                for sample_index, point in enumerate(batch, start=1):
-                    await on_sample("std", point, sample_index)
-                for sample_index, point in enumerate(ti_batch, start=1):
-                    await on_sample("ti", point, sample_index)
-                return batch, ti_batch
+        def read_instrument():
+            events.append(('read', instrument.active_input))
+            return next(values[instrument.active_input])
 
-            consumer._take_shared_5790_batches = AsyncMock(
-                side_effect=take_shared_batches,
-            )
+        instrument.set_input = set_input
+        instrument.read_instrument = read_instrument
+        consumer = CalibrationConsumer()
+        consumer.stop_event.clear()
+        consumer.broadcast = AsyncMock()
+        consumer.save_readings_to_db = AsyncMock()
+        consumer._read_existing_phase_readings = AsyncMock(return_value=[])
+        consumer._buffer_replace_search_window = Mock()
+        consumer._buffer_append_sample = Mock()
+        consumer.set_test_point_failed_status = AsyncMock()
 
-            source = Source()
+        async def broadcast(**kwargs):
+            payload = json.loads(kwargs['text_data'])
+            if stop_after and payload.get('live_physical_sample'):
+                if sum(kind == 'read' for kind, _ in events) >= stop_after:
+                    consumer.stop_event.set()
+        consumer.broadcast.side_effect = broadcast
+
+        async def exercise():
             with patch("api.consumers.asyncio.sleep", new=AsyncMock()):
-                success = await consumer._perform_single_measurement(
-                    "ac_open",
-                    3,
-                    {"current": 0.1, "frequency": 60, "target_tvc": "BOTH"},
-                    False,
-                    None,
-                    source,
-                    instrument,
-                    instrument,
-                    settling_time=0,
+                return await consumer._perform_single_measurement(
+                    'ac_open', 35,
+                    {'current': 0.1, 'frequency': 60, 'target_tvc': 'BOTH', 'id': 7},
+                    False, None, Mock(), instrument, instrument,
                     measurement_params={
-                        "stability_check_method": "sliding_window",
-                        "window": 3,
-                        "threshold_ppm": 10,
-                        "max_attempts": 10,
-                        "f5790_inter_sample_delay": 0,
+                        'stability_check_method': 'sliding_window',
+                        'window': 30, 'threshold_ppm': 3,
+                        'max_attempts': max_attempts,
+                        'f5790_inter_sample_delay': 0,
+                        'ignore_instability_after_lock': bypass,
                     },
+                    cycle_index=cycle,
                 )
-            return consumer, success, instrument, source
+        try:
+            success = asyncio.run(exercise())
+        except asyncio.CancelledError:
+            success = 'cancelled'
+        messages = [json.loads(call.kwargs['text_data'])
+                    for call in consumer.broadcast.await_args_list]
+        consumer.stop_event.clear()
+        return consumer, success, events, messages
 
-        consumer, success, instrument, source = asyncio.run(run_measurement())
+    def test_shared_5790a_and_b_clean_window_does_not_duplicate_acquisition(self):
+        for reader_class in (Instrument5790A, Instrument5790B):
+            with self.subTest(reader=reader_class.__name__):
+                consumer, success, events, messages = self.run_shared_stability(
+                    [1.0] * 35, [2.0] * 35, reader_class=reader_class,
+                )
+                self.assertTrue(success)
+                self.assertEqual(events, [('select', 'INPUT1')] + [('read', 'INPUT1')] * 35
+                                 + [('select', 'INPUT2')] + [('read', 'INPUT2')] * 35)
+                updates = [m for m in messages if m.get('type') == 'sliding_window_update'
+                           and m.get('reader_role')]
+                for role in ('std', 'ti'):
+                    monitoring = [m for m in updates if m['reader_role'] == role
+                                  and m['phase'] == 'monitoring']
+                    self.assertEqual([m['window_count'] for m in monitoring], list(range(30, 36)))
+                consumer.save_readings_to_db.assert_awaited()
 
+    def test_shared_5790_slides_each_role_before_switching_and_retains_window(self):
+        consumer, success, events, messages = self.run_shared_stability(
+            [1.001] + [1.0] * 35, [2.002, 2.002] + [2.0] * 35,
+        )
         self.assertTrue(success)
-        self.assertEqual(source.last_output, (1.0, 60.0))
-        consumer._take_shared_5790_batches.assert_awaited_once()
-        batch_call = consumer._take_shared_5790_batches.await_args
-        self.assertEqual(batch_call.args, (instrument, instrument, 3))
-        self.assertEqual(batch_call.kwargs["inter_sample_delay"], 0.0)
-        self.assertTrue(callable(batch_call.kwargs["on_sample"]))
-        consumer._take_reader_pair.assert_not_awaited()
+        self.assertEqual(events, [('select', 'INPUT1')] + [('read', 'INPUT1')] * 36
+                         + [('select', 'INPUT2')] + [('read', 'INPUT2')] * 37)
+        saved = {call.args[0]: call.args[1]
+                 for call in consumer.save_readings_to_db.await_args_list}
+        self.assertEqual([p['value'] for p in saved['std_ac_open']], [1.0] * 35)
+        self.assertEqual([p['value'] for p in saved['ti_ac_open']], [2.0] * 35)
+        self.assertTrue(all(p['is_stable'] for points in saved.values() for p in points))
+        searching = [m for m in messages if m.get('phase') == 'searching']
+        self.assertEqual([m['instability_events'] for m in searching], [1, 2, 3])
+        snapshots = [m for m in messages if m.get('window_snapshot')]
+        self.assertEqual(len(snapshots), 73)  # every physical reading streamed
+        self.assertEqual(len(snapshots[-1]['window_snapshot']['std']), 35)
+        self.assertEqual(len(snapshots[-1]['window_snapshot']['ti']), 35)
+        consumer._buffer_replace_search_window.assert_called()
 
-        broadcasts = [
-            json.loads(call.kwargs["text_data"])
-            for call in consumer.broadcast.await_args_list
-        ]
-        live_samples = [
-            payload for payload in broadcasts
-            if payload.get("live_physical_sample")
-        ]
-        self.assertEqual(
-            [payload["reader_role"] for payload in live_samples],
-            ["std", "std", "std", "ti", "ti", "ti"],
-        )
-        self.assertEqual(
-            [payload["count"] for payload in live_samples],
-            [1, 2, 3, 1, 2, 3],
-        )
-        self.assertTrue(all(
-            payload["std_reading"] is not None
-            and payload["ti_reading"] is None
-            for payload in live_samples[:3]
-        ))
-        self.assertTrue(all(
-            payload["std_reading"] is None
-            and payload["ti_reading"] is not None
-            for payload in live_samples[3:]
-        ))
+    def test_shared_5790_first_cycle_aborts_unstable_standard_even_with_bypass(self):
+        for bypass in (False, True):
+            with self.subTest(bypass=bypass):
+                consumer, success, events, messages = self.run_shared_stability(
+                    [1.0, 1.001] * 30, [], bypass=bypass,
+                )
+                self.assertFalse(success)
+                self.assertEqual(sum(k == 'read' for k, _ in events), 39)
+                self.assertNotIn(('select', 'INPUT2'), events)
+                consumer.save_readings_to_db.assert_not_awaited()
+                self.assertEqual([m['instability_events'] for m in messages
+                                  if m.get('phase') == 'searching'], list(range(1, 11)))
+                self.assertTrue(any(m.get('type') == 'warning' for m in messages))
 
-        processed_updates = [
-            payload for payload in broadcasts
-            if payload.get("type") == "dual_reading_update"
-            and not payload.get("live_physical_sample")
-        ]
-        self.assertEqual(processed_updates, [])
-        saved = {
-            call.args[0]: call.args[1]
-            for call in consumer.save_readings_to_db.await_args_list
-        }
-        self.assertEqual(len(saved["std_ac_open"]), 3)
-        self.assertEqual(len(saved["ti_ac_open"]), 3)
+    def test_shared_5790_aborts_unstable_ti_without_saving_partial_stage(self):
+        consumer, success, events, messages = self.run_shared_stability(
+            [1.0] * 35, [2.0, 2.002] * 30,
+        )
+        self.assertFalse(success)
+        self.assertEqual(events.count(('read', 'INPUT1')), 35)
+        self.assertEqual(events.count(('read', 'INPUT2')), 39)
+        consumer.save_readings_to_db.assert_not_awaited()
+
+    def test_shared_5790_bypasses_only_followup_cycles_when_enabled(self):
+        for bypass in (False, True):
+            with self.subTest(bypass=bypass):
+                consumer, success, events, messages = self.run_shared_stability(
+                    [1.0, 1.001] * 30, [2.0, 2.002] * 30, bypass=bypass, cycle=2,
+                )
+                self.assertEqual(success, bypass)
+                if bypass:
+                    self.assertEqual(events.count(('read', 'INPUT1')), 35)
+                    self.assertEqual(events.count(('read', 'INPUT2')), 35)
+                    updates = [m for m in messages if m.get('type') == 'sliding_window_update']
+                    self.assertTrue(all(m['phase'] == 'monitoring' for m in updates))
+                    self.assertTrue(all(m['instability_events'] == 0 for m in updates))
+
+    def test_shared_5790_checks_retry_limit_on_final_sample_after_lock(self):
+        for bypass in (False, True):
+            with self.subTest(bypass=bypass):
+                consumer, success, events, messages = self.run_shared_stability(
+                    [1.0] * 34 + [1.001], [2.0] * 35,
+                    bypass=bypass, max_attempts=1,
+                )
+                self.assertEqual(success, bypass)
+                if not bypass:
+                    consumer.save_readings_to_db.assert_not_awaited()
+                    self.assertNotIn(('select', 'INPUT2'), events)
+
+    def test_shared_5790_stop_during_search_does_not_switch_or_save(self):
+        consumer, success, events, messages = self.run_shared_stability(
+            [1.0, 1.001] * 30, [], stop_after=31,
+        )
+        self.assertEqual(success, 'cancelled')
+        self.assertEqual(events.count(('read', 'INPUT1')), 31)
+        self.assertNotIn(('select', 'INPUT2'), events)
+        consumer.save_readings_to_db.assert_not_awaited()
 
     def test_initial_paired_window_is_retained_without_chart_reset(self):
         class Source:
@@ -943,6 +980,22 @@ class SequentialReaderAcquisitionTests(SimpleTestCase):
 
 
 class SequentialLiveBufferTests(SimpleTestCase):
+    def test_shared_role_snapshot_preserves_standard_and_tracks_ti_progress(self):
+        consumer = CalibrationConsumer.__new__(CalibrationConsumer)
+        consumer.session_id = 'shared-5790-role-progress'
+        consumer._buffer_set_stage('ac_open', total=35, cycle_index=1)
+        point = {'value': 1.0, 'timestamp': 1.0, 'is_stable': True}
+        consumer._buffer_replace_search_window(
+            'ac_open', [point] * 35, [point] * 12, 35,
+            cycle_index=1, active_role='ti',
+        )
+        state = _get_live_state(consumer.session_id)
+        self.assertEqual(len(state['liveReadings']['ac_open']), 35)
+        self.assertEqual(len(state['tiLiveReadings']['ac_open']), 12)
+        self.assertEqual(state['collectionProgress'], {'count': 12, 'total': 35})
+        _clear_live_state(consumer.session_id)
+
+
     def tearDown(self):
         _clear_live_state("shared-5790-live-buffer")
 

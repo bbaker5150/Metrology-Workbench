@@ -8,7 +8,6 @@ import re
 from channels.generic.websocket import AsyncWebsocketConsumer
 from asgiref.sync import sync_to_async
 from channels.db import database_sync_to_async
-from collections import deque
 import statistics
 import math
 import numpy as np
@@ -1626,7 +1625,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
         state['collectionProgress'] = {'count': count, 'total': total}
 
     def _buffer_replace_search_window(
-        self, stage, std_points, ti_points, total, cycle_index=None,
+        self, stage, std_points, ti_points, total, cycle_index=None, active_role=None,
     ):
         """Mirror the exact sliding-search window for reconnecting clients.
 
@@ -1652,7 +1651,10 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
         state['liveReadings'][stage] = _to_cached(std_points)
         state['tiLiveReadings'][stage] = _to_cached(ti_points)
-        active_count = len(std_points or []) or len(ti_points or [])
+        active_count = (
+            len(ti_points or []) if active_role == 'ti'
+            else len(std_points or []) or len(ti_points or [])
+        )
         state['collectionProgress'] = {'count': active_count, 'total': total}
 
     def _buffer_record_broadcast(self, payload):
@@ -2719,39 +2721,23 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
             stable_candidate_ti = []
             slide_search_window_before_next = False
 
-           # Treat the first characterization stage like "Cycle 1" (finds lock), 
+            # Treat the first characterization stage like "Cycle 1" (finds lock),
             # and subsequent stages like "Cycle 2+" (bypasses lock to avoid thermal shock aborts).
             is_subsequent_char_stage = ('char' in reading_type_base) and (reading_type_base != 'char_plus1')
 
-            # A shared 5790 must take one complete Standard role batch and one
-            # complete TI role batch per stage. Re-running the initial sliding
-            # gate would repeat the entire physical stage (STD/TI/STD/TI),
-            # despite the requested sample count already being satisfied.
-            # Continue calculating/reporting stability for that batch, but do
-            # not turn it into a second acquisition. The existing bypass-after-
-            # initial behavior remains unchanged for every other topology.
             skip_initial_check = (
                 stability_method == 'sliding_window'
+                and ignore_after_lock
                 and (
-                    use_shared_5790_batches
-                    or (
-                        ignore_after_lock
-                        and (
-                            (cycle_index is not None and cycle_index > 1)
-                            or is_subsequent_char_stage
-                        )
-                    )
+                    (cycle_index is not None and cycle_index > 1)
+                    or is_subsequent_char_stage
                 )
             )
-
-            # --- LOGGING INSTRUMENTATION ---
-            if skip_initial_check and use_shared_5790_batches:
-                print(f"[STABILITY] Monitoring one shared-5790 role batch for stage: {reading_type_base} (Cycle: {cycle_index})", flush=True)
-            elif skip_initial_check:
-                print(f"[STABILITY] Bypassing search phase for stage: {reading_type_base} (Cycle: {cycle_index})", flush=True)
-            else:
-                print(f"[STABILITY] Search phase ENABLED for stage: {reading_type_base} (Cycle: {cycle_index})", flush=True)
-            # -------------------------------
+            print(
+                f"[STABILITY] {'Bypassing' if skip_initial_check else 'Enabling'} "
+                f"search for {reading_type_base} (Cycle: {cycle_index})",
+                flush=True,
+            )
 
             initial_stability_achieved = skip_initial_check
             def calc_ppm(points):
@@ -2789,36 +2775,114 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
 
             # Replaces raw final_std_readings length with the dynamic targeted check
             pair_index = 0
-            pending_reader_pairs = deque()
             shared_5790_sample_delay = max(
                 0.0,
                 float(measurement_params.get('f5790_inter_sample_delay', 1.0)),
             )
 
-            async def stream_shared_5790_sample(role, point, sample_index):
-                """Publish a physical shared-5790 reading as soon as it arrives."""
-                std_point = point if role == 'std' else None
-                ti_point = point if role == 'ti' else None
-                self._buffer_append_sample(
-                    reading_type_base,
-                    std_point,
-                    ti_point,
-                    sample_index,
-                    num_samples,
-                    cycle_index=cycle_index,
-                )
-                await self.broadcast(text_data=json.dumps({
-                    'type': 'dual_reading_update',
-                    'std_reading': std_point,
-                    'ti_reading': ti_point,
-                    'count': sample_index,
-                    'stable_count': get_target_length(),
-                    'total': num_samples,
-                    'stage': reading_type_base,
-                    'cycle_index': cycle_index,
-                    'reader_role': role,
-                    'live_physical_sample': True,
-                }))
+            if use_shared_5790_batches:
+                # Gate each physical role while its input remains selected.
+                # Retain the successful search window; never reacquire a whole
+                # STD/TI stage just because the first window was unstable.
+                role_windows = {'std': [], 'ti': []}
+                role_final = {'std': final_std_readings, 'ti': final_ti_readings}
+                role_metrics = {'std': None, 'ti': None}
+
+                async def collect_shared_role(role, reader, input_name, label):
+                    nonlocal instability_events
+                    candidates = role_windows[role]
+                    accepted = role_final[role]
+                    locked = skip_initial_check or stability_method != 'sliding_window'
+                    while len(accepted) < num_samples:
+                        if self.stop_event.is_set():
+                            raise asyncio.CancelledError
+                        value = await self._take_5790_input_reading(
+                            reader, input_name, label,
+                        )
+                        point = {'value': value, 'timestamp': time.time(), 'is_stable': True}
+                        candidates.append(point)
+                        if len(candidates) > window_size:
+                            candidates.pop(0)
+                        gate_ppm = calc_ppm(candidates)
+                        stable = math.isfinite(gate_ppm) and gate_ppm < threshold_ppm
+                        if locked:
+                            accepted.append(point)
+                            if (
+                                stability_method == 'sliding_window'
+                                and not skip_initial_check
+                                and not ignore_after_lock
+                                and not stable
+                            ):
+                                instability_events += 1
+                        elif len(candidates) >= window_size:
+                            if stable:
+                                locked = True
+                                for candidate in candidates:
+                                    candidate['is_stable'] = True
+                                accepted.extend(candidates)
+                            else:
+                                instability_events += 1
+                                point['is_stable'] = False
+
+                        visible = accepted if locked else candidates
+                        role_metrics[role] = calc_ppm(visible) if len(visible) >= 2 else None
+                        phase = 'monitoring' if locked else (
+                            'searching' if len(candidates) >= window_size else 'filling'
+                        )
+                        snapshot = {
+                            key: list(role_final[key] or role_windows[key])
+                            for key in ('std', 'ti')
+                        }
+                        self._buffer_replace_search_window(
+                            reading_type_base, snapshot['std'], snapshot['ti'],
+                            num_samples, cycle_index=cycle_index, active_role=role,
+                        )
+                        await self.broadcast(text_data=json.dumps({
+                            'type': 'dual_reading_update',
+                            'std_reading': point if role == 'std' else None,
+                            'ti_reading': point if role == 'ti' else None,
+                            'count': len(visible), 'stable_count': len(accepted),
+                            'total': num_samples, 'stage': reading_type_base,
+                            'cycle_index': cycle_index, 'reader_role': role,
+                            'live_physical_sample': True, 'window_snapshot': snapshot,
+                        }))
+                        await self.broadcast(text_data=json.dumps({
+                            'type': 'sliding_window_update',
+                            'ppm': role_metrics[role], 'stdev_ppm': role_metrics[role],
+                            'std_stdev_ppm': role_metrics['std'],
+                            'ti_stdev_ppm': role_metrics['ti'],
+                            'is_stable': stable, 'reader_role': role,
+                            'instability_events': instability_events,
+                            'max_retries': max_retries, 'phase': phase,
+                            'window_count': len(visible), 'window_size': window_size,
+                        }))
+                        await self.broadcast(text_data=json.dumps({
+                            'type': 'status_update',
+                            'message': f"{label}: {phase} [{instability_events}/{max_retries}]",
+                        }))
+                        # Check immediately, including the last required sample.
+                        if instability_events >= max_retries:
+                            return False
+                        if len(accepted) < num_samples and shared_5790_sample_delay:
+                            if not await self._wait_for_stop_or_timeout(shared_5790_sample_delay):
+                                raise asyncio.CancelledError
+                    return True
+
+                for role, reader, input_name, label in (
+                    ('std', std_reader_instrument, getattr(std_reader_instrument, 'standard_role_input',
+                                    getattr(self, '_standard_reader_input', 'INPUT1')), 'Standard'),
+                    ('ti', ti_reader_instrument, getattr(ti_reader_instrument, 'test_role_input',
+                                   getattr(self, '_test_reader_input', 'INPUT2')), 'Test instrument'),
+                ):
+                    if instability_events >= max_retries or not await collect_shared_role(role, reader, input_name, label):
+                        if tp_id:
+                            await self.set_test_point_failed_status(tp_id, True)
+                        await self.broadcast(text_data=json.dumps({
+                            'type': 'warning',
+                            'message': f"Test point aborted: Stability limit ({max_retries}) reached.",
+                            'tpKey': f"{test_point_data.get('current')}-{test_point_data.get('frequency')}",
+                        }))
+                        return False
 
             while get_target_length() < num_samples and not self.stop_event.is_set():
                 # 1. Global Abort Check (Applies to both Search and Collection phases)
@@ -2834,31 +2898,19 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                     return False
 
                 # 2. Take Readings (Targeted Instrument Querying)
-                if use_shared_5790_batches:
-                    if not pending_reader_pairs:
-                        std_batch, ti_batch = await self._take_shared_5790_batches(
-                            std_reader_instrument,
-                            ti_reader_instrument,
-                            num_samples,
-                            inter_sample_delay=shared_5790_sample_delay,
-                            on_sample=stream_shared_5790_sample,
-                        )
-                        pending_reader_pairs.extend(zip(std_batch, ti_batch))
-                    std_point, ti_point = pending_reader_pairs.popleft()
-                else:
-                    std_reading_val, ti_reading_val = await self._take_reader_pair(
-                        std_reader_instrument,
-                        ti_reader_instrument,
-                        target_tvc,
-                        reverse_order=bool(pair_index % 2),
-                    )
-                    pair_index += 1
+                std_reading_val, ti_reading_val = await self._take_reader_pair(
+                    std_reader_instrument,
+                    ti_reader_instrument,
+                    target_tvc,
+                    reverse_order=bool(pair_index % 2),
+                )
+                pair_index += 1
 
-                    timestamp = time.time()
+                timestamp = time.time()
 
-                    # None creation protects downstream arrays from bloating with fake points
-                    std_point = {'value': std_reading_val, 'timestamp': timestamp, 'is_stable': True} if std_reading_val is not None else None
-                    ti_point = {'value': ti_reading_val, 'timestamp': timestamp, 'is_stable': True} if ti_reading_val is not None else None
+                # None creation protects downstream arrays from bloating with fake points
+                std_point = {'value': std_reading_val, 'timestamp': timestamp, 'is_stable': True} if std_reading_val is not None else None
+                ti_point = {'value': ti_reading_val, 'timestamp': timestamp, 'is_stable': True} if ti_reading_val is not None else None
                 just_locked_initial_window = False
 
                 if stability_method == 'sliding_window':
@@ -2979,11 +3031,7 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                             'type': 'status_update',
                             'message': (
                                 f"Stdev: {ppm_text} "
-                                + (
-                                    "(complete shared-5790 role batch)"
-                                    if use_shared_5790_batches
-                                    else f"(cycle {cycle_index}, initial check skipped)"
-                                )
+                                + f"(cycle {cycle_index}, initial check skipped)"
                             ),
                         }))
                     elif len(primary_candidates) >= window_size:
@@ -3143,33 +3191,17 @@ class CalibrationConsumer(AsyncWebsocketConsumer):
                         cycle_index=cycle_index,
                     )
 
-                # Shared-5790 points were already published at the exact time
-                # each physical reading arrived. Re-broadcasting reconstructed
-                # pairs here made both charts appear to fill all at once. The
-                # only follow-up this path needs is a final search-window
-                # snapshot when stability evaluation changed point flags.
-                should_publish_processed_pair = not use_shared_5790_batches
-                should_publish_shared_snapshot = bool(
-                    use_shared_5790_batches
-                    and search_window_snapshot is not None
-                    and not pending_reader_pairs
-                )
-                if should_publish_processed_pair or should_publish_shared_snapshot:
-                    await self.broadcast(text_data=json.dumps({
-                        'type': 'dual_reading_update',
-                        'std_reading': (
-                            None if use_shared_5790_batches else std_point
-                        ),
-                        'ti_reading': (
-                            None if use_shared_5790_batches else ti_point
-                        ),
-                        'count': current_count,
-                        'stable_count': get_target_length(),
-                        'total': num_samples,
-                        'stage': reading_type_base,
-                        'cycle_index': cycle_index,
-                        'window_snapshot': search_window_snapshot,
-                    }))
+                await self.broadcast(text_data=json.dumps({
+                    'type': 'dual_reading_update',
+                    'std_reading': std_point,
+                    'ti_reading': ti_point,
+                    'count': current_count,
+                    'stable_count': get_target_length(),
+                    'total': num_samples,
+                    'stage': reading_type_base,
+                    'cycle_index': cycle_index,
+                    'window_snapshot': search_window_snapshot,
+                }))
 
                 await asyncio.sleep(0.05)
         
