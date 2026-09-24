@@ -54,9 +54,9 @@ it("keeps an explicit Unassigned choice after instruments are defined", () => {
   const data = { uuts: [{ id: "u", measurementAreaNames: ["Bench"], instrument: { functions: [{ unit: "V", ranges: [{ unit: "V" }] }] } }], testPoints: [{ associatedUutIds: ["u"], testPointInfo: { measurementArea: "Bench", parameter: { unit: "", unitSelectionExplicit: true } } }] };
   expect(inheritMissingPointUnits(data)).toBe(data);
 });
-it("unassigns a removed unit without choosing another range's unit", () => {
+it("preserves any explicitly selected unit even when it differs from the instrument", () => {
   const data = { uuts: [{ id: "u", measurementAreaNames: ["Bench"], instrument: { functions: [{ unit: "A", ranges: [{ unit: "A" }] }] } }], testPoints: [{ associatedUutIds: ["u"], testPointInfo: { measurementArea: "Bench", parameter: { unit: "V", unitSelectionExplicit: true } } }] };
-  expect(inheritMissingPointUnits(data).testPoints[0].testPointInfo.parameter).toMatchObject({ unit: "", unavailableUnit: "V" });
+  expect(inheritMissingPointUnits(data).testPoints[0].testPointInfo.parameter).toMatchObject({ unit: "V", unitSelectionExplicit: true });
 });
 
 it('never inherits from an area UUT before assignment, including load and stale IDs', () => {

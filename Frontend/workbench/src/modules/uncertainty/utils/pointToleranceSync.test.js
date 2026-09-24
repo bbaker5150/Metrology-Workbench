@@ -40,3 +40,16 @@ it("does not select empty editor drafts as unlimited ranges", () => {
   const withSpec = syncPointTolerances({...before,uuts:[uut([unbounded])]},before);
   expect(withSpec.testPoints[0].uutTolerance.rangeId).toBe("draft");
 });
+
+it("retains an explicitly selected range across bias edits for prefixed or conflicting point units", () => {
+  const original = uut([range("v", "V", 1)]);
+  const before = { uuts: [original], testPoints: [point(1, "mV", { rangeId: "v" }), point(2, "A", { rangeId: "v" })] };
+  const edited = structuredClone(original);
+  edited.instrument.functions[0].ranges[0].tolerances.bias = { value: .1, unit: "V" };
+  const after = syncPointTolerances({ ...before, uuts: [edited] }, before);
+  for (const p of after.testPoints) {
+    expect(p.uutTolerance.rangeId).toBe("v");
+    expect(p.uutTolerance.tolerances.bias.value).toBe(.1);
+    expect(p.uutTolerance.includeResolutionInBudget).toBe(false);
+  }
+});

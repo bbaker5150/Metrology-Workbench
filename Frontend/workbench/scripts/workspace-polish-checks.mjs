@@ -88,7 +88,7 @@ export async function checkWorkspacePolish({ frame, page, saved, until, check })
   }
   await frame.evaluate(() => { document.documentElement.style.zoom = ''; window.dispatchEvent(new Event('resize')); });
   await point.locator('[data-sidebar-column="pfa"]').click();
-  const unit = point.getByRole('combobox', { name: 'Measurement point unit' });
+  const unit = point.getByRole('combobox', { name: 'Measurement point unit', exact: true });
   await unit.click();
   check('measurement point units use the styled picker too', await unit.evaluate(node => getComputedStyle(node).appearance === 'base-select' && node.matches(':open')));
   await capture('polish-point-unit-menu'); await unit.press('Escape');

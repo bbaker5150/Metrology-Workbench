@@ -1,3 +1,4 @@
+import { instrumentUncertaintySources, withInstrumentUncertaintySources } from "../../../utils/instrumentUncertaintySources";
 import { FLUSH_EDITORS } from "../../../hooks/usePageExitRecovery";
 import { readEditorDraft, saveEditorDraft, clearEditorDraft } from "../../../utils/editorRecovery";
 import { BUDGET_COMPONENT_MIME, associateBudgetComponent, canUseInstrumentBudgetComponent, instantiateInstrumentBudgetComponent } from "../../../utils/instrumentBudgetComponents";
@@ -15,7 +16,7 @@ import { setInstrumentDragPreview } from "../../../utils/instrumentDragPreview";
 import { instrumentRowSelectionFromEvent } from "../../../utils/instrumentCellSelection";
 import { SI_PREFIX_OPTIONS, prefixedUnitKey } from "../../../utils/siPrefixes";
 import { updateSharedDynamicDefinition } from "../../../utils/riskCompute";
-import { availableDynamicDefinitions, canUseDynamicDefinition, createDynamicDefinition, dynamicDefinitionLabel, removeDynamicDefinitionFromPicker, validateBudgetEquation } from "../../../utils/dynamicBudgetComponents";
+import { resolveDynamicComponent, availableDynamicDefinitions, canUseDynamicDefinition, createDynamicDefinition, dynamicDefinitionLabel, removeDynamicDefinitionFromPicker, validateBudgetEquation } from "../../../utils/dynamicBudgetComponents";
 import { budgetUnitMismatch } from "../../../utils/incompleteBudget";
 import MeasurementAreaEntry from "../../../components/common/MeasurementAreaEntry";
 import { showFirstInstrumentHint } from "../../../utils/instrumentOnboarding";
@@ -4581,6 +4582,62 @@ const InstrumentDynamicDefinitionFields = ({ definition, onChange }) => {
 // Closing is driven by a click outside the containing table. This keeps the
 // editor open while users move among other table cells or tolerance controls.
 // The close is deferred so a blurred input commits before the editor unmounts.
+// Independent sources share the instrument description, but never participate
+// in range selection. Their own distribution is edited in the table column.
+export const InstrumentUncertaintyRow = ({ source, activeRange, referencePoint, style, onChange, onRemove, renderCustomAfter = () => null }) => {
+  const [editingName, setEditingName] = useState(!source.name);
+  const [openEditor, setOpenEditor] = useState(false);
+  const [name, setName] = useState(source.name || "");
+  useEffect(() => setName(source.name || ""), [source.name]);
+  const kind = source.kind || "parametric";
+  const label = kind === "table" ? "Table" : kind === "equation" ? "Equation" : "Manual";
+  const tolerance = { ...(source.tolerance || {}),
+    tmdeUncertaintyDefinition: kind === "parametric" ? null : source.dynamicDefinition };
+  const resolved = referencePoint && kind !== "parametric" && source.dynamicDefinition
+    ? resolveDynamicComponent({ dynamicOutputId: source.dynamicDefinition.columns?.[0]?.id }, source.dynamicDefinition, referencePoint) : null;
+  const summary = !referencePoint ? label : kind === "parametric"
+    ? getCollapsedSpecRows(tolerance, referencePoint).join("; ") || "Not Set"
+    : resolved?.dynamicSummary || resolved?.pendingReason || label;
+  const commitName = () => { if (name !== source.name) onChange({ ...source, name }); };
+  return <tr className="instrument-function-row instrument-uncertainty-row" data-uncertainty-source-id={source.id} style={style}>
+    {renderCustomAfter("description")}
+    <td className="cell-range">
+      <div className="instrument-source-row-name">
+        {editingName ? <input className="instrument-custom-field-input" aria-label="Uncertainty name" value={name} autoFocus
+          placeholder="Uncertainty name" onChange={event => setName(event.target.value)}
+          onBlur={() => { commitName(); setEditingName(false); }}
+          onKeyDown={event => {
+            if (event.key === "Tab" && !event.shiftKey) { event.preventDefault(); commitName(); setEditingName(false); setOpenEditor(true); }
+            if (event.key === "Enter") { event.preventDefault(); commitName(); setEditingName(false); setOpenEditor(true); }
+          }} /> : <button type="button" className="inline-tolerance-summary" onClick={() => setEditingName(true)}>{source.name || "Uncertainty name"}</button>}
+        <span className="instrument-source-range-note">{kind === "table" ? "(Point Dependent)" : "(Range N/A)"}</span>
+        <button type="button" className="range-row-delete" aria-label={`Remove ${source.name || "uncertainty"}`} onClick={onRemove}>×</button>
+      </div>
+    </td>
+    {renderCustomAfter("range")}
+    <td className="cell-tolerance"><InlineToleranceCell tolerance={tolerance} activeRange={activeRange}
+      referencePoint={referencePoint} biasRole="source" editable summaryOverride={summary}
+      openRequested={openEditor} onOpenRequestHandled={() => setOpenEditor(false)}
+      onCommit={(type, value) => {
+        const updated = applyToleranceCaseChange(tolerance, type, value);
+        const { tmdeUncertaintyDefinition, ...manual } = updated;
+        onChange({ ...source, kind: tmdeUncertaintyDefinition?.kind || "parametric", tolerance: manual,
+          ...(tmdeUncertaintyDefinition ? { dynamicDefinition: tmdeUncertaintyDefinition } : {}) });
+      }} /></td>
+    {renderCustomAfter("tolerance")}
+    <td className="cell-distribution"><InlineDistributionCell
+      divisor={getBandDistDivisor(tolerance)}
+      onChange={distribution => onChange(kind === "parametric" ? { ...source, tolerance: {
+        ...applyBandDistribution(source.tolerance || {}, distribution), bandDistribution: distribution,
+        ...(source.tolerance?.db ? { db: { ...source.tolerance.db, distribution } } : {}),
+      } } : { ...source, dynamicDefinition: { ...source.dynamicDefinition,
+        mode: source.dynamicDefinition?.mode === "standard" ? "tolerance" : source.dynamicDefinition?.mode, distribution } })} /></td>
+    {renderCustomAfter("distribution")}
+    <td className="cell-resolution">N/A</td>
+    {renderCustomAfter("resolution")}
+  </tr>;
+};
+
 export const InlineToleranceCell = ({
   tolerance = {},
   activeRange = {},
@@ -4593,18 +4650,21 @@ export const InlineToleranceCell = ({
   onOpenRequest,
   onOpenRequestHandled,
   onEditingChange,
+  onAddSecondary,
+  summaryOverride,
 }) => {
   const [isEditing, setIsEditing] = useState(openRequested);
   const [selectedSourceId, setSelectedSourceId] = useState(null);
   const [showSourceSettings, setShowSourceSettings] = useState(false);
-  const secondarySources = biasRole === "tmde" ? tolerance.tmdeSecondaryUncertainties || [] : [];
+  const [addingSource, setAddingSource] = useState(false);
+  const secondarySources = biasRole === "tmde" && !onAddSecondary ? tolerance.tmdeSecondaryUncertainties || [] : [];
   const selectedSecondary = secondarySources.find(source => source.id === selectedSourceId);
   const selectedTolerance = selectedSecondary?.tolerance || tolerance;
   const selectedDefinition = selectedSecondary?.dynamicDefinition ||
     (!selectedSecondary && tolerance.tmdeUncertaintyDefinition);
   const selectedType = selectedSecondary?.kind ||
     (!selectedSecondary && selectedDefinition?.kind) || "parametric";
-  const activeBiasRole = selectedSecondary ? null : biasRole;
+  const activeBiasRole = selectedSecondary || biasRole === "source" ? null : biasRole;
   const containerRef = useRef(null);
   const onEditingChangeRef = useRef(onEditingChange);
   const inferredMode = inferToleranceEditorMode(tolerance);
@@ -4689,9 +4749,9 @@ export const InlineToleranceCell = ({
   };
 
   const summaryRows = getCollapsedSpecRows({ ...activeRange, ...tolerance }, referencePoint);
-  const summary = tolerance.tmdeUncertaintyDefinition?.kind
+  const summary = summaryOverride ?? (tolerance.tmdeUncertaintyDefinition?.kind
     ? `${tolerance.tmdeUncertaintyDefinition.kind === "table" ? "Tabular" : "Algebraic"} TMDE uncertainty`
-    : summaryRows[0] || "";
+    : summaryRows[0] || "");
 
   // Read-only surfaces (no save handler) just render the clean summary.
   if (!editable) {
@@ -4699,7 +4759,7 @@ export const InlineToleranceCell = ({
   }
 
   if (!isEditing) {
-    const hasValue = toleranceHasAnyValue(tolerance) || Boolean(tolerance.tmdeUncertaintyDefinition);
+    const hasValue = Boolean(summaryOverride) || toleranceHasAnyValue(tolerance) || Boolean(tolerance.tmdeUncertaintyDefinition);
     const openEditor = (e) => {
       e.stopPropagation();
       setSelectedSourceId(null);
@@ -4841,17 +4901,15 @@ export const InlineToleranceCell = ({
         </div>}
       </div>
       </>}
-      {biasRole === "tmde" && <div className="instrument-source-toolbar">
+      {["tmde", "source"].includes(biasRole) && <div className="instrument-source-toolbar">
         <div className="instrument-source-actions">
           <button type="button" aria-label="Uncertainty settings" title="Uncertainty settings"
-            aria-expanded={showSourceSettings} onClick={() => setShowSourceSettings(value => !value)}>
+            aria-expanded={showSourceSettings} onClick={() => { setAddingSource(false); setShowSourceSettings(value => !value); }}>
             <FontAwesomeIcon icon={faGear} />
           </button>
-          {selectedSecondary && <input className="instrument-source-name" type="text"
-            value={selectedSecondary.name} aria-label="Uncertainty name" placeholder="Uncertainty name"
-            onChange={event => updateSelectedSource({ name: event.target.value })} />}
 
-          {!selectedSecondary && selectedType !== "parametric" && <button type="button"
+
+          {activeBiasRole && !selectedSecondary && selectedType !== "parametric" && <button type="button"
             aria-label="Edit Bias" title="Edit Bias" aria-pressed={showBias}
             onClick={() => {
               if (showBias) {
@@ -4860,14 +4918,17 @@ export const InlineToleranceCell = ({
               }
               setShowBias(value => !value);
             }}>Bias</button>}
-          <button type="button" aria-label="Add a secondary uncertainty" title="Add a secondary uncertainty"
-            onClick={addSecondarySource}><FontAwesomeIcon icon={faPlus} /></button>
+          {onAddSecondary && <button type="button" aria-label="Add a secondary uncertainty" title="Add a secondary uncertainty"
+            onClick={() => { setAddingSource(true); setShowSourceSettings(true); }}><FontAwesomeIcon icon={faPlus} /></button>}
         </div>
         {showSourceSettings && <div className="instrument-source-settings" role="group" aria-label="Uncertainty settings">
           {["parametric", "table", "equation"].map(kind => <button type="button" key={kind}
             className={selectedType === kind ? "is-active" : ""}
-            aria-pressed={selectedType === kind} onClick={() => setSelectedSourceType(kind)}>
-            {kind === "table" ? "Table" : kind === "equation" ? "Equation" : "Default"}
+            aria-pressed={!addingSource && selectedType === kind} onClick={() => {
+              if (addingSource) { onAddSecondary(kind); setShowSourceSettings(false); setIsEditing(false); }
+              else setSelectedSourceType(kind);
+            }}>
+            {kind === "table" ? "Table" : kind === "equation" ? "Equation" : "Manual"}
           </button>)}
           {selectedSecondary && <button type="button" className="instrument-source-remove" onClick={() => {
             onCommit("__replace__", { ...tolerance, tmdeSecondaryUncertainties: secondarySources.filter(source => source.id !== selectedSecondary.id) });
@@ -4933,7 +4994,7 @@ export const InlineToleranceCell = ({
       </> : <>
         <InstrumentDynamicDefinitionFields definition={selectedDefinition || createDynamicDefinition(selectedType, referencePoint || activeRange)}
           onChange={definition => updateSelectedSource(selectedSecondary ? { dynamicDefinition: definition } : { tmdeUncertaintyDefinition: definition })} />
-        {!selectedSecondary && showBias && <div className="instrument-bias-editor">
+        {activeBiasRole && !selectedSecondary && showBias && <div className="instrument-bias-editor">
           <span className="instrument-bias-label">Bias:</span>
           <BiasValueEditor label="Range source bias" value={tolerance.bias}
             unit={activeRange.unit || referencePoint?.unit}
@@ -6164,7 +6225,7 @@ export const countTmdeBudgetUses = (components = [], tmde = {}) => {
   }, 0);
 };
 
-const findUpdatedUutToleranceForPoint = (previousUut, updatedUut, point) => {
+export const findUpdatedUutToleranceForPoint = (previousUut, updatedUut, point) => {
   if (!point?.uutTolerance) return null;
   const previousResolution = resolveUutRangeHelper(
     previousUut,
@@ -6195,7 +6256,10 @@ const findUpdatedUutToleranceForPoint = (previousUut, updatedUut, point) => {
     ) ||
     updatedRanges.find((range) => range._index === previousRange._index);
 
-  return updatedRange || null;
+  return updatedRange ? { ...updatedRange,
+    // This is a point budget choice, never inherited from a master edit.
+    includeResolutionInBudget: point.uutTolerance.includeResolutionInBudget ?? false,
+  } : null;
 };
 
 // --- SHARED HELPER: Calculate Tolerance & Limits (Core Logic) ---
@@ -7849,7 +7913,7 @@ const SummaryDashboard = ({
           </div>
         </div>
         {showFirstInstrumentHint(sessionData, kind, fn.key) && (
-          <div className="instrument-first-hint">Click the <FontAwesomeIcon icon={faPlus} /> <FontAwesomeIcon icon={faTools} /> button to add an instrument.</div>
+          <div className="instrument-first-hint">Click <FontAwesomeIcon icon={faPlus} /> <FontAwesomeIcon icon={faTools} /> to add an instrument <span aria-hidden="true">↑</span></div>
         )}
       </td>
     </tr>
@@ -8085,6 +8149,14 @@ const SummaryDashboard = ({
   // the old per-cell `.range-stack` columns did. Only ever used in onSessionSave
   // mode. Explicit add/delete controls remain independent of the range inputs.
   // `kind` is "uut" | "tmde".
+  const saveInstrumentSources = (item, transform) => {
+    const current = latestSessionDataRef.current.tmdes?.find(entry => sameId(entry.id, item.id)) || item;
+    persistInlineItem("tmde", withInstrumentUncertaintySources(current, transform(instrumentUncertaintySources(current))));
+  };
+  const addInstrumentSource = (item, kind, range) => saveInstrumentSources(item, sources => [...sources, {
+    id: uuidv4(), name: "", kind, tolerance: {},
+    ...(kind !== "parametric" ? { dynamicDefinition: createDynamicDefinition(kind, range, range) } : {}),
+  }]);
   const renderRangeRowCells = (
     kind,
     item,
@@ -8195,6 +8267,7 @@ const SummaryDashboard = ({
           title={(kind === "uut" ? getUutSpecRows(tolerance) : getSpecRows(tolerance))[0]}
         >
           <InlineToleranceCell biasRole={kind}
+            onAddSecondary={kind === "tmde" ? type => addInstrumentSource(item, type, range) : undefined}
             tolerance={tolerance}
             activeRange={range}
             editable
@@ -9612,7 +9685,7 @@ const SummaryDashboard = ({
                       ? specRows.length
                       : 1;
                   const isSelected = selectedTmdeIds.includes(tmde.id);
-                  const showAllRanges = isShowingAllRanges("tmde", tmdeRowKey) || hasBlankRange(ranges);
+                  const showAllRanges = isShowingAllRanges("tmde", tmdeRowKey) || hasBlankRange(ranges) || instrumentUncertaintySources(tmde).length > 0;
                   const visibleRangeRows = getVisibleRangeRows(
                     ranges,
                     activeIndex,
@@ -9625,7 +9698,8 @@ const SummaryDashboard = ({
                   // per-range cell.
                   if (showAllRanges || visibleRangeRows.length > 1 || ranges.length === 1) {
                     const n = visibleRangeRows.length;
-                    const spanRows = n;
+                    const sources = instrumentUncertaintySources(tmde);
+                    const spanRows = n + sources.length;
                     const activeRangeIndex = tmdeRangeIndices[tmdeRowKey] ?? activeIndex;
                     return (
                       <React.Fragment key={tmdeRowKey || idx}>
@@ -9716,6 +9790,14 @@ const SummaryDashboard = ({
                             </tr>
                           );
                         })}
+                      {sources.map(source => <InstrumentUncertaintyRow key={source.id} source={source}
+                            style={functionRowStyle(tmdeFnKey)}
+                            activeRange={activeRange}
+
+                            onChange={updated => saveInstrumentSources(tmde, values => values.map(value => value.id === source.id ? updated : value))}
+                            onRemove={() => saveInstrumentSources(tmde, values => values.filter(value => value.id !== source.id))}
+                            renderCustomAfter={anchor => customColumnsAfter("tmde", customColumnsFor("tmde"), anchor).map(column => <td key={column.key} data-custom-column={`custom:${column.key}`} />)}
+                          />)}
                       </React.Fragment>
                     );
                   }
@@ -9883,6 +9965,7 @@ const SummaryDashboard = ({
                                 <div className="range-stack-row" key={key}>
                                   {onSessionSave ? (
                                     <InlineToleranceCell biasRole="tmde"
+                                      onAddSecondary={type => addInstrumentSource(tmde, type, range)}
                                       tolerance={tolerance}
                                       activeRange={range}
                                       editable={!!onSessionSave}
@@ -11161,6 +11244,15 @@ function DetailedView({
           ? applyTmdeIdentityToPoints(currentSession.testPoints || [], localizedItem)
           : currentSession.testPoints || [],
     };
+    // Refresh every associated point, including points that have not been opened.
+    nextSession.testPoints = nextSession.testPoints.map(point => {
+      const updated = synchronized.uuts.find(item => pointUsesUut(point, item.id) &&
+        currentSession.uuts?.find(previous => sameId(previous.id, item.id)) !== item);
+      if (!updated) return point;
+      const previous = currentSession.uuts.find(item => sameId(item.id, updated.id));
+      const tolerance = findUpdatedUutToleranceForPoint(previous, updated, point);
+      return tolerance ? { ...point, uutTolerance: tolerance } : point;
+    });
     latestSessionDataRef.current = nextSession;
     onSessionSave(nextSession);
     if (
@@ -11685,6 +11777,14 @@ function DetailedView({
     setPendingRangeEditKey(`${itemStateKey(kind, item.id)}:${rangeKey}`);
   };
 
+  const saveInstrumentSources = (item, transform) => {
+    const current = latestSessionDataRef.current.tmdes?.find(entry => sameId(entry.id, item.id)) || item;
+    persistInlineItemDetail("tmde", withInstrumentUncertaintySources(current, transform(instrumentUncertaintySources(current))));
+  };
+  const addInstrumentSource = (item, kind, range) => saveInstrumentSources(item, sources => [...sources, {
+    id: uuidv4(), name: "", kind, tolerance: {},
+    ...(kind !== "parametric" ? { dynamicDefinition: createDynamicDefinition(kind, range, range) } : {}),
+  }]);
   const renderRangeRowCellsDetail = (
     kind,
     item,
@@ -11795,6 +11895,7 @@ function DetailedView({
           title={(kind === "uut" ? getUutSpecRows(tolerance) : getSpecRows(tolerance))[0]}
         >
           <InlineToleranceCell biasRole={kind}
+            onAddSecondary={kind === "tmde" ? type => addInstrumentSource(item, type, range) : undefined}
             referencePoint={getInstrumentToleranceNominal(kind, item, range)}
             tolerance={tolerance}
             activeRange={range}
@@ -12559,7 +12660,7 @@ function DetailedView({
           </div>
         </div>
         {showFirstInstrumentHint(sessionData, kind, fn.key) && (
-          <div className="instrument-first-hint">Click the <FontAwesomeIcon icon={faPlus} /> <FontAwesomeIcon icon={faTools} /> button to add an instrument.</div>
+          <div className="instrument-first-hint">Click <FontAwesomeIcon icon={faPlus} /> <FontAwesomeIcon icon={faTools} /> to add an instrument <span aria-hidden="true">↑</span></div>
         )}
       </td>
     </tr>
@@ -15086,12 +15187,12 @@ function DetailedView({
               </tr>
             ))}
           </tbody>
-          {calcStatus !== "neutral" && (
+          {calcStatus === "mismatch" && (
             <tfoot>
               <tr className="measurement-inputs-match-status">
                 <td colSpan={3} style={{ color: calcStatusStyle.color, backgroundColor: calcStatusStyle.backgroundColor }}>
                   <FontAwesomeIcon icon={calcStatusStyle.icon} />{" "}
-                  {calcStatus === "match" ? "Matches measurement point" : "Does not match measurement point"}
+                  Does not match measurement point
                 </td>
               </tr>
             </tfoot>
@@ -16039,7 +16140,7 @@ function DetailedView({
                       const showAllRanges = isShowingAllRangesDetail(
                         "tmde",
                         tmdeRowKey,
-                      ) || hasBlankRange(ranges);
+                      ) || hasBlankRange(ranges) || instrumentUncertaintySources(masterTmde).length > 0;
                       const visibleRangeRows = getVisibleRangeRows(
                         ranges,
                         activeIndex,
@@ -16060,7 +16161,8 @@ function DetailedView({
                       // first range row.
                       if (showAllRanges || visibleRangeRows.length > 1 || ranges.length === 1) {
                         const n = visibleRangeRows.length;
-                        const spanRows = n;
+                        const sources = instrumentUncertaintySources(masterTmde);
+                    const spanRows = n + sources.length;
                         const activeRangeIndex =
                           tmdeRangeIndices[rangeStateKey] ?? activeIndex;
                         return (
@@ -16182,7 +16284,15 @@ function DetailedView({
                                 </tr>
                               );
                             })}
-                          </React.Fragment>
+                          {sources.map(source => <InstrumentUncertaintyRow key={source.id} source={source}
+                            style={functionBadgeStyle(tmdeFnKey)}
+                            activeRange={activeRange}
+                            referencePoint={getInstrumentToleranceNominal("tmde", masterTmde, activeRange)}
+                            onChange={updated => saveInstrumentSources(masterTmde, values => values.map(value => value.id === source.id ? updated : value))}
+                            onRemove={() => saveInstrumentSources(masterTmde, values => values.filter(value => value.id !== source.id))}
+                            renderCustomAfter={anchor => customColumnsAfter("tmde", customColumnsFor("tmde"), anchor).map(column => <td key={column.key} data-custom-column={`custom:${column.key}`} />)}
+                          />)}
+                      </React.Fragment>
                         );
                       }
 
@@ -16403,6 +16513,7 @@ function DetailedView({
                                     <div className="range-stack-row" key={key}>
                                       {onSessionSave ? (
                                         <InlineToleranceCell biasRole="tmde"
+                                          onAddSecondary={type => addInstrumentSource(masterTmde, type, range)}
                                           referencePoint={getInstrumentToleranceNominal("tmde", masterTmde, range)}
                                           tolerance={tolerance}
                                           activeRange={range}

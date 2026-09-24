@@ -61,6 +61,9 @@ export async function checkSidebarLayoutFollowup({ page, frame = page }) {
   await divider.dblclick();
   check('double click expands instrument tables', !await frame.locator('.results-sidebar').isVisible() && await frame.locator('.results-content').isVisible());
   await divider.dblclick();
+  await frame.locator('.workspace-pane-points:not(.workspace-pane-autofit)').waitFor();
+  check('third state explicitly expands measurement points', await frame.locator('.results-sidebar').isVisible() && !await frame.locator('.results-content').isVisible());
+  await divider.dblclick();
   await frame.locator('.workspace-pane-autofit.workspace-pane-points').waitFor();
   const position = await divider.boundingBox();
   await page.mouse.move(position.x + position.width / 2, position.y + 60);

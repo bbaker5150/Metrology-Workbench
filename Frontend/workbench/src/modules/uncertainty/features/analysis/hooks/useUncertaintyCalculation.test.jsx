@@ -344,3 +344,12 @@ it("keeps manual, tabular and equation components in only their unnamed input bu
  ["a", ["manual"]], ["b", ["table"]], ["c", []], ["d", ["equation"]], [undefined, []],
  ]);
 });
+
+it("keeps a complete budget when the UUT range uses A and its tolerance uses V", async () => {
+  const { result } = renderDirectCalculation({}, { uutTolerance: {
+    unit: "A", min: 0, max: 20, floor: { high: 1, low: -1, unit: "V", distribution: "1.732" },
+  } });
+  await waitFor(() => expect(result.current.calcResults?.calculatedBudgetGroups).toHaveLength(1));
+  expect(result.current.calcResults.calculatedBudgetGroups[0].components).toHaveLength(1);
+  expect(result.current.calcResults.calculatedBudgetGroups[0].components[0].name).toContain("Reference DMM");
+});

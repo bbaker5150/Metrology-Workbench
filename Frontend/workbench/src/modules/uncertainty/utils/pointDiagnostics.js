@@ -1,6 +1,6 @@
-import { toleranceUnitMismatch } from "./incompleteBudget";
+import { toleranceUnitMismatch, budgetUnitMismatch } from "./incompleteBudget";
 import { getPointRequirementOverrides, sessionForPoint } from "./pointRequirements";
-import { resolveDynamicComponents } from "./dynamicBudgetComponents";
+import { resolvePointBudgetComponents } from "./resolvePointBudgetComponents";
 import { getMitigationDiagnostics, explainRiskConstraint } from "./mitigationDiagnostics";
 import {
   calculateDerivedUncertainty,
@@ -109,6 +109,12 @@ export function getPointDiagnosticEntries(
   };
   const unitError = toleranceUnitMismatch(tolerance, nominal.unit, unitSystem);
   if (unitError) add(`UUT tolerance ${unitError} Choose compatible measurement-point and UUT units to calculate limits, uncertainty, and risk.`);
+  const specification = { ...tolerance, ...(tolerance.tolerances || tolerance.tolerance || {}) };
+  const resolutionUnit = specification.resolutionUnit || specification.measuringResolutionUnit || specification.unit;
+  if (filled(specification.resolution ?? specification.measuringResolution)) {
+    const mismatch = budgetUnitMismatch(resolutionUnit, nominal.unit, unitSystem);
+    if (mismatch) add(`UUT resolution ${mismatch}`, "warning");
+  }
   const overrides = getPointRequirementOverrides(point, session);
   if (overrides.length) add(`Point requirements differ from session defaults: ${overrides.map(field => field.sidebarLabel).join(", ")}.`);
   session = sessionForPoint(point, session);
@@ -127,7 +133,7 @@ export function getPointDiagnosticEntries(
     point.tmdeTolerances || [],
     session.tmdes || [],
   );
-  const components = resolveDynamicComponents(point.components, point, session);
+  const components = resolvePointBudgetComponents(point, session);
   components.filter(c => c.dynamicDefinitionId && c.pendingReason).forEach(c => add(`${c.name || "Dynamic uncertainty"}: ${c.pendingReason}`));
   const groups = [];
   if (point.measurementType === "derived") {
@@ -222,6 +228,7 @@ export function getPointDiagnosticEntries(
       }
     }
     for (const source of sources) {
+      if (source.pendingReason) add(`${source.name || "Error source"}: ${source.pendingReason}`);
       if (
         source.missingTolerance ||
         (!filled(source.value) && !filled(source.value_native))

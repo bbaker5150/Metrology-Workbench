@@ -1,3 +1,4 @@
+import { inheritInstrumentUncertaintySources, instrumentUncertaintySources } from "./instrumentUncertaintySources";
 const sameId = (a, b) =>
   a !== undefined &&
   a !== null &&
@@ -67,8 +68,9 @@ export const getInstrumentRangeRows = (
 ) => {
   const instrument = getInstrumentDefinition(source);
   const rows = [];
+  const sources = instrumentUncertaintySources(source);
   const pushRange = (range, fn = null, sourceName = "") => {
-    const annotated = annotateRangeWithFunction(range, fn, rows.length);
+    const annotated = annotateRangeWithFunction(inheritInstrumentUncertaintySources(range, source, sources), fn, rows.length);
     rows.push({
       ...(flattenTolerances
         ? {
@@ -199,6 +201,7 @@ export const flattenRangeSpecs = (range = {}, functionUnit = "", functionMeta = 
       : {}),
 
     ...rawSpecs,
+    ...(range.tmdeSecondaryUncertainties ? { tmdeSecondaryUncertainties: range.tmdeSecondaryUncertainties } : {}),
   };
 };
 
@@ -234,7 +237,7 @@ export const resolveInstrumentSelection = (masterDef = {}, selection = {}) => {
     "",
   );
   const rangeId = firstValue(activeRange.rangeId, activeRange.id, selection.rangeId);
-  const specs = flattenRangeSpecs(activeRange, functionUnit, {
+  const specs = flattenRangeSpecs(inheritInstrumentUncertaintySources(activeRange, masterDef), functionUnit, {
     functionId,
     functionName,
     functionUnit,

@@ -1,3 +1,4 @@
+import { alignEmptyHintArrows } from "../utils/alignEmptyHintArrows";
 import { useLayoutEffect, useState } from "react";
 
 // Measure rendered content without its current column constraints. Auto widths
@@ -9,7 +10,9 @@ export default function useSidebarAutoWidths(rootRef) {
     if (!root) return;
     let frame;
     let disposed = false;
+    const alignHints = () => alignEmptyHintArrows(root);
     const measure = () => {
+      alignHints();
       const host = document.createElement("div");
       host.style.cssText = "position:fixed;left:-100000px;top:0;visibility:hidden;pointer-events:none;width:max-content;contain:layout style;";
       host.setAttribute("aria-hidden", "true");
@@ -70,9 +73,10 @@ export default function useSidebarAutoWidths(rootRef) {
     const observer = new MutationObserver(schedule);
     observer.observe(root, { childList: true, subtree: true, characterData: true });
     window.addEventListener("resize", schedule);
+    root.addEventListener("scroll", alignHints, true);
     document.fonts?.ready.then(schedule);
     schedule();
-    return () => { disposed = true; observer.disconnect(); cancelAnimationFrame(frame); window.removeEventListener("resize", schedule); };
+    return () => { root.removeEventListener("scroll", alignHints, true); disposed = true; observer.disconnect(); cancelAnimationFrame(frame); window.removeEventListener("resize", schedule); };
   });
   return widths;
 }

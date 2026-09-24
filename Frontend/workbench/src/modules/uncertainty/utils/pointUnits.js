@@ -9,11 +9,6 @@ export const inheritMissingPointUnits = (session, previous) => {
   const testPoints = (session.testPoints || []).map((point) => {
     const parameter = point.testPointInfo?.parameter;
     if (!parameter) return point;
-    if (parameter.unitSelectionExplicit && parameter.unit && !getMeasurementAreaUnits(session, point.testPointInfo?.measurementArea || parameter.name).includes(parameter.unit)) {
-      changed = true;
-      return { ...point, uutTolerance: null, testPointInfo: { ...point.testPointInfo,
-        parameter: { ...parameter, unavailableUnit: parameter.unit, unit: "" } } };
-    }
     const ids = point.activeUutId
       ? [point.activeUutId]
       : point.associatedUutIds || [];

@@ -1,6 +1,6 @@
 import { recalculatePointUncertaintyFields } from "./riskCompute";
 import { getInstrumentRangeRows, isDraftInstrumentRange } from "./instrumentFunctionSelection";
-import { getUnitDisplayLabel, unitSystem } from "./uncertaintyMath";
+import { assessRangeCompatibility } from "./tmdeCompatibility";
 const filled = value => value != null && String(value).trim() !== "";
 const sameId = (a, b) => a != null && b != null && String(a) === String(b);
 
@@ -35,23 +35,13 @@ export function syncPointTolerances(session, previous) {
     const candidates = rows.filter(row => {
       if (isDraftInstrumentRange(row)) return false;
       if (parameter.unitSelectionExplicit && !parameter.unit) return false;
-      if (parameter.unit && row.unit) {
-        // Display aliases can coincide across quantities: grams and standard
-        // gravity both render as g. Never use the label alone as unit identity.
-        const pointQuantity = unitSystem.units[parameter.unit]?.quantity;
-        const rangeQuantity = unitSystem.units[row.unit]?.quantity;
-        if (pointQuantity && rangeQuantity && pointQuantity !== rangeQuantity) return false;
-        if (getUnitDisplayLabel(parameter.unit) !== getUnitDisplayLabel(row.unit)) return false;
-      }
-      if (!filled(parameter.value) || !Number.isFinite(Number(parameter.value))) return true;
-      if (!filled(row.min) && !filled(row.max)) return true;
-      return Number(parameter.value) >= Number(row.min) && Number(parameter.value) <= Number(row.max);
+      return assessRangeCompatibility(row, parameter, "UUT range").compatible;
     });
-    const next = candidates.find(row => sameId(row.rangeId ?? row.id, existing?.rangeId ?? existing?.id) &&
+    const next = rows.find(row => sameId(row.rangeId ?? row.id, existing?.rangeId ?? existing?.id) &&
       (!existing?.functionId || sameId(row.functionId, existing.functionId))) || candidates[0] || null;
     const tolerance = next ? {
       ...next,
-      ...(existing?.includeResolutionInBudget !== undefined ? { includeResolutionInBudget: existing.includeResolutionInBudget } : {}),
+      includeResolutionInBudget: existing?.includeResolutionInBudget ?? false,
     } : null;
     if (JSON.stringify(tolerance) === JSON.stringify(existing)) return point;
     updated = true;

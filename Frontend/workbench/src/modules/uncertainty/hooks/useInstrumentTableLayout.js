@@ -1,3 +1,4 @@
+import { alignEmptyHintArrows } from "../utils/alignEmptyHintArrows";
 import { claimWorkspaceSelection } from "../utils/workspaceSelection";
 import { updateInstrumentCellHighlights } from "../utils/instrumentCellSelection";
 import { attachInstrumentPointerDrag } from "../utils/instrumentPointerDrag";
@@ -67,6 +68,11 @@ export default function useInstrumentTableLayout(containerRef) {
     const setProperty = (node, name, value) => {
       if (node.style.getPropertyValue(name) !== value) node.style.setProperty(name, value);
     };
+    const scrollAncestors = [];
+    for (let parent = container.parentElement; parent; parent = parent.parentElement) {
+      if (/(auto|scroll|hidden)/.test(getComputedStyle(parent).overflowY)) scrollAncestors.push(parent);
+    }
+    const tabs = container.closest(".analysis-container")?.querySelector(":scope > .analysis-tabs");
     const syncHeaderOffset = () => {
       if (!container.getClientRects().length) return;
       const zoom = parseFloat(getComputedStyle(table).zoom) || 1;
@@ -76,12 +82,7 @@ export default function useInstrumentTableLayout(containerRef) {
       const rect = container.getBoundingClientRect();
       const containerScale = rect.width / container.offsetWidth || 1;
       let top = 0;
-      for (let parent = container.parentElement; parent; parent = parent.parentElement) {
-        if (/(auto|scroll|hidden)/.test(getComputedStyle(parent).overflowY)) {
-          top = Math.max(top, parent.getBoundingClientRect().top + parent.clientTop);
-        }
-      }
-      const tabs = container.closest(".analysis-container")?.querySelector(":scope > .analysis-tabs");
+      for (const parent of scrollAncestors) top = Math.max(top, parent.getBoundingClientRect().top + parent.clientTop);
       if (tabs) top = Math.max(top, tabs.getBoundingClientRect().bottom);
       const headerHeight = table.tHead?.getBoundingClientRect().height || 0;
       const offset = Math.min(
@@ -150,6 +151,7 @@ export default function useInstrumentTableLayout(containerRef) {
       setProperty(table, "--instrument-live-table-width", `${tableWidth}px`);
       card?.style.removeProperty("--instrument-panel-width");
 
+      alignEmptyHintArrows(table);
       syncHeaderOffset();
       updateInstrumentCellHighlights(table, hoveredRow, hoveredCell);
       selectionOutline.sync();
@@ -176,7 +178,11 @@ export default function useInstrumentTableLayout(containerRef) {
     container.addEventListener("focusin", schedule);
     // Scroll only changes the sticky offset, not column widths. Update it in
     // the scroll event instead of deferring an entire table measurement a frame.
-    const onScroll = () => { syncHeaderOffset(); selectionOutline.sync(); };
+    const onScroll = event => {
+      if (event.target !== document && event.target !== container && !scrollAncestors.includes(event.target)) return;
+      alignEmptyHintArrows(table);
+      syncHeaderOffset(); selectionOutline.sync();
+    };
     window.addEventListener("scroll", onScroll, { capture: true, passive: true });
     window.addEventListener("resize", schedule);
     sync();

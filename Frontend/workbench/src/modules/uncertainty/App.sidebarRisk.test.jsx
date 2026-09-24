@@ -1162,3 +1162,19 @@ test("bias columns show live UUT and each TMDE's authored native bias separately
   rerender(<SidebarPointItem {...props} requirementSession={nextSession} />);
   expect(container.querySelector('[data-sidebar-column="tmdeBias"]')).toHaveTextContent('Voltage: -0.05 V');
 });
+
+test("commits the edited value when tabbing through both unit controls and leaving the cell", () => {
+  const onSave = vi.fn();
+  const { container } = render(<SidebarPointItem point={{ id: "p", testPointInfo: { parameter: { value: 5, unit: "V" } } }}
+    visibleColumns={{ value: true }} onSave={onSave} onSelect={vi.fn()} />);
+  fireEvent.click(container.querySelector('.point-value-number'));
+  const input = screen.getByPlaceholderText("Value");
+  const base = screen.getByRole("combobox", { name: "Measurement point unit", exact: true });
+  const prefix = screen.getByRole("combobox", { name: "Measurement point unit prefix", exact: true });
+  fireEvent.change(input, { target: { value: "6" } });
+  fireEvent.blur(input, { relatedTarget: base });
+  fireEvent.blur(base, { relatedTarget: prefix });
+  expect(onSave).not.toHaveBeenCalled();
+  fireEvent.blur(prefix, { relatedTarget: document.body });
+  expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ testPointInfo: { parameter: { value: "6", unit: "V" } } }));
+});

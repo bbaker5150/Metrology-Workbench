@@ -1,41 +1,38 @@
 import React, { useState } from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { expect, it } from "vitest";
-import { InlineToleranceCell, applyToleranceCaseChange, getTmdeAccuracyReadiness } from "./UncertaintyPanel";
+import { InstrumentUncertaintyRow, InlineToleranceCell, applyToleranceCaseChange, getTmdeAccuracyReadiness } from "./UncertaintyPanel";
 
-it("authors primary and secondary TMDE sources in one expanded cell", () => {
+it("chooses a source type before creating an independent row and tabs from its name into the editor", () => {
   let saved;
   function Harness() {
-    const [tolerance, setTolerance] = useState({});
-    saved = tolerance;
-    return <InlineToleranceCell tolerance={tolerance} activeRange={{ id: "r", unit: "V" }}
-      referencePoint={{ value: 10, unit: "V" }} biasRole="tmde" editable openRequested
-      onCommit={(type, value) => setTolerance(previous => applyToleranceCaseChange(previous, type, value))} />;
+    const [source, setSource] = useState(null);
+    saved = source;
+    return <table><tbody><tr><td><InlineToleranceCell tolerance={{}} activeRange={{ unit: "V" }} biasRole="tmde" editable openRequested
+      onCommit={() => {}} onAddSecondary={kind => setSource({ id: "source", name: "", kind, tolerance: {} })} /></td></tr>
+      {source && <InstrumentUncertaintyRow source={source} activeRange={{ unit: "V" }} onChange={setSource} onRemove={() => setSource(null)} />}
+    </tbody></table>;
   }
   render(<Harness />);
-  expect(screen.getByRole("button", { name: "Add a secondary uncertainty" })).toHaveAttribute("title", "Add a secondary uncertainty");
-  fireEvent.click(screen.getByRole("button", { name: "Uncertainty settings" }));
-  expect(screen.queryByRole("textbox", { name: "Uncertainty name" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Table" }));
-  expect(saved.tmdeUncertaintyDefinition.kind).toBe("table");
-  expect(screen.getByRole("group", { name: "Tabular TMDE uncertainty" })).toBeInTheDocument();
   fireEvent.click(screen.getByRole("button", { name: "Add a secondary uncertainty" }));
-  expect(saved.tmdeSecondaryUncertainties).toHaveLength(1);
-  expect(screen.queryByRole("button", { name: "Bias", exact: true })).toBeNull();
-  fireEvent.change(screen.getByRole("textbox", { name: "Uncertainty name" }), { target: { value: "Thermal Expansion" } });
-  expect(saved.tmdeSecondaryUncertainties[0].name).toBe("Thermal Expansion");
-  fireEvent.click(screen.getByRole("button", { name: "Default", exact: true }));
-  fireEvent.click(screen.getByRole("button", { name: "Secondary uncertainty distribution" }));
-  fireEvent.click(screen.getByRole("option", { name: "Triangular", exact: true }));
-  expect(saved.tmdeSecondaryUncertainties[0].tolerance.bandDistribution).toBe("2.449");
-  expect(saved.tmdeUncertaintyDefinition.distribution).toBe("");
-  fireEvent.click(screen.getByRole("button", { name: "Uncertainty settings", exact: true }));
-  fireEvent.click(screen.getByRole("button", { name: "Equation" }));
-  expect(saved.tmdeSecondaryUncertainties[0]).toMatchObject({ kind: "equation", dynamicDefinition: { kind: "equation" } });
-  fireEvent.click(screen.getByRole("button", { name: "TMDE uncertainty" }));
-  expect(screen.getByRole("group", { name: "Tabular TMDE uncertainty" })).toBeInTheDocument();
-  fireEvent.click(screen.getByRole("button", { name: "+ Thermal Expansion" }));
-  expect(screen.getByRole("group", { name: "Algebraic TMDE uncertainty" })).toBeInTheDocument();
+  expect(saved).toBeNull();
+  expect(screen.queryByRole("textbox", { name: "Uncertainty name" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "Manual", exact: true }));
+  const input = screen.getByRole("textbox", { name: "Uncertainty name" });
+  expect(input).toHaveFocus();
+  fireEvent.change(input, { target: { value: "Thermal Expansion" } });
+  fireEvent.keyDown(input, { key: "Tab" });
+  const row = screen.getByText("(Range N/A)").closest("tr");
+  expect(saved.name).toBe("Thermal Expansion");
+  expect(within(row).getByRole("group", { name: "Tolerance symmetry" })).toBeInTheDocument();
+  expect(within(row).queryByRole("button", { name: "Bias", exact: true })).toBeNull();
+  expect(within(row).getByText("N/A", { exact: true })).toBeInTheDocument();
+  fireEvent.click(within(row).getByRole("button", { name: "Uncertainty settings", exact: true }));
+  fireEvent.click(within(row).getByRole("button", { name: "Equation", exact: true }));
+  expect(saved).toMatchObject({ id: "source", name: "Thermal Expansion", kind: "equation", dynamicDefinition: { kind: "equation" } });
+  expect(within(row).getByRole("group", { name: "Algebraic TMDE uncertainty" })).toBeInTheDocument();
+  fireEvent.click(within(row).getByRole("button", { name: "Remove Thermal Expansion" }));
+  expect(saved).toBeNull();
 });
 
 it("preserves equation variable values while an equation is temporarily incomplete", () => {
@@ -63,4 +60,23 @@ it("accepts an authored tabular TMDE primary when adding its accuracy", () => {
     .toEqual({ ready: true, reason: null });
   expect(getTmdeAccuracyReadiness({ tolerances: { tmdeUncertaintyDefinition: { ...definition, distribution: "" } } }))
     .toEqual({ ready: false, reason: "distribution" });
+});
+
+it("shows Table in overview and the evaluated specification at a measurement point", async () => {
+  const source = { id: "head", name: "Head Height", kind: "table", dynamicDefinition: {
+    id: "table", kind: "table", mode: "standard", measurementUnit: "V", outputUnit: "V",
+    columns: [{ id: "u" }], rows: [{ point: 5, values: { u: { value: .4 } } }],
+  } };
+  let updated;
+  const view = referencePoint => <table><tbody><InstrumentUncertaintyRow source={source}
+    activeRange={{ unit: "V" }} referencePoint={referencePoint} onChange={value => { updated = value; }} onRemove={() => {}} /></tbody></table>;
+  const { rerender } = render(view());
+  expect(screen.getByText("Table", { exact: true })).toBeInTheDocument();
+  expect(screen.getByText("(Point Dependent)")).toBeInTheDocument();
+  rerender(view({ value: 5, unit: "V" }));
+  expect(document.querySelector('.cell-tolerance')).toHaveTextContent('0.4 V');
+  expect(screen.queryByText("Table", { exact: true })).toBeNull();
+  fireEvent.click(screen.getByTitle("Edit distribution"));
+  fireEvent.click(await screen.findByRole("option", { name: /^Rectangular k/ }));
+  expect(updated.dynamicDefinition).toMatchObject({ mode: "tolerance", distribution: "1.732" });
 });

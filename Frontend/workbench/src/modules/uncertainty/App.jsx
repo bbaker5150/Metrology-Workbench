@@ -1,3 +1,4 @@
+import { SI_PREFIX_OPTIONS, prefixedUnitKey } from "./utils/siPrefixes";
 import { getUutBiasDefault, getPointBiasSources } from "./utils/measurementBias";
 import useSidebarAutoWidths from "./hooks/useSidebarAutoWidths";
 import { syncInstrumentBudgetComponents } from "./utils/instrumentBudgetComponents";
@@ -121,6 +122,7 @@ import {
   getTmdeAbsoluteLimits,
   getTmdeAbsoluteLimitEntries,
   getUnitDisplayLabel,
+  unitSystem,
 } from "./utils/uncertaintyMath";
 import {
   getInstrumentRangeRows,
@@ -735,7 +737,7 @@ const getScopedZoomContents = (surface) => {
 const getSidebarValueColumnWidth = (points = []) => {
   const numberWidth = Math.max(3, ...points.map(point => String(point?.testPointInfo?.parameter?.value ?? "").length)) * 8 + 14;
   const unitWidth = Math.max(2, ...points.map(point => getUnitDisplayLabel(point?.testPointInfo?.parameter?.unit || "Units").length)) * 13 + 22;
-  return `${Math.max(128, numberWidth + unitWidth + 25)}px`;
+  return `${Math.max(128, numberWidth + unitWidth + 86)}px`;
 };
 
 const readUiSizingPreferences = () => {
@@ -1011,23 +1013,32 @@ export const SidebarPointItem = ({
   const displayValue = point.testPointInfo?.parameter?.value;
   const displayUnit = point.testPointInfo?.parameter?.unit || "";
 
-  const pointUnitControl = (editing = false) => <span className="point-unit-control" onClick={event => event.stopPropagation()} onPointerDown={event => event.stopPropagation()}>
+  const pointUnitModel = unitSystem.units[displayUnit];
+  const pointBaseUnit = pointUnitModel?.prefixBase || displayUnit;
+  const pointPrefix = pointUnitModel?.prefixKey || "";
+  const pointBaseUnits = [...new Set(Object.keys(unitSystem.units).map(unit => unitSystem.units[unit].prefixBase || unit))];
+  const savePointUnit = (base, prefix, editing) => {
+    const candidate = prefixedUnitKey(base, prefix);
+    const unit = !base ? "" : !prefix ? base : unitSystem.units[candidate]?.prefixBase === base ? candidate : `${prefix}(${base})`;
+    onSave({ ...point, testPointInfo: { ...point.testPointInfo,
+      parameter: { ...point.testPointInfo?.parameter, ...(editing ? { value: tempValue } : {}), unit, unitSelectionExplicit: true, unavailableUnit: undefined } } });
+    if (editing) setEditingField(null);
+  };
+  const pointUnitControl = (editing = false) => <span className="point-unit-control" onClick={event => event.stopPropagation()} onPointerDown={event => event.stopPropagation()}
+    onBlur={event => { if (editing && !event.currentTarget.parentElement?.contains(event.relatedTarget)) commitEdit(); }}>
     <select className="inline-unit-combobox point-unit-select" aria-label="Measurement point unit"
-      title={displayUnit && !unitOptions.includes(displayUnit) ? `${getUnitDisplayLabel(displayUnit)} (unavailable)` : getUnitDisplayLabel(displayUnit || "Units")}
-      style={{ width: `calc(${Math.max(2, getUnitDisplayLabel(displayUnit || "Units").length) * .85}em + 28px)` }}
-      value={displayUnit || ""}
-      onBlur={event => { if (editing && !event.relatedTarget?.closest('.point-edit-affordance')) commitEdit(); }}
-      onChange={event => {
-        const unit = event.target.value;
-        onSave({ ...point, testPointInfo: { ...point.testPointInfo,
-          parameter: { ...point.testPointInfo?.parameter, ...(editing ? { value: tempValue } : {}), unit, unitSelectionExplicit: true, unavailableUnit: undefined } } });
-        if (editing) setEditingField(null);
-      }}>
+      title={getUnitDisplayLabel(pointBaseUnit || "Units")}
+      style={{ width: `calc(${Math.max(2, getUnitDisplayLabel(pointBaseUnit || "Units").length) * .85}em + 28px)` }}
+      value={pointBaseUnit || ""}
+      onChange={event => savePointUnit(event.target.value, pointPrefix, editing)}>
       <option value="">Units</option>
-      {displayUnit && !unitOptions.includes(displayUnit) && <option value={displayUnit} disabled title="Unavailable for this measurement area">{getUnitDisplayLabel(displayUnit)}</option>}
-      {unitOptions.map(unit => <option key={unit} value={unit}>{getUnitDisplayLabel(unit)}</option>)}
+      {pointBaseUnit && !pointBaseUnits.includes(pointBaseUnit) && <option value={pointBaseUnit}>{getUnitDisplayLabel(pointBaseUnit)}</option>}
+      {pointBaseUnits.map(unit => <option key={unit} value={unit}>{getUnitDisplayLabel(unit)}</option>)}
     </select>
-    <FontAwesomeIcon icon={faChevronDown} className="point-unit-chevron" aria-hidden="true" />
+    <select className="inline-unit-combobox point-unit-select point-unit-prefix" aria-label="Measurement point unit prefix"
+      value={pointPrefix} disabled={!pointBaseUnit} onChange={event => savePointUnit(pointBaseUnit, event.target.value, editing)}>
+      {SI_PREFIX_OPTIONS.map(prefix => <option key={prefix.key} value={prefix.key}>{prefix.shortLabel}</option>)}
+    </select>
   </span>;
 
   // The spanning content is absolutely positioned, so measuring it cannot
@@ -6349,19 +6360,20 @@ function App({ showThemeToggle = false }) {
               </div>
             </aside>
             <div className="sidebar-resizer" role="separator" aria-orientation="vertical" tabIndex={0}
-              aria-label="Resize measurement point list" aria-valuetext={sidebarAutoFit ? "Auto-fit measurement points" : workspacePane === "tables" ? "Tables only" : "Free-hand split view"}
+              aria-label="Resize measurement point list" aria-valuetext={sidebarAutoFit ? "Auto-fit measurement points" : workspacePane === "tables" ? "Tables only" : workspacePane === "points" ? "Measurement points only" : "Free-hand split view"}
               onMouseDown={startResizing}
               onDoubleClick={() => {
-                if (sidebarAutoFit) {
-                  setSidebarAutoFit(false);
-                  setWorkspacePane("tables");
-                } else {
-                  setWorkspacePane("split");
-                  setSidebarAutoFit(true);
-                }
+                if (sidebarAutoFit) { setSidebarAutoFit(false); setWorkspacePane("tables"); }
+                else if (workspacePane === "tables") { setSidebarAutoFit(false); setWorkspacePane("points"); }
+                else { setWorkspacePane("split"); setSidebarAutoFit(true); }
               }}
               onKeyDown={event => {
-                if (event.key === "Enter") { event.preventDefault(); if (sidebarAutoFit) { setSidebarAutoFit(false); setWorkspacePane("tables"); } else { setWorkspacePane("split"); setSidebarAutoFit(true); } }
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  if (sidebarAutoFit) { setSidebarAutoFit(false); setWorkspacePane("tables"); }
+                  else if (workspacePane === "tables") { setSidebarAutoFit(false); setWorkspacePane("points"); }
+                  else { setWorkspacePane("split"); setSidebarAutoFit(true); }
+                }
                 if (event.key === "Escape") { event.preventDefault(); setSidebarAutoFit(false); setWorkspacePane("split"); }
                 if (["ArrowLeft", "ArrowRight"].includes(event.key)) {
                   event.preventDefault();
@@ -6373,7 +6385,7 @@ function App({ showThemeToggle = false }) {
                   setSidebarWidth(width => Math.max(300, Math.min(1800, available, width + (event.key === "ArrowLeft" ? -40 : 40))));
                 }
               }}
-              title="Drag for free-hand size. Double-click to auto-fit points; double-click again to show tables." />
+              title={`Drag to resize. Double-click to ${sidebarAutoFit ? "expand instrument tables" : workspacePane === "tables" ? "expand measurement points" : "auto-fit measurement-point columns"}.`} />
             <main className="results-content">
               {displayData ? (
                 <TestPointDetailView

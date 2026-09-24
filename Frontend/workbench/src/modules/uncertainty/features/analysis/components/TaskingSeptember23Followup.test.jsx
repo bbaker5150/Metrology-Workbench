@@ -77,7 +77,7 @@ it("keeps invalid syntax editable after clicking away and collapses after correc
   expect(screen.getByRole("button", { name: "Edit measurement equation" })).toBeInTheDocument();
 });
 
-it.each([[5, "Matches measurement point"], [6, "Does not match measurement point"], [null, null]])("shows the table status for calculated value %s", (calculated, label) => {
+it.each([[5, null], [6, "Does not match measurement point"], [null, null]])("only shows a mismatch row for calculated value %s", (calculated, label) => {
   render(<EquationHarness calculated={calculated} />);
   const table = document.querySelector(".measurement-inputs-table");
   if (label) expect(within(table).getByText(label)).toBeInTheDocument();

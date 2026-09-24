@@ -21642,3 +21642,40 @@ body.light-mode .uncertainty-module .instrument-equipment-table thead th:not(:la
 
 
 .uncertainty-module .instrument-secondary-distribution { display: flex; align-items: center; gap: 8px; padding: 3px 5px; font-size: .72rem; }
+
+/* Range, description, custom-column and resolution editors share the same
+   readable outlines as the tolerance editor, in either theme. */
+.uncertainty-module .instrument-equipment-table {
+  --instrument-control-outline: color-mix(in srgb, var(--text-color) 48%, var(--instrument-function-color, var(--border-color)));
+}
+.uncertainty-module .instrument-equipment-table :is(input, textarea, .inline-unit-base-button, .inline-menu-select-trigger) {
+  border-color: var(--instrument-control-outline);
+}
+.uncertainty-module .instrument-equipment-table .instrument-source-settings button { color: var(--text-color); }
+.uncertainty-module :is(.workspace-pane-points, .workspace-pane-tables) > .sidebar-resizer {
+  background: color-mix(in srgb, var(--primary-color) 18%, var(--component-bg));
+}
+.uncertainty-module :is(.workspace-pane-points, .workspace-pane-tables) > .sidebar-resizer::after { opacity: 1; }
+.uncertainty-module .point-unit-control { display: inline-flex; align-items: center; gap: 3px; width: max-content; }
+.uncertainty-module .point-unit-control .point-unit-prefix { width: 58px; min-width: 58px; flex: 0 0 58px; }
+.uncertainty-module .point-value-with-unit .point-edit-affordance { min-width: max-content; }
+.uncertainty-module .instrument-first-hint { display: flex; align-items: center; justify-content: flex-end; gap: 4px; padding-right: 14px; }
+.uncertainty-module .instrument-first-hint > span { flex: 0 0 24px; text-align: center; }
+
+.uncertainty-module .instrument-source-row-name { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.uncertainty-module .instrument-source-range-note { font-size: .7rem; color: var(--text-color-muted); white-space: nowrap; }
+.uncertainty-module .instrument-source-row-name input { min-width: 140px; width: 16ch; }
+/* Composite sticky headers independently while scrolling large tables. */
+.uncertainty-module .instrument-equipment-table thead th { will-change: transform; transition: none; }
+
+/* Measured against the actual add controls, including scoped zoom. */
+.uncertainty-module .instrument-first-hint { position: relative; }
+.uncertainty-module :is(.measurement-point-empty-hint, .instrument-first-hint) { padding-right: 46px; }
+.uncertainty-module :is(.measurement-point-empty-hint, .instrument-first-hint) > span {
+  position: absolute; left: var(--hint-arrow-left, calc(100% - 26px)); transform: translateX(-50%); width: 24px;
+}
+
+.uncertainty-module .instrument-uncertainty-row .inline-distribution-editor {
+  --distribution-field-width: 118px !important;
+  font-style: normal !important; color: var(--text-color);
+}
