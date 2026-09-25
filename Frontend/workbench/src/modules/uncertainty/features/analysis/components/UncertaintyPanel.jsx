@@ -1,3 +1,7 @@
+import { newMeasurementAreaColor } from "../../../utils/measurementAreaGrouping";
+import MeasurementAreaEmptyHint from "../../../components/common/MeasurementAreaEmptyHint";
+import UncertaintyTypeMenu from "./UncertaintyTypeMenu";
+import { switchBudgetUncertaintyKind } from "../utils/switchBudgetUncertaintyKind";
 import DynamicUncertaintyFields from "./DynamicUncertaintyFields";
 import { instrumentUncertaintySources, withInstrumentUncertaintySources } from "../../../utils/instrumentUncertaintySources";
 import { FLUSH_EDITORS } from "../../../hooks/usePageExitRecovery";
@@ -2771,6 +2775,7 @@ const ResizableInstrumentHeader = ({
       <button
         type="button"
         className="instrument-column-insert-button"
+        popover="manual"
         // Preserve the pressed target until click: blurring an expanded editor
         // can shrink its column and move this button between down and up.
         onMouseDown={(event) => { event.preventDefault(); event.stopPropagation(); }}
@@ -4604,11 +4609,11 @@ export const InlineToleranceCell = ({
   onOpenRequestHandled,
   onEditingChange,
   onAddSecondary,
+  onUncertaintyKindChange,
   summaryOverride,
 }) => {
   const [isEditing, setIsEditing] = useState(openRequested);
   const [selectedSourceId, setSelectedSourceId] = useState(null);
-  const [showSourceSettings, setShowSourceSettings] = useState(false);
   const secondarySources = biasRole === "tmde" && !onAddSecondary ? tolerance.tmdeSecondaryUncertainties || [] : [];
   const selectedSecondary = secondarySources.find(source => source.id === selectedSourceId);
   const selectedTolerance = selectedSecondary?.tolerance || tolerance;
@@ -4665,7 +4670,7 @@ export const InlineToleranceCell = ({
     firstControl?.focus();
   }, [isEditing, selectedType]);
 
-  const dismissToleranceEditor = useCallback(() => { setIsEditing(false); setShowSourceSettings(false); }, []);
+  const dismissToleranceEditor = useCallback(() => { setIsEditing(false); }, []);
   useInlineColumnDismiss({
     expanded: isEditing,
     rootRef: containerRef,
@@ -4699,7 +4704,6 @@ export const InlineToleranceCell = ({
     const openEditor = (e) => {
       e.stopPropagation();
       setSelectedSourceId(null);
-      setShowSourceSettings(false);
       setIsEditing(true);
     };
     return (
@@ -4837,7 +4841,7 @@ export const InlineToleranceCell = ({
         </div>}
       </div>
       </>}
-      {(biasRole === "tmde" || onAddSecondary) && <div className="instrument-source-toolbar">
+      {(biasRole === "tmde" || biasRole === "source" || onAddSecondary || onUncertaintyKindChange) && <div className="instrument-source-toolbar">
         <div className="instrument-source-actions">
           {activeBiasRole && !selectedSecondary && selectedType !== "parametric" && <button type="button"
             aria-label="Edit Bias" title="Edit Bias" aria-pressed={showBias}
@@ -4848,15 +4852,30 @@ export const InlineToleranceCell = ({
               }
               setShowBias(value => !value);
             }}>Bias</button>}
-          {onAddSecondary && <button type="button" aria-label="Add a secondary uncertainty" title="Add a secondary uncertainty" aria-expanded={showSourceSettings}
-            onClick={() => { setShowSourceSettings(value => !value); }}><FontAwesomeIcon icon={faPlus} /></button>}
+          <UncertaintyTypeMenu value={selectedType} onChange={kind => {
+            if (onUncertaintyKindChange) return onUncertaintyKindChange(kind);
+            const definitions = { ...((selectedSecondary || tolerance).uncertaintyTypeDrafts || {}),
+              ...(selectedDefinition ? { [selectedType]: selectedDefinition } : {}) };
+            // Read the active type's distribution, not the inactive manual
+            // snapshot or the destination type's cached distribution.
+            const distribution = selectedDefinition
+              ? selectedDefinition.mode === "standard" ? "1" : selectedDefinition.distribution
+              : getBandDistDivisor(selectedTolerance);
+            const cached = definitions[kind] || (kind !== "parametric"
+              ? createDynamicDefinition(kind, referencePoint || activeRange) : null);
+            const definition = cached && { ...cached, distribution: distribution || "",
+              mode: selectedDefinition?.mode === "standard" ? "standard"
+                : cached.mode === "standard" ? "tolerance" : cached.mode };
+            const { tmdeUncertaintyDefinition: previousDefinition, ...manual } = selectedTolerance;
+            const syncedManual = { ...applyBandDistribution(manual, distribution), bandDistribution: distribution,
+              ...(manual.db ? { db: { ...manual.db, distribution } } : {}) };
+            updateSelectedSource(selectedSecondary
+              ? { kind, tolerance: syncedManual, uncertaintyTypeDrafts: definitions, dynamicDefinition: definition }
+              : { ...syncedManual, uncertaintyTypeDrafts: definitions, tmdeUncertaintyDefinition: definition });
+          }} />
+          {onAddSecondary && <button type="button" aria-label="Add a secondary uncertainty" title="Add a secondary uncertainty"
+            onClick={() => { onAddSecondary("parametric"); setIsEditing(false); }}><FontAwesomeIcon icon={faPlus} /></button>}
         </div>
-        {showSourceSettings && onAddSecondary && <div className="instrument-source-settings" role="group" aria-label="Add uncertainty type">
-          {["parametric", "table", "equation"].map(kind => <button type="button" key={kind}
-            onClick={() => { onAddSecondary(kind); setShowSourceSettings(false); setIsEditing(false); }}>
-            {kind === "table" ? "Table" : kind === "equation" ? "Equation" : "Manual"}
-          </button>)}
-        </div>}
       </div>}
       </div>
       {selectedType === "parametric" ? <>
@@ -4925,10 +4944,10 @@ export const InlineToleranceCell = ({
       </>}
       {secondarySources.length > 0 && <div className="instrument-secondary-pills">
         <button type="button" className={!selectedSecondary ? "instrument-secondary-pill is-active" : "instrument-secondary-pill"}
-          onClick={() => { setSelectedSourceId(null); setShowSourceSettings(false); }}>TMDE uncertainty</button>
+          onClick={() => { setSelectedSourceId(null); }}>TMDE uncertainty</button>
         {secondarySources.map(source => <button type="button" key={source.id}
           className={source.id === selectedSourceId ? "instrument-secondary-pill is-active" : "instrument-secondary-pill"}
-          onClick={() => { setSelectedSourceId(source.id); setShowSourceSettings(false); }}>+ {source.name}</button>)}
+          onClick={() => { setSelectedSourceId(source.id); }}>+ {source.name}</button>)}
       </div>}
     </div>
   );
@@ -7376,7 +7395,7 @@ const SummaryDashboard = ({
       ...sessionData,
       measurementAreaGroups: [
         ...existing,
-        { name: clean, unit: String(unit || "").trim(), ...(kind ? { kind } : {}) },
+        { name: clean, unit: String(unit || "").trim(), color: newMeasurementAreaColor(sessionData), ...(kind ? { kind } : {}) },
       ],
     });
   };
@@ -7835,7 +7854,7 @@ const SummaryDashboard = ({
             {renderFunctionAddButton(kind, fn)}
           </div>
         </div>
-        {showFirstInstrumentHint(sessionData, kind, fn.key) && (
+        {showFirstInstrumentHint(sessionData, kind, fn.key, (kind === "uut" ? groupedUutRows : groupedTmdeRows).filter(row => row.type === "function").map(row => row.fn.key)) && (
           <div className="instrument-first-hint">Click <FontAwesomeIcon icon={faPlus} /> <FontAwesomeIcon icon={faTools} /> to add an instrument <span aria-hidden="true">↑</span></div>
         )}
       </td>
@@ -9062,7 +9081,7 @@ const SummaryDashboard = ({
               {groupedUutRows.length === 0 ? (
                 <tr className="panel-empty-row">
                   <td colSpan={5 + customColumnsFor("uut").length}>
-                    Add a Measurement Area to get started.
+                    <MeasurementAreaEmptyHint />
                   </td>
                 </tr>
               ) : (
@@ -9593,7 +9612,7 @@ const SummaryDashboard = ({
               {groupedTmdeRows.length === 0 ? (
                 <tr className="panel-empty-row">
                   <td colSpan={6 + customColumnsFor("tmde").length}>
-                    Add a Measurement Area to get started.
+                    <MeasurementAreaEmptyHint />
                   </td>
                 </tr>
               ) : (
@@ -12390,7 +12409,7 @@ function DetailedView({
       ...sessionData,
       measurementAreaGroups: [
         ...existing,
-        { name: clean, unit: String(unit || "").trim(), ...(kind ? { kind } : {}) },
+        { name: clean, unit: String(unit || "").trim(), color: newMeasurementAreaColor(sessionData), ...(kind ? { kind } : {}) },
       ],
     });
   };
@@ -12632,7 +12651,7 @@ function DetailedView({
             {renderFunctionAddButton(kind, fn)}
           </div>
         </div>
-        {showFirstInstrumentHint(sessionData, kind, fn.key) && (
+        {showFirstInstrumentHint(sessionData, kind, fn.key, (kind === "uut" ? visibleDetailUutRows : visibleDetailTmdeRows).filter(row => row.type === "function").map(row => row.fn.key)) && (
           <div className="instrument-first-hint">Click <FontAwesomeIcon icon={faPlus} /> <FontAwesomeIcon icon={faTools} /> to add an instrument <span aria-hidden="true">↑</span></div>
         )}
       </td>
@@ -13247,6 +13266,14 @@ function DetailedView({
   };
 
   const handleComponentUpdate = (id, updates, component) => {
+    if (updates.uncertaintyKind) {
+      const saved = (testPointData.components || []).find(row => row.id === id);
+      if (!saved) return;
+      const next = switchBudgetUncertaintyKind({ ...saved, dynamicDefinition: component.dynamicDefinition || saved.dynamicDefinition },
+        updates.uncertaintyKind, updates.referencePoint || uutNominal, updates.typeDraft);
+      onUpdateTestPoint({ components: (testPointData.components || []).map(row => row.id === id ? next : row) });
+      return;
+    }
     if (updates.selectedBudgetRange) {
       const range = updates.selectedBudgetRange;
       const rangeId = range.rangeId ?? range.id ?? "";
@@ -14629,9 +14656,6 @@ function DetailedView({
                       onClick={event => { event.stopPropagation(); onSessionSave(removeDynamicDefinitionFromPicker(latestSessionDataRef.current, definition.id)); }}>×</button>}
                   </div>;
                 })}
-                {[['table', 'Add tabular component', 'Look up uncertainty for a matching measurement point'], ['equation', 'Add equation component', 'Calculate uncertainty from a formula and the measurement point']].map(([kind, label, description]) => <button key={kind} type="button" aria-label={label} style={itemStyle}
-                  onClick={() => { onAddManualComponent?.(budgetTmdePicker.scope || null, kind); setBudgetTmdePicker(null); }}>
-                  <FontAwesomeIcon icon={faPlus} style={{ marginTop: "2px" }}/><span className="budget-add-component-copy"><span>{label}</span><small>{description}</small></span></button>)}
               </>}
               {budgetTmdePicker.canAddRepeatability && (
                 <button
@@ -15277,7 +15301,7 @@ function DetailedView({
               {visibleDetailUutRows.length === 0 ? (
                 <tr className="panel-empty-row">
                   <td colSpan={5 + customColumnsFor("uut").length}>
-                    Add a Measurement Area to get started.
+                    <MeasurementAreaEmptyHint />
                   </td>
                 </tr>
               ) : (
@@ -16067,7 +16091,7 @@ function DetailedView({
                 {visibleDetailTmdeRows.length === 0 ? (
                   <tr className="panel-empty-row">
                     <td colSpan={6 + customColumnsFor("tmde").length}>
-                      Add a Measurement Area to get started.
+                      <MeasurementAreaEmptyHint />
                     </td>
                   </tr>
                 ) : (

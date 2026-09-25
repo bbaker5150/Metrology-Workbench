@@ -44,3 +44,12 @@ describe('SharePoint storage gate authentication', () => {
     expect(store.listExists).not.toHaveBeenCalled();
   });
 });
+
+it('shows the branded loading screen while sign-in is pending', () => {
+  const store = readyStore({ currentUser: () => new Promise(() => {}) });
+  render(<StorageGate store={store}><div>Private workspace</div></StorageGate>);
+  expect(screen.getByRole('status', { name: 'Loading Uncertalytics' })).toBeInTheDocument();
+  expect(screen.getByRole('img', { name: 'NPSL' })).toBeInTheDocument();
+  expect(screen.queryByText(/Checking SharePoint/)).toBeNull();
+  expect(screen.queryByText('Private workspace')).toBeNull();
+});

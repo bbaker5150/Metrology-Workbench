@@ -16,6 +16,15 @@ export async function checkWorkspacePolish({ frame, page, saved, until, check })
   await page.setViewportSize({ width: 1600, height: 1000 });
   const capture = async name => { if (process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await page.screenshot({ path: `${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/${name}.png` }); };
   const divider = frame.getByRole('separator', { name: 'Resize measurement point list' });
+  const columnHeader = frame.locator('.instrument-resizable-header').first();
+  await columnHeader.hover();
+  check('custom column add sits above its vertical divider in the full workspace', await columnHeader.evaluate(header => {
+    const button = header.querySelector('.instrument-column-insert-button');
+    const r = button.getBoundingClientRect(), h = header.getBoundingClientRect();
+    return Math.abs(r.left + r.width / 2 - h.right) < 1.5 && r.bottom <= h.top + 1 &&
+      button.contains(document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2));
+  }));
+  await capture('column-add-above-divider');
   const dividerIsReachable = () => divider.evaluate(node => { const r = node.getBoundingClientRect(); return r.width >= 12 && document.elementFromPoint(r.x + r.width / 2, r.y + 60) === node && getComputedStyle(node, '::after').content.includes('↔'); });
   await divider.dblclick();
   check('auto-fit keeps a visible, directly reachable divider', await dividerIsReachable());
@@ -33,8 +42,8 @@ export async function checkWorkspacePolish({ frame, page, saved, until, check })
   await frame.getByRole('combobox', { name: 'Analysis Session' }).waitFor();
   check('auto-fit mode and fitted column geometry survive refresh', await until(autoFitMatchesColumns));
   await divider.dblclick();
-  check('second divider double-click shows tables at full width and keeps the divider reachable', !await frame.locator('.results-sidebar').isVisible() && await frame.locator('.results-content').isVisible() && await divider.isVisible());
-  check('full-width tables keep a visible, directly reachable divider', await dividerIsReachable());
+  check('second divider double-click shows points at full width and keeps the divider reachable', await frame.locator('.results-sidebar').isVisible() && !await frame.locator('.results-content').isVisible() && await divider.isVisible());
+  check('full-width points keep a visible, directly reachable divider', await dividerIsReachable());
   await divider.focus(); await divider.press('Escape');
   check('keyboard restores the split workspace', await frame.locator('.results-sidebar').isVisible() && await frame.locator('.results-content').isVisible());
   const start = await divider.boundingBox();
@@ -97,9 +106,10 @@ export async function checkWorkspacePolish({ frame, page, saved, until, check })
   check('measurement inputs contain Symbol, Name and Nominal', JSON.stringify(await frame.locator('.measurement-inputs-table thead th').allTextContents()) === JSON.stringify(['Symbol', 'Name', 'Nominal']));
   check('no output row or net bias editor remains', await frame.locator('.measurement-output-row, .measurement-bias-table').count() === 0 && await frame.getByRole('button', { name: 'Edit net measurement system bias', exact: true }).count() === 0);
   await frame.getByRole('button', { name: 'Add component to budget', exact: true }).first().click();
+  check('budget creation offers the manual component entry', await frame.getByRole('button', { name: /^Add manual component/ }).isVisible());
   for (const kind of ['tabular', 'equation']) {
     const item = frame.getByRole('button', { name: `Add ${kind} component`, exact: true });
-    check(`Add ${kind} component uses consistent wording and a description`, await item.locator('small').innerText().then(text => text.length > 20));
+    check(`Add ${kind} creation is handled by the component cog`, await item.count() === 0);
   }
   await frame.locator('.analysis-tabs').click({ position: { x: 5, y: 5 } });
   for (const metric of ['PFA', 'PFR']) {

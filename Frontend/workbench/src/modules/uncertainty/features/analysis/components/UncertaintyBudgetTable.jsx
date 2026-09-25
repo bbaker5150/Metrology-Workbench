@@ -365,6 +365,8 @@ export const InlineManualComponentRow = ({
   ToleranceEditorComponent,
   applyToleranceChange,
   formatToleranceSummary,
+  onKindChange,
+  autoEdit = false,
   onCommit,
   onRemove,
   onMoveUp,
@@ -374,8 +376,8 @@ export const InlineManualComponentRow = ({
   const nameInputRef = useRef(null);
   const draftKey = `manual:${component.id}`;
   const recovered = useRef(readEditorDraft(draftKey));
-  const [editing, setEditing] = useState(Boolean(component.inlineDraft || recovered.current));
-  const [activeField, setActiveField] = useState("name");
+  const [editing, setEditing] = useState(Boolean(autoEdit || component.inlineDraft || recovered.current));
+  const [activeField, setActiveField] = useState(autoEdit ? "tolerance" : "name");
   const [draft, setDraft] = useState(() => recovered.current || getInlineManualDraft(component));
   const draftRef = useRef(draft);
   const pendingFinishRef = useRef(null);
@@ -662,6 +664,10 @@ export const InlineManualComponentRow = ({
         {inputMode === "tolerance" ? (
           ToleranceEditorComponent ? (
             <ToleranceEditorComponent
+              onUncertaintyKindChange={onKindChange ? kind => {
+                clearEditorDraft(draftKey);
+                onKindChange(kind, draftRef.current);
+              } : undefined}
               tolerance={draft.tolerance || {}}
               activeRange={{
                 id: component.id,
@@ -899,6 +905,7 @@ const UncertaintyBudgetTable = ({
   const derivedName = referencePoint?.name || "Derived";
   const isDirect = measurementType === "direct";
   const [uiSigFigs] = useState(4);
+  const [switchedComponentId, setSwitchedComponentId] = useState(null);
   // Per-(sub)budget sig figs are no longer user-configurable — the tables render
   // at a fixed precision. Kept as a helper so existing call sites are untouched.
   const getGroupSigFigs = () => uiSigFigs;
@@ -1136,8 +1143,10 @@ const UncertaintyBudgetTable = ({
     >
       <tbody className="component-group-tbody">
         {labeledComponents.map((component, componentIndex) => {
-          if (component.dynamicDefinitionId) return <DynamicBudgetComponentRow key={component.id} component={component} referencePoint={manualReferencePoint} measurementPoint={manualReferencePoint} showDof={showDof}
-            UnitSelectComponent={UnitSelectComponent} autoEdit={component.id === newDynamicComponentId} onEditorOpened={onDynamicEditorOpened}
+          if (component.dynamicDefinitionId) return <DynamicBudgetComponentRow key={`${component.id}:${component.dynamicDefinition?.kind}`} component={component} referencePoint={manualReferencePoint} measurementPoint={manualReferencePoint} showDof={showDof}
+            UnitSelectComponent={UnitSelectComponent} autoEdit={component.id === newDynamicComponentId || component.id === switchedComponentId} onEditorOpened={onDynamicEditorOpened}
+            onKindChange={!component.tmdeUncertaintySourceId && !component.sourceTmdeId && !component.tmdeBudgetSourceId ? (kind, typeDraft) => { setSwitchedComponentId(component.id); onComponentUpdate?.(component.id,
+              { uncertaintyKind: kind, typeDraft, referencePoint: manualReferencePoint }, component); } : undefined}
             onCommit={dynamicDefinition => onComponentUpdate?.(component.id, { dynamicDefinition }, component)} onRemove={onRemove}
             onMoveUp={() => onMoveComponent?.(component.id, -1)} onMoveDown={() => onMoveComponent?.(component.id, 1)}/>;
           if (isStandaloneManualComponent(component)) {
@@ -1151,6 +1160,9 @@ const UncertaintyBudgetTable = ({
                 ToleranceEditorComponent={ToleranceEditorComponent}
                 applyToleranceChange={applyToleranceChange}
                 formatToleranceSummary={formatToleranceSummary}
+                autoEdit={component.id === switchedComponentId}
+                onKindChange={(kind, typeDraft) => { setSwitchedComponentId(component.id); onComponentUpdate?.(component.id,
+                  { uncertaintyKind: kind, typeDraft, referencePoint: manualReferencePoint }, component); }}
                 onCommit={(inlineManualDraft) =>
                   onComponentUpdate?.(
                     component.id,

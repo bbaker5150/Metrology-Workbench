@@ -91,6 +91,24 @@ export default function useInstrumentTableLayout(containerRef) {
       );
       // Keep scroll-only styling outside the observed table subtree.
       setProperty(container, "--instrument-header-offset", `${offset / (containerScale * zoom)}px`);
+      // Top-layer controls stay above the header without needing padding in
+      // the scrolling container. Keep their DOM ownership in the header for
+      // keyboard navigation, labels and the existing insertion workflow.
+      table.querySelectorAll('.instrument-column-insert-button').forEach(button => {
+        if (!button.showPopover) return;
+        const header = button.closest('th').getBoundingClientRect();
+        const center = header.right;
+        const visible = center >= rect.left && center <= rect.right + 1 && header.bottom > top;
+        if (!visible) { if (button.matches(':popover-open')) button.hidePopover(); return; }
+        button.style.position = 'fixed';
+        button.style.margin = '0';
+        button.style.right = 'auto';
+        button.style.bottom = 'auto';
+        button.style.zoom = String(1 / (containerScale * zoom));
+        button.style.left = `${Math.min(center - 8, rect.right - 17)}px`;
+        button.style.top = `${header.top - 16}px`;
+        if (!button.matches(':popover-open')) button.showPopover();
+      });
     };
     const sync = () => {
       // Hidden tables (and non-layout test renderers) have no geometry to
@@ -183,10 +201,15 @@ export default function useInstrumentTableLayout(containerRef) {
       alignEmptyHintArrows(table);
       syncHeaderOffset(); selectionOutline.sync();
     };
+    const refreshColumnControls = event => {
+      if (event.target.closest?.('th.instrument-resizable-header')) syncHeaderOffset();
+    };
+    table.addEventListener('pointerover', refreshColumnControls);
     window.addEventListener("scroll", onScroll, { capture: true, passive: true });
     window.addEventListener("resize", schedule);
     sync();
     return () => {
+      table.removeEventListener('pointerover', refreshColumnControls);
       table.removeEventListener("pointerover", hover);
       table.removeEventListener("pointermove", hover);
       table.removeEventListener("pointerleave", leave);

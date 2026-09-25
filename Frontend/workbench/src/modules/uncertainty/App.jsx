@@ -1,3 +1,5 @@
+import { newMeasurementAreaColor } from "./utils/measurementAreaGrouping";
+import MeasurementAreaEmptyHint from "./components/common/MeasurementAreaEmptyHint";
 import { UnitSelect } from "./features/analysis/components/UncertaintyPanel";
 import { getUutBiasDefault, getPointBiasSources } from "./utils/measurementBias";
 import useSidebarAutoWidths from "./hooks/useSidebarAutoWidths";
@@ -2313,7 +2315,7 @@ function App({ showThemeToggle = false }) {
     const saved = readUiSizingPreferences().sidebarWidth;
     return Number.isFinite(saved) ? saved : 550;
   });
-  const [workspacePane, setWorkspacePane] = useState(() => readUiSizingPreferences().workspacePane || "split");
+  const [workspacePane, setWorkspacePane] = useState(() => readUiSizingPreferences().workspacePane === "points" ? "points" : "split");
   const [sidebarAutoFit, setSidebarAutoFit] = useState(() => readUiSizingPreferences().sidebarAutoFit || false);
   const [isSessionInfoOpen, setIsSessionInfoOpen] = useState(true);
   const [isRequirementsOpen, setIsRequirementsOpen] = useState(true);
@@ -2697,7 +2699,7 @@ function App({ showThemeToggle = false }) {
     const key = makeMeasurementAreaKey(name);
     const existing = currentSessionData.measurementAreaGroups || [];
     if (!existing.some(area => makeMeasurementAreaKey(area.name) === key)) {
-      updateSession({ ...currentSessionData, measurementAreaGroups: [...existing, { name, unit: "" }] });
+      updateSession({ ...currentSessionData, measurementAreaGroups: [...existing, { name, unit: "", color: newMeasurementAreaColor(currentSessionData) }] });
     }
     setExpandedFunctions(previous => new Set(previous).add(key));
     setNewSidebarArea(null);
@@ -4788,7 +4790,7 @@ function App({ showThemeToggle = false }) {
   }, [currentSessionData, currentTestPoints]);
 
   useLayoutEffect(() => {
-    if (!sidebarAutoFit || workspacePane === "tables") return undefined;
+    if (!sidebarAutoFit) return undefined;
     const container = resultsContainerRef.current;
     const content = container?.querySelector(".measurement-points-table-content");
     if (!container || !content) return undefined;
@@ -6197,9 +6199,7 @@ function App({ showThemeToggle = false }) {
                 </div>
 
                 {sidebarData.length === 0 && (
-                  <div className="measurement-points-empty-state" role="status">
-                    Add a Measurement Area to get started.
-                  </div>
+                  <MeasurementAreaEmptyHint />
                 )}
 
                 <div className="sidebar-points-scroll-wrapper measurement-points-table" role="region" aria-label="Measurement points"
@@ -6313,7 +6313,7 @@ function App({ showThemeToggle = false }) {
                           {renderFunctionPointActions(fnGroup)}
                         </div>
 
-                        {points.length === 0 && (
+                        {points.length === 0 && sidebarData.find(area => !area.isUnassigned && !(area.points || []).length)?.id === fnGroup.id && (
                           <div className="measurement-point-empty-hint">
                             Click + to add a measurement point <span aria-hidden="true">↑</span>
                           </div>
@@ -6337,18 +6337,16 @@ function App({ showThemeToggle = false }) {
               </div>
             </aside>
             <div className="sidebar-resizer" role="separator" aria-orientation="vertical" tabIndex={0}
-              aria-label="Resize measurement point list" aria-valuetext={sidebarAutoFit ? "Auto-fit measurement points" : workspacePane === "tables" ? "Tables only" : workspacePane === "points" ? "Measurement points only" : "Free-hand split view"}
+              aria-label="Resize measurement point list" aria-valuetext={sidebarAutoFit ? "Auto-fit measurement points" : workspacePane === "points" ? "Measurement points only" : "Free-hand split view"}
               onMouseDown={startResizing}
               onDoubleClick={() => {
-                if (sidebarAutoFit) { setSidebarAutoFit(false); setWorkspacePane("tables"); }
-                else if (workspacePane === "tables") { setSidebarAutoFit(false); setWorkspacePane("points"); }
+                if (sidebarAutoFit) { setSidebarAutoFit(false); setWorkspacePane("points"); }
                 else { setWorkspacePane("split"); setSidebarAutoFit(true); }
               }}
               onKeyDown={event => {
                 if (event.key === "Enter") {
                   event.preventDefault();
-                  if (sidebarAutoFit) { setSidebarAutoFit(false); setWorkspacePane("tables"); }
-                  else if (workspacePane === "tables") { setSidebarAutoFit(false); setWorkspacePane("points"); }
+                  if (sidebarAutoFit) { setSidebarAutoFit(false); setWorkspacePane("points"); }
                   else { setWorkspacePane("split"); setSidebarAutoFit(true); }
                 }
                 if (event.key === "Escape") { event.preventDefault(); setSidebarAutoFit(false); setWorkspacePane("split"); }
@@ -6362,7 +6360,7 @@ function App({ showThemeToggle = false }) {
                   setSidebarWidth(width => Math.max(300, Math.min(1800, available, width + (event.key === "ArrowLeft" ? -40 : 40))));
                 }
               }}
-              title={`Drag to resize. Double-click to ${sidebarAutoFit ? "expand instrument tables" : workspacePane === "tables" ? "expand measurement points" : "auto-fit measurement-point columns"}.`} />
+              title={`Drag to resize. Double-click to ${sidebarAutoFit ? "expand measurement points" : "auto-fit measurement-point columns"}.`} />
             <main className="results-content">
               {displayData ? (
                 <TestPointDetailView

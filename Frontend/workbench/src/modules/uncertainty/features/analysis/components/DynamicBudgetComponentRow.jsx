@@ -1,3 +1,4 @@
+import UncertaintyTypeMenu from "./UncertaintyTypeMenu";
 import DynamicUncertaintyFields from "./DynamicUncertaintyFields";
 import { FLUSH_EDITORS } from "../../../hooks/usePageExitRecovery";
 import { readEditorDraft, saveEditorDraft, clearEditorDraft } from "../../../utils/editorRecovery";
@@ -19,6 +20,7 @@ const implicitUnits = (definition, point) => definition && ({ ...definition, mea
 
 export default function DynamicBudgetComponentRow({
   component, referencePoint, measurementPoint = referencePoint, showDof, onCommit, onRemove, onMoveUp, onMoveDown,
+  onKindChange,
   UnitSelectComponent = FallbackUnitSelect, autoEdit = false, onEditorOpened,
 }) {
   const draftKey = `dynamic:${component.id}`;
@@ -191,9 +193,15 @@ export default function DynamicBudgetComponentRow({
             {preview.dynamicSummary || "Not Set"}
           </button>
         ) : (
-          <DynamicUncertaintyFields definition={draft} component={component}
+          <>
+          {onKindChange && <div className="budget-uncertainty-type-toolbar"><UncertaintyTypeMenu value={draft.kind} onChange={kind => {
+            clearEditorDraft(draftKey); dirty.current = false;
+            onKindChange(kind, draftRef.current);
+          }}/></div>}
+          <DynamicUncertaintyFields definition={draft} component={component} showPreview={draft.kind !== "table"}
             referencePoint={referencePoint} measurementPoint={measurementPoint}
             onChange={change} UnitSelectComponent={UnitSelectComponent} />
+          </>
         )}
       </td>
       <td>{distributionEditing ? <select autoFocus className="mini-select budget-inline-distribution" aria-label="Error limit distribution" value={draft.mode === "standard" ? "standard" : draft.distribution}

@@ -223,3 +223,10 @@ it.each(["table", "equation"])("opens collapsed %s rows from cell whitespace and
   expect(remove).toHaveBeenCalledOnce();
   expect(row).not.toHaveClass('is-editing');
 });
+
+it("keeps the tabular editor compact without informational footer text", () => {
+  setup('table');
+  expect(screen.getByLabelText('Uncertainty row 1')).toBeInTheDocument();
+  expect(screen.queryByRole('status')).not.toBeInTheDocument();
+  expect(document.querySelector('.dynamic-editor-footer')).toBeNull();
+});

@@ -87,7 +87,15 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
   await frame.getByRole("button", { name: "Switch to light mode", exact: true }).click();
   const definitionsBefore = new Set((saved().dynamicBudgetDefinitions || []).map(d => d.id));
   await add.first().click();
-  await frame.getByRole("button", { name: "Add tabular component", exact: true }).click();
+  await frame.getByRole("button", { name: /^Add manual component/ }).click();
+  const addedManual = frame.locator('.budget-inline-manual-row.is-editing-name:not(.budget-dynamic-row)');
+  await addedManual.locator('[data-budget-field="tolerance"]').click();
+  await addedManual.getByRole('button', { name: 'Change uncertainty type' }).click();
+  await addedManual.getByRole('button', { name: 'Table', exact: true }).click();
+  const newTable = frame.locator('.budget-dynamic-row.is-editing-tolerance');
+  await newTable.getByRole('button', { name: 'Edit error source name' }).click();
+  await newTable.getByRole('textbox', { name: 'Error source name' }).fill('Temporary switched table');
+  await newTable.getByRole('textbox', { name: 'Error source name' }).press('Enter');
   await until(() => (saved().dynamicBudgetDefinitions || []).some(d => !definitionsBefore.has(d.id)));
   const temporary = saved().dynamicBudgetDefinitions.find(d => !definitionsBefore.has(d.id));
   const temporaryRow = frame.locator(".budget-dynamic-row").filter({ hasText: temporary.name });

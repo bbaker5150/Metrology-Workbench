@@ -112,7 +112,7 @@ export async function checkTaskingFollowup({ frame, page, saved, until, check })
   const header = table.locator('th[data-instrument-column="description"]');
   await header.hover();
   const headerBox = await header.boundingBox(), addBox = await header.locator('.instrument-column-insert-button').boundingBox();
-  check('add-column control stays inside the gap-free header', addBox.y >= headerBox.y && addBox.y+addBox.height <= headerBox.y+headerBox.height);
+  check('add-column control stays above the gap-free header', addBox.y < headerBox.y && addBox.y+addBox.height <= headerBox.y+1);
   await frame.getByRole('button', { name: 'Columns', exact: true }).click();
   check('column-menu headings and borderless Reset share typography', await frame.locator('.point-column-menu-body').evaluate(menu => {
     const heading = [...menu.querySelectorAll('.sidebar-column-order-heading strong')].map(n => getComputedStyle(n));

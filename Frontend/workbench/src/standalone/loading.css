@@ -1,0 +1,13 @@
+.uncertalytics-loading {
+  position: fixed; inset: 0; z-index: 1000; color: #e8eff8;
+  background: radial-gradient(ellipse at 20% 0%, #18354c 0%, #0b1423 60%);
+  font-family: system-ui, sans-serif;
+}
+.uncertalytics-loading-brand { position: absolute; top: clamp(24px, 5vw, 56px); left: clamp(24px, 5vw, 64px); display: flex; align-items: center; gap: 18px; }
+.uncertalytics-loading-brand img { width: 62px; height: 62px; object-fit: contain; }
+.uncertalytics-loading-brand span { font-size: clamp(23px, 3vw, 32px); font-weight: 500; letter-spacing: .025em; }
+.uncertalytics-loading-progress { position: absolute; left: 50%; top: 53%; width: min(220px, 60vw); height: 2px; transform: translateX(-50%); overflow: hidden; background: #54758b44; border-radius: 2px; }
+.uncertalytics-loading-progress span { display: block; width: 45%; height: 100%; background: #61bdf0; animation: uncertalytics-load 1.7s ease-in-out infinite; }
+@keyframes uncertalytics-load { from { transform: translateX(-100%); } to { transform: translateX(325%); } }
+body.light-mode .uncertalytics-loading { color: #162a40; background: radial-gradient(ellipse at 20% 0%, #e1f2fb, #f7f9fc 65%); }
+@media (prefers-reduced-motion: reduce) { .uncertalytics-loading-progress span { animation: none; width: 100%; opacity: .7; } }

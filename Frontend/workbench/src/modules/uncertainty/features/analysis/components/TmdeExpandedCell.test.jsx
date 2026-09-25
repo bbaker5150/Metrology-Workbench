@@ -4,7 +4,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { expect, it } from "vitest";
 import { InstrumentUncertaintyRow, InlineToleranceCell, applyToleranceCaseChange, getTmdeAccuracyReadiness } from "./UncertaintyPanel";
 
-it("chooses a source type before creating an independent row and tabs from its name into the editor", () => {
+it("immediately creates a manual independent row and tabs from its name into the editor", () => {
   let saved;
   function Harness() {
     const [source, setSource] = useState(null);
@@ -16,9 +16,7 @@ it("chooses a source type before creating an independent row and tabs from its n
   }
   render(<Harness />);
   fireEvent.click(screen.getByRole("button", { name: "Add a secondary uncertainty" }));
-  expect(saved).toBeNull();
-  expect(screen.queryByRole("textbox", { name: "Uncertainty name" })).toBeNull();
-  fireEvent.click(screen.getByRole("button", { name: "Manual", exact: true }));
+  expect(saved.kind).toBe("parametric");
   const input = screen.getByRole("textbox", { name: "Uncertainty name" });
   expect(input).toHaveFocus();
   fireEvent.change(input, { target: { value: "Thermal Expansion" } });
@@ -171,4 +169,48 @@ it.each(["table", "equation"])("keeps a new %s name mounted until the uncertaint
   fireEvent.click(summary);
   expect(screen.getByRole("textbox", {name:kind === "table" ? "Measurement point row 1" : "Uncertainty equation"})).toHaveFocus();
   expect(container.querySelector(".instrument-source-row-name")).toHaveTextContent("Long uncertainty name");
+});
+
+it("changes an instrument source type without losing its name, distribution, notes or manual values", () => {
+  let saved;
+  function Harness() {
+    const [source, setSource] = useState({ id: "switch", name: "Thermal", kind: "parametric", notes: "Keep", tolerance: {
+      bandDistribution: "2.000", floor: { high: 2, low: -2, unit: "V", distribution: "2.000" }
+    } });
+    saved = source;
+    return <table><tbody><InstrumentUncertaintyRow source={source} activeRange={{ unit: "V" }} referencePoint={{ value: 5, unit: "V" }} onChange={setSource}/></tbody></table>;
+  }
+  const { container } = render(<Harness/>);
+  fireEvent.click(container.querySelector('.cell-tolerance button'));
+  for (const [label, kind] of [["Table", "table"], ["Equation", "equation"], ["Manual", "parametric"]]) {
+    fireEvent.click(screen.getByRole('button', { name: 'Change uncertainty type' }));
+    fireEvent.click(screen.getByRole('button', { name: label, exact: true }));
+    expect(saved.kind).toBe(kind);
+    expect(saved.name).toBe('Thermal');
+    expect(saved.notes).toBe('Keep');
+    expect(saved.tolerance.bandDistribution).toBe('2.000');
+    expect(container.querySelector('.cell-distribution')).toHaveTextContent('Normal (95.45%)');
+    if (kind !== 'parametric') expect(saved.dynamicDefinition.distribution).toBe('2.000');
+  }
+  expect(saved.tolerance.floor.high).toBe(2);
+});
+
+it.each(["table", "equation"])("retains the active %s distribution instead of a stale manual distribution", initialKind => {
+  let saved;
+  function Harness() {
+    const [source, setSource] = useState({ id: "distribution-switch", name: "Thermal", kind: initialKind,
+      tolerance: { bandDistribution: "2.000", floor: { high: 2, unit: "V", distribution: "2.000" } },
+      dynamicDefinition: { ...createDynamicDefinition(initialKind, { value: 5, unit: "V" }), distribution: "1.414" } });
+    saved = source;
+    return <table><tbody><InstrumentUncertaintyRow source={source} activeRange={{ unit: "V" }} referencePoint={{ value: 5, unit: "V" }} onChange={setSource}/></tbody></table>;
+  }
+  const { container } = render(<Harness/>);
+  fireEvent.click(container.querySelector('.cell-tolerance button'));
+  for (const label of ['Manual', 'Table', 'Equation', 'Manual']) {
+    fireEvent.click(screen.getByRole('button', { name: 'Change uncertainty type' }));
+    fireEvent.click(screen.getByRole('button', { name: label, exact: true }));
+    expect(container.querySelector('.cell-distribution')).toHaveTextContent('U-Shaped');
+    expect(saved.tolerance.floor.distribution).toBe('1.414');
+    if (saved.kind !== 'parametric') expect(saved.dynamicDefinition.distribution).toBe('1.414');
+  }
 });

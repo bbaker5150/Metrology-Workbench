@@ -33,7 +33,7 @@ export async function checkExpandedTmde({ frame, page, saved }) {
   await setTimeout(180);
   assert.deepEqual(await addControl.evaluate(hoverStyle), tableHover, 'plus hover matches the measurement-area table styling');
   const mode = await editor.getByRole('group', { name: 'Tolerance symmetry' }).boundingBox();
-  assert.equal(await editor.getByRole('button', { name: 'Uncertainty settings', exact: true }).count(), 0);
+  assert.equal(await editor.getByRole('button', { name: 'Change uncertainty type', exact: true }).count(), 1);
   const settings = await editor.getByRole('button', { name: 'Add a secondary uncertainty', exact: true }).boundingBox();
   assert.ok(Math.abs(mode.y - settings.y) < 5, 'add control shares the tolerance toolbar');
   const symmetric = await editor.evaluate(el => el.getBoundingClientRect().width);
@@ -48,8 +48,7 @@ export async function checkExpandedTmde({ frame, page, saved }) {
   await page.screenshot({path:'tmp/expanded-tasking/parametric-light.png'});
   console.log('expanded: add secondary');
   await click(editor.getByRole('button', { name: 'Add a secondary uncertainty' }));
-  assert.equal(await table.getByRole('textbox', { name: 'Uncertainty name' }).count(), 0, 'choose type before naming');
-  await click(editor.getByRole('button', { name: 'Manual', exact: true }));
+  assert.equal(await table.getByRole('textbox', { name: 'Uncertainty name' }).count(), 1, 'plus immediately creates a manual source');
   const sourceRow = table.locator('tr[data-uncertainty-source-id]').first();
   const sourceName = sourceRow.getByRole('textbox', { name: 'Uncertainty name' });
   await sourceName.fill('Thermal Expansion');
@@ -74,15 +73,16 @@ export async function checkExpandedTmde({ frame, page, saved }) {
     await click(sourceRow.locator('.cell-tolerance .inline-tolerance-summary'));
     const sourceToolbar = sourceRow.locator('.inline-tolerance-editor');
     await click(sourceToolbar.getByRole('button', { name: 'Add a secondary uncertainty' }));
-    await click(sourceToolbar.getByRole('button', { name: kind, exact: true }));
     const row = table.locator('tr[data-uncertainty-source-id]').last();
     assert.equal(await row.locator('.cell-tolerance .is-empty').textContent(), 'Not Set', 'new dynamic uncertainty uses the common placeholder');
     const name = row.getByRole('textbox', { name: 'Uncertainty name' });
     await name.fill(kind + ' test');
     await name.press('Tab');
     const dynamic = row.locator('.inline-tolerance-editor');
+    await click(dynamic.getByRole('button', { name: 'Change uncertainty type' }));
+    await click(dynamic.getByRole('button', { name: kind, exact: true }));
     const firstValue = dynamic.getByRole('textbox', { name: kind === 'Table' ? 'Measurement point row 1' : 'Uncertainty equation', exact: true });
-    assert.ok(await firstValue.evaluate(el => el === document.activeElement), 'Tab from name focuses the uncertainty value');
+    assert.ok(await firstValue.isVisible(), 'type switch displays the selected uncertainty editor');
     assert.equal(await dynamic.locator('.dynamic-editor-footer').count(), 0, 'instrument editor omits the informational footer');
 
     const plusBounds = await dynamic.getByRole('button', { name: 'Add a secondary uncertainty' }).boundingBox();
@@ -183,8 +183,6 @@ export async function checkExpandedTmde({ frame, page, saved }) {
   await divider.dblclick();
   await frame.locator('.workspace-pane-autofit').waitFor();
   await divider.dblclick();
-  await frame.locator('.workspace-pane-tables:not(.workspace-pane-autofit)').waitFor();
-  await divider.dblclick();
   await frame.locator('.workspace-pane-points:not(.workspace-pane-autofit)').waitFor();
   assert.ok(await divider.evaluate(node => getComputedStyle(node, '::after').opacity === '1'), 'full-width divider remains highlighted');
   await divider.dblclick();
@@ -216,7 +214,6 @@ export async function checkExpandedTmde({ frame, page, saved }) {
   for (const name of ['Delete test A', 'Delete test B']) {
     await click(cell.locator('.inline-tolerance-summary').first());
     await click(editor.getByRole('button', { name: 'Add a secondary uncertainty' }));
-    await click(editor.getByRole('button', { name: 'Manual', exact: true }));
     const row = table.locator('tr[data-uncertainty-source-id]').last();
     const input = row.getByRole('textbox', { name: 'Uncertainty name' });
     await input.fill(name);

@@ -143,6 +143,7 @@ export default function DynamicUncertaintyFields({
               {(draft.mode === "limits" ? ["lowerEquation", "upperEquation"] : ["equation"]).map(key => <div className="dynamic-equation-entry" key={key}>
                 <span>{key === "equation" ? "±" : key === "lowerEquation" ? "Low" : "High"}</span>
                 <input aria-label={key === "equation" ? "Uncertainty equation" : key === "lowerEquation" ? "Low error limit equation" : "High error limit equation"} placeholder="a * x + b" value={draft[key] || ""}
+                  style={{ "--equation-input-width": `calc(${Math.max(12, String(draft[key] || "").length + 1)}ch + 12px)` }}
                   aria-invalid={Boolean(draft[key] && validateBudgetEquation(draft[key]).status === "invalid")}
                   onChange={event => updateEquation(event.target.value, key)}
                   onKeyDown={event => {

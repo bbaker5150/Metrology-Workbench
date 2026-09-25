@@ -1,3 +1,4 @@
+import LoadingScreen from './LoadingScreen';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { setDeviceKeyOverride } from '../modules/uncertainty/utils/deviceKey';
 import { listTitle, CONTAINERS, sharePointInstrumentOwnerKey } from './sharepoint/spStore';
@@ -54,15 +55,14 @@ export default function StorageGate({ store, children }) {
   }, [store]);
 
   if (state.phase === 'ready') return children;
+  if (state.phase === 'checking' || state.phase === 'provisioning') return <LoadingScreen/>;
 
   return (
     <div className="sp-gate" role="status" aria-live="polite">
       <div className="sp-gate-card">
-        <h1>Uncertainty Budget</h1>
+        <h1>Uncertalytics</h1>
 
-        {state.phase === 'checking' && <p>Checking SharePoint storage…</p>}
 
-        {state.phase === 'provisioning' && <p>Creating lists…</p>}
 
         {state.phase === 'needs-setup' && (
           <>

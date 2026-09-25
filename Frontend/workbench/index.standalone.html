@@ -3,7 +3,8 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Uncertainty Budget</title>
+    <title>Uncertalytics</title>
+    <link rel="stylesheet" href="/src/standalone/loading.css" />
     <!--
       Optional per-deployment configuration. Because the built page is a static
       file dropped in a document library, this block can be edited in place
@@ -19,7 +20,10 @@
     -->
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"><div class="uncertalytics-loading" role="status" aria-label="Loading Uncertalytics">
+      <div class="uncertalytics-loading-brand"><img src="/src/assets/navair-seal-384.webp" alt="NPSL"/><span>Uncertalytics</span></div>
+      <div class="uncertalytics-loading-progress" aria-hidden="true"><span></span></div>
+    </div></div>
     <script type="module" src="/src/standalone/main.jsx"></script>
   </body>
 </html>

@@ -19,7 +19,10 @@ export function trackInstrumentOnboarding(session, previous) {
     ? session : { ...session, instrumentOnboarding: state };
 }
 
-export function showFirstInstrumentHint(session, kind, areaKey) {
-  const state = trackInstrumentOnboarding(session).instrumentOnboarding?.[kind];
-  return Boolean(state && !state.completed && state.firstAreaKey === areaKey);
+export function showFirstInstrumentHint(session, kind, areaKey, visibleAreaKeys) {
+  const items = session?.[kind === "uut" ? "uuts" : "tmdes"] || [];
+  const keys = visibleAreaKeys || (session?.measurementAreaGroups || [])
+    .filter(area => !area.kind || area.kind === kind).map(area => makeMeasurementAreaKey(area.name));
+  const firstEmpty = keys.find(key => !items.some(item => instrumentHasMeasurementArea(item, key)));
+  return firstEmpty !== undefined && firstEmpty === areaKey;
 }
