@@ -127,6 +127,23 @@ export async function checkWorkspacePolish({ frame, page, saved, until, check })
   check('Section enters editing on the first click from another selected row', await sectionInput.isVisible() && await sectionInput.evaluate(input => input === document.activeElement));
   await sectionInput.fill('Single click section'); await sectionInput.press('Enter');
   check('Section saves the entered text', await until(async () => (await frame.locator('.point-section').allTextContents()).some(text => text.includes('Single click section')) && saved()?.testPoints?.some(point => point.section === 'Single click section')), JSON.stringify({ sections: await frame.locator('.point-section').allInnerTexts(), saved: saved()?.testPoints?.map(point => ({id: point.id, section: point.section})) }));
+  for (const theme of ['light', 'dark']) {
+    if (theme === 'dark') await frame.getByRole('button', { name: 'Switch to dark mode', exact: true }).click();
+    await frame.locator('.analysis-tabs').hover();
+    const valueMenus = point.locator('.point-unit-control .inline-unit-combobox');
+    check(`Value dropdown borders are hidden at rest in ${theme} mode`, await until(async () => valueMenus.evaluateAll(buttons => buttons.every(button => getComputedStyle(button).borderTopColor === 'rgba(0, 0, 0, 0)'))));
+    for (const index of [0, 1]) {
+      await valueMenus.nth(index).hover();
+      check(`Value ${index === 0 ? 'unit' : 'prefix'} border appears only on its hovered field in ${theme} mode`, await until(async () => valueMenus.evaluateAll((buttons, hovered) => buttons.every((button, i) => (getComputedStyle(button).borderTopColor !== 'rgba(0, 0, 0, 0)') === (i === hovered)), index)));
+    }
+    await frame.locator('.analysis-tabs').hover();
+    check(`Section text matches the other point fields in ${theme} mode`, await frame.locator('.point-grid-item').evaluateAll(rows => rows.every(row => {
+      const section = getComputedStyle(row.querySelector('.point-section'));
+      const value = getComputedStyle(row.querySelector('.point-value-number'));
+      return ['fontFamily', 'fontSize', 'fontWeight', 'lineHeight', 'color'].every(key => section[key] === value[key]) && section.textTransform === 'none';
+    })));
+  }
+  await frame.getByRole('button', { name: 'Switch to light mode', exact: true }).click();
   await point.getByRole('button', { name: 'UUT', exact: true }).click();
   const uutOptions = frame.getByRole('listbox', { name: 'UUT', exact: true });
   const assignedName = await uutOptions.getByRole('option', { selected: true }).innerText();

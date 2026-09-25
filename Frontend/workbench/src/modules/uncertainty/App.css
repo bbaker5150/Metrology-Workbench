@@ -18842,7 +18842,7 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   .measurement-group-container
   .point-grid-item
   .point-section {
-  color: var(--text-color-muted) !important;
+  color: var(--numeric-text) !important;
   text-shadow: none !important;
 }
 
@@ -19273,7 +19273,7 @@ body.dark-mode
   .measurement-group-container
   .point-grid-item:is(.active, .active-point)
   .point-section {
-  color: var(--text-color-muted) !important;
+  color: var(--numeric-text) !important;
   text-shadow: none !important;
 }
 
@@ -21200,7 +21200,9 @@ body.point-columns-dragging .point-column-menu-body .point-column-add > span:las
 /* Shared numeric typography; risk retains its requirement-relative text color. */
 .uncertainty-module { --numeric-text: #000; --point-number-size: 13px; --point-number-weight: 600; }
 body.dark-mode .uncertainty-module { --numeric-text: #fff; }
-.uncertainty-module .point-grid-item > :is(.point-value, .point-metric, .point-risk-metric, .point-requirement-cell) { color: var(--numeric-text); font-size: var(--point-number-size); font-weight: var(--point-number-weight); font-family: inherit; line-height: 18px; text-shadow: none; }
+.uncertainty-module .point-grid-item > :is(.point-section, .point-value, .point-metric, .point-risk-metric, .point-requirement-cell) { color: var(--numeric-text); font-size: var(--point-number-size); font-weight: var(--point-number-weight); font-family: inherit; line-height: 18px; text-shadow: none; }
+.uncertainty-module .point-grid-item .point-section { text-transform: none; }
+.uncertainty-module .point-grid-item .point-section .sidebar-inline-input { color: inherit; text-transform: none; }
 /* Requirement fields reuse the value box, including the mirror overlay and
    area-colored hover/focus treatment. No full-column button or number spinner. */
 .uncertainty-module .point-requirement-cell { display: flex; align-items: center; }
@@ -21886,3 +21888,12 @@ body:not(.light-mode) .uncertainty-module .instrument-equipment-table > thead > 
   width: max-content; min-width: 0; flex-basis: auto;
 }
 .uncertainty-module .point-unit-control .inline-unit-base-button { width: max-content; }
+
+/* Point unit/prefix controls remain plain text until that field is hovered. */
+.uncertainty-module .point-unit-control .inline-unit-combobox {
+  border-color: transparent; background: transparent; box-shadow: none;
+}
+.uncertainty-module .point-unit-control .inline-unit-combobox:hover {
+  border-color: var(--sidebar-function-color, var(--primary-color));
+  background: color-mix(in srgb, var(--sidebar-function-color, var(--primary-color)) 10%, transparent);
+}
