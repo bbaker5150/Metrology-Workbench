@@ -1,3 +1,4 @@
+import DynamicUncertaintyFields from "./DynamicUncertaintyFields";
 import { instrumentUncertaintySources, withInstrumentUncertaintySources } from "../../../utils/instrumentUncertaintySources";
 import { FLUSH_EDITORS } from "../../../hooks/usePageExitRecovery";
 import { readEditorDraft, saveEditorDraft, clearEditorDraft } from "../../../utils/editorRecovery";
@@ -4508,75 +4509,6 @@ const SingleSidedToleranceEditor = ({
   );
 };
 
-const InstrumentDynamicDefinitionFields = ({ definition, onChange }) => {
-  const column = definition.columns?.[0];
-  const rows = definition.rows || [];
-  const setRow = (index, patch) => onChange({ ...definition, rows: rows.map((row, rowIndex) =>
-    rowIndex === index ? { ...row, ...patch } : row) });
-  const setValue = (index, value) => setRow(index, {
-    values: { ...rows[index].values, [column.id]: { ...rows[index].values?.[column.id], value } },
-  });
-  const setEquation = equation => {
-    const validation = validateBudgetEquation(equation);
-    if (validation.status !== "ok") { onChange({ ...definition, equation }); return; }
-    const symbols = validation.variables || [];
-    onChange({ ...definition, equation,
-      pointVariable: symbols.includes(definition.pointVariable) ? definition.pointVariable : symbols[0] || "",
-      variables: Object.fromEntries(symbols.map(symbol => [symbol, definition.variables?.[symbol] || { name: symbol, value: "" }])),
-    });
-  };
-  const validation = definition.kind === "equation" ? validateBudgetEquation(definition.equation || "") : null;
-  return <div className="instrument-dynamic-definition" role="group"
-    aria-label={`${definition.kind === "table" ? "Tabular" : "Algebraic"} TMDE uncertainty`}>
-    <div className="instrument-dynamic-settings">
-      <label>Measurement unit <UnitSelect value={definition.measurementUnit || ""}
-        ariaLabel="TMDE uncertainty measurement unit" width="82px"
-        onChange={measurementUnit => onChange({ ...definition, measurementUnit })} /></label>
-      <label>Output unit <UnitSelect value={definition.outputUnit || ""}
-        ariaLabel="TMDE uncertainty output unit" width="82px"
-        onChange={outputUnit => onChange({ ...definition, outputUnit })} /></label>
-      <label>Interpretation <InlineMenuSelect value={definition.mode === "standard" ? "standard" : "tolerance"}
-        ariaLabel="TMDE uncertainty interpretation" width="118px" showOptionMeta={false}
-        options={[{ value: "tolerance", label: "Error limit" }, { value: "standard", label: "Standard uncertainty" }]}
-        onChange={mode => onChange({ ...definition, mode, distribution: mode === "standard" ? "1" : definition.distribution === "1" ? "1.732" : definition.distribution })} /></label>
-      {definition.mode !== "standard" && <label>Distribution <InlineMenuSelect
-        value={definition.distribution || ""} ariaLabel="TMDE uncertainty distribution"
-        width="138px" options={oldErrorDistributions} showOptionMeta={false}
-        onChange={distribution => onChange({ ...definition, distribution })} /></label>}
-    </div>
-    {definition.kind === "table" ? <div className="instrument-dynamic-table">
-      <div className="instrument-dynamic-table-heading"><span>Measurement</span><span>Uncertainty</span></div>
-      {rows.map((row, index) => <div className="instrument-dynamic-table-row" key={row.id}>
-        <input type="text" inputMode="decimal" aria-label={`TMDE table measurement ${index + 1}`}
-          value={row.point ?? ""} onChange={event => setRow(index, { point: event.target.value })} />
-        <input type="text" inputMode="decimal" aria-label={`TMDE table uncertainty ${index + 1}`}
-          value={row.values?.[column?.id]?.value ?? ""} onChange={event => setValue(index, event.target.value)} />
-        <button type="button" aria-label={`Remove TMDE table row ${index + 1}`}
-          disabled={rows.length === 1} onClick={() => onChange({ ...definition, rows: rows.filter((_, rowIndex) => rowIndex !== index) })}>×</button>
-      </div>)}
-      <button type="button" className="instrument-dynamic-add-row"
-        onClick={() => onChange({ ...definition, rows: [...rows, { id: uuidv4(), point: "", values: {} }] })}>+ Add row</button>
-    </div> : <div className="instrument-dynamic-equation">
-      <label>Uncertainty equation <input type="text" aria-label="TMDE uncertainty equation"
-        value={definition.equation || ""} onChange={event => setEquation(event.target.value)} /></label>
-      {validation?.status === "invalid" && <span role="status" className="instrument-dynamic-warning">{validation.error}</span>}
-      {Object.keys(definition.variables || {}).length > 0 && <label>Measurement variable
-        <InlineMenuSelect value={definition.pointVariable || ""} ariaLabel="TMDE measurement variable"
-          width="100px" showOptionMeta={false}
-          options={Object.keys(definition.variables).map(symbol => ({ value: symbol, label: symbol }))}
-          onChange={pointVariable => onChange({ ...definition, pointVariable })} />
-      </label>}
-      {Object.keys(definition.variables || {}).map(symbol => <label key={symbol}>
-        {symbol === definition.pointVariable ? `${symbol} (measurement)` : symbol}
-        {symbol !== definition.pointVariable && <input type="text" inputMode="decimal"
-          aria-label={`TMDE equation variable ${symbol}`} value={definition.variables[symbol]?.value ?? ""}
-          onChange={event => onChange({ ...definition, variables: { ...definition.variables,
-            [symbol]: { ...definition.variables[symbol], value: event.target.value } } })} />}
-      </label>)}
-    </div>}
-  </div>;
-};
-
 // Two-view tolerance / error-limit cell.
 //   • Read view (default): a compact, clean "±(n %IV + n %FS + n lb)" summary —
 //     only terms that actually carry a value are shown, so the column stays
@@ -4972,8 +4904,9 @@ export const InlineToleranceCell = ({
         {selectedTolerance.bias?.corrected && <span className="instrument-bias-legacy-correction">Saved as corrected; editing the bias makes it active.</span>}
       </div>}
       </> : <>
-        <InstrumentDynamicDefinitionFields definition={selectedDefinition || createDynamicDefinition(selectedType, referencePoint || activeRange)}
-          onChange={definition => updateSelectedSource(selectedSecondary ? { dynamicDefinition: definition } : { tmdeUncertaintyDefinition: definition })} />
+        <DynamicUncertaintyFields definition={selectedDefinition || createDynamicDefinition(selectedType, referencePoint || activeRange)}
+          referencePoint={referencePoint || activeRange} UnitSelectComponent={UnitSelect}
+          onChange={patch => updateSelectedSource(selectedSecondary ? { dynamicDefinition: { ...selectedDefinition, ...patch } } : { tmdeUncertaintyDefinition: { ...selectedDefinition, ...patch } })} />
         {activeBiasRole && !selectedSecondary && showBias && <div className="instrument-bias-editor">
           <span className="instrument-bias-label">Bias:</span>
           <BiasValueEditor label="Range source bias" value={tolerance.bias}

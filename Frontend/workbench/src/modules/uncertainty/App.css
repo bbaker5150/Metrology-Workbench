@@ -21684,3 +21684,49 @@ body.light-mode .uncertainty-module .instrument-equipment-table thead th:not(:la
 }
 
 .uncertainty-module .budget-final-support .bargraph-container { border: none; box-shadow: none; }
+
+.uncertainty-module .instrument-equipment-table .dynamic-budget-editor { --budget-editor-width: 420px; }
+
+/* Shared dynamic controls adopt the surrounding instrument's input treatment. */
+.uncertainty-module .instrument-equipment-table .dynamic-budget-editor {
+  font-family: inherit; font-size: .82rem; padding: 4px 5px;
+}
+.uncertainty-module .instrument-equipment-table .dynamic-budget-editor :is(input, button, th, td, .inline-unit-combobox, .dynamic-inline-field > span, .dynamic-header-unit, .dynamic-editor-preview, .dynamic-bound-value) {
+  font-family: inherit; font-size: .82rem;
+}
+.uncertainty-module .instrument-equipment-table .dynamic-budget-editor input {
+  height: 24px; padding: 2px 5px; box-sizing: border-box;
+  border: 1px solid var(--tolerance-control-outline, var(--border-color)); border-radius: 4px;
+  background: transparent; color: var(--text-color); font-variant-numeric: tabular-nums;
+}
+.uncertainty-module .instrument-equipment-table .dynamic-budget-editor input:is(:hover, :focus) {
+  border-color: var(--function-input-accent, var(--primary-color));
+  background: color-mix(in srgb, var(--function-input-accent, var(--primary-color)) 10%, transparent);
+  outline: none;
+}
+.uncertainty-module .instrument-equipment-table .dynamic-input-table thead th {
+  position: static; top: auto; z-index: auto;
+  font-weight: 600; text-transform: none; letter-spacing: normal;
+}
+.uncertainty-module .instrument-equipment-table .dynamic-budget-editor :is(.dynamic-equation-entry > span, .dynamic-variable-symbol) {
+  color: var(--function-input-accent, var(--primary-color));
+}
+.uncertainty-module .instrument-equipment-table .dynamic-inline-action:is(:hover, :focus-visible) {
+  color: var(--function-input-accent, var(--primary-color));
+  border-color: var(--function-input-accent, var(--primary-color));
+  background: color-mix(in srgb, var(--function-input-accent, var(--primary-color)) 10%, transparent);
+}
+.uncertainty-module .instrument-equipment-table .dynamic-inline-action.dynamic-row-remove:hover { color: var(--status-bad); }
+
+.uncertainty-module .instrument-equipment-table .dynamic-input-table thead tr { background: transparent !important; }
+.uncertainty-module .instrument-equipment-table .dynamic-input-table thead th {
+  white-space: nowrap !important; overflow-wrap: normal; word-break: normal;
+}
+.uncertainty-module .instrument-equipment-table .dynamic-variable-table :is(th, td):first-child { min-width: 66px; }
+
+/* Both header levels use the instrument table's theme colors. */
+.uncertainty-module .instrument-equipment-table > thead > tr > th,
+.uncertainty-module .instrument-equipment-table .dynamic-input-table > thead > tr > th {
+  background: var(--component-bg) !important;
+  color: var(--text-color-muted) !important;
+}

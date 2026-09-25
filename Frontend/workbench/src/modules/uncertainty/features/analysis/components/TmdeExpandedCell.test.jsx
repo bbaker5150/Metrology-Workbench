@@ -1,3 +1,4 @@
+import { createDynamicDefinition } from "../../../utils/dynamicBudgetComponents";
 import React, { useState } from "react";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { expect, it } from "vitest";
@@ -44,10 +45,10 @@ it("preserves equation variable values while an equation is temporarily incomple
       activeRange={{ id: "r", unit: "V" }} onCommit={(type, value) => setTolerance(previous => applyToleranceCaseChange(previous, type, value))} />;
   }
   render(<Harness />);
-  fireEvent.change(screen.getByRole("textbox", { name: "TMDE uncertainty equation" }), { target: { value: "x*a+" } });
+  fireEvent.change(screen.getByRole("textbox", { name: "Uncertainty equation" }), { target: { value: "x*a+" } });
   expect(saved.tmdeUncertaintyDefinition.variables.a.value).toBe(3);
-  fireEvent.change(screen.getByRole("textbox", { name: "TMDE uncertainty equation" }), { target: { value: "x*a+1" } });
-  expect(screen.getByRole("textbox", { name: "TMDE equation variable a" })).toHaveValue("3");
+  fireEvent.change(screen.getByRole("textbox", { name: "Uncertainty equation" }), { target: { value: "x*a+1" } });
+  expect(screen.getByRole("textbox", { name: "a nominal" })).toHaveValue("3");
 });
 
 it("accepts an authored tabular TMDE primary when adding its accuracy", () => {
@@ -88,4 +89,36 @@ it.each(["parametric", "table", "equation"])("shows the same Not Set placeholder
   rerender(view({ value: 5, unit: "V" }));
   expect(container.querySelector(".cell-tolerance .is-empty")).toHaveTextContent("Not Set");
   expect(container.querySelector(".cell-tolerance")).not.toHaveTextContent(/Enter an equation|No table entry/);
+});
+
+it.each(["table", "equation"])("uses budget editor controls and only the adjacent distribution for a %s source", async kind => {
+  let saved;
+  function Harness() {
+    const [source, setSource] = useState({ id: "source", name: "Named source", kind,
+      dynamicDefinition: createDynamicDefinition(kind, { value: 5, unit: "V" }) });
+    saved = source;
+    return <table><tbody><InstrumentUncertaintyRow source={source}
+      activeRange={{ unit: "V" }} referencePoint={{ value: 5, unit: "V" }}
+      onChange={setSource} onRemove={() => {}} onAddSecondary={() => {}} /></tbody></table>;
+  }
+  const { container } = render(<Harness />);
+  fireEvent.click(within(container.querySelector(".cell-tolerance")).getByRole("button", { name: "Set tolerance" }));
+  const editor = container.querySelector(".dynamic-budget-editor");
+  expect(editor).toBeInTheDocument();
+  expect(within(editor).getByRole("group", { name: "Error limit symmetry" })).toBeInTheDocument();
+  expect(within(editor).queryByRole("button", { name: /distribution|interpretation/i })).toBeNull();
+  if (kind === "table") {
+    fireEvent.change(within(editor).getByRole("textbox", { name: "Measurement point row 1" }), { target: { value: "5" } });
+    fireEvent.change(within(editor).getByRole("textbox", { name: "Uncertainty row 1" }), { target: { value: "0.2" } });
+    expect(editor.querySelector(".dynamic-input-table")).toBeInTheDocument();
+  } else {
+    fireEvent.change(within(editor).getByRole("textbox", { name: "Uncertainty equation" }), { target: { value: "x / 25" } });
+    expect(editor.querySelector(".dynamic-variable-table")).toBeInTheDocument();
+  }
+  expect(editor).not.toHaveTextContent("This uncertainty column was removed");
+  fireEvent.click(within(container.querySelector(".cell-distribution")).getByTitle("Set distribution"));
+  fireEvent.click(await screen.findByRole("option", { name: /^Rectangular k/ }));
+  expect(saved.dynamicDefinition.distribution).toBe("1.732");
+  expect(saved.dynamicDefinition.mode).toBe("tolerance");
+  expect(container.querySelector(".cell-tolerance")).toHaveTextContent("0.2 V");
 });

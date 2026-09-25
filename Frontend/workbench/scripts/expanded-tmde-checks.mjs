@@ -14,7 +14,7 @@ export async function checkExpandedTmde({ frame, page, saved }) {
   if (await page.locator('#app').count()) await page.locator('#app').evaluate(el=>el.style.height='1150px');
   const click = async locator => {
     const initial=await locator.boundingBox();
-    if (initial && (initial.y < 150 || initial.y+initial.height > 1050)) await locator.evaluate(el => el.scrollIntoView({block:'center',inline:'nearest',behavior:'instant'}));
+    if (initial && (initial.y < 150 || initial.y+initial.height > 1050 || initial.x < 0 || initial.x + initial.width > 1580)) await locator.evaluate(el => el.scrollIntoView({block:'center',inline:'nearest',behavior:'instant'}));
     const b=await locator.boundingBox();
     assert.ok(b && b.width && b.height);
     await page.mouse.click(b.x+b.width/2,b.y+b.height/2);
@@ -60,10 +60,11 @@ export async function checkExpandedTmde({ frame, page, saved }) {
   assert.ok(await sourceRow.getByText('(Range N/A)', { exact: true }).isVisible());
   assert.equal(await sourceRow.locator('.cell-resolution').textContent(), 'N/A');
   const floor = sourceEditor.locator('.inline-tolerance-term-group').nth(2).locator('input').first();
-  await floor.fill('0.3'); await floor.press('Enter');
-  await click(sourceRow.locator('.cell-distribution .inline-distribution-summary'));
-  if (!await frame.getByRole('option', { name: /^Rectangular k/ }).count()) await click(sourceRow.getByRole('button', { name: 'Spec band distribution', exact: true }));
-  await click(frame.getByRole('option', { name: /^Rectangular k/ }));
+  await floor.fill('0.3');
+  const instrumentInputFont = await floor.evaluate(node => getComputedStyle(node).fontSize);
+  await floor.press('Enter');
+  await sourceRow.locator('.cell-distribution .inline-distribution-summary').click();
+  await frame.getByRole('option', { name: /^Rectangular k/ }).click();
   await waitForSave(data => data.tmdes[0].instrument?.tmdeSecondaryUncertainties?.[0]?.tolerance?.floor?.high === '0.3');
   await page.screenshot({ path: 'tmp/expanded-tasking/secondary-light.png' });
   console.log('expanded: table and equation rows through add control');
@@ -84,15 +85,24 @@ export async function checkExpandedTmde({ frame, page, saved }) {
     assert.ok(plusBounds.y - editorBounds.y < 12, 'add stays at the editor top');
 
     if (kind === 'Table') {
-      await dynamic.getByRole('textbox', { name: 'TMDE table measurement 1', exact: true }).fill('5');
-      await dynamic.getByRole('textbox', { name: 'TMDE table uncertainty 1', exact: true }).fill('0.2');
+      await dynamic.getByRole('textbox', { name: 'Measurement point row 1', exact: true }).fill('5');
+      await dynamic.getByRole('textbox', { name: 'Uncertainty row 1', exact: true }).fill('0.2');
     } else {
-      await dynamic.getByRole('textbox', { name: 'TMDE uncertainty equation', exact: true }).fill('x / 25');
+      await dynamic.getByRole('textbox', { name: 'Uncertainty equation', exact: true }).fill('x / 25');
     }
-    await click(dynamic.getByRole('button', { name: 'TMDE uncertainty interpretation', exact: true }));
-    await click(frame.getByRole('option', { name: 'Standard uncertainty', exact: true }));
-    const interpretation = await dynamic.getByRole('button', { name: 'TMDE uncertainty interpretation', exact: true }).boundingBox();
-    assert.ok(interpretation.height < 35, 'dynamic selector keeps a compact height');
+    assert.equal(await dynamic.getByRole('button', { name: /distribution|interpretation/i }).count(), 0, 'distribution is edited in its table column only');
+    assert.equal(await dynamic.locator('.dynamic-budget-editor').count(), 1, 'instrument uses the shared budget editor');
+    assert.equal(await dynamic.locator('input').first().evaluate(node => getComputedStyle(node).fontSize), instrumentInputFont, 'dynamic input font matches other instrument inputs');
+    assert.ok(await dynamic.locator('.dynamic-input-table th').evaluateAll(nodes => nodes.every(node => getComputedStyle(node).whiteSpace === 'nowrap')), 'dynamic headers remain on one line');
+    assert.ok(await dynamic.locator('.dynamic-input-table th').first().evaluate(node => {
+      const outer = node.closest('.instrument-equipment-table').tHead.rows[0].cells[0];
+      const a = getComputedStyle(node), b = getComputedStyle(outer);
+      return a.backgroundColor === b.backgroundColor && a.color === b.color;
+    }), 'nested headers match instrument header colors in the current theme');
+    await page.screenshot({ path: 'tmp/expanded-tasking/shared-' + kind.toLowerCase() + '-editor.png' });
+    await row.locator('.cell-distribution .inline-distribution-summary').click();
+    await frame.getByRole('option', { name: /^Rectangular k/ }).click();
+    await waitForSave(data => data.tmdes[0].instrument.tmdeSecondaryUncertainties.at(-1)?.dynamicDefinition?.distribution === '1.732');
     await page.keyboard.press('Escape');
     const remove = row.getByRole('button', { name: 'Remove ' + kind + ' test', exact: true });
     await row.locator('.range-row-cell').hover();
@@ -129,9 +139,10 @@ export async function checkExpandedTmde({ frame, page, saved }) {
   console.log('expanded: point selected');
   const inputBudgetAdd = frame.locator('.budget-stack-section:not(.final)').getByRole('button', { name: 'Add component to budget', exact: true }).first();
   await inputBudgetAdd.waitFor({ state: 'visible' });
-  await click(inputBudgetAdd);
+  await inputBudgetAdd.click();
   console.log('expanded: budget picker opened');
   const menu = frame.getByRole('dialog', { name: 'Add component to budget', exact: true });
+  await menu.waitFor({ state: 'visible' });
   await click(menu.locator('.budget-tmde-picker-range, .budget-tmde-picker-single').first());
   await waitForSave(data => data.testPoints[0].components.filter(c => c.tmdeBudgetSourceId === 'tmde' && !previousIds.has(c.id)).length === 1);
   const sourceChoice = menu.locator('.budget-tmde-picker-source').filter({ hasText: 'Thermal Expansion' });
