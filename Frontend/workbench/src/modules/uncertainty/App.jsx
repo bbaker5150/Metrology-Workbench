@@ -1021,17 +1021,17 @@ export const SidebarPointItem = ({
     const candidate = prefixedUnitKey(base, prefix);
     const unit = !base ? "" : !prefix ? base : unitSystem.units[candidate]?.prefixBase === base ? candidate : `${prefix}(${base})`;
     onSave({ ...point, testPointInfo: { ...point.testPointInfo,
-      parameter: { ...point.testPointInfo?.parameter, ...(editing ? { value: tempValue } : {}), unit, unitSelectionExplicit: true, unavailableUnit: undefined } } });
+      parameter: { ...point.testPointInfo?.parameter, ...(editing ? { value: tempValue } : {}), unit, unitless: !unit, unitSelectionExplicit: true, unavailableUnit: undefined } } });
     if (editing) setEditingField(null);
   };
   const pointUnitControl = (editing = false) => <span className="point-unit-control" onClick={event => event.stopPropagation()} onPointerDown={event => event.stopPropagation()}
     onBlur={event => { if (editing && !event.currentTarget.parentElement?.contains(event.relatedTarget)) commitEdit(); }}>
     <select className="inline-unit-combobox point-unit-select" aria-label="Measurement point unit"
-      title={getUnitDisplayLabel(pointBaseUnit || "Units")}
-      style={{ width: `calc(${Math.max(2, getUnitDisplayLabel(pointBaseUnit || "Units").length) * .85}em + 28px)` }}
+      title={getUnitDisplayLabel(pointBaseUnit || "Unitless")}
+      style={{ width: `calc(${Math.max(2, getUnitDisplayLabel(pointBaseUnit || "Unitless").length) * .85}em + 28px)` }}
       value={pointBaseUnit || ""}
       onChange={event => savePointUnit(event.target.value, pointPrefix, editing)}>
-      <option value="">Units</option>
+      <option value="">Unitless</option>
       {pointBaseUnit && !pointBaseUnits.includes(pointBaseUnit) && <option value={pointBaseUnit}>{getUnitDisplayLabel(pointBaseUnit)}</option>}
       {pointBaseUnits.map(unit => <option key={unit} value={unit}>{getUnitDisplayLabel(unit)}</option>)}
     </select>
@@ -4467,19 +4467,14 @@ function App({ showThemeToggle = false }) {
       ranges[activeRangeIndices[uutId] || 0] ||
       ranges[0] ||
       null;
-    const unit =
-      selectedUnit ||
-      fnRange?.unit ||
-      (uut ? fnGroup?.unit : "") ||
-      uut?.instrument?.functions?.[0]?.unit ||
-      "";
+    const unit = selectedUnit || "";
     return applyFunctionPointTemplate({
       measurementAreaId: null,
       associatedUutIds: uutId ? [uutId] : [],
       _skipUutAutofill: !uutId,
       measurementType: settings.mode,
       uutTolerance: fnRange || null,
-      testPointInfo: { measurementArea: fnGroup?.name || "Measurement", parameter: { name: fnRange?.functionName || fnGroup?.name || "", value: "", unit, unitSelectionExplicit: Boolean(unit) } },
+      testPointInfo: { measurementArea: fnGroup?.name || "Measurement", parameter: { name: fnRange?.functionName || fnGroup?.name || "", value: "", unit, unitless: !unit, unitSelectionExplicit: true } },
     }, fnGroup, settings);
   };
 

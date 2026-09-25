@@ -1512,3 +1512,12 @@ it("shows the variable nominal in a derived input-budget equation binding", () =
   expect(document.querySelector('.dynamic-bound-value')).toHaveTextContent('1 °F');
   expect(document.querySelector('.budget-standard-uncertainty')).toHaveTextContent('0.1 °F');
 });
+
+it("displays a unitless native standard uncertainty without a ppm fallback", () => {
+  const {container}=renderDirectBudget({referencePoint:{value:10,unit:""},components:[
+    {id:"unitless",name:"Unitless error",type:"B",value:2,value_native:2,unit_native:"",isBaseUnitValue:true,distribution:"Normal",dof:Infinity}
+  ]});
+  const row=screen.getByText("Unitless error").closest("tr");
+  expect(row).toHaveTextContent("2");
+  expect(row).not.toHaveTextContent(/ppm|Unitless error Unitless/);
+});

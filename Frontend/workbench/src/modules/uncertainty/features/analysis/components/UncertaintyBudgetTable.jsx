@@ -216,7 +216,7 @@ const getComponentToleranceLimit = (component, std) => {
 };
 
 const getComponentStdUncertainty = (component, fallbackUnit) => {
-  if (component.value_native !== undefined && component.unit_native) {
+  if (component.value_native !== undefined && component.unit_native != null) {
     return {
       value: component.value_native,
       unit: component.unit_native,
@@ -236,7 +236,7 @@ const getComponentStdUncertainty = (component, fallbackUnit) => {
 
   return {
     value: component.value,
-    unit: component.unit_native || component.unit || fallbackUnit || "ppm",
+    unit: component.unit_native ?? component.unit ?? fallbackUnit ?? "",
   };
 };
 

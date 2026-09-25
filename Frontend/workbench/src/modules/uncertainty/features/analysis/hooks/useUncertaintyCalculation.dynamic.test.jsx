@@ -22,3 +22,23 @@ it("recalculates a dynamic budget on point changes and clears totals for missing
   expect(group.components[0].pendingReason).toMatch(/No table entry/);
   expect(group.results.combined).toBeNull();
 });
+
+
+it("propagates unitless input uncertainties through derived budgets and sidebar totals", async () => {
+  const { computeUncertaintyForPoint } = await import("../../../utils/riskCompute");
+  const point = {
+    id: "unitless", measurementType: "derived", equationString: "2*x",
+    variableMappings: { x: "Input" }, variableNominals: { x: { value: 10, unit: "" } },
+    testPointInfo: { parameter: { value: 20, unit: "" } },
+    components: [{ id: "manual", name: "Input", variableType: "Input", type: "B",
+      nominal: 10, value: 0.5, value_native: 0.5, unit_native: "", isBaseUnitValue: true,
+      distribution: "1", dof: Infinity },
+      { id: "additional", name: "Additional", type: "B", value: 0.75, value_native: 0.75, unit_native: "", isBaseUnitValue: true, distribution: "1", dof: Infinity }],
+  };
+  const session = { uncReq: { uncertaintyConfidence: 95 }, tmdes: [] };
+  const sources = [], tolerance = {}, save = vi.fn();
+  const { result } = renderHook(() => useUncertaintyCalculation(point, session, sources,
+    tolerance, point.testPointInfo.parameter, point.components, save));
+  await waitFor(() => expect(result.current.calcResults?.combined_uncertainty_absolute_base).toBeCloseTo(1.25));
+  expect(computeUncertaintyForPoint(point, session)?.combined_uncertainty_absolute_base).toBeCloseTo(1.25);
+});

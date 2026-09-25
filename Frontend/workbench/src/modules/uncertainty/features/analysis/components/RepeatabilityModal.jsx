@@ -88,7 +88,7 @@ const RepeatabilityModal = ({
 }) => {
   const [readings, setReadings] = useState([]);
   const [currentInput, setCurrentInput] = useState("");
-  const [selectedUnit, setSelectedUnit] = useState(uutNominal?.unit || "V");
+  const [selectedUnit, setSelectedUnit] = useState(uutNominal?.unit || "");
   const inputRef = useRef(null);
   const { position, handleMouseDown } = useFloatingWindow({
     isOpen,
@@ -100,11 +100,11 @@ const RepeatabilityModal = ({
     if (!isOpen) return;
     if (existingData?.savedInputs) {
       setReadings(existingData.savedInputs.readings || []);
-      setSelectedUnit(existingData.savedInputs.unit || uutNominal?.unit || "V");
+      setSelectedUnit(existingData.savedInputs.unit ?? uutNominal?.unit ?? "");
     } else {
       setReadings([]);
       setCurrentInput("");
-      setSelectedUnit(uutNominal?.unit || "V");
+      setSelectedUnit(uutNominal?.unit || "");
     }
   }, [isOpen, existingData, uutNominal]);
 
@@ -121,7 +121,7 @@ const RepeatabilityModal = ({
       ),
     [allUnits, uutNominal?.unit, selectedUnit],
   );
-  const unitWarning = budgetUnitMismatch(selectedUnit, uutNominal?.unit, unitSystem) || (!uutNominal?.unit ? "Assign a measurement unit before combining repeatability." : null);
+  const unitWarning = budgetUnitMismatch(selectedUnit, uutNominal?.unit, unitSystem);
   const stats = useMemo(() => calculateRepeatabilityStats(readings), [readings]);
   const range = readings.length
     ? Math.max(...readings) - Math.min(...readings)

@@ -1,7 +1,7 @@
 import React, { useState } from "react";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
-import UncertaintyPanel, { InlineDistributionCell } from "./UncertaintyPanel";
+import UncertaintyPanel, { InlineDistributionCell, UnitSelect } from "./UncertaintyPanel";
 import PointRequirementCell from "../../../components/common/PointRequirementCell";
 import { RISK_INPUT_FIELDS } from "../../../constants/constants";
 import { getAbsoluteLimits, unitSystem } from "../../../utils/uncertaintyMath";
@@ -97,4 +97,18 @@ it.each(["unit", "functionUnit"])("rejects a mismatched %s before evaluating rel
   expect(getAbsoluteLimits(point.uutTolerance, point.testPointInfo.parameter)).toMatchObject({ high: "N/A", low: "N/A", reason: expect.stringMatching(/Unit mismatch/) });
   expect(computeUncertaintyForPoint(point, session)).toBeNull();
   expect(computePointRiskMetrics(point, session, true)).toBeNull();
+});
+
+it.each([UnitSelect, BuilderUnitSelect])("offers Unitless in each shared unit selector without displaying a unit suffix", Component => {
+  let saved;
+  function Harness() {
+    const [value,setValue]=useState("V"); saved=value;
+    return <Component value={value} onChange={setValue} options={[{value:"V",label:"V"}]} ariaLabel="Test unit" />;
+  }
+  render(<Harness/>);
+  fireEvent.click(screen.getByRole("button",{name:/Test unit( base unit)?$/}));
+  fireEvent.click(screen.getByRole("option",{name:/Unitless/}));
+  expect(saved).toBe("");
+  expect(screen.getByRole("button",{name:/Test unit( base unit)?$/})).toHaveTextContent("Unitless");
+  expect(screen.queryByRole("button",{name:"Test unit prefix"})).not.toBeInTheDocument();
 });

@@ -38,7 +38,7 @@ const ManualComponentModal = ({
     inputMode: "tolerance",
     errorDistributionDivisor: "1.732",
     toleranceLimit: "",
-    unit: "ppm",
+    unit: "",
     standardUncertainty: "",
     tolerance: {},
     useFiniteDof: false,
@@ -96,7 +96,7 @@ const ManualComponentModal = ({
           existingComponent.originalInput?.unit ??
           existingComponent.unit_native ??
           existingComponent.unit ??
-          "ppm",
+          "",
         useFiniteDof: hasFiniteDof,
         dof: hasFiniteDof ? String(existingDof) : "",
       });

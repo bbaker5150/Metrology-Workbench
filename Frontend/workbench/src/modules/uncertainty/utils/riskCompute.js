@@ -111,7 +111,7 @@ export function computeUncertaintyForPoint(point, sessionData) {
   sessionData = sessionForPoint(point, sessionData);
   const uutNominal = point.testPointInfo?.parameter;
   if (toleranceUnitMismatch(point.uutTolerance || sessionData.uutTolerance, uutNominal?.unit, unitSystem)) return null;
-  if (!uutNominal || !isFilledNumber(uutNominal.value) || (!uutNominal.unit && point.measurementType === "derived")) {
+  if (!uutNominal || !isFilledNumber(uutNominal.value)) {
     return null;
   }
 
@@ -215,7 +215,7 @@ export function computeUncertaintyForPoint(point, sessionData) {
         ).includes(varType);
         if (!isMappedVariable) {
           const absUncBase =
-            (comp.value / 1e6) * Math.abs(derivedNominalValue) * targetUnitInfo.to_si;
+            componentStandardUncertaintyBase(comp, derivedNominalValue, derivedNominalUnit);
           if (!isNaN(absUncBase)) {
             signedContribsBase.push({ id: varType, contribution: absUncBase });
             additionalSignedContribsBase.push({

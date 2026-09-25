@@ -48,9 +48,9 @@ export const componentReferencePoint = (component, point) => {
 };
 export const dynamicMeasurementValue = (nominal, unit) => {
   if (!filled(nominal?.value)) throw Error("Enter a measurement point value.");
-  if (!unit || !unitSystem.units[unit] || !unitSystem.units[nominal.unit]) throw Error("Choose valid measurement and output units.");
-  if (unitSystem.units[unit].quantity !== unitSystem.units[nominal.unit].quantity) throw Error("The component's measurement unit is incompatible with this point.");
-  if (nominal.unit === unit) return Number(nominal.value);
+  if ((unit && !unitSystem.units[unit]) || (nominal.unit && !unitSystem.units[nominal.unit])) throw Error("Choose valid measurement and output units.");
+  if (unit && nominal.unit && unitSystem.units[unit].quantity !== unitSystem.units[nominal.unit].quantity) throw Error("The component's measurement unit is incompatible with this point.");
+  if (!unit || !nominal.unit || nominal.unit === unit) return Number(nominal.value);
   // Nominal temperatures need offsets; uncertainty magnitudes below use only scale.
   if (unitSystem.units[unit].quantity === "Temperature") {
     const source = unitSystem.units[nominal.unit], target = unitSystem.units[unit];
@@ -88,10 +88,9 @@ export const resolveDynamicComponent = (component, definition, nominal, measurem
     dynamicReferencePoint: nominal,
   };
   try {
-    if (!nominal?.unit) throw Error(`No unit is set for ${component.variableType || "this measurement point"}. Set its unit to calculate uncertainty.`);
     if (!column) throw Error("This uncertainty column was removed from the shared table.");
-    if (!unitSystem.units[definition.outputUnit] || !unitSystem.units[nominal?.unit]) throw Error("Choose a valid output unit.");
-    if (unitSystem.units[definition.outputUnit].quantity !== unitSystem.units[nominal.unit].quantity) throw Error("The output unit is incompatible with this budget.");
+    if ((definition.outputUnit && !unitSystem.units[definition.outputUnit]) || (nominal?.unit && !unitSystem.units[nominal.unit])) throw Error("Choose a valid output unit.");
+    if (definition.outputUnit && nominal?.unit && unitSystem.units[definition.outputUnit].quantity !== unitSystem.units[nominal.unit].quantity) throw Error("The output unit is incompatible with this budget.");
     let magnitude, summary;
     if (definition.kind === "table") {
       const row = findDynamicTableRow(definition, nominal);
@@ -130,7 +129,7 @@ export const resolveDynamicComponent = (component, definition, nominal, measurem
     if (!Number.isFinite(divisor) || divisor <= 0) throw Error("Choose an error-limit distribution.");
     const standard = magnitude / divisor;
     return { ...base, pendingReason: null, value_native: standard,
-      value: standard * unitSystem.units[definition.outputUnit].to_si,
+      value: standard * (unitSystem.units[definition.outputUnit]?.to_si ?? 1),
     };
   } catch (error) { return unresolvedComponent(base, error.message); }
 };

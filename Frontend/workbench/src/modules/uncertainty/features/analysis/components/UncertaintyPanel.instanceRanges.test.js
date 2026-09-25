@@ -37,3 +37,10 @@ it('pastes into the same instance list as add and preserves its position', () =>
   expect(visible(item)[1]).toMatchObject({ min: 40, max: 50 });
   expect(item.instrument).toBe(original.instrument);
 });
+
+it('defaults a new range and its absolute tolerance terms to Unitless', () => {
+  const {item,newRangeId}=addRangeToItem(fixture(),'range');
+  const range=visible(item).find(row=>row.id===newRangeId);
+  expect(range).toMatchObject({unit:'',unitless:true});
+  expect(getItemRangeTolerance(item,newRangeId).floor.unit).toBe('');
+});

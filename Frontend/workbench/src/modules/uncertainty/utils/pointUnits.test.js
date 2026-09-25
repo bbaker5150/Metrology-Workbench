@@ -75,3 +75,9 @@ it('never inherits from an area UUT before assignment, including load and stale 
   point.testPointInfo.parameter.unitSelectionExplicit = true;
   expect(inheritMissingPointUnits(data)).toBe(data);
 });
+
+it("preserves an explicit Unitless default when a UUT is assigned later", () => {
+  const previous={uuts:[],testPoints:[{id:"p",associatedUutIds:[],testPointInfo:{parameter:{value:5,unit:"",unitless:true,unitSelectionExplicit:true}}}]};
+  const current={uuts:[{id:"u",ranges:[{unit:"V"}]}],testPoints:[{...previous.testPoints[0],associatedUutIds:["u"]}]};
+  expect(inheritMissingPointUnits(current,previous)).toBe(current);
+});

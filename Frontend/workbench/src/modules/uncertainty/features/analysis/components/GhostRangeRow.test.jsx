@@ -977,7 +977,7 @@ describe("inline range editing", () => {
     const onCommit = vi.fn();
     render(
       <InlineToleranceCell
-        tolerance={{}}
+        tolerance={{ singleSided: { unit: "degF" } }}
         activeRange={{ id: "range-1", min: 0, max: 600, unit: "degF" }}
         editable
         onCommit={onCommit}

@@ -234,8 +234,8 @@ export const useUncertaintyCalculation = (
       // not itself a budget row. Budget validation checks its actual sources.
       const incompleteInputs = testPointData.measurementType === "derived" &&
         Object.keys(testPointData.variableMappings || {}).some(symbol =>
-          !hasNominalValue(testPointData.variableNominals?.[symbol]) || !testPointData.variableNominals?.[symbol]?.unit);
-      if (!hasNominalValue(uutNominal) || (!uutNominal?.unit && testPointData.measurementType === "derived") || incompleteInputs || manualComponents.some(c => c.pendingReason || c.inlineValidation) || getUutResolutionComponent(uutToleranceData, uutNominal)?.pendingReason || tmdeTolerancesData.some(tmde => {
+          !hasNominalValue(testPointData.variableNominals?.[symbol]));
+      if (!hasNominalValue(uutNominal) || incompleteInputs || manualComponents.some(c => c.pendingReason || c.inlineValidation) || getUutResolutionComponent(uutToleranceData, uutNominal)?.pendingReason || tmdeTolerancesData.some(tmde => {
         const symbol = Object.entries(testPointData.variableMappings || {}).find(([, name]) => name === tmde.variableType)?.[0];
         const nominal = testPointData.measurementType === "derived" ? (testPointData.variableNominals?.[symbol] || tmde.measurementPoint) : uutNominal;
         return getBudgetComponentsFromTolerance(tmde, nominal || {}).some(c => c.pendingReason);
@@ -246,7 +246,6 @@ export const useUncertaintyCalculation = (
           const rows = [...sources];
           const pendingReason = rows.find(c => c.pendingReason || c.inlineValidation)?.pendingReason ||
             rows.find(c => c.inlineValidation)?.inlineValidation ||
-            (!unit ? "Assign a measurement unit to calculate uncertainty." : null) ||
             (rows.some(c => c.value_native == null || !Number.isFinite(Number(c.value_native))) ? "Complete the budget components to calculate uncertainty." : null);
           const combined = !pendingReason && rows.length ? Math.sqrt(rows.reduce((sum, c) => {
             const factor = (unitSystem.units[c.unit_native]?.to_si || 1) / (unitSystem.units[unit]?.to_si || 1);
@@ -607,8 +606,8 @@ export const useUncertaintyCalculation = (
                 const isMappedVariable = Boolean(inputSymbol(comp, testPointData.variableMappings)) || mappedVariableTypes.has(varType);
 
                 if (!isMappedVariable) {
-                    const absUncNative = (comp.value / 1e6) * Math.abs(derivedNominalValue);
-                    const absUncBase = absUncNative * targetUnitInfo.to_si;
+                    const absUncBase = componentStandardUncertaintyBase(comp, derivedNominalUnit, derivedNominalValue, derivedNominalUnit);
+                    const absUncNative = absUncBase / targetUnitInfo.to_si;
 
                     if (!isNaN(absUncNative)) {
                         signedContribsBase.push({

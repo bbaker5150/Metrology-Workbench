@@ -293,7 +293,7 @@ export const getBudgetComponentsFromTolerance = (
     const termDistribution = tolComp.distribution ?? toleranceObject.bandDistribution;
     if (!termDistribution || termDistribution === DISTRIBUTION_NOT_SET || !Number.isFinite(distributionDivisorValue(termDistribution))) missingAccuracyDistribution = true;
 
-    const unit = tolComp.unit;
+    const unit = tolComp.unit || nominalUnit;
     let valueInBaseUnits = 0;
 
     if (["%", "ppm", "ppb"].includes(unit)) {

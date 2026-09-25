@@ -23,7 +23,7 @@ export const inheritMissingPointUnits = (session, previous) => {
       previousIds.some(id => String(id) === String(uut.id)) && getInstrumentRangeRows(uut).some(row => row.unit));
     // Before assignment/first UUT unit, Units is a placeholder. Once assigned
     // units exist, deliberately selecting Units remains a persistent opt-out.
-    if (parameter.unit || (parameter.unitSelectionExplicit && !firstUutUnit)) return point;
+    if (parameter.unitless || parameter.unit || (parameter.unitSelectionExplicit && !firstUutUnit)) return point;
     const units = new Set();
     for (const uut of uuts) {
       const rows = getInstrumentRangeRows(uut);

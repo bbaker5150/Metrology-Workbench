@@ -21776,3 +21776,31 @@ body.light-mode .uncertainty-module .instrument-equipment-table thead th:not(:la
   justify-self: stretch; width: 100%; min-width: 0; max-width: none;
   padding: 0; border: 0;
 }
+
+/* Keep column boundaries and the workspace divider discoverable at rest. */
+.uncertainty-module .instrument-equipment-table > tbody > tr > td:not(:last-child) {
+  border-right-color: color-mix(in srgb, var(--text-color-muted) 32%, var(--table-divider-color));
+}
+.uncertainty-module .results-workflow-container > .sidebar-resizer {
+  background: color-mix(in srgb, var(--primary-color) 6%, var(--component-bg));
+  border-inline-color: color-mix(in srgb, var(--text-color-muted) 16%, transparent);
+}
+.uncertainty-module .results-workflow-container > .sidebar-resizer::after { opacity: .45; }
+.uncertainty-module .instrument-equipment-table .uut-description-content:has(> .instrument-usage-badge) {
+  flex-direction: column; align-items: flex-start; gap: 5px;
+}
+.uncertainty-module .instrument-equipment-table .uut-description-content > .inline-desc-cell { width: 100%; }
+
+/* Instrument and budget fields use the tolerance editor's surface and outline. */
+.uncertainty-module :is(.instrument-function-row, .uncertainty-budget-table tr) {
+  --metrology-field-outline: color-mix(in srgb, var(--text-color) 48%, var(--instrument-function-color, var(--function-input-accent, var(--border-color))));
+}
+.uncertainty-module :is(.instrument-equipment-table, .uncertainty-budget-table) :is(input:not([type="checkbox"]):not([type="radio"]), textarea, .inline-unit-base-button, .inline-menu-select-trigger) {
+  background: transparent; color: var(--text-color);
+  border: 1px solid var(--metrology-field-outline); border-radius: 4px;
+  font-family: inherit; font-size: .82rem; box-sizing: border-box;
+}
+.uncertainty-module :is(.instrument-equipment-table, .uncertainty-budget-table) :is(input:not([type="checkbox"]):not([type="radio"]), textarea, .inline-unit-base-button, .inline-menu-select-trigger):is(:hover, :focus-visible) {
+  border-color: var(--function-input-accent, var(--primary-color));
+  background: color-mix(in srgb, var(--function-input-accent, var(--primary-color)) 10%, transparent);
+}

@@ -111,7 +111,7 @@ const nativeStandardUncertainty = ({ ppm, raw, divisor, unit, referencePoint }) 
   }
 
   const nominal = Number(referencePoint?.value);
-  if (!Number.isFinite(nominal) || !referencePoint?.unit) {
+  if (!Number.isFinite(nominal)) {
     return {
       value: 0,
       unit: referencePoint?.unit || unit,
@@ -181,7 +181,7 @@ const legacyManualTolerance = (component = {}) => {
       (component.manualInputMode === "tolerance" ? component.manualRawValue : null),
   );
   if (magnitude === null) return {};
-  const unit = original.unit ?? component.manualUnit ?? component.unit_native ?? "ppm";
+  const unit = original.unit ?? component.manualUnit ?? component.unit_native ?? "";
   const distribution = String(
     standard ? "1" : original.errorDistributionDivisor || component.distributionDivisor || "1.732",
   );
@@ -225,7 +225,7 @@ export const getInlineManualDraft = (component = {}) => ({
     component.originalInput?.unit ??
     component.manualUnit ??
     component.unit_native ??
-    "ppm",
+    "",
 });
 
 export const normalizeInlineManualComponent = ({
@@ -233,21 +233,29 @@ export const normalizeInlineManualComponent = ({
   draft,
   referencePoint,
 }) => {
-  if (referencePoint && !hasNominalValue(referencePoint) && (referencePoint.unit || toleranceNeedsNominal(draft.tolerance || {}))) {
-    const unit = referencePoint.unit || draft.unit || "V";
-    const resolved = normalizeInlineManualComponent({ component, draft, referencePoint: { ...referencePoint, value: 1, unit } });
+  const physicalUnit = unit => unit && !relativeBudgetUnit(unit) ? unit : "";
+  const authoredUnit = physicalUnit(draft.unit) || ["floor", "reading", "range", "singleSided"]
+    .map(key => physicalUnit(draft.tolerance?.[key]?.unit)).find(Boolean) || "";
+  if (!referencePoint?.unit && authoredUnit) {
+    // A blank measurement unit adopts the authored error limit's frame for
+    // this component, without changing the measurement input itself.
+    const resolved = normalizeInlineManualComponent({ component, draft,
+      referencePoint: { ...referencePoint, unit: authoredUnit } });
+    return absoluteBudgetComponent(resolved, unitSystem);
+  }
+  if (!hasNominalValue(referencePoint)) {
+    const resolved = normalizeInlineManualComponent({ component, draft,
+      referencePoint: { ...referencePoint, value: 1, unit: referencePoint?.unit || "" } });
     const needsValue = draft.inputMode === "standard" || !toleranceHasMagnitude(draft.tolerance)
       ? relativeBudgetUnit(draft.unit) : toleranceNeedsNominal(draft.tolerance);
-    return !referencePoint.unit || needsValue
-      ? unresolvedComponent(resolved, !referencePoint.unit ? "Assign a measurement unit to calculate uncertainty." : undefined)
-      : absoluteBudgetComponent(resolved, unitSystem);
+    return needsValue ? unresolvedComponent(resolved) : absoluteBudgetComponent(resolved, unitSystem);
   }
   const type = draft.type === "A" ? "A" : "B";
   const inputMode =
     draft.inputMode === "standard"
       ? "standard"
       : "tolerance";
-  const unit = draft.unit ?? referencePoint?.unit ?? "";
+  const unit = draft.unit || referencePoint?.unit || "";
   const toleranceDivisor =
     positiveNumber(draft.errorDistributionDivisor) !== null
       ? String(draft.errorDistributionDivisor)
@@ -283,6 +291,9 @@ export const normalizeInlineManualComponent = ({
     if (Number.isFinite(high) && Number.isFinite(low) && k > 0 && !toleranceNeedsNominal(tolerance)) {
       value = Math.max(Math.abs(high), Math.abs(low)) / k;
       valueNative = value;
+      unitNative = "";
+    } else if (toleranceNeedsNominal(tolerance) && Number.isFinite(structuredResult?.standardUncertainty)) {
+      value = valueNative = structuredResult.standardUncertainty / 1e6 * Math.abs(Number(referencePoint.value));
       unitNative = "";
     } else validation = "Enter a floor tolerance and distribution, or supply a nominal for relative terms.";
   } else if (usesStructuredTolerance) {

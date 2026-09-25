@@ -34,7 +34,7 @@ export const annotateRangeWithFunction = (
   // A function may expose ranges in different units. Prefer the range's own
   // unit when annotating it; the function unit is only the default for legacy
   // ranges that do not carry one.
-  const functionUnit = firstValue(
+  const functionUnit = range.unitless && !range.unit ? "" : firstValue(
     range.functionUnit,
     range.unit,
     fn?.unit,
@@ -53,7 +53,7 @@ export const annotateRangeWithFunction = (
     functionId: firstValue(fn?.id, range.functionId),
     functionName: firstValue(fn?.name, range.functionName),
     functionUnit,
-    unit: firstValue(range.unit, range.functionUnit, functionUnit, ""),
+    unit: range.unitless && !range.unit ? "" : firstValue(range.unit, range.functionUnit, functionUnit, ""),
     rangeId,
     rangeName,
     ...(rangeIndex !== null && rangeIndex !== undefined
@@ -227,7 +227,7 @@ export const resolveInstrumentSelection = (masterDef = {}, selection = {}) => {
     activeRange.functionName,
     "",
   );
-  const functionUnit = firstValue(
+  const functionUnit = activeRange.unitless && !activeRange.unit ? "" : firstValue(
     activeRange.functionUnit,
     activeRange.unit,
     selection.userFunctionUnit,

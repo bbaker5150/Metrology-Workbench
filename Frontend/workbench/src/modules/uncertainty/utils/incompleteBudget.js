@@ -31,7 +31,7 @@ export const absoluteBudgetComponent = (component, unitSystem) => component.pend
     component.value_native == null
       ? null
       : component.value_native *
-        (unitSystem.units[component.unit_native]?.to_si ?? NaN),
+        (component.unit_native ? unitSystem.units[component.unit_native]?.to_si ?? NaN : 1),
   pendingReason: null,
 });
 export const relativeBudgetUnit = relative;

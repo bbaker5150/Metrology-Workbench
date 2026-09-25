@@ -162,7 +162,7 @@ it("binds shared input budgets to their own live nominal and final budgets to th
   session.testPoints[1].variableNominals.w.value=5;
   expect(resolveDynamicComponents(session.testPoints[1].components,session.testPoints[1],session)[0].value_native).toBe(.5);
   const noUnit={...session.testPoints[0],variableNominals:{w:{value:2,unit:''}}};
-  expect(resolveDynamicComponents(noUnit.components,noUnit,session)[0].pendingReason).toMatch(/No unit is set for Weight/);
+  expect(resolveDynamicComponents(noUnit.components,noUnit,session)[0]).toMatchObject({pendingReason:null,unit_native:'ozf',value_native:.2});
   const final=attachDynamicComponent(session,'1','equation').session;
   expect(final.dynamicBudgetDefinitions.at(-1).measurementUnit).toBe('in-ozf');
 });
@@ -186,13 +186,17 @@ it("repairs a legacy equation bound to the final point's different physical quan
   expect(resolveDynamicComponent(createDynamicComponent(definition), definition, {value:3,unit:'ozf'}).value_native).toBe(.3);
 });
 
-it.each(['table','equation'])("keeps a unitless %s draft reusable and reports its missing unit", kind => {
+it.each(['table','equation'])("keeps a unitless %s draft reusable and evaluates its authored uncertainty", kind => {
   const p = {id:'p',components:[],measurementType:'derived',variableMappings:{w:'Weight'},variableNominals:{w:{value:2,unit:''}}};
   let session = attachDynamicComponent({testPoints:[p]}, 'p', kind, {kind:'input',variableType:'Weight'}).session;
   session = attachDynamicComponent(session, 'p', kind, {kind:'input',variableType:'Weight'}).session;
   expect(session.dynamicBudgetDefinitions).toHaveLength(1);
   expect(session.testPoints[0].components).toHaveLength(1);
-  expect(resolveDynamicComponents(session.testPoints[0].components,p,session)[0].pendingReason).toMatch(/No unit is set for Weight/);
+  const definition=session.dynamicBudgetDefinitions[0];
+  session=updateDynamicDefinition(session,{...definition,mode:'standard',equation:'x/10',pointVariable:'x',
+    rows:[{...definition.rows[0],point:2,values:{[definition.columns[0].id]:{value:.2}}}]});
+  const result=resolveDynamicComponents(session.testPoints[0].components,p,session)[0];
+  expect(result).toMatchObject({pendingReason:null,unit_native:'',value_native:.2,value:.2});
 });
 
 it("reuses an authored table at a new point and shares later edits without altering other rows", () => {

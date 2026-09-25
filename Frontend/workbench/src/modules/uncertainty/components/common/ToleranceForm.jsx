@@ -154,7 +154,7 @@ const ToleranceForm = ({
   const allUnits = useMemo(() => Object.keys(unitSystem.units), []);
 
   const physicalUnitOptions = useMemo(() => {
-    return getCategorizedUnitOptions(allUnits, referencePoint?.unit);
+    return [{ label: "General", options: [{ value: "", label: "Unitless" }] }, ...getCategorizedUnitOptions(allUnits, referencePoint?.unit)];
   }, [allUnits, referencePoint]);
 
   const ratioUnitOptions = useMemo(() => {
@@ -187,7 +187,7 @@ const ToleranceForm = ({
         {
           id: `mc_${Date.now()}_${Math.floor(Math.random() * 1e6)}`,
           name: "",
-          unit: referencePoint?.unit || "%",
+          unit: referencePoint?.unit || "",
           inputMode: "tolerance",
           toleranceLimit: "",
           standardUncertainty: "",

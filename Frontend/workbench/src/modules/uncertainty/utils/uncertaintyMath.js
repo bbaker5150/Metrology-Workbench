@@ -1089,7 +1089,7 @@ export const calculateUncertaintyFromToleranceObject = (
 
     if (halfSpan === 0) return;
 
-    const unit = tolComp.unit;
+    const unit = tolComp.unit || nominalUnit;
     const unitLabel = getUnitDisplayLabel(unit || "");
     const nominalUnitLabel = getUnitDisplayLabel(nominalUnit || "");
     const divisor =
@@ -2140,8 +2140,7 @@ export const calculateDerivedUncertainty = (
       if (
         !tmde.variableType ||
         !tmde.measurementPoint ||
-        tmde.measurementPoint.value === "" ||
-        tmde.measurementPoint.unit === ""
+        tmde.measurementPoint.value === ""
       ) {
         return; 
       }
@@ -2266,7 +2265,7 @@ export const calculateDerivedUncertainty = (
       const nominal = variableNominals[symbol] || variableNominals[type];
       const value = parseFloat(nominal?.value);
       const unit = nominal?.unit || "";
-      if (!type || !unit || isNaN(value)) return;
+      if (!type || isNaN(value)) return;
 
       const nominalInBase = unitSystem.toBaseUnit(value, unit);
       if (isNaN(nominalInBase)) return;

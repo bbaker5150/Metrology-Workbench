@@ -359,7 +359,7 @@ const buildPastedInstrumentRow = (src, kind, area, mode) => {
 // (App.css) can't clip it. Position/top/left are set inline at render.
 const buildGroupedUnitOptions = () => {
   const allSupportedUnits = getUniqueUnits(Object.keys(unitSystem.units));
-  const options = [];
+  const options = [{ label: "General", options: [{ value: "", label: "Unitless" }] }];
   const usedUnits = new Set();
 
   Object.entries(unitCategories).forEach(([category, units]) => {
@@ -395,7 +395,7 @@ const buildUnitPartModel = () => {
   const allSupportedUnits = Object.keys(unitSystem.units);
   const supportedUnitSet = new Set(allSupportedUnits);
   const scalableByUnit = new Map();
-  const baseOptionsByCategory = [];
+  const baseOptionsByCategory = [{ label: "General", options: [{ value: "", unit: "", label: "Unitless", scalable: false }] }];
   const usedBaseUnits = new Set();
   const usedScalableUnits = new Set();
 
@@ -468,7 +468,7 @@ const normalizeUnitToken = (unit) =>
 
 const resolveUnitOption = (flatUnitOptions, value) => {
   const raw = String(value || "").trim();
-  if (!raw) return null;
+  if (!raw) return flatUnitOptions.find(option => option.value === "") || null;
   const normalized = normalizeUnitToken(raw);
   return (
     flatUnitOptions.find((option) => option.value === raw) ||
@@ -1174,7 +1174,7 @@ export const applyRangeUnitChange = (item, rangeId, unit) => {
   // Apply both values in one patch. This is important for the synthetic first
   // range: it materializes exactly once and carries the synchronized tolerance
   // with it instead of generating a range id between two separate writes.
-  return applyItemRangePatch(item, rangeId, { unit, tolerances: tolerance });
+  return applyItemRangePatch(item, rangeId, { unit, unitless: !unit, tolerances: tolerance });
 };
 
 // Copy a tolerance's TERM STRUCTURE but blank the numbers, so a freshly-added
@@ -1207,8 +1207,10 @@ export const addRangeToItem = (item, activeRangeId) => {
   const inst = item?.instrument || {};
   const activeRange = findItemRange(item, activeRangeId);
   const seededTolerances = blankToleranceFrom(getItemRangeTolerance(item, activeRangeId));
-  const inheritedUnit = activeRange?.unit || "";
-  const newRange = { id: uuidv4(), min: "", max: "", unit: inheritedUnit, resolution: "", tolerances: seededTolerances };
+  for (const key of ["floor", "readings_iv", "singleSided"]) {
+    if (seededTolerances[key]) seededTolerances[key] = { ...seededTolerances[key], unit: "" };
+  }
+  const newRange = { id: uuidv4(), min: "", max: "", unit: "", unitless: true, resolution: "", tolerances: seededTolerances };
   if (Array.isArray(item.ranges) && item.ranges.length > 0) {
     return { item: { ...item, ranges: insertAfterId(item.ranges, newRange, activeRangeId, rangeIdOf) }, newRangeId: newRange.id };
   }
@@ -1221,7 +1223,7 @@ export const addRangeToItem = (item, activeRangeId) => {
       i === fnIdx
         ? {
             ...fn,
-            ranges: insertAfterId(fn.ranges || [], { ...newRange, unit: inheritedUnit || fn.unit || fn.units?.[0] || "" }, activeRangeId, rangeIdOf),
+            ranges: insertAfterId(fn.ranges || [], newRange, activeRangeId, rangeIdOf),
           }
         : fn,
     );
@@ -3764,7 +3766,7 @@ const defaultToleranceComponent = (typeKey, activeRange = {}, tolerance = {}) =>
     return {
       high: "",
       low: "",
-      unit: activeRange?.unit || "",
+      unit: "",
       distribution,
       symmetric: true,
     };
@@ -3784,7 +3786,7 @@ const defaultToleranceComponent = (typeKey, activeRange = {}, tolerance = {}) =>
       direction: "high",
       measurement: "known",
       limit: "",
-      unit: activeRange?.unit || "",
+      unit: "",
     };
   }
   return {
@@ -4375,12 +4377,12 @@ const SingleSidedToleranceEditor = ({
       ...component,
       direction,
       measurement,
-      unit: component.unit || activeRange?.unit || "",
+      unit: component.unit ?? activeRange?.unit ?? "",
       ...patch,
     });
   };
   const limitLabel = direction === "low" ? "Lower limit" : "Upper limit";
-  const unit = component.unit || activeRange?.unit || "";
+  const unit = component.unit ?? activeRange?.unit ?? "";
   const measurementOptions = [
     { value: "known", label: "Known nominal" },
     { value: "unknown", label: "Unknown nominal" },
@@ -13031,18 +13033,6 @@ function DetailedView({
       components: (testPointData.components || []).map(component => inputSymbol(component, currentMappings) === symbol
         ? { ...component, variableSymbol: symbol, variableType: newName } : component),
     };
-    const currentNominal = testPointData.variableNominals?.[symbol];
-    const inferredUnit = inferVariableUnit(trimmedNewName);
-    if (trimmedNewName && inferredUnit && !currentNominal?.unit) {
-      patch.variableNominals = {
-        ...(testPointData.variableNominals || {}),
-        [symbol]: {
-          value: currentNominal?.value ?? "",
-          unit: inferredUnit,
-        },
-      };
-    }
-
     // Renaming a variable should carry its TMDE assignments along. Only do so
     // when this symbol exclusively owns the old name (another symbol mapped to
     // the same name keeps its assignments).
@@ -13576,10 +13566,10 @@ function DetailedView({
       const saved = testPointData.variableNominals?.[symbol] || {};
       return {
         value: saved.value ?? "",
-        unit: saved.unit || inferVariableUnit(variableName),
+        unit: saved.unit ?? "",
       };
     },
-    [inferVariableUnit, testPointData.variableNominals],
+    [testPointData.variableNominals],
   );
 
   const handleVariableNominalUpdate = (symbol, field, value, variableName = "") => {
@@ -16770,7 +16760,6 @@ function DetailedView({
         netBiasEditable={false}
         calculatedAverage={calcResults?.calculatedNominalValue}
         onChange={onUpdateTestPoint} />
-      {!hasMeasurementPoint && <p className="form-section-warning" role="status">Enter a measurement value when ready. You can build the uncertainty budget now; value-dependent components will show a warning until a value is assigned.</p>}
       {calculationError && hasMeasurementPoint && (
           <div className="form-section-warning">
             <p>Calculation Error: {calculationError}</p>

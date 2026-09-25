@@ -35,11 +35,11 @@ const BuilderUnitSelect = ({
   const activeRef = useRef(null);
   const baseOptions = useMemo(() => {
     const seen = new Set();
-    return flattenUnitGroups(options).flatMap(option => {
+    return [{value: "", label: "Unitless"}, ...flattenUnitGroups(options)].flatMap(option => {
       const base = unitSystem.units[option.value]?.prefixBase || option.value;
       if (seen.has(base)) return [];
       seen.add(base);
-      return [{ ...option, value: base, label: getUnitDisplayLabel(base) }];
+      return [{ ...option, value: base, label: base ? getUnitDisplayLabel(base) : "Unitless" }];
     });
   }, [options]);
   const flatOptions = baseOptions;

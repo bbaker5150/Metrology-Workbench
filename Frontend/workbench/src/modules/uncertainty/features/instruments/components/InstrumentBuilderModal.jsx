@@ -259,7 +259,7 @@ const InstrumentBuilderModal = ({ isOpen, onClose, onSave, onDelete, initialData
 
   // --- Internal Editor Handlers ---
   const handleAddFunction = () => {
-    const newFunc = { id: Date.now(), name: "New Function", unit: "V", ranges: [] };
+    const newFunc = { id: Date.now(), name: "New Function", unit: "", ranges: [] };
     setInstrument(prev => ({ ...prev, functions: [...prev.functions, newFunc] }));
     setActiveFunctionId(newFunc.id);
   };
@@ -277,7 +277,7 @@ const InstrumentBuilderModal = ({ isOpen, onClose, onSave, onDelete, initialData
     if (!activeFunction) return;
     // Resolution is editable in the ranges table (Resolution column) and flows
     // into a UUT's uncertainty budget when "include in budget" is ticked.
-    const newRange = { id: Date.now(), min: 0, max: 0, resolution: 0, tolerances: {} };
+    const newRange = { id: Date.now(), min: 0, max: 0, unit: "", unitless: true, resolution: 0, tolerances: {} };
     const updatedRanges = [...activeFunction.ranges, newRange].sort((a, b) => parseFloat(a.min) - parseFloat(b.min));
     setInstrument(prev => ({ ...prev, functions: prev.functions.map(f => f.id === activeFunctionId ? { ...f, ranges: updatedRanges } : f) }));
   };

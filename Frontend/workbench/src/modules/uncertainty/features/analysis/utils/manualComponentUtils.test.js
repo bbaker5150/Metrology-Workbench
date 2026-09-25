@@ -268,3 +268,20 @@ it("preserves legacy standard uncertainty as a k=1 floor when opening its tolera
   expect(draft.inputMode).toBe("tolerance");
   expect(draft.tolerance.floor).toMatchObject({ high: "0.25", low: "-0.25", unit: "V", distribution: "1" });
 });
+
+it.each(["", 10])("uses an error-limit unit with an unset measurement unit at nominal %s", nominal => {
+  const result = normalizeInlineManualComponent({component:{id:"physical"}, referencePoint:{value:nominal,unit:""},
+    draft:{name:"Error",type:"B",inputMode:"tolerance",unit:"",errorDistributionDivisor:"2",
+      tolerance:{floor:{high:"4",low:"-4",unit:"mV",distribution:"2",symmetric:true}}}});
+  expect(result).toMatchObject({unit_native:"mV",isBaseUnitValue:true,inlineValidation:null,pendingReason:null});
+  expect(result.value_native).toBeCloseTo(2);
+  expect(result.value).toBeCloseTo(.002);
+});
+it("evaluates relative uncertainty at a unitless nominal and defers it without a value", () => {
+  const draft={name:"IV",inputMode:"tolerance",unit:"",errorDistributionDivisor:"2",tolerance:{reading:{high:"2",low:"-2",unit:"%",distribution:"2",symmetric:true}}};
+  const ready=normalizeInlineManualComponent({component:{id:"u"},draft,referencePoint:{value:10,unit:""}});
+  expect(ready).toMatchObject({unit_native:"",inlineValidation:null,pendingReason:null,isBaseUnitValue:true});
+  expect(ready.value_native).toBeCloseTo(.1);
+  const pending=normalizeInlineManualComponent({component:{id:"u"},draft,referencePoint:{value:"",unit:""}});
+  expect(pending.pendingReason).toMatch(/measurement value/);
+});
