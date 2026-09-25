@@ -130,7 +130,12 @@ export async function checkExpandedTmde({ frame, page, saved }) {
   const menu = frame.getByRole('dialog', { name: 'Add component to budget', exact: true });
   await click(menu.locator('.budget-tmde-picker-range, .budget-tmde-picker-single').first());
   await waitForSave(data => data.testPoints[0].components.filter(c => c.tmdeBudgetSourceId === 'tmde' && !previousIds.has(c.id)).length === 1);
-  await click(menu.locator('.budget-tmde-picker-source').filter({ hasText: 'Thermal Expansion' }).first());
+  const sourceChoice = menu.locator('.budget-tmde-picker-source').filter({ hasText: 'Thermal Expansion' });
+  assert.equal(await sourceChoice.count(), 1, 'instrument source is listed once');
+  assert.ok((await sourceChoice.textContent()).includes('Thermal Expansion (Manual) | ± 0.3 V | Rectangular'));
+  assert.equal(await sourceChoice.locator('.budget-tmde-picker-range-mark').count(), 1);
+  await page.screenshot({ path: 'tmp/expanded-tasking/grouped-budget-picker.png' });
+  await click(sourceChoice);
   console.log('expanded: source added separately');
   await frame.locator('.analysis-tabs').click({ position: { x: 5, y: 5 } });
   const newTmdeRows = data => data.testPoints[0].components.filter(c => c.tmdeBudgetSourceId === 'tmde' && !previousIds.has(c.id));

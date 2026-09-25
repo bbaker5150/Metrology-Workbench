@@ -21682,7 +21682,3 @@ body.light-mode .uncertainty-module .instrument-equipment-table thead th:not(:la
   --distribution-field-width: 118px !important;
   font-style: normal !important; color: var(--text-color);
 }
-
-.uncertainty-module .budget-tmde-picker-source { margin-left: 14px; width: calc(100% - 14px) !important; }
-.uncertainty-module .budget-tmde-picker-source:is(:hover, :focus-visible) { background: var(--input-background) !important; }
-.uncertainty-module .budget-tmde-picker-source .budget-tmde-picker-detail { display: block; }

@@ -29,13 +29,14 @@ it.each([1, 2])("requires a range choice only when the TMDE has multiple ranges 
   expect(JSON.stringify(update.mock.calls)).toContain(`range-${count}`);
 });
 
-it.each(["direct", "derived"])("adds only the chosen named uncertainty to a %s budget", measurementType => {
+it.each([["direct", 1], ["direct", 2], ["derived", 1], ["derived", 2]])("groups sources once and adds only the chosen uncertainty to a %s budget with %s ranges", (measurementType, rangeCount) => {
   const sources = [
     { id: "manual", name: "Thermal", kind: "parametric", tolerance: { floor: { high: .3, low: -.3, unit: "V", distribution: "1.732" } } },
     { id: "table", name: "Head Height", kind: "table", dynamicDefinition: { id: "table", kind: "table", mode: "standard", measurementUnit: "V", outputUnit: "V", columns: [{ id: "u" }], rows: [{ point: 5, values: { u: { value: .2 } } }] } },
     { id: "equation", name: "Drift", kind: "equation", dynamicDefinition: { id: "eq", kind: "equation", mode: "standard", measurementUnit: "V", outputUnit: "V", columns: [{ id: "u" }], equation: "x / 25", pointVariable: "x", variables: { x: {} } } },
   ];
   const tmde = { id: "meter", name: "Reference meter", instrument: { tmdeSecondaryUncertainties: sources, functions: [{ name: "Voltage", unit: "V", ranges: [{ id: "range", min: 0, max: 10, unit: "V", tolerances: { floor: { high: 1, low: -1, unit: "V", distribution: "1.732" } } }] }] } };
+  if (rangeCount === 2) tmde.instrument.functions[0].ranges.push({ id: "range-2", min: 10, max: 20, unit: "V", tolerances: { floor: { high: 2, low: -2, unit: "V", distribution: "1.732" } } });
   const update = vi.fn();
   render(<UncertaintyPanel
     testPointData={{ id: "point", measurementType, equationString: "x", variableMappings: { x: "Voltage" }, variableNominals: { x: { value: 5, unit: "V" } }, testPointInfo: { parameter: { name: "Voltage", value: 5, unit: "V" } }, components: [] }}
@@ -47,8 +48,12 @@ it.each(["direct", "derived"])("adds only the chosen named uncertainty to a %s b
   fireEvent.click(screen.getAllByRole("button", { name: "Add component to budget" })[0]);
   const menu = document.querySelector(".budget-tmde-picker-menu");
   for (const [index, source] of sources.entries()) {
-    const option = within(menu).getByRole("button", { name: new RegExp("Reference meter - " + source.name) });
-    expect(option.querySelector(".budget-add-component-copy > span")).toHaveTextContent("Reference meter - " + source.name);
+    const option = within(menu).getByRole("button", { name: name => name.startsWith(source.name + " (") });
+    expect(option.querySelector(".budget-tmde-picker-range-mark")).toBeInTheDocument();
+    expect(option).toHaveTextContent(source.name + " (" + (source.kind === "parametric" ? "Manual" : source.kind === "table" ? "Table" : "Equation") + ") |");
+    expect(option).not.toHaveTextContent("Reference meter");
+    expect(option.textContent.split(" | ")).toHaveLength(3);
+    expect(option).toHaveTextContent(index === 0 ? "± 0.3 V | Rectangular" : "± 0.2 V |");
     fireEvent.click(option);
     const rows = update.mock.calls.at(-1)[0].components;
     expect(rows).toHaveLength(1);
@@ -58,7 +63,10 @@ it.each(["direct", "derived"])("adds only the chosen named uncertainty to a %s b
     expect(rows[0].tmdeBudgetSourceId).toBe("meter");
     expect(rows[0].tmdeBudgetRangeId).toBe("range");
   }
-  fireEvent.click(menu.querySelector(".budget-tmde-picker-single"));
+  expect(menu.querySelectorAll(".budget-tmde-picker-instrument-name")).toHaveLength(1);
+  expect(menu.querySelectorAll(".budget-tmde-picker-source")).toHaveLength(3);
+  expect(menu.querySelectorAll(".budget-tmde-picker-range:not(.budget-tmde-picker-source)")).toHaveLength(rangeCount);
+  fireEvent.click(menu.querySelector(".budget-tmde-picker-range:not(.budget-tmde-picker-source)"));
   const rows = update.mock.calls.at(-1)[0].components;
   expect(rows).toHaveLength(1);
   expect(rows[0].value_native).toBeCloseTo(1 / Math.sqrt(3), 8);

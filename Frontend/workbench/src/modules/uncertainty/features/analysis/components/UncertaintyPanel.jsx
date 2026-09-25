@@ -14755,20 +14755,30 @@ function DetailedView({
                   requireFunctionMatch: false,
                 },
               );
-              const renderSourceChoices = range => instrumentUncertaintySources(tmde).map(source => (
-                <button key={source.id} type="button" className="budget-tmde-picker-source"
-                  style={itemStyle} onClick={() => addBudgetTmde(tmde, range, source.id)}>
-                  <FontAwesomeIcon icon={faPlus} />
-                  <span className="budget-add-component-copy">
-                    <span>{formatErrorSourceDescription(tmde)} - {formatErrorSourceKind(source.name || "Uncertainty")}</span>
-                    <small className="budget-tmde-picker-detail">{source.kind === "table" ? "Table" : source.kind === "equation" ? "Equation" : "Manual"}</small>
-                  </span>
-                </button>
-              ));
+              const sources = instrumentUncertaintySources(tmde);
+              const nominalPoint = isDerived ? scope.nominalPoint || null : uutNominal;
+              const renderSourceChoices = () => sources.map(source => {
+                const type = source.kind === "table" ? "Table" : source.kind === "equation" ? "Equation" : "Manual";
+                const tolerance = source.kind === "table" || source.kind === "equation"
+                  ? { tmdeUncertaintyDefinition: source.dynamicDefinition } : source.tolerance || {};
+                const resolved = tolerance.tmdeUncertaintyDefinition && resolveDynamicComponent(
+                  { dynamicOutputId: source.dynamicDefinition.columns?.[0]?.id }, source.dynamicDefinition, nominalPoint || {});
+                const uncertainty = resolved ? resolved.dynamicSummary || "Not Set"
+                  : getCollapsedSpecRows(tolerance, nominalPoint).join("; ") || "Not Set";
+                const distribution = getBandDistLabel(tolerance);
+                const detail = `${source.name || "Uncertainty"} (${type}) | ${uncertainty} | ${distribution === "—" ? "Not Set" : distribution}`;
+                return <button key={source.id} type="button" className="budget-tmde-picker-range budget-tmde-picker-source"
+                  style={itemStyle} title={detail} onClick={() => addBudgetTmde(tmde, null, source.id)}
+                  onMouseEnter={event => { event.currentTarget.style.background = "var(--input-background)"; }}
+                  onMouseLeave={event => { event.currentTarget.style.background = "transparent"; }}>
+                  <span className="budget-tmde-picker-range-mark" aria-hidden="true" />
+                  <span className="budget-tmde-picker-detail">{detail}</span>
+                </button>;
+              });
               // A one-choice instrument is one click target, with its range
               // description inside the same tile. Multiple choices retain the
               // instrument heading and indented children so scope stays clear.
-              if (choices.length === 1) {
+              if (choices.length === 1 && sources.length === 0) {
                 const range = choices[0];
                 const detail = getBudgetTmdeDetail(tmde, range);
                 const unitWarning = budgetUnitMismatch(range.unit || range.functionUnit, (isDerived ? scope.nominalPoint : uutNominal)?.unit, unitSystem);
@@ -14780,7 +14790,6 @@ function DetailedView({
                     {unitWarning && <FontAwesomeIcon icon={faExclamationTriangle} role="img" aria-label={unitWarning} />}{detail}
                   </span>
                 </button>
-                {renderSourceChoices(range)}
                 </div>;
               }
               return (
@@ -14828,10 +14837,10 @@ function DetailedView({
                     )}
                   </span>
                 </button>
-                {renderSourceChoices(range)}
                 </div>
                 );
                   })}
+                  {renderSourceChoices()}
                 </div>
               );
             };
