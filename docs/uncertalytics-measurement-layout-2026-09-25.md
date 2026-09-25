@@ -7,7 +7,7 @@ Source: the latest Desktop `Tasking.docx` and subsequent user clarifications.
 - Size the UUT assignment picker from its options so the unassigned and assigned states share the same readable structure.
 - Cycle divider double-click/Enter through point-column auto-fit, full-width measurement points, and instrument-table auto-fit.
 - Collapse Session Info and Risk & Mitigation on entering full-width points.
-- Distribute the full viewport width evenly across point columns in full-width mode without horizontal scrolling. Wrap or stack controls inside their cells and keep row and header tracks aligned.
+- Fit the full viewport without horizontal scrolling. Reserve enough width for the number, unit and prefix on one line in Value; distribute remaining width evenly across the other columns. Keep row and header tracks aligned.
 - Enter Section editing with one click, including an unselected point.
 - Preserve the selected fit mode across reload; dragging or Escape returns to manual split view.
 

@@ -20166,26 +20166,6 @@ body.uncertainty-active .context-menu li.destructive:hover {
 .uncertainty-module .workspace-pane-points:not(.workspace-pane-autofit) .measurement-points-table-content {
   width: 100%; min-width: 0;
 }
-.uncertainty-module .workspace-pane-points:not(.workspace-pane-autofit) .measurement-group-container .point-value-with-unit > .point-edit-affordance {
-  display: flex; flex-wrap: wrap; justify-content: center; max-width: 100%; min-width: 0;
-}
-.uncertainty-module .workspace-pane-points:not(.workspace-pane-autofit) .point-unit-control {
-  flex-wrap: wrap; justify-content: center; max-width: 100%; min-width: 0;
-}
-.uncertainty-module .workspace-pane-points:not(.workspace-pane-autofit) .point-unit-control :is(.inline-unit-select, .inline-unit-combobox) {
-  max-width: 100%; min-width: 0; box-sizing: border-box;
-}
-/* Wrap the unit and prefix as complete controls instead of shrinking their labels. */
-.uncertainty-module .workspace-pane-points:not(.workspace-pane-autofit) .point-unit-control > .inline-unit-select {
-  display: flex; flex-wrap: wrap; justify-content: center; gap: 3px;
-  width: max-content; height: auto; flex: 0 1 auto;
-}
-.uncertainty-module .workspace-pane-points:not(.workspace-pane-autofit) .point-unit-control .inline-unit-base-button {
-  width: max-content; flex: 0 1 auto;
-}
-.uncertainty-module .workspace-pane-points:not(.workspace-pane-autofit) .point-unit-control .inline-unit-prefix-select {
-  width: var(--inline-prefix-width, 52px); flex: 0 1 var(--inline-prefix-width, 52px);
-}
 .uncertainty-module .workspace-pane-points:not(.workspace-pane-autofit) .point-information { flex-wrap: wrap; }
 .uncertainty-module .measurement-points-table .measurement-group-container {
   margin: 0;

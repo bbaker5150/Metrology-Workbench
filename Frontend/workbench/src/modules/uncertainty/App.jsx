@@ -519,7 +519,9 @@ const getSidebarGridTemplate = (
     const track = Number.isFinite(custom) && custom > 0
       ? `${Math.max(getSidebarColumnMinWidth(key), Math.round(custom))}px`
       : tracks[key];
-    return fillWidth ? "minmax(0, 1fr)" : track;
+    // Keep the complete Value editor on one line; share the remaining
+    // viewport width evenly among all other displayed columns.
+    return fillWidth ? (key === "value" ? `minmax(${track}, 1fr)` : "minmax(0, 1fr)") : track;
   });
 
   if (parts.length === 0) return "1fr";
