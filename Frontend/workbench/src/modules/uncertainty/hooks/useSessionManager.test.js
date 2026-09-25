@@ -418,3 +418,24 @@ it("persists independent local copies with the same name and shared lineage by i
   expect(result.current.instruments).toHaveLength(2);
   expect(result.current.instruments[0]).toEqual(first);
 });
+
+it("allocates unique point IDs when generated IDs collide with saved points and the same batch", async () => {
+  axios.get.mockImplementation(url => Promise.resolve({ data: url.endsWith("/sessions/") ? [{ id: 1, name: "Collisions", testPoints: [
+    { id: "1002", testPointInfo: { parameter: { value: 1, unit: "V" } } },
+  ] }] : [] }));
+  const { result } = renderHook(() => useSessionManager());
+  await waitFor(() => expect(result.current.currentSessionData?.testPoints).toHaveLength(1));
+  const now = vi.spyOn(Date, "now").mockReturnValue(1000);
+  const random = vi.spyOn(Math, "random").mockReturnValueOnce(.0002).mockReturnValueOnce(.0001).mockReturnValueOnce(0);
+  try {
+    act(() => result.current.saveTestPoint([2, 3, 4].map(value => ({
+      _insertAfterPointId: "1002", testPointInfo: { parameter: { value, unit: "V" } },
+    }))));
+    const points = result.current.currentSessionData.testPoints;
+    expect(points.map(point => point.id)).toEqual(["1002", 1003, 1004, 1005]);
+    expect(points.map(point => point.testPointInfo.parameter.value)).toEqual([1, 2, 3, 4]);
+  } finally {
+    now.mockRestore();
+    random.mockRestore();
+  }
+});

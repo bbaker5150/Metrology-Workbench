@@ -1024,7 +1024,10 @@ const useSessionManager = () => {
           });
         }
 
-        const newId = Date.now() + Math.floor(Math.random() * 10000) + index;
+        let newId = Date.now() + Math.floor(Math.random() * 10000) + index;
+        // Random offsets can collide with existing points or earlier entries
+        // in the same paste. Preserve numeric IDs while checking the live batch.
+        while (currentTestPoints.some(point => String(point.id) === String(newId))) newId += 1;
 
         const newTestPoint = {
           id: newId,
