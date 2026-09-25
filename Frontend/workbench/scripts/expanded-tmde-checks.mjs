@@ -61,6 +61,8 @@ export async function checkExpandedTmde({ frame, page, saved }) {
   assert.equal(await sourceRow.locator('.cell-resolution').textContent(), 'N/A');
   const floor = sourceEditor.locator('.inline-tolerance-term-group').nth(2).locator('input').first();
   await floor.fill('0.3');
+  await click(sourceEditor.getByRole('button', { name: 'Tolerance unit base unit', exact: true }));
+  await frame.getByRole('option', { name: /^V(?:\s|$)/ }).click();
   const instrumentInputFont = await floor.evaluate(node => getComputedStyle(node).fontSize);
   await floor.press('Enter');
   await sourceRow.locator('.cell-distribution .inline-distribution-summary').click();

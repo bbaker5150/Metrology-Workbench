@@ -184,8 +184,8 @@ describe("shared instrument inline editing", () => {
 
     expect(ranges).toHaveLength(3);
     expect(ranges.slice(1)).toEqual([
-      expect.objectContaining({ min: "", max: "", unit: "V" }),
-      expect.objectContaining({ min: "", max: "", unit: "V" }),
+      expect.objectContaining({ min: "", max: "", unit: "", unitless: true }),
+      expect.objectContaining({ min: "", max: "", unit: "", unitless: true }),
     ]);
   });
 

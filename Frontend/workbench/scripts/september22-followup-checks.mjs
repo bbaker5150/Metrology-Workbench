@@ -2,7 +2,7 @@ export async function checkSeptember22Followup({ frame, page, saved, until, chec
   const capture = async name => { if (process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await page.screenshot({ path: `${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/${name}.png` }); };
   const divider = frame.getByRole('separator', { name: 'Resize measurement point list' });
   await frame.locator('.analysis-tabs').click({ position: { x: 5, y: 5 } });
-  check('divider arrow is hidden at rest', await divider.evaluate(node => getComputedStyle(node, '::after').opacity === '0'));
+  check('divider arrow is subtly visible at rest', await divider.evaluate(node => getComputedStyle(node, '::after').opacity === '0.45'));
   await divider.hover();
   check('divider arrow appears on hover', await divider.evaluate(node => getComputedStyle(node, '::after').opacity === '1'));
 

@@ -4550,12 +4550,12 @@ export const InstrumentUncertaintyRow = ({ source, activeRange, referencePoint, 
       <div className="range-row-cell">
       <div className="instrument-source-row-name">
         {editingName ? <input className="instrument-custom-field-input" aria-label="Uncertainty name" value={name} autoFocus
-          placeholder="Uncertainty name" onChange={event => setName(event.target.value)}
+          placeholder="Not Set" onChange={event => setName(event.target.value)}
           onBlur={() => { commitName(); setEditingName(false); }}
           onKeyDown={event => {
             if (event.key === "Tab" && !event.shiftKey) { event.preventDefault(); commitName(); setEditingName(false); setOpenEditor(true); }
             if (event.key === "Enter") { event.preventDefault(); commitName(); setEditingName(false); setOpenEditor(true); }
-          }} /> : <button type="button" className="inline-tolerance-summary" onClick={() => setEditingName(true)}>{source.name || "Uncertainty name"}</button>}
+          }} /> : <button type="button" className={`inline-tolerance-summary${source.name ? "" : " is-empty"}`} onClick={() => setEditingName(true)}>{source.name || "Not Set"}</button>}
         <span className="instrument-source-range-note">{kind === "table" ? "(Point Dependent)" : "(Range N/A)"}</span>
       </div>
         {showRowActions && <button type="button" className="range-row-delete" title="Delete uncertainty" aria-label={`Remove ${source.name || "uncertainty"}`}

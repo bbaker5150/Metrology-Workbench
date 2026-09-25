@@ -21781,11 +21781,11 @@ body.light-mode .uncertainty-module .instrument-equipment-table thead th:not(:la
 .uncertainty-module .instrument-equipment-table > tbody > tr > td:not(:last-child) {
   border-right-color: color-mix(in srgb, var(--text-color-muted) 32%, var(--table-divider-color));
 }
-.uncertainty-module .results-workflow-container > .sidebar-resizer {
+.uncertainty-module .results-workflow-container:where(:not(.workspace-pane-points, .workspace-pane-tables)) > .sidebar-resizer {
   background: color-mix(in srgb, var(--primary-color) 6%, var(--component-bg));
   border-inline-color: color-mix(in srgb, var(--text-color-muted) 16%, transparent);
 }
-.uncertainty-module .results-workflow-container > .sidebar-resizer::after { opacity: .45; }
+.uncertainty-module .results-workflow-container:where(:not(.workspace-pane-points, .workspace-pane-tables)) > .sidebar-resizer::after { opacity: .45; }
 .uncertainty-module .instrument-equipment-table .uut-description-content:has(> .instrument-usage-badge) {
   flex-direction: column; align-items: flex-start; gap: 5px;
 }
