@@ -45,7 +45,7 @@ export async function checkWorkspacePolish({ frame, page, saved, until, check })
   check('second divider double-click shows points at full width and keeps the divider reachable', await frame.locator('.results-sidebar').isVisible() && !await frame.locator('.results-content').isVisible() && await divider.isVisible());
   check('full-width points keep a visible, directly reachable divider', await dividerIsReachable());
   await divider.focus(); await divider.press('Escape');
-  check('keyboard restores the split workspace', await frame.locator('.results-sidebar').isVisible() && await frame.locator('.results-content').isVisible());
+  check('keyboard restores the split workspace', await until(async () => await frame.locator('.results-sidebar').isVisible() && await frame.locator('.results-content').isVisible()));
   const start = await divider.boundingBox();
   const dragDistance = start.x > 500 ? -100 : 100;
   await page.mouse.move(start.x + 3, start.y + 80); await page.mouse.down(); await page.mouse.move(start.x + 3 + dragDistance, start.y + 80, { steps: 8 }); await page.mouse.up();
@@ -84,6 +84,7 @@ export async function checkWorkspacePolish({ frame, page, saved, until, check })
   check('double-click restores content-fitted column width', await until(async () => Math.abs(await point.locator('[data-sidebar-column="uut"]').evaluate(node => node.clientWidth) - defaultWidth) < 2));
   await frame.getByRole('button', { name: 'Columns', exact: true }).click();
   const columns = frame.getByRole('dialog', { name: 'Visible measurement point columns', exact: true });
+  for (const label of ['Cal Int with GB', 'Cal Int w/o GB']) await columns.getByRole('button', { name: `Hide ${label}`, exact: true }).click();
   for (const label of ['Qualifier', 'Cal Int with GB', 'Cal Int w/o GB']) await columns.getByRole('button', { name: `Add ${label} column`, exact: true }).click();
   await columns.getByRole('button', { name: 'Close column settings', exact: true }).click();
   check('a newly enabled column immediately fits its longest value', await until(async () => point.locator('[data-sidebar-column="qualifier"] .point-grouped-cell-label').evaluate(node => node.clientWidth > 150 && node.scrollWidth <= node.clientWidth + 1)));

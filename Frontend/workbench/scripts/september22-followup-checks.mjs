@@ -10,6 +10,10 @@ export async function checkSeptember22Followup({ frame, page, saved, until, chec
   await settings.locator('..').hover(); await settings.click();
   check('retired measurement bias option is absent from area settings', await frame.getByRole('checkbox', { name: /Show measurement bias/ }).count() === 0);
   await settings.locator('..').hover(); await settings.click();
+  await frame.getByRole('button', { name: 'Columns', exact: true }).click();
+  const columns = frame.getByRole('dialog', { name: 'Visible measurement point columns', exact: true });
+  for (const label of ['UUT Bias', 'TMDE Bias']) await columns.getByRole('button', { name: `Add ${label} column`, exact: true }).click();
+  await columns.getByRole('button', { name: 'Close column settings', exact: true }).click();
   const point = frame.locator('[data-point-id="point"]');
   check('bias columns are available with independent source values', await point.locator('[data-sidebar-column="uutBias"]').count() === 1 && await point.locator('[data-sidebar-column="tmdeBias"]').count() === 1);
   for (const zoom of [.75, 1, 1.25]) {

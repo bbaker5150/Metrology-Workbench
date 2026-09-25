@@ -21320,8 +21320,8 @@ body.dark-mode .uncertainty-module .measurement-group-container .point-grid-item
    One shared list scroller keeps long column lists out of the dialog shell. */
 .sidebar-filter-dropdown.point-columns-dialog {
   position: fixed; inset: auto; margin: 0; box-sizing: border-box;
-  width: min(680px, var(--column-dialog-width));
-  height: min(720px, var(--column-dialog-height));
+  width: min(540px, var(--column-dialog-width));
+  height: var(--column-dialog-height);
   max-width: none; max-height: none; padding: 0;
   overflow: hidden; color: var(--text-color); font-family: inherit;
   background: var(--content-background); border-radius: 12px;
@@ -21335,14 +21335,19 @@ body.dark-mode .uncertainty-module .measurement-group-container .point-grid-item
 .point-columns-dialog-header > button { flex: 0 0 auto; width: 30px; height: 30px; border: 0; border-radius: 6px; background: transparent; color: var(--text-color); cursor: pointer; font-size: 1.4rem; }
 .point-columns-dialog-header > button:is(:hover, :focus-visible) { background: var(--primary-color-light); }
 .point-columns-dialog .point-column-menu-body { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; max-height: none; padding: 0; gap: 0; overflow: hidden; align-items: stretch; }
-.point-columns-dialog .point-column-menu-actions { flex: 0 0 auto; padding: 0 20px 12px; border-bottom: 1px solid var(--border-color); }
+.point-columns-dialog .point-column-menu-actions { flex: 0 0 auto; padding: 8px 12px; gap: 8px; align-items: center; border-bottom: 1px solid var(--border-color); cursor: grab; touch-action: none; }
+.point-columns-dialog .point-column-menu-actions:active { cursor: grabbing; }
 .point-column-lists { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); align-items: start; gap: 20px; }
-.point-columns-dialog .point-column-lists { flex: 1 1 auto; min-height: 0; overflow: hidden; align-items: stretch; padding: 0 20px 20px; }
+.point-columns-dialog .point-column-lists { flex: 1 1 auto; min-height: 0; overflow: hidden; align-items: stretch; padding: 0 12px 12px; gap: 12px; }
 .point-columns-dialog :is(.point-column-selected, .point-column-available) { min-width: 0; min-height: 0; overflow-y: auto; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.point-columns-dialog .point-column-available { overflow-y: scroll; }
+.point-columns-dialog .point-column-selected { scrollbar-width: none; scrollbar-gutter: auto; }
+.point-columns-dialog .point-column-selected::-webkit-scrollbar { display: none; }
 .point-columns-dialog .sidebar-column-order-heading { position: sticky; top: 0; z-index: 1; background: var(--content-background); padding: 12px 4px; }
 .point-columns-dialog .sidebar-column-order-list,
 .point-columns-dialog .point-column-available .sidebar-filter-sections { min-height: 0; max-height: none; overflow: visible; scrollbar-gutter: auto; }
-.point-columns-dialog .point-column-order-row { font-size: .8rem; }
+.point-columns-dialog .point-column-order-row { font-size: .8rem; padding: 4px 6px; }
+.point-column-menu-actions .point-columns-close { font-size: 1.4rem; line-height: 1; padding: 3px 6px; color: var(--text-color); }
 .point-columns-dialog .filter-option-group-title { white-space: normal; }
 
 /* Area tint spans the same content width as the rows, including wide columns. */

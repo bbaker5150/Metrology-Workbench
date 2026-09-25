@@ -67,8 +67,19 @@ export async function checkSeptember22({ frame, page, saved, until, check }) {
   check('measurement controls and add-point button remain visible after horizontal scroll', controlsStayVisible(scrolledControls), JSON.stringify(scrolledControls));
   await sidebar.evaluate(node => { node.scrollLeft = 0; });
 
+  await frame.getByRole('button', { name: 'Columns', exact: true }).click();
+  const columns = frame.getByRole('dialog', { name: 'Visible measurement point columns', exact: true });
+  await columns.getByRole('button', { name: 'Add Comb. Uncertainty column', exact: true }).click();
+  await columns.getByRole('button', { name: 'Close column settings', exact: true }).click();
   const first = frame.locator('[data-point-id="point"]');
   await first.locator('[data-sidebar-column="pfa"]').click();
+  const originalSection = saved().testPoints[0].section || '';
+  await first.locator('[data-sidebar-column="section"] .point-grouped-cell-label').click();
+  const sectionInput = first.locator('input.section');
+  await sectionInput.fill('4.2.1'); await sectionInput.press('Enter');
+  check('Section can be edited and saved in the first default column', await until(async () => saved().testPoints[0].section === '4.2.1' && (await first.locator('[data-sidebar-column="section"]').innerText()).includes('4.2.1')));
+  await first.locator('[data-sidebar-column="section"] .point-grouped-cell-label').click();
+  await sectionInput.fill(originalSection); await sectionInput.press('Enter');
   const unit = first.getByRole('button', { name: 'Measurement point unit base unit', exact: true });
   check('compatible percentage tolerance initially produces limits and risk', await until(async () => /\d/.test(await first.locator('[data-sidebar-column="pfa"]').innerText())));
   const cardSizes = () => frame.locator('.budget-decision-card').evaluateAll(nodes => nodes.map(node => ({width:node.getBoundingClientRect().width,height:node.getBoundingClientRect().height})));

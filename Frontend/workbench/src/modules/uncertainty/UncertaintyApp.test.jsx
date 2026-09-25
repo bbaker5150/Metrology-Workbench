@@ -370,7 +370,7 @@ describe("UncertaintyApp", () => {
 
     expect(screen.getByText("Comb. Uncertainty", { exact: true })).toBeInTheDocument();
     expect(screen.getByText("Exp. Uncertainty", { exact: true })).toBeInTheDocument();
-    expect(screen.getAllByText("Risk")).toHaveLength(2);
+    expect(screen.getAllByText("Risk")).toHaveLength(1);
     expect(screen.getByText("Mitigation (GB + Int)")).toBeInTheDocument();
     expect(screen.getByText("Mitigation (Int Only)")).toBeInTheDocument();
     expect(screen.getByText("REOP @ test pt TUR")).toBeInTheDocument();
@@ -378,6 +378,18 @@ describe("UncertaintyApp", () => {
     expect(screen.getByText("Targeted REOP w/o GB")).toBeInTheDocument();
     const menu = screen.getByRole("dialog", { name: "Visible measurement point columns" });
     expect(within(menu).queryByRole("checkbox")).not.toBeInTheDocument();
+    const displayed = () => [...menu.querySelectorAll('[data-column-key]')].map(row => row.dataset.columnKey);
+    expect(displayed()).toEqual(['section', 'uut', 'warningIcons', 'value', 'lowLimit', 'measurementUncertainty', 'tur', 'pfa', 'pfr', 'gbMult', 'gbLow', 'gbPfa', 'gbPfr', 'gbCalInt', 'noGbCalInt', 'noGbMeasRel']);
+    expect(menu.querySelector('.point-column-selected .filter-option-group-title')).toBeNull();
+    fireEvent.click(within(menu).getByRole('button', { name: 'Add Comb. Uncertainty column' }));
+    expect(displayed().at(-1)).toBe('standardUncertainty');
+    fireEvent.click(within(menu).getByRole('button', { name: 'Hide UUT' }));
+    fireEvent.click(within(menu).getByRole('button', { name: 'Add UUT column' }));
+    expect(displayed().at(-1)).toBe('uut');
+    fireEvent.click(within(menu).getByRole('button', { name: 'Add TMDE Limits column' }));
+    expect(displayed().at(-1)).toBe('tmdeLow');
+    expect(within(menu).getByRole('button', { name: 'Close column settings' }).parentElement).toBe(within(menu).getByRole('button', { name: 'Reset Columns' }).parentElement);
+
     fireEvent.click(within(menu).getByRole("button", { name: "Hide PFA" }));
     expect(within(menu).getByRole("button", { name: "Add PFA column" })).toBeInTheDocument();
     fireEvent.click(within(menu).getByRole("button", { name: "Reset Columns" }));
@@ -1503,6 +1515,7 @@ describe("UncertaintyApp", () => {
       document.querySelectorAll(".sidebar-column-group"),
     );
     expect(columnGroups.map((group) => group.textContent.trim())).toEqual([
+      "Measurement",
       "Warnings",
       "Measurement",
       "Risk",
@@ -1510,13 +1523,15 @@ describe("UncertaintyApp", () => {
       "Mitigation (Int Only)",
     ]);
     expect(columnGroups.map((group) => group.style.gridColumn)).toEqual([
-      "span 1",
-      "span 9",
       "span 2",
       "span 1",
-      "span 1",
+      "span 5",
+      "span 2",
+      "span 6",
+      "span 3",
     ]);
     fireEvent.click(screen.getByTitle("Columns"));
+    fireEvent.click(screen.getByRole("button", { name: "Hide Section" }));
     fireEvent.click(screen.getByRole("button", { name: "Add Section column" }));
     expect(
       document.querySelector(".sidebar-column-header-cell--section"),
@@ -1553,8 +1568,12 @@ describe("UncertaintyApp", () => {
     expect(pointRow.style.gridTemplateColumns).toBe(
       columnHeader.style.gridTemplateColumns,
     );
+    // Display order can differ from JSX order; each cell keeps its semantic identity.
+    expect(pointRow.querySelector('[data-sidebar-column="uut"] .point-uut-summary')).not.toBeNull();
+    expect(pointRow.querySelector('[data-sidebar-column="value"] .point-value-number')).not.toBeNull();
+    expect(pointRow.querySelector('[data-sidebar-column="section"]')).toHaveClass('point-section');
     // The UUT track starts wide enough for a full instrument identity.
-    expect(pointRow.style.gridTemplateColumns).toMatch(/^70px minmax\(200px, 1\.35fr\) /);
+    expect(pointRow.style.gridTemplateColumns).toMatch(/^minmax\(200px, 1\.35fr\) 70px /);
     expect(pointRow.style.gridTemplateColumns).not.toContain("ch");
     fireEvent.click(pointRow);
     expect(pointRow).toHaveClass("active-point");

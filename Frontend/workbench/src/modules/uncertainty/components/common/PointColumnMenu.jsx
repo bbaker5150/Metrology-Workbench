@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from "react";
 
-export default function PointColumnMenu({ sections, columns, setColumns, selectedGroups, moveGroup, onReset, onSetDefault }) {
+export default function PointColumnMenu({ sections, columns, setColumns, selectedGroups, moveGroup, onReset, onSetDefault, onClose }) {
   const menuRef = useRef(null);
   const draggedKey = useRef(null);
   const pointerCleanup = useRef(null);
@@ -16,7 +16,7 @@ export default function PointColumnMenu({ sections, columns, setColumns, selecte
     const source = draggedKey.current || event.dataTransfer.getData("application/x-uncertalytics-column");
     const added = allColumns.find(col => col.key === source);
     if (!selectedGroups.some(group => group.key === source) && added) toggle(added.keys || [added.key], true);
-    if (target && source !== target) {
+    if (source !== target) {
       if (added && !selectedGroups.some(group => group.key === source)) moveGroup(source, target, added.keys || [added.key]);
       else moveGroup(source, target);
     }
@@ -87,14 +87,13 @@ export default function PointColumnMenu({ sections, columns, setColumns, selecte
     <div className="point-column-menu-actions">
       <button type="button" onClick={() => { finishDrag(); onReset(); }}>Reset Columns</button>
       <button type="button" onClick={onSetDefault}>Set as Default</button>
+      <button type="button" className="point-columns-close" onClick={onClose} aria-label="Close column settings" autoFocus>×</button>
     </div>
     <div className="point-column-lists">
     <section className="point-column-selected">
       <div className="sidebar-column-order-heading"><strong>Displayed columns</strong></div>
       <div className="sidebar-column-order-list" onDragOver={event => { if (draggedKey.current) event.preventDefault(); }} onDrop={event => dropColumn(event, null)}>
         {selectedGroups.map((group, index) => <React.Fragment key={group.key}>
-          {(index === 0 || sections.find(section => section.cols.some(col => (col.keys || [col.key]).includes(selectedGroups[index-1].key)))?.group !== sections.find(section => section.cols.some(col => (col.keys || [col.key]).includes(group.key)))?.group) &&
-            <div className="filter-option-group-title">{sections.find(section => section.cols.some(col => (col.keys || [col.key]).includes(group.key)))?.group}</div>}
           <div
           className={`point-column-order-row${dragging === group.key ? " is-dragging" : ""}${(dropTarget?.key || dropTarget) === group.key && dragging !== group.key ? ` is-drop-target drop-${dropTarget?.position || "before"}` : ""}`}
           data-column-key={group.key} onPointerDown={event => startPointerDrag(event, group.key)}
@@ -118,7 +117,7 @@ export default function PointColumnMenu({ sections, columns, setColumns, selecte
           {section.cols.map(col => <button type="button" className={`point-column-add${dragging === col.key ? " is-dragging" : ""}`} key={col.key} aria-label={`Add ${col.label} column`}
             onPointerDown={event => { suppressClick.current = false; startPointerDrag(event, col.key); }}
             onDragStart={event => beginDrag(event, col.key)} onDragEnd={finishDrag}
-            onClick={() => { if (suppressClick.current) { suppressClick.current = false; return; } toggle(col.keys || [col.key], true); }}><span>{col.label}</span><span aria-hidden="true">+</span></button>)}
+            onClick={() => { if (suppressClick.current) { suppressClick.current = false; return; } toggle(col.keys || [col.key], true); moveGroup(col.key, null, col.keys || [col.key]); }}><span>{col.label}</span><span aria-hidden="true">+</span></button>)}
         </section>)}
       </div>
     </section>

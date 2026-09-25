@@ -392,9 +392,14 @@ const SIDEBAR_COLUMN_GROUPS = [
 
 SIDEBAR_COLUMN_GROUPS.push({ key: "risk-inputs", label: "Risk Inputs", columns: RISK_INPUT_FIELDS.map(requirementColumn) }, { key: "mitigation-inputs", label: "Mitigation Inputs", columns: MITIGATION_INPUT_FIELDS.map(requirementColumn) });
 
-export const DEFAULT_SIDEBAR_COLUMN_ORDER = SIDEBAR_COLUMN_GROUPS.flatMap(
-  (group) => group.columns,
-);
+const INITIAL_SIDEBAR_COLUMNS = [
+  "section", "uut", "warningIcons", "value", "lowLimit", "highLimit",
+  "measurementUncertainty", "tur", "pfa", "pfr", "gbMult", "gbLow", "gbHigh",
+  "gbPfa", "gbPfr", "gbCalInt", "noGbCalInt", "noGbMeasRel",
+];
+export const DEFAULT_SIDEBAR_COLUMN_ORDER = [...INITIAL_SIDEBAR_COLUMNS,
+  ...SIDEBAR_COLUMN_GROUPS.flatMap(group => group.columns).filter(key => !INITIAL_SIDEBAR_COLUMNS.includes(key)),
+];
 
 const SIDEBAR_COLUMN_TRACKS = {
   warningIcons: "70px",
@@ -546,40 +551,9 @@ const INSTRUMENT_SIZE_STORAGE_KEYS = [
   "uncertalytics:detail:uut:instrument-table-height:v1",
   "uncertalytics:detail:tmde:instrument-table-height:v1",
 ];
-const DEFAULT_SIDEBAR_COLUMNS = {
-  uutBias: true,
-  tmdeBias: true,
-  warningIcons: true,
-  uut: true,
-  section: false,
-  value: true,
-  qualifier: false,
-  tolerance: false,
-  lowLimit: true,
-  highLimit: true,
-  standardUncertainty: true,
-  measurementUncertainty: true,
-  tmdeLow: false,
-  tmdeHigh: false,
-  pfa: true,
-  pfr: true,
-  tur: true,
-  tar: false,
-  observedReop: false,
-  maxReop: false,
-  trueReop: false,
-  gbPfa: false,
-  gbPfr: false,
-  gbMult: false,
-  gbLow: false,
-  gbHigh: false,
-  gbCalInt: false,
-  gbMeasRel: false,
-  noGbPfa: false,
-  noGbPfr: false,
-  noGbCalInt: false,
-  noGbMeasRel: false,
-};
+const DEFAULT_SIDEBAR_COLUMNS = Object.fromEntries(
+  DEFAULT_SIDEBAR_COLUMN_ORDER.map(key => [key, INITIAL_SIDEBAR_COLUMNS.includes(key)]),
+);
 const POINT_COLUMN_DEFAULTS_KEY = "uncertalytics.pointColumnDefaults.v1";
 const readPointColumnDefaults = () => {
   try { const saved = JSON.parse(window.localStorage.getItem(POINT_COLUMN_DEFAULTS_KEY) || "{}"); return saved && typeof saved === "object" && !Array.isArray(saved) ? saved : {}; }
@@ -858,7 +832,7 @@ export const SidebarPointItem = ({
   useLayoutEffect(() => {
     const row = pointRowRef.current;
     if (!row) return;
-    const renderedKeys = DEFAULT_SIDEBAR_COLUMN_ORDER.filter((key) =>
+    const renderedKeys = SIDEBAR_COLUMN_GROUPS.flatMap(group => group.columns).filter((key) =>
       Boolean(visibleColumns[key]),
     );
     const cells = [...row.children];
@@ -5504,7 +5478,12 @@ function App({ showThemeToggle = false }) {
   }, []);
   const moveSidebarSortGroup = (source, target, addedKeys, position) => {
     const from = sidebarSortGroups.find(g => g.key === source) || (addedKeys && { key: source, keys: addedKeys }), to = sidebarSortGroups.find(g => g.key === target);
-    if (!from || !to || from === to) return;
+    if (!from || from === to) return;
+    if (!target) {
+      setSidebarColumnOrder(previous => [...previous.filter(key => !from.keys.includes(key)), ...from.keys]);
+      return;
+    }
+    if (!to) return;
     setSidebarColumnOrder(previous => {
       const next = previous.filter(key => !from.keys.includes(key));
       const movingDown = position ? position === "after" : sidebarSortGroups.indexOf(from) < sidebarSortGroups.indexOf(to);
@@ -6180,6 +6159,7 @@ function App({ showThemeToggle = false }) {
                             { group: "Mitigation Inputs", cols: MITIGATION_INPUT_FIELDS.map(field => ({ key: requirementColumn(field), label: field.sidebarLabel })) },
                           ]} columns={sidebarColumns} setColumns={setSidebarColumns}
                               selectedGroups={sidebarSortGroups} moveGroup={moveSidebarSortGroup}
+                              onClose={() => setIsColumnMenuOpen(false)}
                               onReset={() => { const defaults = readPointColumnDefaults(); setSidebarColumnOrder(normalizeSidebarColumnOrder(defaults.order)); setSidebarColumns({ ...DEFAULT_SIDEBAR_COLUMNS, ...defaults.columns }); }}
                               onSetDefault={() => {
                                 try { window.localStorage.setItem(POINT_COLUMN_DEFAULTS_KEY, JSON.stringify({ columns: sidebarColumns, order: sidebarColumnOrder })); showToast("Default point columns saved"); }
@@ -6349,7 +6329,17 @@ function App({ showThemeToggle = false }) {
                   if (sidebarAutoFit) { setSidebarAutoFit(false); setWorkspacePane("points"); }
                   else { setWorkspacePane("split"); setSidebarAutoFit(true); }
                 }
-                if (event.key === "Escape") { event.preventDefault(); setSidebarAutoFit(false); setWorkspacePane("split"); }
+                if (event.key === "Escape") {
+                  event.preventDefault();
+                  setSidebarAutoFit(false);
+                  setWorkspacePane("split");
+                  const container = resultsContainerRef.current;
+                  const style = window.getComputedStyle(container);
+                  const available = container.clientWidth - (parseFloat(style.paddingLeft) || 0) - (parseFloat(style.paddingRight) || 0) - 336;
+                  // Auto-fit can occupy the entire workspace. Reserve room for
+                  // the instrument pane when returning to a split view.
+                  setSidebarWidth(width => Math.max(300, Math.min(width, available)));
+                }
                 if (["ArrowLeft", "ArrowRight"].includes(event.key)) {
                   event.preventDefault();
                   const container = resultsContainerRef.current;
