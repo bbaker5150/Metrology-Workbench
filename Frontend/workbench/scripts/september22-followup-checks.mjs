@@ -21,6 +21,9 @@ export async function checkSeptember22Followup({ frame, page, saved, until, chec
     check(`value column includes the entire unit control at ${zoom * 100}%`, await until(async () => point.locator('[data-sidebar-column="value"]').evaluate(cell => {
       const unit = cell.querySelector('.point-unit-control').getBoundingClientRect(), box = cell.getBoundingClientRect();
       return unit.right <= box.right + 1 && unit.left >= box.left - 1 && cell.scrollWidth <= cell.clientWidth + 1;
+    })), JSON.stringify(await point.locator('[data-sidebar-column="value"]').evaluate(cell => {
+      const unit = cell.querySelector('.point-unit-control'), edit = cell.querySelector('.point-edit-affordance');
+      return { cell: cell.getBoundingClientRect().toJSON(), unit: unit.getBoundingClientRect().toJSON(), content: cell.scrollWidth, client: cell.clientWidth, edit: edit.getBoundingClientRect().toJSON(), tracks: getComputedStyle(edit).gridTemplateColumns };
     })));
   }
   await frame.evaluate(() => { document.documentElement.style.zoom = ''; window.dispatchEvent(new Event('resize')); });

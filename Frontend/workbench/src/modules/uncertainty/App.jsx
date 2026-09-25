@@ -505,6 +505,7 @@ const getSidebarGridTemplate = (
   valueColumnWidth = "80px",
   columnWidths = {},
   columnOrder = DEFAULT_SIDEBAR_COLUMN_ORDER,
+  fillWidth = false,
 ) => {
   const tracks = {
     ...SIDEBAR_COLUMN_TRACKS,
@@ -515,9 +516,10 @@ const getSidebarGridTemplate = (
     columnOrder,
   ).map((key) => {
     const custom = Number(columnWidths?.[key]);
-    return Number.isFinite(custom) && custom > 0
+    const track = Number.isFinite(custom) && custom > 0
       ? `${Math.max(getSidebarColumnMinWidth(key), Math.round(custom))}px`
       : tracks[key];
+    return fillWidth ? "minmax(0, 1fr)" : track;
   });
 
   if (parts.length === 0) return "1fr";
@@ -755,6 +757,7 @@ export const SidebarPointItem = ({
   cellGroups = {},
   columnWidths = {},
   columnOrder = DEFAULT_SIDEBAR_COLUMN_ORDER,
+  fillWidth = false,
   highlightedPointIds = [],
   valueColumnWidth = "80px",
   isSelected,
@@ -884,12 +887,12 @@ export const SidebarPointItem = ({
   };
 
   const handleSingleClickEdit = (e, field, currentVal) => {
-    const isPlainValueClick =
-      field === "value" && !e.ctrlKey && !e.metaKey && !e.shiftKey;
-    if (!isSelected && isPlainValueClick) {
+    const isPlainEditableClick =
+      (field === "value" || field === "section") && !e.ctrlKey && !e.metaKey && !e.shiftKey;
+    if (!isSelected && isPlainEditableClick) {
       onSelect?.(e, point);
     }
-    if (isSelected || isPlainValueClick) {
+    if (isSelected || isPlainEditableClick) {
       startEdit(e, field, currentVal);
     }
   };
@@ -1299,6 +1302,7 @@ export const SidebarPointItem = ({
           valueColumnWidth,
           columnWidths,
           columnOrder,
+          fillWidth,
         ),
         gridTemplateAreas: `"${orderedVisibleColumns.join(" ")}"`,
       }}
@@ -1364,7 +1368,8 @@ export const SidebarPointItem = ({
                       ariaLabel="UUT"
                       title={uutName}
                       width="100%"
-                      menuWidth={260}
+                      menuWidth={320}
+                      fitOptions
                       className="point-uut-inline-select"
                       autoOpen
                       showOptionMeta={false}
@@ -2291,6 +2296,7 @@ function App({ showThemeToggle = false }) {
   });
   const [workspacePane, setWorkspacePane] = useState(() => readUiSizingPreferences().workspacePane === "points" ? "points" : "split");
   const [sidebarAutoFit, setSidebarAutoFit] = useState(() => readUiSizingPreferences().sidebarAutoFit || false);
+  const [instrumentAutoFit, setInstrumentAutoFit] = useState(() => readUiSizingPreferences().instrumentAutoFit || false);
   const [isSessionInfoOpen, setIsSessionInfoOpen] = useState(true);
   const [isRequirementsOpen, setIsRequirementsOpen] = useState(true);
   const [analysisMode, setAnalysisMode] = useState("overview");
@@ -2422,7 +2428,8 @@ function App({ showThemeToggle = false }) {
   }, []);
 
   const renderSidebarColumnHeader = useCallback(
-    (key, label, { align = "left", title = label, className = "" } = {}) => {
+    (key, label, { title = label, className = "" } = {}) => {
+      const align = "center";
       return (
         <div
           key={key}
@@ -2509,7 +2516,7 @@ function App({ showThemeToggle = false }) {
       );
 
       setWorkspacePane("split");
-      setSidebarAutoFit(false);
+      setSidebarAutoFit(false); setInstrumentAutoFit(false);
       setSidebarWidth(newWidth);
     };
 
@@ -2810,7 +2817,7 @@ function App({ showThemeToggle = false }) {
     try {
       window.localStorage.setItem(
         UNCERTAINTY_UI_SIZING_KEY,
-        JSON.stringify({ sidebarWidth, workspacePane, sidebarAutoFit, scopedZoomLevels, sidebarColumnWidths, resultsScaleVersion: 2 }),
+        JSON.stringify({ sidebarWidth, workspacePane, sidebarAutoFit, instrumentAutoFit, scopedZoomLevels, sidebarColumnWidths, resultsScaleVersion: 2 }),
       );
     } catch (error) {
       console.warn("Unable to save uncertainty sizing preferences", error);
@@ -2821,6 +2828,7 @@ function App({ showThemeToggle = false }) {
     sidebarWidth,
     workspacePane,
     sidebarAutoFit,
+    instrumentAutoFit,
     scopedZoomLevels,
     sidebarColumnWidths,
   ]);
@@ -3293,7 +3301,7 @@ function App({ showThemeToggle = false }) {
         e.preventDefault();
         setSidebarWidth(550);
         setWorkspacePane("split");
-        setSidebarAutoFit(false);
+        setSidebarAutoFit(false); setInstrumentAutoFit(false);
         setSidebarColumnWidths({});
         setScopedZoomLevels({});
         try {
@@ -4800,6 +4808,39 @@ function App({ showThemeToggle = false }) {
     };
   }, [sidebarAutoFit, workspacePane, sidebarData, sidebarColumns, sidebarColumnOrder, sidebarColumnWidths, scopedZoomLevels]);
 
+  useLayoutEffect(() => {
+    if (!instrumentAutoFit) return undefined;
+    const container = resultsContainerRef.current;
+    const pane = container?.querySelector('.results-content');
+    if (!container || !pane) return undefined;
+    let frame = null;
+    const fit = () => {
+      frame = null;
+      const style = getComputedStyle(container);
+      const available = container.clientWidth - (parseFloat(style.paddingLeft) || 0) - (parseFloat(style.paddingRight) || 0) - 16;
+      const containerScale = container.getBoundingClientRect().width / container.offsetWidth || 1;
+      const tables = [...pane.querySelectorAll('.instrument-equipment-table')].filter(table => table.getClientRects().length);
+      if (!tables.length) return;
+      const needed = Math.max(...tables.map(table => {
+        const scroller = table.parentElement;
+        const scale = (table.getBoundingClientRect().width / table.offsetWidth || 1) / containerScale;
+        const natural = parseFloat(table.style.getPropertyValue('--instrument-natural-table-width')) || parseFloat(table.style.minWidth) || 1200;
+        const overhead = (pane.getBoundingClientRect().width - scroller.getBoundingClientRect().width) / containerScale;
+        return natural * scale + overhead + 2;
+      }));
+      const width = Math.max(300, Math.min(1800, available - needed));
+      setSidebarWidth(previous => Math.abs(previous - width) < 1 ? previous : width);
+    };
+    const schedule = () => { if (frame === null) frame = requestAnimationFrame(fit); };
+    const resize = typeof ResizeObserver === 'function' ? new ResizeObserver(schedule) : null;
+    resize?.observe(container);
+    const observer = new MutationObserver(schedule);
+    observer.observe(pane, { subtree: true, childList: true, attributes: true, attributeFilter: ['style'] });
+    window.addEventListener('resize', schedule);
+    schedule();
+    return () => { cancelAnimationFrame(frame); resize?.disconnect(); observer.disconnect(); window.removeEventListener('resize', schedule); };
+  }, [instrumentAutoFit, scopedZoomLevels]);
+
   useEffect(() => {
     if (!pendingPointValueAdvance) return;
     const { functionId, uutId, unit, nextPointId, insert, afterPointId } = pendingPointValueAdvance;
@@ -5160,6 +5201,7 @@ function App({ showThemeToggle = false }) {
       cellGroups={cellGroups}
       columnWidths={sidebarRenderedColumnWidths}
       columnOrder={sidebarColumnOrder}
+      fillWidth={workspacePane === "points" && !sidebarAutoFit}
       highlightedPointIds={[
         ...selectedSidebarPointIds,
         selectedTestPointId,
@@ -5348,6 +5390,7 @@ function App({ showThemeToggle = false }) {
       sidebarValueColumnWidth,
       sidebarRenderedColumnWidths,
       sidebarColumnOrder,
+      workspacePane === "points" && !sidebarAutoFit,
     );
     const orderedVisibleColumns = getVisibleSidebarColumnOrder(
       visibleSidebarColumns,
@@ -5491,6 +5534,25 @@ function App({ showThemeToggle = false }) {
       next.splice(insertion, 0, ...from.keys);
       return next;
     });
+  };
+
+  const cycleWorkspaceFit = () => {
+    setSidebarAutoFit(false);
+    setInstrumentAutoFit(false);
+    if (sidebarAutoFit) {
+      setWorkspacePane("points");
+      setIsSessionInfoOpen(false);
+      setIsRequirementsOpen(false);
+    } else if (workspacePane === "points") {
+      setWorkspacePane("split");
+      // Reveal the instrument pane before measuring its tables; a full-width
+      // point list otherwise leaves the pane with no measurable content.
+      setSidebarWidth(300);
+      setInstrumentAutoFit(true);
+    } else {
+      setWorkspacePane("split");
+      setSidebarAutoFit(true);
+    }
   };
 
   const renderFunctionPointActions = (fnGroup) => {
@@ -5974,7 +6036,7 @@ function App({ showThemeToggle = false }) {
             </div>
           </header>
 
-          <div className={`results-workflow-container workspace-pane-${workspacePane}${sidebarAutoFit ? " workspace-pane-autofit" : ""}`} ref={resultsContainerRef}>
+          <div className={`results-workflow-container workspace-pane-${workspacePane}${sidebarAutoFit ? " workspace-pane-autofit" : ""}${instrumentAutoFit ? " workspace-pane-instrument-fit" : ""}`} ref={resultsContainerRef}>
             <aside
               className="results-sidebar"
               style={{
@@ -6317,21 +6379,19 @@ function App({ showThemeToggle = false }) {
               </div>
             </aside>
             <div className="sidebar-resizer" role="separator" aria-orientation="vertical" tabIndex={0}
-              aria-label="Resize measurement point list" aria-valuetext={sidebarAutoFit ? "Auto-fit measurement points" : workspacePane === "points" ? "Measurement points only" : "Free-hand split view"}
+              aria-label="Resize measurement point list" aria-valuetext={instrumentAutoFit ? "Auto-fit instrument tables" : sidebarAutoFit ? "Auto-fit measurement points" : workspacePane === "points" ? "Measurement points only" : "Free-hand split view"}
               onMouseDown={startResizing}
               onDoubleClick={() => {
-                if (sidebarAutoFit) { setSidebarAutoFit(false); setWorkspacePane("points"); }
-                else { setWorkspacePane("split"); setSidebarAutoFit(true); }
+                cycleWorkspaceFit();
               }}
               onKeyDown={event => {
                 if (event.key === "Enter") {
                   event.preventDefault();
-                  if (sidebarAutoFit) { setSidebarAutoFit(false); setWorkspacePane("points"); }
-                  else { setWorkspacePane("split"); setSidebarAutoFit(true); }
+                  cycleWorkspaceFit();
                 }
                 if (event.key === "Escape") {
                   event.preventDefault();
-                  setSidebarAutoFit(false);
+                  setSidebarAutoFit(false); setInstrumentAutoFit(false);
                   setWorkspacePane("split");
                   const container = resultsContainerRef.current;
                   const style = window.getComputedStyle(container);
@@ -6346,11 +6406,11 @@ function App({ showThemeToggle = false }) {
                   const style = window.getComputedStyle(container);
                   const available = container.clientWidth - (parseFloat(style.paddingLeft) || 0) - (parseFloat(style.paddingRight) || 0) - 320;
                   setWorkspacePane("split");
-                  setSidebarAutoFit(false);
+                  setSidebarAutoFit(false); setInstrumentAutoFit(false);
                   setSidebarWidth(width => Math.max(300, Math.min(1800, available, width + (event.key === "ArrowLeft" ? -40 : 40))));
                 }
               }}
-              title={`Drag to resize. Double-click to ${sidebarAutoFit ? "expand measurement points" : "auto-fit measurement-point columns"}.`} />
+              title={`Drag to resize. Double-click to ${sidebarAutoFit ? "expand measurement points" : workspacePane === "points" ? "auto-fit instrument tables" : "auto-fit measurement-point columns"}.`} />
             <main className="results-content">
               {displayData ? (
                 <TestPointDetailView

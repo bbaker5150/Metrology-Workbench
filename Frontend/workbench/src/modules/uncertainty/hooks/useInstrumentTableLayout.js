@@ -163,6 +163,8 @@ export default function useInstrumentTableLayout(containerRef) {
       const zoom = parseFloat(getComputedStyle(table).zoom) || 1;
       const baseline = Math.max(container.clientWidth / zoom, parseFloat(table.style.minWidth) || 1200);
       const fillIndex = cols.findIndex(col => col.dataset.fill === "true");
+      const naturalWidths = expandedInstrumentWidths(cols.map(col => parseFloat(col.style.width) || 1), parseFloat(table.style.minWidth) || 1200, requirements, absolute, fillIndex < 0 ? cols.length - 1 : fillIndex);
+      setProperty(table, "--instrument-natural-table-width", `${naturalWidths.reduce((sum, width) => sum + width, 0)}px`);
       const widths = expandedInstrumentWidths(cols.map(col => parseFloat(col.style.width) || 1), baseline, requirements, absolute, fillIndex < 0 ? cols.length - 1 : fillIndex);
       cols.forEach((col, index) => setProperty(col, "--instrument-live-column-width", `${widths[index]}px`));
       const tableWidth = widths.reduce((sum, width) => sum + width, 0);

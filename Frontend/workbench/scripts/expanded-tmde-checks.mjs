@@ -186,6 +186,8 @@ export async function checkExpandedTmde({ frame, page, saved }) {
   await frame.locator('.workspace-pane-points:not(.workspace-pane-autofit)').waitFor();
   assert.ok(await divider.evaluate(node => getComputedStyle(node, '::after').opacity === '1'), 'full-width divider remains highlighted');
   await divider.dblclick();
+  await frame.locator('.workspace-pane-instrument-fit').waitFor();
+  await divider.dblclick();
   await frame.locator('.workspace-pane-autofit').waitFor();
   const geometry = await point.locator('[data-sidebar-column="value"]').evaluate(cell => {
     const bounds = cell.getBoundingClientRect();

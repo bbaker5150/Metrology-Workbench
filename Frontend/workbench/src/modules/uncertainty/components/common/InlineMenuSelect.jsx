@@ -20,6 +20,7 @@ const InlineMenuSelect = ({
   headerAction,
   width = "72px",
   menuWidth = 220,
+  fitOptions = false,
   className = "",
   autoOpen = false,
   showOptionMeta = true,
@@ -59,13 +60,25 @@ const InlineMenuSelect = ({
       : "";
     setMenuAccentColor(accentColor);
     if (rect) {
+      let optionWidth = 0;
+      if (fitOptions && rootRef.current) {
+        const measure = document.createElement('span');
+        measure.style.cssText = 'position:fixed;visibility:hidden;white-space:nowrap;pointer-events:none';
+        measure.style.font = getComputedStyle(rootRef.current).font;
+        document.body.appendChild(measure);
+        for (const option of options) {
+          measure.textContent = option.label;
+          optionWidth = Math.max(optionWidth, measure.getBoundingClientRect().width + 48);
+        }
+        measure.remove();
+      }
       const visualViewport = window.visualViewport;
       setMenuRect(
         getAnchoredMenuPlacement({
           anchorRect: rect,
           viewportWidth: visualViewport?.width || window.innerWidth,
           viewportHeight: visualViewport?.height || window.innerHeight,
-          preferredWidth: Math.max(rect.width, menuWidth),
+          preferredWidth: Math.max(rect.width, menuWidth, optionWidth),
           preferredMaxHeight: Math.min(
             prefixTable ? 360 : 320,
             Math.max(48, options.length * 34 + 12 + (menuTitle || prefixTable ? 38 : 0)),
@@ -108,7 +121,7 @@ const InlineMenuSelect = ({
     };
     // Geometry does not depend on the selected value.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, menuWidth, options.length]);
+  }, [isOpen, menuWidth, fitOptions, options.length]);
 
   useEffect(() => {
     if (!autoOpen) return undefined;

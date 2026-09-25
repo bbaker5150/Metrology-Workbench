@@ -1993,3 +1993,24 @@ test("uses personal column defaults for an unconfigured session and preserves se
   expect(within(menu).getByRole("button", { name: "Add PFA column" })).toBeInTheDocument();
   expect(within(menu).getAllByLabelText(/^Move /).slice(0, 2).map(row => row.getAttribute("aria-label"))).toEqual(["Move Value", "Move Section"]);
 });
+
+
+test("cycles through point fit, full points and instrument fit while collapsing details", async () => {
+  apiMock.state.sessions = [{ id: 906, name: "Fit modes", measurementAreas: [], uuts: [], tmdes: [], testPoints: [], uncReq: {} }];
+  render(<ThemeProvider><NotificationProvider><MemoryRouter><UncertaintyApp /></MemoryRouter></NotificationProvider></ThemeProvider>);
+  await screen.findByTitle("Delete Session");
+  const divider = screen.getByRole('separator', { name: 'Resize measurement point list' });
+  fireEvent.doubleClick(divider);
+  expect(divider).toHaveAttribute('aria-valuetext', 'Auto-fit measurement points');
+  fireEvent.doubleClick(divider);
+  expect(divider).toHaveAttribute('aria-valuetext', 'Measurement points only');
+  expect(screen.getByRole('button', { name: /Session Info/i })).toHaveAttribute('aria-expanded', 'false');
+  expect(screen.getByRole('button', { name: 'Risk & Mitigation Inputs' })).toHaveAttribute('aria-expanded', 'false');
+  fireEvent.doubleClick(divider);
+  expect(divider).toHaveAttribute('aria-valuetext', 'Auto-fit instrument tables');
+  await waitFor(() => expect(JSON.parse(localStorage.getItem('uncertalytics.uiSizing.v1')).instrumentAutoFit).toBe(true));
+  fireEvent.keyDown(divider, { key: 'Enter' });
+  expect(divider).toHaveAttribute('aria-valuetext', 'Auto-fit measurement points');
+  fireEvent.keyDown(divider, { key: 'Escape' });
+  expect(divider).toHaveAttribute('aria-valuetext', 'Free-hand split view');
+});

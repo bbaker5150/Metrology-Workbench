@@ -358,6 +358,21 @@ describe("measurement-point value editing", () => {
     });
   });
 
+  test("a single Section click selects an unselected point and starts editing", () => {
+    const onSelect = vi.fn(), onSave = vi.fn();
+    const { container } = render(<SidebarPointItem
+      point={{ id: "p1", section: "", testPointInfo: { parameter: { value: 1, unit: "V" } } }}
+      isSelected={false} onSelect={onSelect} onSave={onSave}
+      visibleColumns={{ section: true, value: true }} />);
+    fireEvent.click(container.querySelector(".point-section .point-grouped-cell-label"));
+    const input = container.querySelector("input.section");
+    expect(input).toHaveFocus();
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    fireEvent.change(input, { target: { value: "3.2" } });
+    fireEvent.blur(input);
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ id: "p1", section: "3.2" }));
+  });
+
   test("routes a shared Section click to the selected member of the run", () => {
     const onRequestSharedMemberEdit = vi.fn();
     render(

@@ -44,6 +44,54 @@ export async function checkWorkspacePolish({ frame, page, saved, until, check })
   await divider.dblclick();
   check('second divider double-click shows points at full width and keeps the divider reachable', await frame.locator('.results-sidebar').isVisible() && !await frame.locator('.results-content').isVisible() && await divider.isVisible());
   check('full-width points keep a visible, directly reachable divider', await dividerIsReachable());
+  const fullExpand = frame.getByRole('button', { name: 'Expand measurement area', exact: true });
+  if (await fullExpand.count()) await fullExpand.first().click();
+  await frame.getByRole('button', { name: 'Columns', exact: true }).click();
+  const fullViewColumns = frame.getByRole('dialog', { name: 'Visible measurement point columns', exact: true });
+  const hideLabels = await fullViewColumns.locator('.point-column-order-row').evaluateAll(rows => rows.filter(row => !['value', 'pfa', 'pfr'].includes(row.dataset.columnKey)).map(row => row.querySelector('button').getAttribute('aria-label')));
+  for (const name of hideLabels) await fullViewColumns.getByRole('button', { name, exact: true }).click();
+  await fullViewColumns.getByRole('button', { name: 'Close column settings' }).click();
+  check('full-width points distribute available width evenly across columns', await until(async () => frame.locator('.sidebar-column-headers').first().evaluate(header => {
+    const cells = [...header.children].map(cell => cell.getBoundingClientRect());
+    const row = document.querySelector('.point-grid-item');
+    const data = [...row.children].map(cell => cell.getBoundingClientRect());
+    return cells.length === 3 && Math.max(...cells.map(r => r.width)) - Math.min(...cells.map(r => r.width)) < 2 && cells.at(-1).right >= header.getBoundingClientRect().right - 12 && data.every(r => Math.abs(r.width - cells[0].width) < 2);
+  })));
+  await frame.getByRole('button', { name: 'Columns', exact: true }).click();
+  await fullViewColumns.getByRole('button', { name: 'Reset Columns' }).click();
+  await fullViewColumns.getByRole('button', { name: 'Close column settings' }).click();
+
+  check('full-width points fit default columns without horizontal scrolling', await until(async () => frame.locator('.results-sidebar').evaluate(node => {
+    const edge = node.getBoundingClientRect().right;
+    const headers = [...node.querySelector('.sidebar-column-headers').children];
+    const wrappers = [...node.querySelectorAll('.sidebar-points-scroll-wrapper, .measurement-points-table, .measurement-points-table-content')];
+    return headers.every(cell => cell.getBoundingClientRect().right <= edge + 1) &&
+      wrappers.every(wrapper => wrapper.scrollWidth <= wrapper.clientWidth + 1);
+  })));
+  check('full-width value menus stay readable within their column', await until(async () => frame.locator('.point-grid-item [data-sidebar-column="value"]').evaluateAll(cells => cells.every(cell => {
+    const bounds = cell.getBoundingClientRect();
+    return [...cell.querySelectorAll('.inline-unit-combobox')].every(button => {
+      const box = button.getBoundingClientRect(), label = button.querySelector('span');
+      return box.left >= bounds.left - 1 && box.right <= bounds.right + 1 && label.scrollWidth <= label.clientWidth + 1;
+    });
+  }))));
+  await capture('full-width-measurement-columns');
+  check('full-width points collapse session details and requirements', await frame.getByRole('button', { name: /Session Info/i }).getAttribute('aria-expanded') === 'false' && await frame.getByRole('button', { name: 'Risk & Mitigation Inputs', exact: true }).getAttribute('aria-expanded') === 'false');
+  await divider.dblclick();
+  check('third divider state fits instrument tables', await until(async () => await frame.locator('.workspace-pane-instrument-fit').count() === 1 && await frame.locator('.results-content').isVisible()));
+  check('instrument auto-fit accommodates natural widths when space permits', await until(async () => frame.locator('.results-content').evaluate(pane => {
+    const workspace = pane.parentElement;
+    return [...pane.querySelectorAll('.instrument-equipment-table')].filter(table => table.getClientRects().length).every(table => {
+      const needed = parseFloat(table.style.getPropertyValue('--instrument-natural-table-width')) * (table.getBoundingClientRect().width / table.offsetWidth);
+      return needed > workspace.getBoundingClientRect().width - 350 || table.parentElement.getBoundingClientRect().width >= needed - 2;
+    });
+  })));
+  await frame.evaluate(() => location.reload());
+  await frame.getByRole('combobox', { name: 'Analysis Session' }).waitFor();
+  check('instrument auto-fit survives refresh', await until(async () => await frame.locator('.workspace-pane-instrument-fit').count() === 1));
+  await divider.dblclick();
+  check('fourth double-click returns to point auto-fit', await until(autoFitMatchesColumns));
+
   await divider.focus(); await divider.press('Escape');
   check('keyboard restores the split workspace', await until(async () => await frame.locator('.results-sidebar').isVisible() && await frame.locator('.results-content').isVisible()));
   const start = await divider.boundingBox();
@@ -59,6 +107,27 @@ export async function checkWorkspacePolish({ frame, page, saved, until, check })
   const expand = frame.getByRole('button', { name: 'Expand measurement area', exact: true });
   if (await expand.count()) await expand.first().click();
   const point = frame.locator('[data-point-id="point"]');
+  check('all measurement column headers are centered', await frame.locator('.sidebar-column-header-cell > .sidebar-sort-header').evaluateAll(nodes => nodes.every(node => getComputedStyle(node).textAlign === 'center' && getComputedStyle(node).justifyContent === 'center')));
+  check('point data alignment follows its content type', await point.evaluate(row => [...row.querySelectorAll(':scope > [data-sidebar-column]')].every(cell => {
+    const key = cell.dataset.sidebarColumn, css = getComputedStyle(cell);
+    return css.textAlign === (key === 'warningIcons' ? 'right' : ['section', 'uut'].includes(key) ? 'left' : 'center');
+  })));
+  await frame.locator('[data-point-id="direct-polish"] [data-sidebar-column="value"] .point-value-number').click();
+  await frame.locator('[data-point-id="direct-polish"] .point-value-input-slot input').press('Enter');
+  await point.locator('.point-section .point-grouped-cell-label').click();
+  const sectionInput = frame.locator('.point-grid-item input.section');
+  check('Section enters editing on the first click from another selected row', await sectionInput.isVisible() && await sectionInput.evaluate(input => input === document.activeElement));
+  await sectionInput.fill('Single click section'); await sectionInput.press('Enter');
+  check('Section saves the entered text', await until(async () => (await frame.locator('.point-section').allTextContents()).some(text => text.includes('Single click section')) && saved()?.testPoints?.some(point => point.section === 'Single click section')), JSON.stringify({ sections: await frame.locator('.point-section').allInnerTexts(), saved: saved()?.testPoints?.map(point => ({id: point.id, section: point.section})) }));
+  await point.getByRole('button', { name: 'UUT', exact: true }).click();
+  const uutOptions = frame.getByRole('listbox', { name: 'UUT', exact: true });
+  const assignedName = await uutOptions.getByRole('option', { selected: true }).innerText();
+  const assignedWidth = await uutOptions.evaluate(node => node.parentElement.getBoundingClientRect().width);
+  await uutOptions.getByRole('option', { name: 'Unassigned', exact: true }).click();
+  await point.getByRole('button', { name: 'UUT', exact: true }).click();
+  check('unassigned UUT menu retains the assigned picker width', await until(async () => Math.abs(await uutOptions.evaluate(node => node.parentElement.getBoundingClientRect().width) - assignedWidth) < 2));
+  check('unassigned UUT menu shows complete option names', await uutOptions.locator('[role="option"] > span').evaluateAll(nodes => nodes.every(node => node.scrollWidth <= node.clientWidth + 1)));
+  await uutOptions.getByRole('option', { name: assignedName, exact: true }).click();
   const uutWidth = () => point.locator('[data-sidebar-column="uut"]').evaluate(node => {
     const text = node.querySelector('.point-uut-summary');
     return { column: node.clientWidth, visible: text.clientWidth, content: text.scrollWidth, font: getComputedStyle(text).font };

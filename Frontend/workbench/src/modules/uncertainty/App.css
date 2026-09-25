@@ -20152,6 +20152,41 @@ body.uncertainty-active .context-menu li.destructive:hover {
   width: max-content;
   min-width: 100%;
 }
+/* Full expansion fits the viewport through every intrinsic-size wrapper.
+   Divide by scoped zoom so the painted content still occupies exactly one pane. */
+.uncertainty-module .workspace-pane-points:not(.workspace-pane-autofit) .measurement-points-zoom-surface {
+  width: 100%; min-width: 0;
+}
+.uncertainty-module .workspace-pane-points:not(.workspace-pane-autofit) .measurement-points-zoom-surface > .scoped-zoom-content {
+  width: calc(100cqw / var(--scoped-content-zoom, 1)); min-width: 0;
+}
+.uncertainty-module .workspace-pane-points:not(.workspace-pane-autofit) .measurement-points-table {
+  width: 100%; min-width: 0;
+}
+.uncertainty-module .workspace-pane-points:not(.workspace-pane-autofit) .measurement-points-table-content {
+  width: 100%; min-width: 0;
+}
+.uncertainty-module .workspace-pane-points:not(.workspace-pane-autofit) .measurement-group-container .point-value-with-unit > .point-edit-affordance {
+  display: flex; flex-wrap: wrap; justify-content: center; max-width: 100%; min-width: 0;
+}
+.uncertainty-module .workspace-pane-points:not(.workspace-pane-autofit) .point-unit-control {
+  flex-wrap: wrap; justify-content: center; max-width: 100%; min-width: 0;
+}
+.uncertainty-module .workspace-pane-points:not(.workspace-pane-autofit) .point-unit-control :is(.inline-unit-select, .inline-unit-combobox) {
+  max-width: 100%; min-width: 0; box-sizing: border-box;
+}
+/* Wrap the unit and prefix as complete controls instead of shrinking their labels. */
+.uncertainty-module .workspace-pane-points:not(.workspace-pane-autofit) .point-unit-control > .inline-unit-select {
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 3px;
+  width: max-content; height: auto; flex: 0 1 auto;
+}
+.uncertainty-module .workspace-pane-points:not(.workspace-pane-autofit) .point-unit-control .inline-unit-base-button {
+  width: max-content; flex: 0 1 auto;
+}
+.uncertainty-module .workspace-pane-points:not(.workspace-pane-autofit) .point-unit-control .inline-unit-prefix-select {
+  width: var(--inline-prefix-width, 52px); flex: 0 1 var(--inline-prefix-width, 52px);
+}
+.uncertainty-module .workspace-pane-points:not(.workspace-pane-autofit) .point-information { flex-wrap: wrap; }
 .uncertainty-module .measurement-points-table .measurement-group-container {
   margin: 0;
   padding: 0;
@@ -21236,6 +21271,17 @@ body.dark-mode .uncertainty-module .measurement-group-container .point-grid-item
 .uncertainty-module .point-value-with-unit .point-value-input-slot { justify-self: end; }
 .uncertainty-module .point-value-with-unit .point-value-number { text-align: right; }
 .uncertainty-module .point-information { width: auto; min-width: 0; margin: 0; justify-content: center; }
+/* Point columns align by content, including inline editors and merged cells. */
+.uncertainty-module .measurement-group-container .point-grid-item > :not(.point-uut-name):not(.point-section):not(.point-information),
+.uncertainty-module .measurement-group-container .point-grid-item :is(.point-metric-content, .point-value-number, .sidebar-inline-input.value) {
+  text-align: center; justify-content: center;
+}
+.uncertainty-module .measurement-group-container .point-grid-item :is(.point-section, .point-uut-name, .point-uut-summary),
+.uncertainty-module .measurement-group-container .point-section :is(.point-edit-affordance, .sidebar-inline-input, .point-grouped-cell-label, .point-grouped-cell-content),
+.uncertainty-module .measurement-group-container .point-uut-name .point-grouped-cell-content {
+  text-align: left; justify-content: flex-start;
+}
+.uncertainty-module .measurement-group-container .point-grid-item .point-information { justify-content: flex-end; text-align: right; }
 /* Match the right-hand metadata track to the right-aligned default inputs;
    text mirrors retain intrinsic editor sizing and focus geometry. */
 .session-info-content :is(.session-header-grid, .session-requirements-grid) {
@@ -21852,3 +21898,11 @@ body:not(.light-mode) .uncertainty-module .instrument-equipment-table > thead > 
 
 .instrument-column-insert-button:popover-open:hover { opacity: 1; pointer-events: auto; }
 .instrument-column-insert-button::backdrop { background: transparent; pointer-events: none; }
+
+/* Measurement point columns measure the complete unit/prefix pair, including
+   the prefix's authored width, rather than the compact range-picker footprint. */
+.uncertainty-module .point-unit-control > .inline-unit-split-select {
+  grid-template-columns: max-content max-content;
+  width: max-content; min-width: 0; flex-basis: auto;
+}
+.uncertainty-module .point-unit-control .inline-unit-base-button { width: max-content; }
