@@ -122,3 +122,53 @@ it.each(["table", "equation"])("uses budget editor controls and only the adjacen
   expect(saved.dynamicDefinition.mode).toBe("tolerance");
   expect(container.querySelector(".cell-tolerance")).toHaveTextContent("0.2 V");
 });
+
+it.each(["table", "equation"])("tabs into the first value field of a new %s source and reopens it with one click", async kind => {
+  let saved;
+  function Harness() {
+    const [source, setSource] = useState({id: "new-source", name: "", kind,
+      dynamicDefinition: createDynamicDefinition(kind, {unit: "V"})});
+    saved = source;
+    return <table><tbody><InstrumentUncertaintyRow source={source} activeRange={{unit:"V"}}
+      onChange={setSource} onRemove={() => {}} onAddSecondary={() => {}} /></tbody></table>;
+  }
+  const {container} = render(<Harness />);
+  const name = screen.getByRole("textbox", {name: "Uncertainty name"});
+  fireEvent.change(name, {target:{value:"New uncertainty"}});
+  fireEvent.keyDown(name, {key:"Tab"});
+  const label = kind === "table" ? "Measurement point row 1" : "Uncertainty equation";
+  expect(screen.getByRole("textbox", {name:label})).toHaveFocus();
+  expect(saved.name).toBe("New uncertainty");
+  expect(container.querySelector(".dynamic-editor-footer")).toBeNull();
+  fireEvent.keyDown(document.activeElement, {key:"Escape"});
+  fireEvent.click(within(container.querySelector(".cell-tolerance")).getByRole("button", {name:"Set tolerance"}));
+  expect(screen.getByRole("textbox", {name:label})).toHaveFocus();
+});
+
+it("places whichever-is-greater and bias together below the tolerance terms", () => {
+  const {container} = render(<InlineToleranceCell editable openRequested biasRole="tmde"
+    activeRange={{unit:"V"}} tolerance={{bias:{value:0.5,unit:"V"}}} onCommit={() => {}} />);
+  const footer = container.querySelector(".inline-tolerance-footer");
+  expect(within(footer).getByRole("checkbox", {name:"Whichever is greater"})).toBeInTheDocument();
+  expect(footer.querySelector(".instrument-bias-editor")).toBeInTheDocument();
+  expect(container.querySelector(".inline-tolerance-term-group").compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+});
+
+it.each(["table", "equation"])("keeps a new %s name mounted until the uncertainty summary receives its click", kind => {
+  function Harness() {
+    const [source, setSource] = useState({id: "new-source", name: "", kind,
+      dynamicDefinition: createDynamicDefinition(kind, {unit: "V"})});
+    return <table><tbody><InstrumentUncertaintyRow source={source} activeRange={{unit:"V"}}
+      onChange={setSource} onRemove={() => {}} onAddSecondary={() => {}} /></tbody></table>;
+  }
+  const {container} = render(<Harness />);
+  const name = screen.getByRole("textbox", {name:"Uncertainty name"});
+  fireEvent.change(name, {target:{value:"Long uncertainty name"}});
+  const summary = within(container.querySelector(".cell-tolerance")).getByRole("button", {name:"Set tolerance"});
+  expect(fireEvent.mouseDown(summary, {button:0})).toBe(false);
+  expect(name).toHaveFocus();
+  fireEvent.mouseUp(summary);
+  fireEvent.click(summary);
+  expect(screen.getByRole("textbox", {name:kind === "table" ? "Measurement point row 1" : "Uncertainty equation"})).toHaveFocus();
+  expect(container.querySelector(".instrument-source-row-name")).toHaveTextContent("Long uncertainty name");
+});

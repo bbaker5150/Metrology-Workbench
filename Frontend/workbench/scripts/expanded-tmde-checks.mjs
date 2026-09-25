@@ -79,6 +79,10 @@ export async function checkExpandedTmde({ frame, page, saved }) {
     await name.fill(kind + ' test');
     await name.press('Tab');
     const dynamic = row.locator('.inline-tolerance-editor');
+    const firstValue = dynamic.getByRole('textbox', { name: kind === 'Table' ? 'Measurement point row 1' : 'Uncertainty equation', exact: true });
+    assert.ok(await firstValue.evaluate(el => el === document.activeElement), 'Tab from name focuses the uncertainty value');
+    assert.equal(await dynamic.locator('.dynamic-editor-footer').count(), 0, 'instrument editor omits the informational footer');
+
     const plusBounds = await dynamic.getByRole('button', { name: 'Add a secondary uncertainty' }).boundingBox();
     const editorBounds = await dynamic.boundingBox();
     assert.ok(Math.abs(editorBounds.x + editorBounds.width - plusBounds.x - plusBounds.width) < 12, 'add stays at the editor right edge');

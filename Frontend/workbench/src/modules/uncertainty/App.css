@@ -21739,3 +21739,40 @@ body.light-mode .uncertainty-module .instrument-equipment-table thead th:not(:la
 .uncertainty-module .instrument-equipment-table .dynamic-input-table > thead::before {
   display: none;
 }
+
+/* One legible, theme-aware separator color throughout instrument cell editors. */
+.uncertainty-module .instrument-equipment-table .instrument-function-row {
+  --instrument-editor-divider: color-mix(in srgb, var(--text-color) 48%, var(--instrument-function-color, var(--border-color)));
+}
+.uncertainty-module .instrument-equipment-table :is(.inline-tolerance-modebar, .instrument-tolerance-toolbar, .inline-tolerance-term-group, .instrument-bias-editor, .dynamic-table-scroll),
+.uncertainty-module .instrument-equipment-table .dynamic-input-table :is(th, td) {
+  border-block-color: var(--instrument-editor-divider);
+}
+.uncertainty-module .instrument-equipment-table .inline-tolerance-footer {
+  align-self: stretch; margin-top: 4px; padding: 7px 5px 3px;
+  border-top: 1px solid var(--instrument-editor-divider);
+}
+.uncertainty-module .instrument-equipment-table .inline-tolerance-footer > .instrument-bias-editor {
+  margin-top: 3px; padding: 0; border-top: 0;
+}
+
+/* Align both rows of range controls to the same outside edges. */
+.uncertainty-module .instrument-equipment-table .inline-range-editor.is-editing .inline-range-main > .inline-unit-select {
+  justify-self: stretch; width: 100%;
+  grid-template-columns: max-content max-content; justify-content: space-between;
+}
+.uncertainty-module .instrument-equipment-table .inline-range-main > .inline-range-bound-input:first-child { justify-self: start; }
+.uncertainty-module .instrument-equipment-table .inline-range-main > .inline-range-bound-input:nth-child(3) { justify-self: end; }
+
+/* Resolution uses a full-width distribution row under magnitude and unit. */
+.uncertainty-module .instrument-equipment-table .instrument-resolution-editor {
+  grid-template-columns: minmax(max-content, 1fr) max-content;
+}
+.uncertainty-module .instrument-equipment-table .instrument-resolution-editor > .inline-resolution-input {
+  justify-self: stretch; width: 100% !important; box-sizing: border-box;
+}
+.uncertainty-module .instrument-equipment-table .instrument-resolution-editor > .inline-unit-select:not(.inline-resolution-dist) { justify-self: end; }
+.uncertainty-module .instrument-equipment-table .instrument-resolution-editor > .inline-resolution-dist.inline-unit-like-selector {
+  justify-self: stretch; width: 100%; min-width: 0; max-width: none;
+  padding: 0; border: 0;
+}

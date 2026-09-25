@@ -11,7 +11,7 @@ const emptyRow = () => ({ id: uuid(), point: "", values: {} });
 // Shared uncertainty-value editor. Distribution belongs to the surrounding table column.
 export default function DynamicUncertaintyFields({
   definition: draft, component = {}, referencePoint, measurementPoint = referencePoint,
-  onChange, UnitSelectComponent,
+  onChange, UnitSelectComponent, showPreview = true,
 }) {
   const rowRef = useRef(null);
   const draftRef = useRef(draft);
@@ -171,7 +171,7 @@ export default function DynamicUncertaintyFields({
                 </tr>)}</tbody>
               </table></div>}
             </>}
-            {preview.pendingReason !== "This uncertainty column was removed from the shared table." && <div className="dynamic-editor-footer">
+            {showPreview && preview.pendingReason !== "This uncertainty column was removed from the shared table." && <div className="dynamic-editor-footer">
               <span className={`dynamic-editor-preview${preview.pendingReason ? " is-pending" : ""}`} role="status">
                 {preview.pendingReason || <><span>This point</span> {preview.dynamicSummary}</>}
               </span>

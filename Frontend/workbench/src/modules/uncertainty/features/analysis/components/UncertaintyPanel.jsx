@@ -4562,7 +4562,11 @@ export const InstrumentUncertaintyRow = ({ source, activeRange, referencePoint, 
       </div>
     </td>
     {renderCustomAfter("range")}
-    <td className="cell-tolerance"><InlineToleranceCell tolerance={tolerance} activeRange={activeRange}
+    <td className="cell-tolerance" onMouseDownCapture={event => {
+      // Keep the name field mounted until the summary receives its click.
+      // Blurring it on pointer-down can resize the row and move the target.
+      if (editingName && event.button === 0 && event.target.closest(".inline-tolerance-summary")) event.preventDefault();
+    }}><InlineToleranceCell tolerance={tolerance} activeRange={activeRange}
       referencePoint={referencePoint} biasRole="source" editable summaryOverride={summary} onAddSecondary={onAddSecondary}
       openRequested={openEditor} onOpenRequestHandled={() => setOpenEditor(false)}
       onCommit={(type, value) => {
@@ -4647,14 +4651,17 @@ export const InlineToleranceCell = ({
     onEditingChangeRef.current?.(isEditing);
   }, [isEditing]);
 
-  // Focus the first mode control on opening. Focusing a numeric draft here
+  // Dynamic sources open directly into their first value field. Parametric
+  // sources focus the first mode control: focusing a numeric draft there
   // causes an untouched value's blur commit to race a portaled unit selection;
   // moving the checkbox to the footer must not change which value gets saved.
   useLayoutEffect(() => {
     if (!isEditing || !containerRef.current) return;
-    const firstControl = containerRef.current.querySelector("button, input");
+    const firstControl = selectedType !== "parametric"
+      ? containerRef.current.querySelector('.dynamic-budget-editor input:not([disabled])')
+      : containerRef.current.querySelector("button, input");
     firstControl?.focus();
-  }, [isEditing]);
+  }, [isEditing, selectedType]);
 
   const dismissToleranceEditor = useCallback(() => { setIsEditing(false); setShowSourceSettings(false); }, []);
   useInlineColumnDismiss({
@@ -4889,13 +4896,12 @@ export const InlineToleranceCell = ({
             bandDistribution: distribution, ...(selectedTolerance.db ? { db: { ...selectedTolerance.db, distribution } } : {}),
           })} />
       </label>}
-      {sidedness !== "single" && <div className="inline-tolerance-footer">
-        <label className="inline-tolerance-greater-toggle">
+      {(sidedness !== "single" || (activeBiasRole && showBias)) && <div className="inline-tolerance-footer">
+        {sidedness !== "single" && <label className="inline-tolerance-greater-toggle">
           <input type="checkbox" checked={Boolean(selectedTolerance.whicheverIsGreater)}
             onChange={event => commitSelectedTolerance("__replace__", { ...selectedTolerance, whicheverIsGreater: event.target.checked })} />
           <span>Whichever is greater</span>
-        </label>
-      </div>}
+        </label>}
       {activeBiasRole && showBias && <div className="instrument-bias-editor">
         <span className="instrument-bias-label">Bias:</span>
         <BiasValueEditor label={activeBiasRole === "uut" ? "Range UUT bias" : "Range source bias"}
@@ -4903,9 +4909,10 @@ export const InlineToleranceCell = ({
           onChange={bias => commitSelectedTolerance("__replace__", { ...selectedTolerance, bias: { ...bias, corrected: false } })} />
         {selectedTolerance.bias?.corrected && <span className="instrument-bias-legacy-correction">Saved as corrected; editing the bias makes it active.</span>}
       </div>}
+      </div>}
       </> : <>
         <DynamicUncertaintyFields definition={selectedDefinition || createDynamicDefinition(selectedType, referencePoint || activeRange)}
-          referencePoint={referencePoint || activeRange} UnitSelectComponent={UnitSelect}
+          referencePoint={referencePoint || activeRange} UnitSelectComponent={UnitSelect} showPreview={false}
           onChange={patch => updateSelectedSource(selectedSecondary ? { dynamicDefinition: { ...selectedDefinition, ...patch } } : { tmdeUncertaintyDefinition: { ...selectedDefinition, ...patch } })} />
         {activeBiasRole && !selectedSecondary && showBias && <div className="instrument-bias-editor">
           <span className="instrument-bias-label">Bias:</span>
