@@ -94,11 +94,14 @@ export async function checkExpandedTmde({ frame, page, saved }) {
     assert.equal(await dynamic.locator('.dynamic-budget-editor').count(), 1, 'instrument uses the shared budget editor');
     assert.equal(await dynamic.locator('input').first().evaluate(node => getComputedStyle(node).fontSize), instrumentInputFont, 'dynamic input font matches other instrument inputs');
     assert.ok(await dynamic.locator('.dynamic-input-table th').evaluateAll(nodes => nodes.every(node => getComputedStyle(node).whiteSpace === 'nowrap')), 'dynamic headers remain on one line');
-    assert.ok(await dynamic.locator('.dynamic-input-table th').first().evaluate(node => {
-      const outer = node.closest('.instrument-equipment-table').tHead.rows[0].cells[0];
-      const a = getComputedStyle(node), b = getComputedStyle(outer);
-      return a.backgroundColor === b.backgroundColor && a.color === b.color;
-    }), 'nested headers match instrument header colors in the current theme');
+    assert.ok(await dynamic.locator('.dynamic-input-table').evaluate(table => {
+      const layers = [table.tHead, ...table.tHead.rows, ...table.tHead.querySelectorAll('th')];
+      return layers.every(node => {
+        const style = getComputedStyle(node);
+        return style.backgroundColor === 'rgba(0, 0, 0, 0)' && style.backgroundImage === 'none';
+      }) && getComputedStyle(table.tHead).position === 'static'
+        && getComputedStyle(table.tHead, '::before').display === 'none';
+    }), 'nested headers reveal the measurement-area surface without an opaque or sticky header layer');
     await page.screenshot({ path: 'tmp/expanded-tasking/shared-' + kind.toLowerCase() + '-editor.png' });
     await row.locator('.cell-distribution .inline-distribution-summary').click();
     await frame.getByRole('option', { name: /^Rectangular k/ }).click();

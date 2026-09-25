@@ -21724,9 +21724,18 @@ body.light-mode .uncertainty-module .instrument-equipment-table thead th:not(:la
 }
 .uncertainty-module .instrument-equipment-table .dynamic-variable-table :is(th, td):first-child { min-width: 66px; }
 
-/* Both header levels use the instrument table's theme colors. */
-.uncertainty-module .instrument-equipment-table > thead > tr > th,
+/* Nested editor headers share the measurement-area surface in either theme.
+   Reset every header layer: the outer table's sticky header rules also match
+   descendant theads and would otherwise paint an opaque strip behind the cells. */
+.uncertainty-module .instrument-equipment-table .dynamic-input-table > thead {
+  position: static; z-index: auto;
+}
+.uncertainty-module .instrument-equipment-table .dynamic-input-table > thead,
+.uncertainty-module .instrument-equipment-table .dynamic-input-table > thead > tr,
 .uncertainty-module .instrument-equipment-table .dynamic-input-table > thead > tr > th {
-  background: var(--component-bg) !important;
+  background: transparent !important;
   color: var(--text-color-muted) !important;
+}
+.uncertainty-module .instrument-equipment-table .dynamic-input-table > thead::before {
+  display: none;
 }
