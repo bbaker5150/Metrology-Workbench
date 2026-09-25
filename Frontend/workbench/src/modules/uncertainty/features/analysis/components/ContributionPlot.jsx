@@ -51,7 +51,6 @@ const PercentageBarGraph = ({
       aria-label={title}
       style={{ "--contribution-color": color || "var(--primary-color)" }}
     >
-      <h5 className="contribution-plot-title">{title}</h5>
       <div className="contribution-plot-list">
         {rows.map(({ label, value, percentage }) => {
           const formattedValue =

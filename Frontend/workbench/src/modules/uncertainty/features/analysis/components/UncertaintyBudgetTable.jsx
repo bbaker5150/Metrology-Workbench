@@ -39,7 +39,6 @@ import {
   faPencilAlt,
   faProjectDiagram,
   faExclamationTriangle,
-  faChartBar,
   faArrowUp,
   faArrowDown,
 } from "@fortawesome/free-solid-svg-icons";
@@ -857,8 +856,6 @@ const UncertaintyBudgetTable = ({
   isDerivedBreakdownOpen = false,
   isCorrelationOpen = false,
   onShowRiskBreakdown,
-  showContribution = true,
-  setShowContribution,
   onAddManualComponent,
   onAddTmdeToBudget,
   openBudgetScope,
@@ -1373,7 +1370,6 @@ const UncertaintyBudgetTable = ({
   );
 
   const contributionChart = useMemo(() => {
-    if (!showContribution) return null;
 
     // Object keys drive the Plotly category labels. Preserve repeated source
     // names instead of silently replacing an earlier contributor.
@@ -1580,7 +1576,6 @@ const UncertaintyBudgetTable = ({
     derivedUnit,
     groups,
     measurementType,
-    showContribution,
   ]);
   const isMonteCarlo = budgetPropagationMethod === "montecarlo";
   const setMonteCarloEnabled = (enabled) =>
@@ -1636,21 +1631,6 @@ const UncertaintyBudgetTable = ({
                       title={propagationWarnings.join("\n\n")}>
                       <FontAwesomeIcon icon={faExclamationTriangle} />
                     </span>
-                  )}
-                  {group.kind === "final" && (
-                    <>
-                      <button
-                        type="button"
-                        className={`budget-contribution-button${showContribution ? " is-active" : ""}`}
-                        title={showContribution ? "Hide contribution chart" : "Show contribution chart"}
-                        aria-label={showContribution ? "Hide contribution chart" : "Show contribution chart"}
-                        data-ui-toggle
-                        aria-pressed={!!showContribution}
-                        onClick={() => setShowContribution?.(!showContribution)}
-                      >
-                        <FontAwesomeIcon icon={faChartBar} />
-                      </button>
-                    </>
                   )}
                   {group.kind === "equation" && !isDirect &&
                     renderPropagationControl()}

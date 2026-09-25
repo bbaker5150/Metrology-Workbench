@@ -10,7 +10,7 @@ it("chooses a source type before creating an independent row and tabs from its n
     saved = source;
     return <table><tbody><tr><td><InlineToleranceCell tolerance={{}} activeRange={{ unit: "V" }} biasRole="tmde" editable openRequested
       onCommit={() => {}} onAddSecondary={kind => setSource({ id: "source", name: "", kind, tolerance: {} })} /></td></tr>
-      {source && <InstrumentUncertaintyRow source={source} activeRange={{ unit: "V" }} onChange={setSource} onRemove={() => setSource(null)} />}
+      {source && <InstrumentUncertaintyRow selected showRowActions source={source} activeRange={{ unit: "V" }} onChange={setSource} onRemove={() => setSource(null)} />}
     </tbody></table>;
   }
   render(<Harness />);

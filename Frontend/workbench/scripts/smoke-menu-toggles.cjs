@@ -132,8 +132,7 @@ app.whenReady().then(async () => {
     await page.getByTitle('Insert a common metrology equation',{exact:true}).click();
     await page.keyboard.press('Escape');
     assert.equal(await page.getByTitle('Insert a common metrology equation',{exact:true}).getAttribute('aria-expanded'),'false');
-    const chart=page.locator('.budget-contribution-button');
-    assert.deepEqual(await toggle(chart,'aria-pressed'),filterStyle);
+    assert.equal(await page.locator('.budget-contribution-button').count(), 0);
     const breakdown=page.getByRole('button',{name:'Calculation breakdown',exact:true});
     assert.deepEqual(await toggle(breakdown),filterStyle);
     const add=page.getByRole('button',{name:'Add component to budget',exact:true}).first();

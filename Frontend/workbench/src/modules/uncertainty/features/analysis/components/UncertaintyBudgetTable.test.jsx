@@ -73,16 +73,13 @@ const derivedApproximationGroups = (finalOverrides = {}) => [
 ];
 
 describe("UncertaintyBudgetTable direct budget actions", () => {
-  it("shows contributions by default and removes the entire support row when hidden", async () => {
-    const view = renderDirectBudget({ calcResults: {
+  it("always shows the final contribution chart even with an old hidden preference", async () => {
+    const view = renderDirectBudget({ showContribution: false, calcResults: {
       combined_uncertainty: 1, expanded_uncertainty: 2, k_value: 2,
       calculatedBudgetComponents: [{ id: 'source', name: 'Source', value_native: 1 }],
     } });
-    expect(screen.getByRole('button', { name: 'Hide contribution chart' })).toHaveAttribute('aria-pressed', 'true');
-    await waitFor(() => expect(view.container.querySelector('.budget-final-support')).not.toBeNull());
-    view.rerender(<UncertaintyBudgetTable {...view} showContribution={false} />);
-    expect(view.container.querySelector('.budget-final-support')).toBeNull();
-    expect(screen.getByRole('button', { name: 'Show contribution chart' })).toHaveAttribute('aria-pressed', 'false');
+    expect(screen.queryByRole('button', { name: /contribution chart/i })).toBeNull();
+    await waitFor(() => expect(view.container.querySelector('.budget-final-support .bargraph-container')).toBeInTheDocument());
   });
   it("shows propagation details in the table warning triangle", () => {
     const warning = 'The linear budget may understate this input.';
@@ -599,9 +596,7 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     await waitFor(() => {
       expect(view.container.querySelector(".bargraph-container")).toBeInTheDocument();
     });
-    expect(
-      screen.getByRole("button", { name: "Hide contribution chart" }),
-    ).toHaveAttribute("aria-pressed", "true");
+    expect(screen.queryByRole("button", { name: /contribution chart/i })).toBeNull();
     expect(contributionShares(view.container)).toEqual({
       "UUT Resolution": 80,
       "DMM Accuracy": 20,
@@ -945,20 +940,6 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
         name: "Monte Carlo uncertainty contribution",
       }),
     ).toBeInTheDocument();
-  });
-
-  it("uses a compact chart control beside Add for contribution display", () => {
-    const setShowContribution = vi.fn();
-    renderDirectBudget({ setShowContribution, showContribution: false });
-
-    expect(document.querySelector(".budget-stack-final-display")).not.toBeInTheDocument();
-    expect(screen.queryByText("Expanded Uncertainty (U)")).not.toBeInTheDocument();
-    const chartButton = screen.getByRole("button", {
-      name: "Show contribution chart",
-    });
-    expect(chartButton).toHaveAttribute("aria-pressed", "false");
-    fireEvent.click(chartButton);
-    expect(setShowContribution).toHaveBeenCalledWith(true);
   });
 
   it("keeps risk cards out of the budget table and labels final results in the point unit", () => {

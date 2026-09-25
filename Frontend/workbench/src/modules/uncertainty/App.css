@@ -7548,7 +7548,7 @@ body.dark-mode .plot-floating-control input {
   height: auto;
   min-height: 0;
   margin-top: 12px;
-  border: 1px solid color-mix(in srgb, var(--border-color) 78%, transparent);
+  border: none;
   border-radius: 10px;
   background:
     linear-gradient(
@@ -21682,3 +21682,5 @@ body.light-mode .uncertainty-module .instrument-equipment-table thead th:not(:la
   --distribution-field-width: 118px !important;
   font-style: normal !important; color: var(--text-color);
 }
+
+.uncertainty-module .budget-final-support .bargraph-container { border: none; box-shadow: none; }

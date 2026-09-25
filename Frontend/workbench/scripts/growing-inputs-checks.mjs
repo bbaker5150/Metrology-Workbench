@@ -24,10 +24,10 @@ export async function checkGrowingInputs({ frame, page, check, saved, until }) {
   }
   check('unconfigured bias settings are hidden', await frame.locator('.measurement-bias-panel').count() === 0);
   await frame.locator('.budget-final-support').waitFor();
-  check('populated budget shows its contribution chart by default', await frame.getByRole('button', { name: 'Hide contribution chart' }).getAttribute('aria-pressed') === 'true');
-  await frame.getByRole('button', { name: 'Hide contribution chart' }).click();
-  check('hiding contributions removes the separator and support row', await frame.locator('.budget-final-support').count() === 0);
-  await frame.getByRole('button', { name: 'Show contribution chart' }).click();
+  check('final budget always shows its contribution chart', await frame.locator('.budget-final-support .bargraph-container').count() > 0);
+  check('contribution chart has no redundant heading', await frame.locator('.budget-final-support .contribution-plot-title').count() === 0);
+  check('contribution chart has no visibility toggle', await frame.getByRole('button', { name: /contribution chart/i }).count() === 0);
+  check('contribution chart has no border', await frame.locator('.budget-final-support .bargraph-container').first().evaluate(node => getComputedStyle(node).borderTopWidth === '0px'));
 
   const longValue = '-123456789.123456789';
   const fits = input => input.evaluate(node => {

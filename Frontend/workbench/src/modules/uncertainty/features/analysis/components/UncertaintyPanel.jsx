@@ -4591,7 +4591,7 @@ const InstrumentDynamicDefinitionFields = ({ definition, onChange }) => {
 // The close is deferred so a blurred input commits before the editor unmounts.
 // Independent sources share the instrument description, but never participate
 // in range calculations. Selection and deletion share the range-row controls.
-export const InstrumentUncertaintyRow = ({ source, activeRange, referencePoint, style, onChange, onRemove, onAddSecondary, rowProps = {}, selected = false, renderCustomAfter = () => null }) => {
+export const InstrumentUncertaintyRow = ({ source, activeRange, referencePoint, style, onChange, onRemove, onAddSecondary, rowProps = {}, selected = false, showRowActions = false, renderCustomAfter = () => null }) => {
   const [editingName, setEditingName] = useState(!source.name);
   const [openEditor, setOpenEditor] = useState(false);
   const [name, setName] = useState(source.name || "");
@@ -4624,9 +4624,9 @@ export const InstrumentUncertaintyRow = ({ source, activeRange, referencePoint, 
           }} /> : <button type="button" className="inline-tolerance-summary" onClick={() => setEditingName(true)}>{source.name || "Uncertainty name"}</button>}
         <span className="instrument-source-range-note">{kind === "table" ? "(Point Dependent)" : "(Range N/A)"}</span>
       </div>
-        <button type="button" className="range-row-delete" title="Delete uncertainty" aria-label={`Remove ${source.name || "uncertainty"}`}
+        {showRowActions && <button type="button" className="range-row-delete" title="Delete uncertainty" aria-label={`Remove ${source.name || "uncertainty"}`}
           onMouseDown={event => event.stopPropagation()}
-          onClick={event => { event.stopPropagation(); onRemove(); }}>x</button>
+          onClick={event => { event.stopPropagation(); onRemove(); }}>x</button>}
       </div>
     </td>
     {renderCustomAfter("range")}
@@ -9792,6 +9792,7 @@ const SummaryDashboard = ({
                         })}
                       {sources.map(source => <InstrumentUncertaintyRow key={source.id} source={source}
                             onAddSecondary={type => addInstrumentSource(tmde, type, activeRange)}
+                            showRowActions={lastSelectionTarget === "range" && selectedRangeIds[itemStateKey("tmde", tmde.id)]?.includes(uncertaintyRowId(source.id))}
                             selected={selectedRangeIds[itemStateKey("tmde", tmde.id)]?.includes(uncertaintyRowId(source.id)) ?? isSelected}
                             rowProps={{
                               "data-selection-key": itemStateKey("tmde", tmde.id),
@@ -16340,6 +16341,7 @@ function DetailedView({
                             })}
                           {sources.map(source => <InstrumentUncertaintyRow key={source.id} source={source}
                             onAddSecondary={type => addInstrumentSource(masterTmde, type, activeRange)}
+                            showRowActions={lastSelectionTarget === "range" && selectedRangeIds[itemStateKey("tmde", masterTmde.id)]?.includes(uncertaintyRowId(source.id))}
                             selected={selectedRangeIds[itemStateKey("tmde", masterTmde.id)]?.includes(uncertaintyRowId(source.id)) ?? isSelectedRow}
                             rowProps={{
                               "data-selection-key": itemStateKey("tmde", masterTmde.id),
