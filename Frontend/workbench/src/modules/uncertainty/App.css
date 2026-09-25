@@ -21809,3 +21809,8 @@ body.light-mode .uncertainty-module .instrument-equipment-table thead th:not(:la
 .uncertainty-module .budget-decision-card dd { min-height: 1.3em; }
 .uncertainty-module .budget-component-type { vertical-align: middle; }
 .uncertainty-module .repeatability-fixed-distribution { font-weight: 400; }
+
+/* Header boundaries remain visible against the dark instrument table surface. */
+body:not(.light-mode) .uncertainty-module .instrument-equipment-table > thead > tr > th:not(:last-child) {
+  border-right: 1px solid color-mix(in srgb, var(--text-color-muted) 48%, var(--table-divider-color));
+}
