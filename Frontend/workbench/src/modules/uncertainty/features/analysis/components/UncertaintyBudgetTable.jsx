@@ -193,6 +193,8 @@ const isInstrumentLinkedTypeB = (component = {}) =>
 // do not carry the transient sourceTmdeId/identity used by calculated rows.
 const isTmdeSource = (component = {}) => component.sourceTmdeId != null || component.tmdeBudgetSourceId != null || Boolean(component.tmdeIdentity);
 
+const isRepeatabilityComponent = (component) => component.type === "A" && (String(component.id).includes("repeatability") || component.name === "Repeatability" || Array.isArray(component.savedInputs?.readings));
+
 const isStandaloneManualComponent = (component = {}) =>
   !component.isPropagationSummary &&
   !component.isResolution &&
@@ -581,7 +583,7 @@ export const InlineManualComponentRow = ({
         <td data-budget-field="tolerance">{fieldSummary("tolerance", ToleranceEditorComponent && !structuredTolerance.whicheverIsGreater ? <ToleranceEditorComponent tolerance={structuredTolerance} editable={false} /> : toleranceText, toleranceText === "Not Set")}</td>
         <td data-budget-field="distribution">{fieldSummary("distribution", component.distribution)}</td>
         <td data-budget-field="type">{fieldSummary("type", component.type || "B")}</td>
-        {showDof && <td>{formatDof(component.dof)}</td>}
+        {showDof && <td>{isRepeatabilityComponent(component) && Number.isFinite(Number(component.dof)) ? Math.round(Number(component.dof)) : formatDof(component.dof)}</td>}
         <td>
           {component.pendingReason ? <PendingUncertainty reason={component.pendingReason} /> : Number(std.value) > 0 ? (
             `± ${formatNumber(std.value, sigFigs)} ${getUnitDisplayLabel(std.unit)}`
@@ -951,6 +953,7 @@ const UncertaintyBudgetTable = ({
   });
 
   const renderDistributionCell = (component) => {
+    if (isRepeatabilityComponent(component)) return <span className="repeatability-fixed-distribution">Normal (Std. Unc.)</span>;
     if (component.isPropagationSummary) {
       return <span>{component.distribution}</span>;
     }
@@ -1056,6 +1059,7 @@ const UncertaintyBudgetTable = ({
     // A TMDE-sourced row's tolerance is edited directly on the instrument tables
     // now, so it only gets a remove control here — no edit pencil.
     const showEdit =
+      !isRepeatabilityComponent(component) &&
       !component.missingTolerance &&
       !isTmdeSource(component) &&
       !isInstrumentLinkedTypeB(component) &&
@@ -1171,7 +1175,7 @@ const UncertaintyBudgetTable = ({
           // tolerance-mode entry edits the Tolerance Limit cell; a directly-
           // entered standard uncertainty edits the Standard Uncertainty cell.
           const editableTolerance = component.isManual && !isTmdeSource(component) && !isStdEntry;
-          const editableStd = component.isManual && !isTmdeSource(component) && isStdEntry;
+          const editableStd = component.isManual && !isTmdeSource(component) && !isRepeatabilityComponent(component) && isStdEntry;
           const commitManualValue = (value) =>
             onComponentUpdate?.(component.id, { manualValue: value }, component);
           return (
@@ -1212,7 +1216,11 @@ const UncertaintyBudgetTable = ({
                 <DeviationFlag component={component} />
               </td>
               <td>
-                {editableTolerance ? (
+                {isRepeatabilityComponent(component) ? (
+                  <button type="button" className="inline-tolerance-summary" aria-label="Edit repeatability measurements" onClick={event => onEdit?.(event, component)}>
+                    {`${formatNumber(std.value, getGroupSigFigs(group))} ${getUnitDisplayLabel(std.unit)}`.trim()}
+                  </button>
+                ) : editableTolerance ? (
                   <ManualValueCell
                     component={component}
                     onCommit={commitManualValue}
@@ -1231,8 +1239,8 @@ const UncertaintyBudgetTable = ({
                 )}
               </td>
               <td>{renderDistributionCell(component)}</td>
-              <td>{component.type || "B"}</td>
-              {showDof && <td>{formatDof(component.dof)}</td>}
+              <td className="budget-component-type">{component.type || "B"}</td>
+              {showDof && <td>{isRepeatabilityComponent(component) && Number.isFinite(Number(component.dof)) ? Math.round(Number(component.dof)) : formatDof(component.dof)}</td>}
               <td title={fullPrecisionValue(std.value)}>
                 {component.pendingReason ? <PendingUncertainty reason={component.pendingReason} /> : editableStd ? (
                   <ManualValueCell

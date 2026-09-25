@@ -1,4 +1,3 @@
-import { budgetUnitMismatch } from "../../../utils/incompleteBudget";
 import GrowingNumericInput from "../../../components/common/GrowingNumericInput";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom";
@@ -121,13 +120,13 @@ const RepeatabilityModal = ({
       ),
     [allUnits, uutNominal?.unit, selectedUnit],
   );
-  const unitWarning = budgetUnitMismatch(selectedUnit, uutNominal?.unit, unitSystem);
   const stats = useMemo(() => calculateRepeatabilityStats(readings), [readings]);
   const range = readings.length
     ? Math.max(...readings) - Math.min(...readings)
     : null;
 
   const addReading = () => {
+    if (!currentInput.trim()) return;
     const value = Number(currentInput);
     if (!Number.isFinite(value)) return;
     setReadings((current) => [...current, value]);
@@ -136,7 +135,6 @@ const RepeatabilityModal = ({
   };
 
   const save = () => {
-    if (readings.length < 2) return;
     onSave({
       stdDev: stats.stdDev,
       mean: stats.mean,
@@ -182,11 +180,6 @@ const RepeatabilityModal = ({
       </div>
 
       <div className="repeatability-modal-body">
-        <p className="correlation-modal-hint">
-          Enter at least two repeated measurements to calculate the sample standard deviation.
-        </p>
-
-        {unitWarning && <p role="status" className="repeatability-unit-warning">{unitWarning} You can add this source now; the budget total remains unresolved until its units are compatible.</p>}
         <div className="repeatability-workspace">
           <section className="repeatability-readings-panel">
             <label className="repeatability-input-label" htmlFor="repeatability-reading">
@@ -256,7 +249,7 @@ const RepeatabilityModal = ({
           <section className="repeatability-results" aria-label="Repeatability results">
             <div className="repeatability-primary-result">
               <span>Standard deviation</span>
-              <strong>{readings.length > 1 ? formatStat(stats.stdDev) : "—"}</strong>
+              <strong>{formatStat(stats.stdDev)}</strong>
               <small>{getUnitDisplayLabel(selectedUnit)}</small>
             </div>
             <dl className="repeatability-stat-grid">
@@ -284,7 +277,6 @@ const RepeatabilityModal = ({
             className="correlation-modal-icon-button is-primary"
             title="Add repeatability"
             aria-label="Add repeatability"
-            disabled={readings.length < 2}
             onClick={save}
           >
             <FontAwesomeIcon icon={faCheck} />

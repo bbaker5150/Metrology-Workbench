@@ -1169,12 +1169,24 @@ test("commits the edited value when tabbing through both unit controls and leavi
     visibleColumns={{ value: true }} onSave={onSave} onSelect={vi.fn()} />);
   fireEvent.click(container.querySelector('.point-value-number'));
   const input = screen.getByPlaceholderText("Value");
-  const base = screen.getByRole("combobox", { name: "Measurement point unit", exact: true });
-  const prefix = screen.getByRole("combobox", { name: "Measurement point unit prefix", exact: true });
+  const base = screen.getByRole("button", { name: "Measurement point unit base unit", exact: true });
+  const prefix = screen.getByRole("button", { name: "Measurement point unit prefix", exact: true });
   fireEvent.change(input, { target: { value: "6" } });
   fireEvent.blur(input, { relatedTarget: base });
   fireEvent.blur(base, { relatedTarget: prefix });
   expect(onSave).not.toHaveBeenCalled();
   fireEvent.blur(prefix, { relatedTarget: document.body });
   expect(onSave).toHaveBeenCalledWith(expect.objectContaining({ testPointInfo: { parameter: { value: "6", unit: "V" } } }));
+});
+
+
+test("measurement point units use the searchable instrument picker", () => {
+  const onSave = vi.fn();
+  const { container } = render(<SidebarPointItem point={{id:"p",testPointInfo:{parameter:{value:5,unit:"V"}}}} visibleColumns={{value:true}} onSave={onSave} onSelect={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", {name:"Measurement point unit base unit",exact:true}));
+  const search = document.querySelector(".inline-unit-search");
+  expect(search).toBeInTheDocument();
+  fireEvent.change(search,{target:{value:"ampere"}});
+  fireEvent.click(screen.getByRole("option", {name:/^A\s+Current$/}));
+  expect(onSave).toHaveBeenCalledWith(expect.objectContaining({testPointInfo:{parameter:expect.objectContaining({value:5,unit:"A",unitSelectionExplicit:true})}}));
 });

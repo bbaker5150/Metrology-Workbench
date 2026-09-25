@@ -171,13 +171,14 @@ export async function checkExpandedTmde({ frame, page, saved }) {
   const detailSource = frame.locator('tr[data-uncertainty-source-id]').first();
   assert.ok((await detailSource.locator('.cell-tolerance').textContent()).includes('0.3'), 'point view displays the actual manual spec');
   const point = frame.locator('[data-point-id="point"]');
-  const unit = point.getByRole('combobox', { name: 'Measurement point unit', exact: true });
-  const prefix = point.getByRole('combobox', { name: 'Measurement point unit prefix', exact: true });
-  await unit.selectOption('Pa');
-  await prefix.selectOption('k');
+  const unit = point.getByRole('button', { name: 'Measurement point unit base unit', exact: true });
+  const prefix = point.getByRole('button', { name: 'Measurement point unit prefix', exact: true });
+  await unit.click(); await frame.getByRole('option', {name:/^Pa\s/}).click();
+  await prefix.click(); await frame.getByRole('option', {name:/^Kilo\s/}).click();
   await waitForSave(data => data.testPoints[0].testPointInfo.parameter.unit === 'kPa');
   assert.ok(await frame.getByRole('button', { name: 'Add component to budget', exact: true }).first().isVisible(), 'incompatible units retain the budget');
-  await prefix.selectOption(''); await unit.selectOption('V');
+  await prefix.click(); await frame.getByRole('option', {name:/^Base\s/}).click();
+  await unit.click(); await frame.getByRole('option', {name:/^V\s+Voltage$/}).click();
   const divider = frame.getByRole('separator', { name: 'Resize measurement point list' });
   await divider.dblclick();
   await frame.locator('.workspace-pane-autofit').waitFor();
@@ -190,7 +191,7 @@ export async function checkExpandedTmde({ frame, page, saved }) {
   await frame.locator('.workspace-pane-autofit').waitFor();
   const geometry = await point.locator('[data-sidebar-column="value"]').evaluate(cell => {
     const bounds = cell.getBoundingClientRect();
-    return [...cell.querySelectorAll('select')].every(select => { const r = select.getBoundingClientRect(); return r.left >= bounds.left && r.right <= bounds.right + 1; });
+    return [...cell.querySelectorAll('.inline-unit-select button')].every(select => { const r = select.getBoundingClientRect(); return r.left >= bounds.left && r.right <= bounds.right + 1; });
   });
   assert.ok(geometry, 'auto-fit contains both unit and prefix controls');
   await divider.focus(); await divider.press('Escape');

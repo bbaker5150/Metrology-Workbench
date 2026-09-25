@@ -15,7 +15,7 @@ export async function checkSeptember22Followup({ frame, page, saved, until, chec
   for (const zoom of [.75, 1, 1.25]) {
     await frame.evaluate(value => { document.documentElement.style.zoom = String(value); window.dispatchEvent(new Event('resize')); }, zoom);
     check(`value column includes the entire unit control at ${zoom * 100}%`, await until(async () => point.locator('[data-sidebar-column="value"]').evaluate(cell => {
-      const unit = cell.querySelector('select').getBoundingClientRect(), box = cell.getBoundingClientRect();
+      const unit = cell.querySelector('.point-unit-control').getBoundingClientRect(), box = cell.getBoundingClientRect();
       return unit.right <= box.right + 1 && unit.left >= box.left - 1 && cell.scrollWidth <= cell.clientWidth + 1;
     })));
   }
@@ -88,10 +88,14 @@ export async function checkSeptember22Followup({ frame, page, saved, until, chec
   await frame.getByPlaceholder('Search units...', { exact: true }).fill('A');
   await frame.getByRole('listbox', { name: 'Repeatability unit', exact: true }).getByRole('option')
     .filter({ has: frame.getByText('A', { exact: true }) }).click();
-  check('repeatability warns about incompatible units before adding', await modal.getByText(/Unit mismatch: A/).isVisible());
+  check('repeatability dialog omits the redundant unit warning', await modal.getByText(/Unit mismatch: A/).count() === 0);
   await modal.getByRole('button', { name: 'Add repeatability', exact: true }).click();
   check('incompatible repeatability is saved with its readings', await until(() => saved().testPoints.find(p => p.id === 'point').components.some(c => c.type === 'A' && c.variableSymbol === 'a' && c.savedInputs?.unit === 'A' && c.savedInputs.readings.length === 3)));
   const repeatRow = frame.locator('.uncertainty-budget-table tbody tr').filter({ hasText: 'Repeatability' }).first();
   check('added repeatability keeps a visible unit warning in the budget', await repeatRow.locator('[title*="Unit mismatch"]').count() > 0);
+  check('repeatability distribution is fixed to standard normal', await repeatRow.getByText('Normal (Std. Unc.)', {exact:true}).isVisible() && await repeatRow.getByRole('combobox').count() === 0);
+  await repeatRow.getByRole('button', {name:'Edit repeatability measurements',exact:true}).click();
+  check('error limit reopens the saved repeatability readings', await modal.getByLabel('Repeatability measurements', {exact:true}).locator('.repeatability-reading').count() === 3);
+  await modal.getByRole('button', {name:'Close repeatability',exact:true}).click();
   await capture('followup-repeatability-warning');
 }

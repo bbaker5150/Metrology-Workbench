@@ -69,9 +69,11 @@ export async function checkSeptember22({ frame, page, saved, until, check }) {
 
   const first = frame.locator('[data-point-id="point"]');
   await first.locator('[data-sidebar-column="pfa"]').click();
-  const unit = first.getByRole('combobox', { name: 'Measurement point unit', exact: true });
+  const unit = first.getByRole('button', { name: 'Measurement point unit base unit', exact: true });
   check('compatible percentage tolerance initially produces limits and risk', await until(async () => /\d/.test(await first.locator('[data-sidebar-column="pfa"]').innerText())));
-  await unit.selectOption('A');
+  const cardSizes = () => frame.locator('.budget-decision-card').evaluateAll(nodes => nodes.map(node => ({width:node.getBoundingClientRect().width,height:node.getBoundingClientRect().height})));
+  const populatedCards = await cardSizes();
+  await unit.click(); await frame.getByRole('option', {name:/^A\s+Current$/}).click();
   check('incompatible percentage tolerance blocks both UUT limits, uncertainty and risk', await until(async () => {
     const noNumbers = await first.evaluate(node => ['lowLimit', 'highLimit', 'standardUncertainty', 'measurementUncertainty', 'pfa', 'pfr'].every(key => {
       const cell = node.querySelector(`[data-sidebar-column="${key}"]`);
@@ -80,8 +82,9 @@ export async function checkSeptember22({ frame, page, saved, until, check }) {
     const point = saved().testPoints[0];
     return noNumbers && point.is_detailed_uncertainty_calculated === false && point.expanded_uncertainty_absolute_base == null;
   }));
+  check('empty PFA/PFR cards retain populated dimensions in the budget layout', JSON.stringify(await cardSizes()) === JSON.stringify(populatedCards));
   await capture('september22-incompatible-units');
-  await unit.selectOption('V');
+  await unit.click(); await frame.getByRole('option', {name:/^V\s+Voltage$/}).click();
   check('restoring compatible units recalculates limits and risk', await until(async () => /\d/.test(await first.locator('[data-sidebar-column="pfa"]').innerText())));
 
   await checkColumnDialog({ frame, page, until, check });

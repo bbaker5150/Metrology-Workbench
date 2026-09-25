@@ -50,3 +50,13 @@ describe("RepeatabilityModal", () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 });
+
+
+it.each([[[]], [[5]]])("allows repeatability with zero standard deviation for %j readings", readings => {
+  const onSave = vi.fn();
+  render(<RepeatabilityModal isOpen onSave={onSave} onClose={vi.fn()} uutNominal={{value:5,unit:"V"}} existingData={{savedInputs:{readings,unit:"A"}}} />);
+  expect(screen.queryByText(/at least two/)).toBeNull();
+  expect(screen.queryByText(/unit mismatch/i)).toBeNull();
+  fireEvent.click(screen.getByRole("button",{name:"Add repeatability"}));
+  expect(onSave).toHaveBeenCalledWith(expect.objectContaining({readings,stdDev:0,dof:0,unit:"A"}));
+});

@@ -15,7 +15,7 @@ it("keeps incompatible observations and warns until the point's units are correc
   expect(resolved.value_native).toBe(.2);
 });
 it("handles missing units, zero nominal, and converted SI prefixes without losing observations", () => {
-  expect(resolveRepeatabilityComponent(component, { value: 10, unit: "" }).pendingReason).toMatch(/Assign a measurement unit/);
+  expect(resolveRepeatabilityComponent(component, { value: 10, unit: "" })).toMatchObject({pendingReason:null,value_native:.2,unit_native:"V"});
   const zero = resolveRepeatabilityComponent(component, { value: 0, unit: "V" });
   expect(zero).toMatchObject({ value: .2, isBaseUnitValue: true, pendingReason: null });
   expect(resolveRepeatabilityComponent(component, { value: 10000, unit: "mV" }).value).toBeCloseTo(20000);

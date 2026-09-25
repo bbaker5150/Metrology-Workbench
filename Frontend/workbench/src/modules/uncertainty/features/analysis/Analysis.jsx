@@ -702,7 +702,7 @@ function Analysis({
       value_native: data.stdDev,
       unit_native: data.unit,
       dof: data.dof,
-      distribution: "Normal",
+      distribution: "Normal (Std. Unc.)",
       isCore: false,
       savedInputs: data,
       ...(variableType ? { variableType } : {}),

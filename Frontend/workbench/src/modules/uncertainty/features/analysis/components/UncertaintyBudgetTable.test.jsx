@@ -313,7 +313,7 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     expect(screen.queryByText("Mock DMM - Accuracy")).not.toBeInTheDocument();
     expect(screen.queryByText("10 V")).not.toBeInTheDocument();
     expect(screen.getByRole("columnheader", { name: "DOF" })).toBeInTheDocument();
-    expect(screen.getByText("9.000")).toBeInTheDocument();
+    expect(screen.getByText("9")).toBeInTheDocument();
   });
 
   it("renders every budget table at the same fixed precision", () => {
@@ -1520,4 +1520,20 @@ it("displays a unitless native standard uncertainty without a ppm fallback", () 
   const row=screen.getByText("Unitless error").closest("tr");
   expect(row).toHaveTextContent("2");
   expect(row).not.toHaveTextContent(/ppm|Unitless error Unitless/);
+});
+
+
+it("edits repeatability from its error limit and locks its standard distribution", () => {
+  const onEdit = vi.fn();
+  const component = {id:"repeatability_1",name:"Repeatability",type:"A",value_native:.25,unit_native:"V",value:.25,dof:12,distribution:"Normal",distributionDivisor:"2",savedInputs:{readings:[1,2]}};
+  renderDirectBudget({components:[component],onEdit});
+  const row = screen.getByText("Repeatability").closest("tr");
+  const edit = within(row).getByRole("button",{name:"Edit repeatability measurements"});
+  expect(edit).toHaveTextContent("0.2500 V");
+  fireEvent.click(edit);
+  expect(onEdit).toHaveBeenCalledWith(expect.anything(),component);
+  expect(within(row).getByText("Normal (Std. Unc.)")).toBeInTheDocument();
+  expect(within(row).queryByRole("combobox")).toBeNull();
+  expect(within(row).queryByTitle("Edit Component")).toBeNull();
+  expect(within(row).getByText("12")).toBeInTheDocument();
 });

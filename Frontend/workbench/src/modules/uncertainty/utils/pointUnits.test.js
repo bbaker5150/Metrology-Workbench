@@ -76,8 +76,25 @@ it('never inherits from an area UUT before assignment, including load and stale 
   expect(inheritMissingPointUnits(data)).toBe(data);
 });
 
-it("preserves an explicit Unitless default when a UUT is assigned later", () => {
+it("defaults to the assigned UUT unit from a Unitless point", () => {
   const previous={uuts:[],testPoints:[{id:"p",associatedUutIds:[],testPointInfo:{parameter:{value:5,unit:"",unitless:true,unitSelectionExplicit:true}}}]};
   const current={uuts:[{id:"u",ranges:[{unit:"V"}]}],testPoints:[{...previous.testPoints[0],associatedUutIds:["u"]}]};
-  expect(inheritMissingPointUnits(current,previous)).toBe(current);
+  expect(inheritMissingPointUnits(current,previous).testPoints[0].testPointInfo.parameter).toMatchObject({unit:"V",unitless:false,unitSelectionExplicit:false});
+});
+
+
+it("takes a newly assigned UUT unit, then preserves the user override", () => {
+  const previous = {uuts:[{id:"u",ranges:[{unit:"mV"}]}],testPoints:[{id:"p",associatedUutIds:[],testPointInfo:{parameter:{value:5,unit:"A",unitSelectionExplicit:true}}}]};
+  const assigned = {...previous,testPoints:[{...previous.testPoints[0],associatedUutIds:["u"]}]};
+  const next = inheritMissingPointUnits(assigned, previous);
+  expect(next.testPoints[0].testPointInfo.parameter.unit).toBe("mV");
+  const changed = {...next,testPoints:[{...next.testPoints[0],testPointInfo:{parameter:{value:5,unit:"V",unitSelectionExplicit:true}}}]};
+  expect(inheritMissingPointUnits(changed,next)).toBe(changed);
+});
+
+
+it("uses Unitless when the newly assigned UUT has no physical unit", () => {
+  const previous={uuts:[{id:"u",ranges:[{unit:""}]}],testPoints:[{id:"p",associatedUutIds:[],testPointInfo:{parameter:{unit:"V"}}}]};
+  const assigned={...previous,testPoints:[{...previous.testPoints[0],associatedUutIds:["u"]}]};
+  expect(inheritMissingPointUnits(assigned,previous).testPoints[0].testPointInfo.parameter).toMatchObject({unit:"",unitless:true});
 });

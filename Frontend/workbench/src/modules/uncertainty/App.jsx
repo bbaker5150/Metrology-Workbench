@@ -1,4 +1,4 @@
-import { SI_PREFIX_OPTIONS, prefixedUnitKey } from "./utils/siPrefixes";
+import { UnitSelect } from "./features/analysis/components/UncertaintyPanel";
 import { getUutBiasDefault, getPointBiasSources } from "./utils/measurementBias";
 import useSidebarAutoWidths from "./hooks/useSidebarAutoWidths";
 import { syncInstrumentBudgetComponents } from "./utils/instrumentBudgetComponents";
@@ -1013,32 +1013,14 @@ export const SidebarPointItem = ({
   const displayValue = point.testPointInfo?.parameter?.value;
   const displayUnit = point.testPointInfo?.parameter?.unit || "";
 
-  const pointUnitModel = unitSystem.units[displayUnit];
-  const pointBaseUnit = pointUnitModel?.prefixBase || displayUnit;
-  const pointPrefix = pointUnitModel?.prefixKey || "";
-  const pointBaseUnits = [...new Set(Object.keys(unitSystem.units).map(unit => unitSystem.units[unit].prefixBase || unit))];
-  const savePointUnit = (base, prefix, editing) => {
-    const candidate = prefixedUnitKey(base, prefix);
-    const unit = !base ? "" : !prefix ? base : unitSystem.units[candidate]?.prefixBase === base ? candidate : `${prefix}(${base})`;
+  const savePointUnit = (unit, editing) => {
     onSave({ ...point, testPointInfo: { ...point.testPointInfo,
       parameter: { ...point.testPointInfo?.parameter, ...(editing ? { value: tempValue } : {}), unit, unitless: !unit, unitSelectionExplicit: true, unavailableUnit: undefined } } });
     if (editing) setEditingField(null);
   };
   const pointUnitControl = (editing = false) => <span className="point-unit-control" onClick={event => event.stopPropagation()} onPointerDown={event => event.stopPropagation()}
-    onBlur={event => { if (editing && !event.currentTarget.parentElement?.contains(event.relatedTarget)) commitEdit(); }}>
-    <select className="inline-unit-combobox point-unit-select" aria-label="Measurement point unit"
-      title={getUnitDisplayLabel(pointBaseUnit || "Unitless")}
-      style={{ width: `calc(${Math.max(2, getUnitDisplayLabel(pointBaseUnit || "Unitless").length) * .85}em + 28px)` }}
-      value={pointBaseUnit || ""}
-      onChange={event => savePointUnit(event.target.value, pointPrefix, editing)}>
-      <option value="">Unitless</option>
-      {pointBaseUnit && !pointBaseUnits.includes(pointBaseUnit) && <option value={pointBaseUnit}>{getUnitDisplayLabel(pointBaseUnit)}</option>}
-      {pointBaseUnits.map(unit => <option key={unit} value={unit}>{getUnitDisplayLabel(unit)}</option>)}
-    </select>
-    <select className="inline-unit-combobox point-unit-select point-unit-prefix" aria-label="Measurement point unit prefix"
-      value={pointPrefix} disabled={!pointBaseUnit} onChange={event => savePointUnit(pointBaseUnit, event.target.value, editing)}>
-      {SI_PREFIX_OPTIONS.map(prefix => <option key={prefix.key} value={prefix.key}>{prefix.shortLabel}</option>)}
-    </select>
+    onBlur={event => { if (editing && !event.currentTarget.parentElement?.contains(event.relatedTarget) && !event.relatedTarget?.closest('.inline-unit-menu, .inline-menu-popover')) commitEdit(); }}>
+    <UnitSelect value={displayUnit} onChange={unit => savePointUnit(unit, editing)} ariaLabel="Measurement point unit" compact />
   </span>;
 
   // The spanning content is absolutely positioned, so measuring it cannot
@@ -4474,7 +4456,7 @@ function App({ showThemeToggle = false }) {
       _skipUutAutofill: !uutId,
       measurementType: settings.mode,
       uutTolerance: fnRange || null,
-      testPointInfo: { measurementArea: fnGroup?.name || "Measurement", parameter: { name: fnRange?.functionName || fnGroup?.name || "", value: "", unit, unitless: !unit, unitSelectionExplicit: true } },
+      testPointInfo: { measurementArea: fnGroup?.name || "Measurement", parameter: { name: fnRange?.functionName || fnGroup?.name || "", value: "", unit, unitless: !unit, unitSelectionExplicit: Boolean(selectedUnit) } },
     }, fnGroup, settings);
   };
 

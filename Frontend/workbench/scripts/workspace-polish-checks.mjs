@@ -88,10 +88,10 @@ export async function checkWorkspacePolish({ frame, page, saved, until, check })
   }
   await frame.evaluate(() => { document.documentElement.style.zoom = ''; window.dispatchEvent(new Event('resize')); });
   await point.locator('[data-sidebar-column="pfa"]').click();
-  const unit = point.getByRole('combobox', { name: 'Measurement point unit', exact: true });
+  const unit = point.getByRole('button', { name: 'Measurement point unit base unit', exact: true });
   await unit.click();
-  check('measurement point units use the styled picker too', await unit.evaluate(node => getComputedStyle(node).appearance === 'base-select' && node.matches(':open')));
-  await capture('polish-point-unit-menu'); await unit.press('Escape');
+  check('measurement point units use the styled picker too', await frame.locator('.inline-unit-search').isVisible() && await frame.getByRole('listbox', {name:'Measurement point unit',exact:true}).isVisible());
+  await capture('polish-point-unit-menu'); await frame.locator('.inline-unit-search').press('Escape');
   const output = frame.locator('.measurement-equation-status');
   check('calculated nominal and target use the original status below the input table', await output.innerText().then(text => text.includes('Calculated: 5.00000 V') && text.includes('Target 5.00000 V')));
   check('measurement inputs contain Symbol, Name and Nominal', JSON.stringify(await frame.locator('.measurement-inputs-table thead th').allTextContents()) === JSON.stringify(['Symbol', 'Name', 'Nominal']));

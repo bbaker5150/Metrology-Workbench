@@ -21219,7 +21219,7 @@ body.dark-mode .uncertainty-module .measurement-group-container .point-grid-item
 .uncertainty-module .measurement-points-table-content { position: relative; }
 .uncertainty-module .point-selection-outline { inset: 0; width: 100%; height: 100%; z-index: 8; }
 .budget-decision-zoom-surface { grid-column: 1; justify-self: center; min-width: 0; }
-.budget-decision-zoom-surface > .scoped-zoom-content { width: fit-content; }
+.budget-decision-zoom-surface > .scoped-zoom-content { width: 240px; }
 
 /* Separate editing from row selection: compact text targets leave the rest of
    every cell available for selecting its measurement point. */
@@ -21804,3 +21804,8 @@ body.light-mode .uncertainty-module .instrument-equipment-table thead th:not(:la
   border-color: var(--function-input-accent, var(--primary-color));
   background: color-mix(in srgb, var(--function-input-accent, var(--primary-color)) 10%, transparent);
 }
+
+/* Reserve identical risk readout geometry before and after calculation. */
+.uncertainty-module .budget-decision-card dd { min-height: 1.3em; }
+.uncertainty-module .budget-component-type { vertical-align: middle; }
+.uncertainty-module .repeatability-fixed-distribution { font-weight: 400; }

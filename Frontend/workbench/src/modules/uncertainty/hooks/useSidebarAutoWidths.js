@@ -49,6 +49,11 @@ export default function useSidebarAutoWidths(rootRef) {
             copy.style.width = `${Math.max(1, source.value.length)}ch`;
             copy.value = source.value;
           }
+          if (source.matches(".point-unit-control .inline-unit-combobox")) {
+            // Shared picker buttons have authored widths beyond their text width.
+            copy.style.width = style.width;
+            copy.style.minWidth = style.width;
+          }
           if (source.tagName === "SELECT") {
             copy.replaceChildren(new Option(source.selectedOptions[0]?.textContent || ""));
             // Unit selects have an authored width including their picker arrow.

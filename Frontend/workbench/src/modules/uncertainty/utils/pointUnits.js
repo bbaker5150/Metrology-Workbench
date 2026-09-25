@@ -21,9 +21,11 @@ export const inheritMissingPointUnits = (session, previous) => {
     const previousIds = previousPoint?.activeUutId ? [previousPoint.activeUutId] : previousPoint?.associatedUutIds || [];
     const firstUutUnit = previous && !(previous.uuts || []).some(uut =>
       previousIds.some(id => String(id) === String(uut.id)) && getInstrumentRangeRows(uut).some(row => row.unit));
+    const assignmentChanged = previous && (!previousPoint || ids.some(id => !previousIds.some(oldId => String(oldId) === String(id))));
+    // Assigning a UUT supplies a new default; subsequent user choices remain owned by the point.
     // Before assignment/first UUT unit, Units is a placeholder. Once assigned
     // units exist, deliberately selecting Units remains a persistent opt-out.
-    if (parameter.unitless || parameter.unit || (parameter.unitSelectionExplicit && !firstUutUnit)) return point;
+    if (!assignmentChanged && (parameter.unit || (parameter.unitless && !(firstUutUnit && !parameter.unitSelectionExplicit)) || (parameter.unitSelectionExplicit && !firstUutUnit))) return point;
     const units = new Set();
     for (const uut of uuts) {
       const rows = getInstrumentRangeRows(uut);
@@ -44,13 +46,14 @@ export const inheritMissingPointUnits = (session, previous) => {
         });
       }
     }
+    if (assignmentChanged && units.size === 0) units.add("");
     if (units.size !== 1) return point;
     changed = true;
     return {
       ...point,
       testPointInfo: {
         ...point.testPointInfo,
-        parameter: { ...parameter, unit: [...units][0], ...(firstUutUnit ? { unitSelectionExplicit: false } : {}) },
+        parameter: { ...parameter, unit: [...units][0], ...((firstUutUnit || assignmentChanged) ? { unitSelectionExplicit: false, unitless: ![...units][0] } : {}) },
       },
     };
   });
