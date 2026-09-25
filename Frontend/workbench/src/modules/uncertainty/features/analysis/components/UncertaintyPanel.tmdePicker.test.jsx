@@ -28,3 +28,38 @@ it.each([1, 2])("requires a range choice only when the TMDE has multiple ranges 
   expect(update).toHaveBeenCalled();
   expect(JSON.stringify(update.mock.calls)).toContain(`range-${count}`);
 });
+
+it.each(["direct", "derived"])("adds only the chosen named uncertainty to a %s budget", measurementType => {
+  const sources = [
+    { id: "manual", name: "Thermal", kind: "parametric", tolerance: { floor: { high: .3, low: -.3, unit: "V", distribution: "1.732" } } },
+    { id: "table", name: "Head Height", kind: "table", dynamicDefinition: { id: "table", kind: "table", mode: "standard", measurementUnit: "V", outputUnit: "V", columns: [{ id: "u" }], rows: [{ point: 5, values: { u: { value: .2 } } }] } },
+    { id: "equation", name: "Drift", kind: "equation", dynamicDefinition: { id: "eq", kind: "equation", mode: "standard", measurementUnit: "V", outputUnit: "V", columns: [{ id: "u" }], equation: "x / 25", pointVariable: "x", variables: { x: {} } } },
+  ];
+  const tmde = { id: "meter", name: "Reference meter", instrument: { tmdeSecondaryUncertainties: sources, functions: [{ name: "Voltage", unit: "V", ranges: [{ id: "range", min: 0, max: 10, unit: "V", tolerances: { floor: { high: 1, low: -1, unit: "V", distribution: "1.732" } } }] }] } };
+  const update = vi.fn();
+  render(<UncertaintyPanel
+    testPointData={{ id: "point", measurementType, equationString: "x", variableMappings: { x: "Voltage" }, variableNominals: { x: { value: 5, unit: "V" } }, testPointInfo: { parameter: { name: "Voltage", value: 5, unit: "V" } }, components: [] }}
+    sessionData={{ id: "session", uuts: [], tmdes: [tmde], testPoints: [], measurementAreas: [], uncReq: {} }}
+    uutNominal={{ name: "Voltage", value: 5, unit: "V" }} tmdeTolerancesData={[]} onUpdateTestPoint={update}
+    calcResults={{ combined_uncertainty: 0, expanded_uncertainty: 0, k_value: 2, effective_dof: Infinity,
+      ...(measurementType === "derived" ? { calculatedBudgetGroups: [{ id: "Voltage", kind: "input", variableType: "Voltage", label: "Voltage", nominalPoint: { value: 5, unit: "V" }, components: [] }] } : {}) }}
+  />);
+  fireEvent.click(screen.getAllByRole("button", { name: "Add component to budget" })[0]);
+  const menu = document.querySelector(".budget-tmde-picker-menu");
+  for (const [index, source] of sources.entries()) {
+    const option = within(menu).getByRole("button", { name: new RegExp("Reference meter - " + source.name) });
+    expect(option.querySelector(".budget-add-component-copy > span")).toHaveTextContent("Reference meter - " + source.name);
+    fireEvent.click(option);
+    const rows = update.mock.calls.at(-1)[0].components;
+    expect(rows).toHaveLength(1);
+    expect(rows[0].tmdeUncertaintySourceId).toBe(source.id);
+    expect(rows[0].name).toBe("Reference meter - " + source.name);
+    expect(rows[0].value_native).toBeCloseTo(index === 0 ? .3 / Math.sqrt(3) : .2, 8);
+    expect(rows[0].tmdeBudgetSourceId).toBe("meter");
+    expect(rows[0].tmdeBudgetRangeId).toBe("range");
+  }
+  fireEvent.click(menu.querySelector(".budget-tmde-picker-single"));
+  const rows = update.mock.calls.at(-1)[0].components;
+  expect(rows).toHaveLength(1);
+  expect(rows[0].value_native).toBeCloseTo(1 / Math.sqrt(3), 8);
+});

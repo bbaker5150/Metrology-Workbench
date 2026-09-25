@@ -16,7 +16,7 @@ import { setInstrumentDragPreview } from "../../../utils/instrumentDragPreview";
 import { instrumentRowSelectionFromEvent } from "../../../utils/instrumentCellSelection";
 import { SI_PREFIX_OPTIONS, prefixedUnitKey } from "../../../utils/siPrefixes";
 import { updateSharedDynamicDefinition } from "../../../utils/riskCompute";
-import { resolveDynamicComponent, availableDynamicDefinitions, canUseDynamicDefinition, createDynamicDefinition, dynamicDefinitionLabel, removeDynamicDefinitionFromPicker, validateBudgetEquation } from "../../../utils/dynamicBudgetComponents";
+import { isEmptyDefinition, resolveDynamicComponent, availableDynamicDefinitions, canUseDynamicDefinition, createDynamicDefinition, dynamicDefinitionLabel, removeDynamicDefinitionFromPicker, validateBudgetEquation } from "../../../utils/dynamicBudgetComponents";
 import { budgetUnitMismatch } from "../../../utils/incompleteBudget";
 import MeasurementAreaEntry from "../../../components/common/MeasurementAreaEntry";
 import { showFirstInstrumentHint } from "../../../utils/instrumentOnboarding";
@@ -63,7 +63,6 @@ import {
   faArrowDown,
   faEye,
   faEyeSlash,
-  faGear,
 } from "@fortawesome/free-solid-svg-icons";
 import ContextMenu from "../../../components/common/ContextMenu";
 import useInstrumentTableLayout from "../../../hooks/useInstrumentTableLayout";
@@ -4592,7 +4591,7 @@ const InstrumentDynamicDefinitionFields = ({ definition, onChange }) => {
 // The close is deferred so a blurred input commits before the editor unmounts.
 // Independent sources share the instrument description, but never participate
 // in range calculations. Selection and deletion share the range-row controls.
-export const InstrumentUncertaintyRow = ({ source, activeRange, referencePoint, style, onChange, onRemove, rowProps = {}, selected = false, renderCustomAfter = () => null }) => {
+export const InstrumentUncertaintyRow = ({ source, activeRange, referencePoint, style, onChange, onRemove, onAddSecondary, rowProps = {}, selected = false, renderCustomAfter = () => null }) => {
   const [editingName, setEditingName] = useState(!source.name);
   const [openEditor, setOpenEditor] = useState(false);
   const [name, setName] = useState(source.name || "");
@@ -4603,15 +4602,18 @@ export const InstrumentUncertaintyRow = ({ source, activeRange, referencePoint, 
     tmdeUncertaintyDefinition: kind === "parametric" ? null : source.dynamicDefinition };
   const resolved = referencePoint && kind !== "parametric" && source.dynamicDefinition
     ? resolveDynamicComponent({ dynamicOutputId: source.dynamicDefinition.columns?.[0]?.id }, source.dynamicDefinition, referencePoint) : null;
-  const summary = !referencePoint ? label : kind === "parametric"
+  const isConfigured = kind === "parametric" ? toleranceHasAnyValue(tolerance)
+    : source.dynamicDefinition && !isEmptyDefinition(source.dynamicDefinition);
+  const summary = !isConfigured ? "Not Set" : !referencePoint ? label : kind === "parametric"
     ? getCollapsedSpecRows(tolerance, referencePoint).join("; ") || "Not Set"
-    : resolved?.dynamicSummary || resolved?.pendingReason || label;
+    : resolved?.pendingReason ? "Not Set" : resolved?.dynamicSummary || "Not Set";
   const commitName = () => { if (name !== source.name) onChange({ ...source, name }); };
   return <tr {...rowProps} className={`instrument-function-row inline-range-row instrument-uncertainty-row${selected ? " instrument-selected is-selected-range" : ""}`}
     data-range-cell data-range-id={uncertaintyRowId(source.id)} data-range-selected={selected}
     data-uncertainty-source-id={source.id} style={style}>
     {renderCustomAfter("description")}
     <td className="cell-range" data-range-cell>
+      <div className="range-row-cell">
       <div className="instrument-source-row-name">
         {editingName ? <input className="instrument-custom-field-input" aria-label="Uncertainty name" value={name} autoFocus
           placeholder="Uncertainty name" onChange={event => setName(event.target.value)}
@@ -4621,12 +4623,15 @@ export const InstrumentUncertaintyRow = ({ source, activeRange, referencePoint, 
             if (event.key === "Enter") { event.preventDefault(); commitName(); setEditingName(false); setOpenEditor(true); }
           }} /> : <button type="button" className="inline-tolerance-summary" onClick={() => setEditingName(true)}>{source.name || "Uncertainty name"}</button>}
         <span className="instrument-source-range-note">{kind === "table" ? "(Point Dependent)" : "(Range N/A)"}</span>
-        <button type="button" className="range-row-delete" aria-label={`Remove ${source.name || "uncertainty"}`} onClick={onRemove}>×</button>
+      </div>
+        <button type="button" className="range-row-delete" title="Delete uncertainty" aria-label={`Remove ${source.name || "uncertainty"}`}
+          onMouseDown={event => event.stopPropagation()}
+          onClick={event => { event.stopPropagation(); onRemove(); }}>x</button>
       </div>
     </td>
     {renderCustomAfter("range")}
     <td className="cell-tolerance"><InlineToleranceCell tolerance={tolerance} activeRange={activeRange}
-      referencePoint={referencePoint} biasRole="source" editable summaryOverride={summary}
+      referencePoint={referencePoint} biasRole="source" editable summaryOverride={summary} onAddSecondary={onAddSecondary}
       openRequested={openEditor} onOpenRequestHandled={() => setOpenEditor(false)}
       onCommit={(type, value) => {
         const updated = applyToleranceCaseChange(tolerance, type, value);
@@ -4666,7 +4671,6 @@ export const InlineToleranceCell = ({
   const [isEditing, setIsEditing] = useState(openRequested);
   const [selectedSourceId, setSelectedSourceId] = useState(null);
   const [showSourceSettings, setShowSourceSettings] = useState(false);
-  const [addingSource, setAddingSource] = useState(false);
   const secondarySources = biasRole === "tmde" && !onAddSecondary ? tolerance.tmdeSecondaryUncertainties || [] : [];
   const selectedSecondary = secondarySources.find(source => source.id === selectedSourceId);
   const selectedTolerance = selectedSecondary?.tolerance || tolerance;
@@ -4739,28 +4743,9 @@ export const InlineToleranceCell = ({
     if (!selectedSecondary) return onCommit(typeKey, component);
     updateSelectedSource({ tolerance: applyToleranceCaseChange(selectedTolerance, typeKey, component) });
   };
-  const setSelectedSourceType = kind => {
-    if (selectedSecondary) {
-      updateSelectedSource({ kind, ...(kind !== "parametric" && selectedDefinition?.kind !== kind
-        ? { dynamicDefinition: createDynamicDefinition(kind, referencePoint || activeRange, referencePoint || activeRange) }
-        : {}) });
-    } else {
-      updateSelectedSource({ tmdeUncertaintyDefinition: kind === "parametric" ? null
-        : selectedDefinition?.kind === kind ? selectedDefinition
-          : createDynamicDefinition(kind, referencePoint || activeRange, referencePoint || activeRange) });
-    }
-    setShowSourceSettings(false);
-  };
-  const addSecondarySource = () => {
-    const source = { id: uuidv4(), name: `Uncertainty ${secondarySources.length + 1}`, kind: "parametric", tolerance: {} };
-    onCommit("__replace__", { ...tolerance, tmdeSecondaryUncertainties: [...secondarySources, source] });
-    setSelectedSourceId(source.id);
-    setShowSourceSettings(true);
-  };
-
   const summaryRows = getCollapsedSpecRows({ ...activeRange, ...tolerance }, referencePoint);
   const summary = summaryOverride ?? (tolerance.tmdeUncertaintyDefinition?.kind
-    ? `${tolerance.tmdeUncertaintyDefinition.kind === "table" ? "Tabular" : "Algebraic"} TMDE uncertainty`
+    ? isEmptyDefinition(tolerance.tmdeUncertaintyDefinition) ? "Not Set" : `${tolerance.tmdeUncertaintyDefinition.kind === "table" ? "Tabular" : "Algebraic"} TMDE uncertainty`
     : summaryRows[0] || "");
 
   // Read-only surfaces (no save handler) just render the clean summary.
@@ -4769,7 +4754,7 @@ export const InlineToleranceCell = ({
   }
 
   if (!isEditing) {
-    const hasValue = Boolean(summaryOverride) || toleranceHasAnyValue(tolerance) || Boolean(tolerance.tmdeUncertaintyDefinition);
+    const hasValue = summary !== "Not Set" && (Boolean(summaryOverride) || toleranceHasAnyValue(tolerance) || Boolean(tolerance.tmdeUncertaintyDefinition));
     const openEditor = (e) => {
       e.stopPropagation();
       setSelectedSourceId(null);
@@ -4911,14 +4896,8 @@ export const InlineToleranceCell = ({
         </div>}
       </div>
       </>}
-      {biasRole === "tmde" && <div className="instrument-source-toolbar">
+      {(biasRole === "tmde" || onAddSecondary) && <div className="instrument-source-toolbar">
         <div className="instrument-source-actions">
-          <button type="button" aria-label="Uncertainty settings" title="Uncertainty settings"
-            aria-expanded={showSourceSettings} onClick={() => { setAddingSource(false); setShowSourceSettings(value => !value); }}>
-            <FontAwesomeIcon icon={faGear} />
-          </button>
-
-
           {activeBiasRole && !selectedSecondary && selectedType !== "parametric" && <button type="button"
             aria-label="Edit Bias" title="Edit Bias" aria-pressed={showBias}
             onClick={() => {
@@ -4928,23 +4907,14 @@ export const InlineToleranceCell = ({
               }
               setShowBias(value => !value);
             }}>Bias</button>}
-          {onAddSecondary && <button type="button" aria-label="Add a secondary uncertainty" title="Add a secondary uncertainty"
-            onClick={() => { setAddingSource(true); setShowSourceSettings(true); }}><FontAwesomeIcon icon={faPlus} /></button>}
+          {onAddSecondary && <button type="button" aria-label="Add a secondary uncertainty" title="Add a secondary uncertainty" aria-expanded={showSourceSettings}
+            onClick={() => { setShowSourceSettings(value => !value); }}><FontAwesomeIcon icon={faPlus} /></button>}
         </div>
-        {showSourceSettings && <div className="instrument-source-settings" role="group" aria-label="Uncertainty settings">
+        {showSourceSettings && onAddSecondary && <div className="instrument-source-settings" role="group" aria-label="Add uncertainty type">
           {["parametric", "table", "equation"].map(kind => <button type="button" key={kind}
-            className={selectedType === kind ? "is-active" : ""}
-            aria-pressed={!addingSource && selectedType === kind} onClick={() => {
-              if (addingSource) { onAddSecondary(kind); setShowSourceSettings(false); setIsEditing(false); }
-              else setSelectedSourceType(kind);
-            }}>
+            onClick={() => { onAddSecondary(kind); setShowSourceSettings(false); setIsEditing(false); }}>
             {kind === "table" ? "Table" : kind === "equation" ? "Equation" : "Manual"}
           </button>)}
-          {selectedSecondary && <button type="button" className="instrument-source-remove" onClick={() => {
-            onCommit("__replace__", { ...tolerance, tmdeSecondaryUncertainties: secondarySources.filter(source => source.id !== selectedSecondary.id) });
-            setSelectedSourceId(null);
-            setShowSourceSettings(false);
-          }}>Remove uncertainty</button>}
         </div>}
       </div>}
       </div>
@@ -9821,6 +9791,7 @@ const SummaryDashboard = ({
                           );
                         })}
                       {sources.map(source => <InstrumentUncertaintyRow key={source.id} source={source}
+                            onAddSecondary={type => addInstrumentSource(tmde, type, activeRange)}
                             selected={selectedRangeIds[itemStateKey("tmde", tmde.id)]?.includes(uncertaintyRowId(source.id)) ?? isSelected}
                             rowProps={{
                               "data-selection-key": itemStateKey("tmde", tmde.id),
@@ -14327,7 +14298,7 @@ function DetailedView({
     ],
   );
 
-  const addBudgetTmde = (tmde, requestedRange = null) => {
+  const addBudgetTmde = (tmde, requestedRange = null, sourceId = "primary") => {
     if (!budgetTmdePicker) return;
 
     {
@@ -14356,9 +14327,11 @@ function DetailedView({
       // range provenance lets resolvePointBudgetComponents resolve later edits.
       const resolvedComponents = getBudgetComponentsFromTolerance(
         activeRange, nominalPoint || {},
-      ).filter(component => !component.isResolution);
+      ).filter(component => !component.isResolution && (component.tmdeUncertaintySourceId || "primary") === sourceId);
+      const selectedSource = instrumentUncertaintySources(sourceTmde).find(source => source.id === sourceId);
       if (!resolvedComponents.length) resolvedComponents.push({
-        name: "TMDE - Error Limit", value: null, value_native: null,
+        ...(selectedSource ? { tmdeUncertaintySourceId: sourceId, tmdeUncertaintySourceName: selectedSource.name, tmdeUncertaintyComponentKind: "Accuracy" } : {}),
+        name: selectedSource?.name || "TMDE - Error Limit", value: null, value_native: null,
         unit_native: activeRange.unit || nominalPoint?.unit || "",
         pendingReason: "Set an error limit for the selected TMDE range.",
       });
@@ -14782,6 +14755,16 @@ function DetailedView({
                   requireFunctionMatch: false,
                 },
               );
+              const renderSourceChoices = range => instrumentUncertaintySources(tmde).map(source => (
+                <button key={source.id} type="button" className="budget-tmde-picker-source"
+                  style={itemStyle} onClick={() => addBudgetTmde(tmde, range, source.id)}>
+                  <FontAwesomeIcon icon={faPlus} />
+                  <span className="budget-add-component-copy">
+                    <span>{formatErrorSourceDescription(tmde)} - {formatErrorSourceKind(source.name || "Uncertainty")}</span>
+                    <small className="budget-tmde-picker-detail">{source.kind === "table" ? "Table" : source.kind === "equation" ? "Equation" : "Manual"}</small>
+                  </span>
+                </button>
+              ));
               // A one-choice instrument is one click target, with its range
               // description inside the same tile. Multiple choices retain the
               // instrument heading and indented children so scope stays clear.
@@ -14789,14 +14772,16 @@ function DetailedView({
                 const range = choices[0];
                 const detail = getBudgetTmdeDetail(tmde, range);
                 const unitWarning = budgetUnitMismatch(range.unit || range.functionUnit, (isDerived ? scope.nominalPoint : uutNominal)?.unit, unitSystem);
-                return <button key={`tmde-group-${tmde.id ?? tmde.sourceId}`} type="button"
-                  className="budget-tmde-picker-single" title={unitWarning || detail}
+                return <div key={`tmde-group-${tmde.id ?? tmde.sourceId}`}>
+                <button type="button" className="budget-tmde-picker-single" title={unitWarning || detail}
                   onClick={() => addBudgetTmde(tmde, range)}>
                   <span className="budget-tmde-picker-single-name"><FontAwesomeIcon icon={faTools} />{getEquationTmdeLabel(tmde)}</span>
                   <span className="budget-tmde-picker-detail">
                     {unitWarning && <FontAwesomeIcon icon={faExclamationTriangle} role="img" aria-label={unitWarning} />}{detail}
                   </span>
-                </button>;
+                </button>
+                {renderSourceChoices(range)}
+                </div>;
               }
               return (
                 <div
@@ -14814,9 +14799,8 @@ function DetailedView({
                 const unitWarning = budgetUnitMismatch(range.unit || range.functionUnit, (isDerived ? scope.nominalPoint : uutNominal)?.unit, unitSystem);
 
                 return (
-                <button
-                  key={`${tmde.id}:${rangeIdOf(range || {}) || rangeIndex}`}
-                  type="button"
+                <div key={`${tmde.id}:${rangeIdOf(range || {}) || rangeIndex}`}>
+                <button type="button"
                   className="budget-tmde-picker-range"
                   title={unitWarning || detail}
                   style={itemStyle}
@@ -14844,6 +14828,8 @@ function DetailedView({
                     )}
                   </span>
                 </button>
+                {renderSourceChoices(range)}
+                </div>
                 );
                   })}
                 </div>
@@ -16344,6 +16330,7 @@ function DetailedView({
                               );
                             })}
                           {sources.map(source => <InstrumentUncertaintyRow key={source.id} source={source}
+                            onAddSecondary={type => addInstrumentSource(masterTmde, type, activeRange)}
                             selected={selectedRangeIds[itemStateKey("tmde", masterTmde.id)]?.includes(uncertaintyRowId(source.id)) ?? isSelectedRow}
                             rowProps={{
                               "data-selection-key": itemStateKey("tmde", masterTmde.id),

@@ -174,7 +174,7 @@ const sameQuantity = (a, b) => Boolean(unitSystem.units[a] && unitSystem.units[b
 export const canUseDynamicDefinition = (definition, nominal) =>
   (!definition.outputUnit || !nominal?.unit || sameQuantity(definition.outputUnit, nominal.unit)) &&
   (!nominal?.unit || sameQuantity(dynamicMeasurementUnit(definition, nominal), nominal.unit));
-const isEmptyDefinition = definition => definition.kind === "equation"
+export const isEmptyDefinition = definition => definition.kind === "equation"
   ? ![definition.equation, definition.lowerEquation, definition.upperEquation].some(value => String(value || "").trim())
   : !(definition.rows || []).some(row => Object.values(row.values || {}).some(values => Object.values(values).some(filled)));
 const nextDefinitionName = (kind, definitions) => {

@@ -77,3 +77,15 @@ it("shows Table in overview and the evaluated specification at a measurement poi
   fireEvent.click(await screen.findByRole("option", { name: /^Rectangular k/ }));
   expect(updated.dynamicDefinition).toMatchObject({ mode: "tolerance", distribution: "1.732" });
 });
+
+it.each(["parametric", "table", "equation"])("shows the same Not Set placeholder for an empty %s source in both views", kind => {
+  const source = { id: "empty", name: "Empty source", kind, tolerance: {},
+    dynamicDefinition: { kind, columns: [{ id: "u" }], rows: [], equation: "", measurementUnit: "V", outputUnit: "V" } };
+  const view = referencePoint => <table><tbody><InstrumentUncertaintyRow source={source} activeRange={{ unit: "V" }}
+    referencePoint={referencePoint} onChange={() => {}} onRemove={() => {}} /></tbody></table>;
+  const { rerender, container } = render(view());
+  expect(container.querySelector(".cell-tolerance .is-empty")).toHaveTextContent("Not Set");
+  rerender(view({ value: 5, unit: "V" }));
+  expect(container.querySelector(".cell-tolerance .is-empty")).toHaveTextContent("Not Set");
+  expect(container.querySelector(".cell-tolerance")).not.toHaveTextContent(/Enter an equation|No table entry/);
+});
