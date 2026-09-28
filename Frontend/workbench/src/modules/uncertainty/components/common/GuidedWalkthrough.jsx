@@ -261,7 +261,7 @@ const GuidedWalkthrough = ({
       )}
       <section
         ref={cardRef}
-        className="guided-walkthrough-card"
+        className={`guided-walkthrough-card${advancing ? " is-action-complete" : ""}`}
         role="dialog"
         aria-modal="false"
         aria-label="Uncertalytics walkthrough"

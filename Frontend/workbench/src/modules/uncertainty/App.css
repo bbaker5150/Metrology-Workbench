@@ -21954,3 +21954,16 @@ body.light-mode .uncertainty-module .instrument-uncertainty-rail {
 
 .guided-walkthrough-skip { margin-left: auto; }
 .guided-walkthrough-skip + .guided-walkthrough-primary { margin-left: 0; }
+
+.guided-walkthrough-card.is-action-complete {
+  border-color: #22c55e;
+  background: color-mix(in srgb, var(--content-background) 90%, #22c55e);
+  animation: walkthrough-card-success 900ms ease-out;
+}
+@keyframes walkthrough-card-success {
+  0%, 100% { box-shadow: 0 0 0 3px #22c55e44, 0 20px 55px rgba(5, 11, 24, .38); }
+  50% { box-shadow: 0 0 0 7px #22c55e77, 0 20px 55px rgba(5, 11, 24, .38); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .guided-walkthrough-card.is-action-complete { animation: none; }
+}

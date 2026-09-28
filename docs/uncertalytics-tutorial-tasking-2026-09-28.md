@@ -13,7 +13,7 @@ Source: Tasking.docx attachment F3241D22-2408-48AC-BFD3-E9E630BC3991.
 | Clarify Bias location | Identify the primary range row above ADD’L UNCERTAINTY and highlight its uncertainty cell. |
 | Account for automatic budget opening | Explain that assigning the UUT opens its budget; the following step reviews that already-open budget. |
 | Highlight UUT assignment | Separate point creation, assignment, and nominal entry, with highlights on the active point’s actual UUT and Value cells. |
-| Green completion pulse and automatic progression | Completed actions pulse green and advance after a short delay; active text edits finish first. Jumping, skipping or closing cancels pending progression. Reduced motion uses a static green outline. |
+| Green completion pulse and automatic progression | Completed actions pulse both the spotlight and tutorial card green and advance after a short delay; active text edits finish first. Jumping, skipping or closing cancels pending progression. Reduced motion uses a static green outline. |
 | Temperature symbols in calculated/target display | Both use the app’s unit-label formatter (for example, °F). |
 | Correlation window must not obstruct next step | Closing it advances automatically. Next or Skip also dismisses it before showing propagation controls. |
 
@@ -24,5 +24,5 @@ Verification includes action/keyboard tests and packaged-browser checks for all 
 - `npm audit --audit-level=high`: zero vulnerabilities.
 - Complete `npm test`: 198 files, 2,350 tests passed.
 - `npm run build:singlefile`: passed.
-- Tutorial and Forge browser verification: 143 checks passed.
+- Tutorial and Forge browser verification: 144 checks passed.
 - Light/dark tutorial screenshots reviewed; Skip is grouped beside Next.

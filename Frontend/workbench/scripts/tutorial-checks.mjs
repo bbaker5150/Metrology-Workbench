@@ -57,6 +57,7 @@ export async function checkTutorial({frame,page,until,check}) {
   await field.press('Enter');
   check('tutorial unlocks Next after the session edit is saved',await until(()=>next.isEnabled()));
   check('completed actions pulse the highlighted region green',await frame.locator('.guided-walkthrough-highlight.is-action-complete').count()===1);
+  check('completed actions also highlight the tutorial card green',await card.evaluate(node=>node.classList.contains('is-action-complete') && getComputedStyle(node).borderTopColor==='rgb(34, 197, 94)'));
   check('completed edits advance automatically',await until(()=>card.locator('h3').textContent().then(title=>title!==currentTitle)));
   check('jumping starts the new action with its own completion state',await next.isDisabled());
   await card.getByRole('button',{name:'Back',exact:true}).click();
