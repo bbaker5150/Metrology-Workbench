@@ -23,3 +23,12 @@ Source: attached Tasking.docx (8A6C4516-F65D-43A6-AD2E-5149A6D03EF2).
 - Compose ADD’L UNCERTAINTY horizontally before rotating the label so the apostrophe retains its normal position.
 - Verification: audit clean; 196 test files / 2,327 tests passed; single-file build passed; 95 September 28 and base Forge browser checks passed, including both themes and both instrument-table views.
 - Existing expanded-TMDE authoring/selection/deletion checks and its 54-check base Forge run passed.
+
+## Label rail appearance and shared outline follow-up
+
+Source: attached Tasking.docx (82914A7A-197B-4B03-B187-1CFBCC72080B).
+
+- Use a white label-rail background in light mode and add the bottom divider in both themes.
+- Instrument selection includes the full shared label rail. The perimeter wraps around it rather than crossing the label when a continuation source is selected. Individual Range selection still excludes the rail.
+- Verified first and continuation source selection in both themes and overview/measurement-point tables: 105 feature/base Forge browser checks passed.
+- Audit: zero vulnerabilities; complete suite: 196 files / 2,328 tests passed; single-file build passed.

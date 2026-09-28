@@ -19,6 +19,10 @@ export async function checkSeptember28({frame,page,until,check}) {
   const sourceRows = table.locator('tr[data-uncertainty-source-id]');
   const checkRail = async mode => {
     check(`${mode}: one rail labels both additional uncertainties`, await sourceRows.count() === 2 && await table.getByLabel('Additional uncertainty',{exact:true}).count() === 1);
+    check(`${mode}: rail has a bottom divider and a white background in light mode`, await table.locator('.instrument-uncertainty-rail').evaluate(node=>{
+      const style=getComputedStyle(node);
+      return parseFloat(style.borderBottomWidth)>0 && style.borderBottomStyle==='solid' && (!document.body.classList.contains('light-mode') || style.backgroundColor==='rgb(255, 255, 255)');
+    }));
     check(`${mode}: old parenthetical range notes are absent`, !/Range N\/A|Point Dependent/.test(await sourceRows.allTextContents()));
     check(`${mode}: rail spans exactly the additional rows`, await until(async()=>table.evaluate(node=>{
       const rows=[...node.querySelectorAll('tr[data-uncertainty-source-id]')];
@@ -49,6 +53,16 @@ export async function checkSeptember28({frame,page,until,check}) {
         await row.locator(`.cell-${column}`).click({position:{x:3,y:3}});
         check(`${mode}: source ${index + 1} ${column} selects shared instrument cells`, await until(()=>table.evaluate(node=>node.dataset.selectionMode==='instrument' && Boolean(node.querySelector('.cell-description[data-cell-selected]')) && Boolean(node.querySelector('.cell-sync[data-cell-selected]')))));
       }
+      check(`${mode}: source ${index + 1} instrument outline wraps the shared rail without crossing its text`, await until(()=>table.evaluate(node=>{
+        const rail=node.querySelector('.instrument-uncertainty-rail'), cell=rail.parentElement;
+        const overlay=node.parentElement.querySelector('.instrument-selection-outline');
+        const origin=overlay.getBoundingClientRect(),scale=origin.width/parseFloat(overlay.style.width);
+        const box=cell.getBoundingClientRect(),width=parseFloat(getComputedStyle(cell).getPropertyValue('--instrument-uncertainty-rail-width'));
+        const left=(box.left-origin.left)/scale, right=left+width, top=(box.top-origin.top)/scale, bottom=top+rail.getBoundingClientRect().height/scale;
+        const edges=[...overlay.querySelectorAll('path')].flatMap(path=>[...path.getAttribute('d').matchAll(/M([\d.-]+),([\d.-]+)L([\d.-]+),([\d.-]+)/g)].map(m=>m.slice(1).map(Number)));
+        return edges.some(([x1,y1,x2,y2])=>Math.abs(y1-top)<1 && Math.abs(y2-top)<1 && x1<=left+1 && x2>=right-1) && !edges.some(([x1,y1,x2,y2])=>Math.abs(y1-y2)<.1 && y1>top+1 && y1<bottom-1 && x1<right-.5 && x2>left+.5);
+      })));
+      if(mode==='overview light' && process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await page.screenshot({path:`${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/source-${index + 1}-instrument-outline.png`});
     }
     check(`${mode}: label retains an apostrophe in horizontally composed rotated text`, await table.locator('.instrument-uncertainty-rail > span').evaluate(node=>node.textContent==='ADD’L UNCERTAINTY' && getComputedStyle(node).writingMode==='horizontal-tb'));
   };

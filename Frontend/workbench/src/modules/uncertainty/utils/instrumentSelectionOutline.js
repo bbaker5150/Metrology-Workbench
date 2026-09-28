@@ -50,12 +50,18 @@ export function createInstrumentSelectionOutline(container, table) {
       const containerBounds = container.getBoundingClientRect();
       const scale = containerBounds.width / container.offsetWidth || 1;
       const groups = new Map();
-      table.querySelectorAll(SELECTED_CELLS).forEach(cell => {
+      const selectedCells = [...table.querySelectorAll(SELECTED_CELLS)];
+      const sourceKeys = new Set(selectedCells.filter(cell => cell.classList.contains('instrument-uncertainty-name-cell'))
+        .map(cell => cell.parentElement.dataset.selectionKey));
+      const sharedRails = table.dataset.selectionMode === 'instrument'
+        ? [...table.querySelectorAll('.instrument-uncertainty-rail')].filter(rail => sourceKeys.has(rail.closest('tr').dataset.selectionKey)) : [];
+      const sharedKeys = new Set(sharedRails.map(rail => rail.closest('tr').dataset.selectionKey));
+      selectedCells.forEach(cell => {
         const rect = cell.getBoundingClientRect();
         if (!rect.width || !rect.height) return;
         const style = getComputedStyle(cell);
         // The shared label rail belongs to the group, outside an individual range selection.
-        const inset = table.dataset.selectionMode === 'range' && cell.classList.contains('instrument-uncertainty-name-cell')
+        const inset = (table.dataset.selectionMode === 'range' || sharedKeys.has(cell.parentElement.dataset.selectionKey)) && cell.classList.contains('instrument-uncertainty-name-cell')
           ? parseFloat(style.getPropertyValue('--instrument-uncertainty-rail-width')) || 0 : 0;
         const color = style.getPropertyValue('--instrument-function-color').trim() || 'var(--primary-color)';
         if (!groups.has(color)) groups.set(color, []);
@@ -63,6 +69,19 @@ export function createInstrumentSelectionOutline(container, table) {
           left: (rect.left - bounds.left) / scale + inset, right: (rect.right - bounds.left) / scale,
           top: (rect.top - bounds.top) / scale, bottom: (rect.bottom - bounds.top) / scale,
         });
+      });
+      // A label spans the whole source group, like the shared Description cell.
+      // Add it once, without overlapping the inset source rectangles, so no
+      // selection edge can run through its text on a continuation row.
+      sharedRails.forEach(rail => {
+        const cell = rail.parentElement;
+        const rect = cell.getBoundingClientRect(), style = getComputedStyle(cell);
+        const color = style.getPropertyValue('--instrument-function-color').trim() || 'var(--primary-color)';
+        const width = parseFloat(style.getPropertyValue('--instrument-uncertainty-rail-width')) || 0;
+        if (!width || !groups.has(color)) return;
+        const left = (rect.left - bounds.left) / scale, top = (rect.top - bounds.top) / scale;
+        groups.get(color).push({ left, top, right: left + width,
+          bottom: top + rail.getBoundingClientRect().height / scale });
       });
       const paths = [...groups].map(([color, rectangles]) => ({ color,
         d: selectionPerimeter(rectangles).map(([x1, y1, x2, y2]) => `M${x1},${y1}L${x2},${y2}`).join(' '),

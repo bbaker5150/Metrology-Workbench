@@ -21910,7 +21910,7 @@ body:not(.light-mode) .uncertainty-module .instrument-equipment-table > thead > 
   position: absolute; top: 0; left: 0; width: var(--instrument-uncertainty-rail-width); height: var(--uncertainty-rail-height, 100%);
   display: flex; align-items: center; justify-content: center; box-sizing: border-box;
   color: var(--text-color-muted); background: color-mix(in srgb, var(--instrument-function-color, var(--primary-color)) 8%, var(--content-background));
-  border-right: 1px solid var(--table-divider-color); pointer-events: none; z-index: 2;
+  border-right: 1px solid var(--table-divider-color); border-bottom: 1px solid var(--table-divider-color); pointer-events: none; z-index: 2;
 }
 .uncertainty-module .instrument-uncertainty-rail > span {
   position: absolute; left: 50%; top: 50%;
@@ -21926,4 +21926,8 @@ body:not(.light-mode) .uncertainty-module .instrument-equipment-table > thead > 
 
 .uncertainty-module .instrument-equipment-table > tbody > tr.instrument-uncertainty-row > td.instrument-uncertainty-name-cell {
   overflow: visible;
+}
+
+body.light-mode .uncertainty-module .instrument-uncertainty-rail {
+  background: #fff;
 }

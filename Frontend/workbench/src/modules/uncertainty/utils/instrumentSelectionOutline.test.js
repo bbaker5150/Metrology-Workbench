@@ -44,6 +44,32 @@ describe('selection perimeter', () => {
     outline.destroy();
   });
 
+  it('wraps around the entire shared rail when a continuation source selects its instrument', () => {
+    const container = document.createElement('div');
+    container.innerHTML = `<table data-selection-mode="instrument"><tbody>
+      <tr data-selection-key="tmde"><td rowspan="3" data-cell-selected class="cell-description">Instrument</td><td>Range</td></tr>
+      <tr data-selection-key="tmde"><td class="instrument-uncertainty-name-cell" style="--instrument-uncertainty-rail-width:22px"><span class="instrument-uncertainty-rail">Label</span></td></tr>
+      <tr data-selection-key="tmde"><td data-cell-selected class="instrument-uncertainty-name-cell" style="--instrument-uncertainty-rail-width:22px">Second source</td></tr>
+    </tbody></table>`;
+    const table = container.querySelector('table');
+    const bounds = (left, top, right, bottom) => ({ left, top, right, bottom, width:right-left, height:bottom-top });
+    Object.defineProperty(container, 'offsetWidth', { value: 60 });
+    container.getBoundingClientRect = table.getBoundingClientRect = () => bounds(0,0,60,30);
+    table.querySelector('.cell-description').getBoundingClientRect = () => bounds(0,0,20,30);
+    const sources = table.querySelectorAll('.instrument-uncertainty-name-cell');
+    sources[0].getBoundingClientRect = () => bounds(20,10,60,20);
+    sources[1].getBoundingClientRect = () => bounds(20,20,60,30);
+    table.querySelector('.instrument-uncertainty-rail').getBoundingClientRect = () => bounds(20,10,42,30);
+    const outline = createInstrumentSelectionOutline(container, table);
+    outline.sync();
+    const segments = [...container.querySelector('path').getAttribute('d').matchAll(/M([\d.-]+),([\d.-]+)L([\d.-]+),([\d.-]+)/g)].map(m=>m.slice(1).map(Number));
+    expect(sorted(segments)).toEqual(sorted([
+      [0,0,20,0], [0,30,60,30], [20,10,42,10], [42,20,60,20],
+      [0,0,0,30], [20,0,20,10], [42,10,42,20], [60,20,60,30],
+    ]));
+    outline.destroy();
+  });
+
   it('clears stale outlines and removes its overlay on cleanup', () => {
     const container = document.createElement('div');
     container.innerHTML = '<table><tbody><tr class="instrument-function-row selected-row"><td>Selected</td></tr></tbody></table>';
