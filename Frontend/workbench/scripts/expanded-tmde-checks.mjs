@@ -56,7 +56,7 @@ export async function checkExpandedTmde({ frame, page, saved }) {
   const sourceEditor = sourceRow.locator('.inline-tolerance-editor');
   await sourceEditor.waitFor();
   assert.equal(await sourceEditor.getByRole('button', { name: 'Bias', exact: true }).count(), 0);
-  assert.ok(await sourceRow.getByText('(Range N/A)', { exact: true }).isVisible());
+  assert.ok(await sourceRow.getByLabel('Additional uncertainty', { exact: true }).isVisible());
   assert.equal(await sourceRow.locator('.cell-resolution').textContent(), 'N/A');
   const floor = sourceEditor.locator('.inline-tolerance-term-group').nth(2).locator('input').first();
   await floor.fill('0.3');
@@ -123,7 +123,7 @@ export async function checkExpandedTmde({ frame, page, saved }) {
     await rangeRemove.hover();
     await setTimeout(150);
     const rangeStyle = await rangeRemove.evaluate(el => ({ color: getComputedStyle(el).color, background: getComputedStyle(el).backgroundColor }));
-    await row.locator('.instrument-source-range-note').click();
+    await row.locator('.cell-range').click({ position: { x: 25, y: 3 } });
     const actualBox = await remove.boundingBox();
     assert.ok(Math.abs(actualBox.x - expectedBox.x) < 1, 'source delete aligns with range delete');
     assert.equal(actualBox.width, expectedBox.width);
@@ -206,7 +206,7 @@ export async function checkExpandedTmde({ frame, page, saved }) {
   await page.screenshot({ path: 'tmp/expanded-tasking/final-point-dark.png' });
   console.log('expanded: uncertainty row selection and deletion');
   const originalRanges = saved().tmdes[0].ranges.map(range => range.id);
-  await detailSource.locator('.instrument-source-range-note').click();
+  await detailSource.locator('.cell-range').click({ position: { x: 25, y: 3 } });
   assert.equal(await detailSource.getAttribute('data-range-selected'), 'true');
   await page.keyboard.press('Delete');
   await waitForSave(data => !data.tmdes[0].instrument.tmdeSecondaryUncertainties.length);
@@ -225,10 +225,10 @@ export async function checkExpandedTmde({ frame, page, saved }) {
   }
   await waitForSave(data => data.tmdes[0].instrument.tmdeSecondaryUncertainties.length === 2);
   const rows = table.locator('tr[data-uncertainty-source-id]');
-  await rows.first().locator('.instrument-source-range-note').click();
-  await rows.last().locator('.instrument-source-range-note').click({ modifiers: ['Shift'] });
+  await rows.first().locator('.cell-range').click({ position: { x: 25, y: 3 } });
+  await rows.last().locator('.cell-range').click({ position: { x: 25, y: 3 }, modifiers: ['Shift'] });
   assert.equal(await table.locator('tr[data-uncertainty-source-id][data-range-selected="true"]').count(), 2);
-  await rows.last().locator('.instrument-source-range-note').click({ button: 'right' });
+  await rows.last().locator('.cell-range').click({ position: { x: 25, y: 3 }, button: 'right' });
   await frame.getByText('Delete Selected Rows', { exact: true }).click();
   await waitForSave(data => !data.tmdes[0].instrument.tmdeSecondaryUncertainties.length);
   assert.deepEqual(saved().tmdes[0].ranges.map(range => range.id), originalRanges);

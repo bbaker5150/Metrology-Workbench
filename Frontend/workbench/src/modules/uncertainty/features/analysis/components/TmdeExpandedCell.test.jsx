@@ -21,7 +21,7 @@ it("immediately creates a manual independent row and tabs from its name into the
   expect(input).toHaveFocus();
   fireEvent.change(input, { target: { value: "Thermal Expansion" } });
   fireEvent.keyDown(input, { key: "Tab" });
-  const row = screen.getByText("(Range N/A)").closest("tr");
+  const row = screen.getByLabelText("Additional uncertainty").closest("tr");
   expect(saved.name).toBe("Thermal Expansion");
   expect(within(row).getByRole("group", { name: "Tolerance symmetry" })).toBeInTheDocument();
   expect(within(row).queryByRole("button", { name: "Bias", exact: true })).toBeNull();
@@ -68,7 +68,8 @@ it("shows Table in overview and the evaluated specification at a measurement poi
     activeRange={{ unit: "V" }} referencePoint={referencePoint} onChange={value => { updated = value; }} onRemove={() => {}} /></tbody></table>;
   const { rerender } = render(view());
   expect(screen.getByText("Table", { exact: true })).toBeInTheDocument();
-  expect(screen.getByText("(Point Dependent)")).toBeInTheDocument();
+  expect(screen.getByLabelText("Additional uncertainty")).toBeInTheDocument();
+  expect(screen.queryByText("(Point Dependent)")).not.toBeInTheDocument();
   rerender(view({ value: 5, unit: "V" }));
   expect(document.querySelector('.cell-tolerance')).toHaveTextContent('0.4 V');
   expect(screen.queryByText("Table", { exact: true })).toBeNull();

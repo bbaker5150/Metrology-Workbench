@@ -363,7 +363,7 @@ const buildPastedInstrumentRow = (src, kind, area, mode) => {
 // (App.css) can't clip it. Position/top/left are set inline at render.
 const buildGroupedUnitOptions = () => {
   const allSupportedUnits = getUniqueUnits(Object.keys(unitSystem.units));
-  const options = [{ label: "General", options: [{ value: "", label: "Unitless" }] }];
+  const options = [{ label: "General", options: [{ value: "", label: "Units" }] }];
   const usedUnits = new Set();
 
   Object.entries(unitCategories).forEach(([category, units]) => {
@@ -399,7 +399,7 @@ const buildUnitPartModel = () => {
   const allSupportedUnits = Object.keys(unitSystem.units);
   const supportedUnitSet = new Set(allSupportedUnits);
   const scalableByUnit = new Map();
-  const baseOptionsByCategory = [{ label: "General", options: [{ value: "", unit: "", label: "Unitless", scalable: false }] }];
+  const baseOptionsByCategory = [{ label: "General", options: [{ value: "", unit: "", label: "Units", scalable: false }] }];
   const usedBaseUnits = new Set();
   const usedScalableUnits = new Set();
 
@@ -4530,7 +4530,25 @@ const SingleSidedToleranceEditor = ({
 // The close is deferred so a blurred input commits before the editor unmounts.
 // Independent sources share the instrument description, but never participate
 // in range calculations. Selection and deletion share the range-row controls.
-export const InstrumentUncertaintyRow = ({ source, activeRange, referencePoint, style, onChange, onRemove, onAddSecondary, rowProps = {}, selected = false, showRowActions = false, renderCustomAfter = () => null }) => {
+export const InstrumentUncertaintyRow = ({ source, activeRange, referencePoint, style, onChange, onRemove, onAddSecondary, sourceIndex = 0, sourceCount = 1, rowProps = {}, selected = false, showRowActions = false, renderCustomAfter = () => null }) => {
+  const sourceRowRef = useRef(null);
+  useLayoutEffect(() => {
+    if (sourceIndex !== 0) return undefined;
+    const row = sourceRowRef.current;
+    if (!row) return undefined;
+    const rows = [row];
+    while (rows.length < sourceCount && rows.at(-1).nextElementSibling?.hasAttribute('data-uncertainty-source-id')) rows.push(rows.at(-1).nextElementSibling);
+    const measure = () => {
+      const first = row.querySelector('.cell-range'), last = rows.at(-1).querySelector('.cell-range');
+      const scale = row.getBoundingClientRect().height / row.offsetHeight || 1;
+      first.style.setProperty('--uncertainty-rail-height', `${(last.getBoundingClientRect().bottom - first.getBoundingClientRect().top) / scale}px`);
+    };
+    const observer = typeof ResizeObserver === 'function' ? new ResizeObserver(measure) : null;
+    rows.forEach(node => observer?.observe(node));
+    window.addEventListener('resize', measure);
+    measure();
+    return () => { observer?.disconnect(); window.removeEventListener('resize', measure); };
+  }, [sourceIndex, sourceCount]);
   const [editingName, setEditingName] = useState(!source.name);
   const [openEditor, setOpenEditor] = useState(false);
   const [name, setName] = useState(source.name || "");
@@ -4547,11 +4565,12 @@ export const InstrumentUncertaintyRow = ({ source, activeRange, referencePoint, 
     ? getCollapsedSpecRows(tolerance, referencePoint).join("; ") || "Not Set"
     : resolved?.pendingReason ? "Not Set" : resolved?.dynamicSummary || "Not Set";
   const commitName = () => { if (name !== source.name) onChange({ ...source, name }); };
-  return <tr {...rowProps} className={`instrument-function-row inline-range-row instrument-uncertainty-row${selected ? " instrument-selected is-selected-range" : ""}`}
+  return <tr {...rowProps} ref={sourceRowRef} className={`instrument-function-row inline-range-row instrument-uncertainty-row${selected ? " instrument-selected is-selected-range" : ""}`}
     data-range-cell data-range-id={uncertaintyRowId(source.id)} data-range-selected={selected}
-    data-uncertainty-source-id={source.id} style={style}>
+    data-uncertainty-source-id={source.id} style={{ ...style, "--uncertainty-source-count": sourceCount }}>
     {renderCustomAfter("description")}
-    <td className="cell-range" data-range-cell>
+    <td className="cell-range instrument-uncertainty-name-cell" data-range-cell>
+      {sourceIndex === 0 && <span className="instrument-uncertainty-rail" aria-label="Additional uncertainty"><span>ADD’L UNCERTAINTY</span></span>}
       <div className="range-row-cell">
       <div className="instrument-source-row-name">
         {editingName ? <input className="instrument-custom-field-input" aria-label="Uncertainty name" value={name} autoFocus
@@ -4561,7 +4580,6 @@ export const InstrumentUncertaintyRow = ({ source, activeRange, referencePoint, 
             if (event.key === "Tab" && !event.shiftKey) { event.preventDefault(); commitName(); setEditingName(false); setOpenEditor(true); }
             if (event.key === "Enter") { event.preventDefault(); commitName(); setEditingName(false); setOpenEditor(true); }
           }} /> : <button type="button" className={`inline-tolerance-summary${source.name ? "" : " is-empty"}`} onClick={() => setEditingName(true)}>{source.name || "Not Set"}</button>}
-        <span className="instrument-source-range-note">{kind === "table" ? "(Point Dependent)" : "(Range N/A)"}</span>
       </div>
         {showRowActions && <button type="button" className="range-row-delete" title="Delete uncertainty" aria-label={`Remove ${source.name || "uncertainty"}`}
           onMouseDown={event => event.stopPropagation()}
@@ -9751,7 +9769,7 @@ const SummaryDashboard = ({
                             </tr>
                           );
                         })}
-                      {sources.map(source => <InstrumentUncertaintyRow key={source.id} source={source}
+                      {sources.map((source, sourceIndex) => <InstrumentUncertaintyRow key={source.id} source={source} sourceIndex={sourceIndex} sourceCount={sources.length}
                             onAddSecondary={type => addInstrumentSource(tmde, type, activeRange)}
                             showRowActions={lastSelectionTarget === "range" && selectedRangeIds[itemStateKey("tmde", tmde.id)]?.includes(uncertaintyRowId(source.id))}
                             selected={selectedRangeIds[itemStateKey("tmde", tmde.id)]?.includes(uncertaintyRowId(source.id)) ?? isSelected}
@@ -16293,7 +16311,7 @@ function DetailedView({
                                 </tr>
                               );
                             })}
-                          {sources.map(source => <InstrumentUncertaintyRow key={source.id} source={source}
+                          {sources.map((source, sourceIndex) => <InstrumentUncertaintyRow key={source.id} source={source} sourceIndex={sourceIndex} sourceCount={sources.length}
                             onAddSecondary={type => addInstrumentSource(masterTmde, type, activeRange)}
                             showRowActions={lastSelectionTarget === "range" && selectedRangeIds[itemStateKey("tmde", masterTmde.id)]?.includes(uncertaintyRowId(source.id))}
                             selected={selectedRangeIds[itemStateKey("tmde", masterTmde.id)]?.includes(uncertaintyRowId(source.id)) ?? isSelectedRow}

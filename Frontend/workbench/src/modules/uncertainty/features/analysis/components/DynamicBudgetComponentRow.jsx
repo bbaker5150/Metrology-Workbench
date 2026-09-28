@@ -209,7 +209,7 @@ export default function DynamicBudgetComponentRow({
         <option value="" disabled>Not Set</option>{draft.mode === "standard" && <option value="standard">Standard uncertainty (k=1)</option>}
         {DISTRIBUTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
       </select> : <button type="button" className={`inline-tolerance-summary${draft.distribution ? "" : " is-empty"}`} aria-label="Edit error limit distribution" onClick={() => setDistributionEditing(true)}>{draft.mode === "standard" ? "Standard uncertainty (k=1)" : DISTRIBUTIONS.find(option => option.value === draft.distribution)?.label || "Not Set"}</button>}</td>
-      <td>B</td>{showDof && <td>∞</td>}
+      <td className="budget-component-type">B</td>{showDof && <td>∞</td>}
       <td>{/incompatible|No unit is set/i.test(preview.pendingReason || "") ? <span role="img" aria-label={preview.pendingReason} title={preview.pendingReason} className="budget-pending-uncertainty" style={{ color: "var(--status-warning, #b58100)" }}><FontAwesomeIcon icon={faExclamationTriangle} /></span> : <span className={preview.value_native == null ? "inline-tolerance-summary is-empty budget-inline-not-set" : "budget-standard-uncertainty"} title={preview.pendingReason || undefined}>{preview.value_native == null ? "Not Set" : `± ${Number(preview.value_native.toPrecision(6))} ${getUnitDisplayLabel(preview.unit_native)}`}</span>}</td>
       <td className="action-cell"><button type="button" title="Remove component from this budget" aria-label="Remove dynamic component" onClick={() => onRemove?.(component.id, component)}><FontAwesomeIcon icon={faTimes} /></button></td>
     </tr>

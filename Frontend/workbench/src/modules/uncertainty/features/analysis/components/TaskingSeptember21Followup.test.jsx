@@ -99,7 +99,7 @@ it.each(["unit", "functionUnit"])("rejects a mismatched %s before evaluating rel
   expect(computePointRiskMetrics(point, session, true)).toBeNull();
 });
 
-it.each([UnitSelect, BuilderUnitSelect])("offers Unitless in each shared unit selector without displaying a unit suffix", Component => {
+it.each([UnitSelect, BuilderUnitSelect])("offers Units in each shared unit selector without displaying a unit suffix", Component => {
   let saved;
   function Harness() {
     const [value,setValue]=useState("V"); saved=value;
@@ -107,8 +107,8 @@ it.each([UnitSelect, BuilderUnitSelect])("offers Unitless in each shared unit se
   }
   render(<Harness/>);
   fireEvent.click(screen.getByRole("button",{name:/Test unit( base unit)?$/}));
-  fireEvent.click(screen.getByRole("option",{name:/Unitless/}));
+  fireEvent.click(screen.getByRole("option",{name:/Units/}));
   expect(saved).toBe("");
-  expect(screen.getByRole("button",{name:/Test unit( base unit)?$/})).toHaveTextContent("Unitless");
+  expect(screen.getByRole("button",{name:/Test unit( base unit)?$/})).toHaveTextContent("Units");
   expect(screen.queryByRole("button",{name:"Test unit prefix"})).not.toBeInTheDocument();
 });

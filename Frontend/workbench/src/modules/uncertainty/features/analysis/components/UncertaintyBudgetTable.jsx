@@ -584,7 +584,7 @@ export const InlineManualComponentRow = ({
         </td>
         <td data-budget-field="tolerance">{fieldSummary("tolerance", ToleranceEditorComponent && !structuredTolerance.whicheverIsGreater ? <ToleranceEditorComponent tolerance={structuredTolerance} editable={false} /> : toleranceText, toleranceText === "Not Set")}</td>
         <td data-budget-field="distribution">{fieldSummary("distribution", component.distribution)}</td>
-        <td data-budget-field="type">{fieldSummary("type", component.type || "B")}</td>
+        <td className="budget-component-type" data-budget-field="type">{fieldSummary("type", component.type || "B")}</td>
         {showDof && <td>{isRepeatabilityComponent(component) && Number.isFinite(Number(component.dof)) ? Math.round(Number(component.dof)) : formatDof(component.dof)}</td>}
         <td>
           {component.pendingReason ? <PendingUncertainty reason={component.pendingReason} /> : Number(std.value) > 0 ? (
@@ -727,7 +727,7 @@ export const InlineManualComponentRow = ({
           </select>
         ) : fieldSummary("distribution", oldErrorDistributions.find(item => item.value === toleranceDistribution)?.label)}
       </td>
-      <td data-budget-field="type">
+      <td className="budget-component-type" data-budget-field="type">
         {activeField === "type" ? <select
           className="mini-select budget-inline-type"
           aria-label="Uncertainty type"
