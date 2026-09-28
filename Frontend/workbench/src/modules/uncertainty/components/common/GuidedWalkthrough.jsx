@@ -18,10 +18,10 @@ const CARD_WIDTH = 360;
 const VIEWPORT_GAP = 12;
 const TARGET_GAP = 14;
 
-const visibleTarget = (selector) => {
-  if (!selector) return null;
+const visibleTargets = (selector) => {
+  if (!selector) return [];
   return (
-    Array.from(document.querySelectorAll(selector)).find((element) => {
+    Array.from(document.querySelectorAll(selector)).filter((element) => {
       const rect = element.getBoundingClientRect();
       const style = window.getComputedStyle(element);
       return (
@@ -30,9 +30,11 @@ const visibleTarget = (selector) => {
         style.display !== "none" &&
         style.visibility !== "hidden"
       );
-    }) || null
+    })
   );
 };
+
+const visibleTarget = selector => visibleTargets(selector)[0] || null;
 
 const combineRects = (...rects) => {
   const visibleRects = rects.filter(Boolean);
@@ -120,6 +122,11 @@ const GuidedWalkthrough = ({
   const step = steps[stepIndex];
   const cardRef = useRef(null);
   const layerRef = useRef(null);
+  const leaveStep = () => {
+    if (step?.dismissOnLeave) document.querySelector(step.dismissOnLeave)?.click();
+  };
+  const changeStep = index => { leaveStep(); onStepChange(index); };
+  const close = () => { leaveStep(); onClose(); };
   useLayoutEffect(() => {
     if (!isOpen || !layerRef.current) return;
     const layer = layerRef.current;
@@ -157,9 +164,26 @@ const GuidedWalkthrough = ({
 
     let frame = null;
     let scrolledTarget = null;
+    let observed = [];
+    const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => queueUpdate());
     const update = () => {
+      // DOM rectangles already include app/section zoom. Cancel only the
+      // tutorial portal's inherited CSS zoom to keep these coordinates exact.
+      let ancestorZoom = 1;
+      for (let node = layerRef.current?.parentElement; node; node = node.parentElement) {
+        const zoom = getComputedStyle(node).zoom || "1";
+        ancestorZoom *= (parseFloat(zoom) || 1) / (zoom.endsWith("%") ? 100 : 1);
+      }
+      if (layerRef.current) layerRef.current.style.zoom = String(1 / ancestorZoom);
       const target = visibleTarget(step.target);
-      const revealedSurface = visibleTarget(step.revealedTarget);
+      const revealed = visibleTargets(step.revealedTarget);
+      const revealedSurface = revealed[0];
+      const nodes = [target, ...revealed].filter(Boolean);
+      if (nodes.length !== observed.length || nodes.some((node, index) => node !== observed[index])) {
+        resizeObserver?.disconnect();
+        nodes.forEach(node => resizeObserver?.observe(node));
+        observed = nodes;
+      }
       if (target && target !== scrolledTarget) {
         scrolledTarget = target;
         const rect = target.getBoundingClientRect();
@@ -170,7 +194,7 @@ const GuidedWalkthrough = ({
       setTargetRect(
         combineRects(
           target ? target.getBoundingClientRect() : null,
-          revealedSurface ? revealedSurface.getBoundingClientRect() : null,
+          ...revealed.map(node => node.getBoundingClientRect()),
         ),
       );
     };
@@ -184,21 +208,22 @@ const GuidedWalkthrough = ({
     const observer = new MutationObserver(records => {
       if (records.some(record => !layerRef.current?.contains(record.target))) queueUpdate();
     });
-    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["style", "class", "hidden", "open"] });
+    observer.observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ["style", "class", "hidden", "open"] });
     window.addEventListener("resize", queueUpdate);
     window.addEventListener("scroll", queueUpdate, true);
 
     return () => {
       observer.disconnect();
+      resizeObserver?.disconnect();
       window.removeEventListener("resize", queueUpdate);
       window.removeEventListener("scroll", queueUpdate, true);
       if (frame != null) window.cancelAnimationFrame(frame);
     };
   }, [isOpen, step]);
 
-  const actionComplete = useWalkthroughAction({
+  const { complete: actionComplete, advancing } = useWalkthroughAction({
     isOpen, step, context: actionContext, cardRef, visibleTarget,
-    onAdvance: () => onStepChange(Math.min(stepIndex + 1, steps.length - 1)),
+    onAdvance: () => stepIndex === steps.length - 1 ? close() : changeStep(stepIndex + 1),
   });
 
   const cardPosition = useMemo(
@@ -215,13 +240,13 @@ const GuidedWalkthrough = ({
   ];
   const isLast = stepIndex === steps.length - 1;
   const endsWorkflow = steps[stepIndex + 1]?.workflow !== step.workflow;
-  const canAdvance = step.canAdvance !== false && actionComplete;
+  const canAdvance = step.canAdvance !== false && (actionComplete || !!visibleTarget(step.continueTarget));
 
   return createPortal(
     <div ref={layerRef} popover="manual" className="guided-walkthrough-layer" aria-live="polite">
       {hasTarget && targetRect && (
         <div
-          className="guided-walkthrough-highlight"
+          className={`guided-walkthrough-highlight${advancing ? " is-action-complete" : ""}`}
           aria-hidden="true"
           style={{
             top: targetRect.top - 6,
@@ -249,7 +274,7 @@ const GuidedWalkthrough = ({
           </span>
           <button
             type="button"
-            onClick={onClose}
+            onClick={close}
             title="Close walkthrough"
             aria-label="Close walkthrough"
           >
@@ -263,7 +288,7 @@ const GuidedWalkthrough = ({
               aria-label="Walkthrough workflow"
               value={step.workflow || "Walkthrough"}
               onChange={(event) =>
-                onStepChange(
+                changeStep(
                   steps.findIndex(
                     (item) =>
                       (item.workflow || "Walkthrough") === event.target.value,
@@ -281,7 +306,7 @@ const GuidedWalkthrough = ({
             <select
               aria-label="Walkthrough step"
               value={stepIndex}
-              onChange={(event) => onStepChange(Number(event.target.value))}
+              onChange={(event) => changeStep(Number(event.target.value))}
             >
               {steps.map((item, index) =>
                 item.workflow === step.workflow ? (
@@ -295,9 +320,9 @@ const GuidedWalkthrough = ({
         </div>
         <h3>{step.title}</h3>
         <p>{step.description}</p>
-        {step.action && (
+        {step.action && !actionComplete && (
           <div className="guided-walkthrough-hint" role="status" data-action-complete={actionComplete}>
-            {actionComplete ? "Action completed. Continue when you’re ready." : `To continue: ${step.action.label}`}
+            {`To continue: ${step.action.label}`}
           </div>
         )}
         {!hasTarget && step.target && (
@@ -321,16 +346,17 @@ const GuidedWalkthrough = ({
           <button
             type="button"
             className="guided-walkthrough-secondary"
-            onClick={() => onStepChange(Math.max(0, stepIndex - 1))}
+            onClick={() => changeStep(Math.max(0, stepIndex - 1))}
             disabled={stepIndex === 0}
           >
             <FontAwesomeIcon icon={faArrowLeft} /> Back
           </button>
+          <button type="button" className="guided-walkthrough-secondary guided-walkthrough-skip" onClick={() => isLast ? close() : changeStep(stepIndex + 1)}>Skip</button>
           {isLast ? (
             <button
               type="button"
               className="guided-walkthrough-primary"
-              onClick={onClose}
+              onClick={close}
               disabled={!canAdvance}
             >
               <FontAwesomeIcon icon={faCheck} /> Finish
@@ -339,7 +365,7 @@ const GuidedWalkthrough = ({
             <button
               type="button"
               className="guided-walkthrough-primary"
-              onClick={() => canAdvance && onStepChange(stepIndex + 1)}
+              onClick={() => canAdvance && changeStep(stepIndex + 1)}
               disabled={!canAdvance}
             >
               {step.nextLabel || (endsWorkflow ? "Next workflow" : "Next")}{" "}

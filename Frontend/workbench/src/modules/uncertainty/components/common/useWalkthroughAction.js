@@ -13,17 +13,45 @@ export default function useWalkthroughAction({ isOpen, step, context, cardRef, v
     if (!isOpen) { completed.current.clear(); visit.current = null; return; }
     const action = step?.action;
     if (!action) { visit.current = null; return; }
-    const state = { id: step.id, baseline: action.snapshot?.(latest.current.context), evidence: false, ready: completed.current.has(step.id), initial: true };
+    const previouslyCompleted = completed.current.has(step.id);
+    const state = { id: step.id, baseline: action.snapshot?.(latest.current.context), evidence: false, ready: completed.current.has(step.id), initial: true, seen: new Set() };
     visit.current = state;
     let frame;
+    let advanceTimer;
+    const completeNow = () => !!action.complete(latest.current.context, state.baseline, {
+      visible: selector => !!visibleTarget(selector), find: visibleTarget, evidence: state.evidence, seen: state.seen,
+    });
+    const scheduleAdvance = () => {
+      clearTimeout(advanceTimer);
+      advanceTimer = setTimeout(() => {
+        if (visit.current !== state) return;
+        // Let the user finish an edit before changing its surrounding UI.
+        if (action.waitForCommit && document.activeElement?.matches('input, textarea, [contenteditable="true"]') && !cardRef.current?.contains(document.activeElement)) {
+          scheduleAdvance();
+          return;
+        }
+        if (!completeNow()) {
+          state.ready = false;
+          completed.current.delete(step.id);
+          setResult({ id: step.id, ready: false, advancing: false });
+          return;
+        }
+        latest.current.onAdvance();
+      }, 900);
+    };
     const evaluate = () => {
       if (visit.current !== state) return;
       const wasReady = state.ready;
-      const ui = { visible: selector => !!visibleTarget(selector), find: visibleTarget, evidence: state.evidence };
-      state.ready = state.ready || !!action.complete(latest.current.context, state.baseline, ui);
+      state.ready = previouslyCompleted || completeNow();
+      if (!state.ready) { clearTimeout(advanceTimer); completed.current.delete(step.id); }
       if (state.ready) completed.current.add(step.id);
-      setResult(previous => previous?.id === step.id && previous.ready === state.ready ? previous : { id: step.id, ready: state.ready });
-      if (!state.initial && !wasReady && state.ready && action.autoAdvance) latest.current.onAdvance();
+      if (!state.ready) state.advancing = false;
+      if (!state.initial && !wasReady && state.ready) {
+        state.advancing = true;
+        scheduleAdvance();
+      }
+      const advancing = Boolean(state.advancing);
+      setResult(previous => previous?.id === step.id && previous.ready === state.ready && previous.advancing === advancing ? previous : { id: step.id, ready: state.ready, advancing });
       state.initial = false;
     };
     state.evaluate = evaluate;
@@ -31,7 +59,7 @@ export default function useWalkthroughAction({ isOpen, step, context, cardRef, v
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(evaluate);
     };
-    const allowed = target => target instanceof Element && (cardRef.current?.contains(target) || target.closest(action.allowed));
+    const allowed = target => target instanceof Element && (cardRef.current?.contains(target) || target.closest(`${action.allowed}, .ui-settings`));
     const guard = event => {
       // Native select/button navigation still works, but tutorial keystrokes
       // must not reach the workspace's document-level editing shortcuts.
@@ -47,6 +75,9 @@ export default function useWalkthroughAction({ isOpen, step, context, cardRef, v
         event.preventDefault();
         event.stopImmediatePropagation();
         return;
+      }
+      if (state.ready && advanceTimer && ["input", "change", "keydown"].includes(event.type)) {
+        scheduleAdvance();
       }
       if (action.acceptEvent?.(event)) state.evidence = true;
       queue();
@@ -65,6 +96,7 @@ export default function useWalkthroughAction({ isOpen, step, context, cardRef, v
     return () => {
       visit.current = null;
       cancelAnimationFrame(frame);
+      clearTimeout(advanceTimer);
       observer.disconnect();
       events.forEach(name => window.removeEventListener(name, guard, true));
       window.removeEventListener("focusin", focus, true);
@@ -72,5 +104,8 @@ export default function useWalkthroughAction({ isOpen, step, context, cardRef, v
   }, [isOpen, step?.id]);
 
   useLayoutEffect(() => { visit.current?.evaluate(); }, [context]);
-  return !step?.action || (result?.id === step.id && result.ready);
+  return {
+    complete: !step?.action || (result?.id === step.id && result.ready),
+    advancing: Boolean(step?.action && result?.id === step.id && result.advancing),
+  };
 }

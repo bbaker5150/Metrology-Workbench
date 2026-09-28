@@ -6,19 +6,20 @@ const context = session => ({session});
 const initial = context({testPoints:[],tmdes:[],uuts:[]});
 
 describe('tutorial action requirements', () => {
-  it.each(['direct','derived'])('requires a new %s point with a UUT and numeric value', mode => {
+  it.each(['direct','derived'])('walks through %s creation, assignment and numeric value separately', mode => {
     const action=actions[mode==='direct'?'measurement-point':'derived-point'];
     const baseline=action.snapshot(initial);
     const point={id:'new',measurementType:mode,testPointInfo:{parameter:{value:''}}};
-    const evaluate=()=>action.complete(context({testPoints:[point]}),baseline);
-    expect(evaluate()).toBeFalsy();
+    expect(action.complete(context({testPoints:[point]}),baseline)).toBe(true);
+    expect(action.complete(context({testPoints:[point]}),['new'])).toBe(false);
+    expect(actions['point-uut'].complete({point})).toBe(false);
     point.associatedUutIds=['uut'];
-    expect(evaluate()).toBeFalsy();
-    point.testPointInfo.parameter.value='bad';
-    expect(evaluate()).toBeFalsy();
+    expect(actions['point-uut'].complete({point})).toBe(true);
+    expect(actions['point-value'].complete({point})).toBe(false);
+    point.testPointInfo.parameter.value='invalid';
+    expect(actions['point-value'].complete({point})).toBe(false);
     point.testPointInfo.parameter.value=0;
-    expect(evaluate()).toBeTruthy();
-    expect(action.complete(context({testPoints:[point]}),['new'])).toBeFalsy();
+    expect(actions['point-value'].complete({point})).toBe(true);
   });
   it('does not count opening the budget menu as adding a contributor', () => {
     const action=actions['budget-component'];

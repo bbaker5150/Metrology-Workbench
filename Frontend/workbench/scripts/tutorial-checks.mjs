@@ -56,11 +56,14 @@ export async function checkTutorial({frame,page,until,check}) {
   await field.fill(original+' tutorial');
   await field.press('Enter');
   check('tutorial unlocks Next after the session edit is saved',await until(()=>next.isEnabled()));
-  check('tutorial waits for explicit Next after an editing action',await card.locator('h3').textContent()===currentTitle);
-  await selectStep('session-requirements');
+  check('completed actions pulse the highlighted region green',await frame.locator('.guided-walkthrough-highlight.is-action-complete').count()===1);
+  check('completed edits advance automatically',await until(()=>card.locator('h3').textContent().then(title=>title!==currentTitle)));
   check('jumping starts the new action with its own completion state',await next.isDisabled());
   await card.getByRole('button',{name:'Back',exact:true}).click();
   check('Back remembers a completed action without requiring another edit',await until(()=>next.isEnabled()));
+  await selectStep('session-requirements');
+  await card.getByRole('button',{name:'Skip',exact:true}).click();
+  check('Skip advances an incomplete step',await until(()=>card.locator('h3').textContent().then(title=>title==='Open Instrument Overview')));
   await close();
   await frame.locator('[data-tour="tab-notes"]').click();
   check('closing the tutorial restores ordinary tab interaction',await frame.locator('[data-tour="tab-notes"]').evaluate(node=>node.classList.contains('active')));
@@ -69,12 +72,33 @@ export async function checkTutorial({frame,page,until,check}) {
   await selectStep('instrument-units');
   const uutTable=frame.locator('[data-tour="uut-table"]');
   await uutTable.locator('[data-range-cell] .inline-tolerance-summary').first().click();
-  await uutTable.getByRole('button',{name:'Range unit base unit',exact:true}).first().click();
+  await uutTable.getByRole('button',{name:'Range unit prefix',exact:true}).first().click();
   const unitMenu=frame.locator('.inline-unit-menu');
   await unitMenu.waitFor();
   check('opening a unit menu alone does not complete the action',await next.isDisabled());
+  const highlightContains = locator => locator.evaluate(node=>{
+    const r=node.getBoundingClientRect(), h=document.querySelector('.guided-walkthrough-highlight').getBoundingClientRect();
+    return r.left>=h.left-1 && r.right<=h.right+1 && r.top>=h.top-1 && r.bottom<=h.bottom+1;
+  });
+  check('prefix menu is fully inside the spotlight',await until(()=>highlightContains(unitMenu)));
+  for(const zoom of [1.25, .8, 1]) {
+    await frame.locator('html').evaluate((node,value)=>{node.style.zoom=String(value);},zoom);
+    check(`spotlight tracks whole-app zoom ${zoom}`,await until(()=>highlightContains(unitMenu)));
+    await assertCard(`tutorial navigation remains inside the viewport at zoom ${zoom}`);
+  }
+  await uutTable.evaluate(node=>{node.style.zoom='1.15';});
+  check('spotlight tracks independent table scaling',await until(()=>highlightContains(uutTable)));
+  await uutTable.evaluate(node=>{node.style.zoom='';});
+
   await unitMenu.locator('[role="option"][aria-selected="true"]').first().click();
   check('required action permits portal options and completes after selection',await until(()=>next.isEnabled()));
+  check('unit selection advances automatically',await until(()=>card.locator('h3').textContent().then(title=>title==='Add measuring equipment')));
+  await selectStep('custom-columns');
+  check('custom-column plus buttons remain inside the expanded spotlight',await until(()=>uutTable.locator('.instrument-column-insert-button').evaluateAll(nodes=>{
+    const h=document.querySelector('.guided-walkthrough-highlight').getBoundingClientRect();
+    return nodes.every(node=>{const r=node.getBoundingClientRect();return !r.width || (r.top>=h.top-1 && r.bottom<=h.bottom+1 && r.left>=h.left-1 && r.right<=h.right+1);});
+  })));
+
   await selectStep('derived-equation');
   check('tutorial explains derived prerequisites on a direct point',await until(async()=>await card.locator('.guided-walkthrough-waiting').count()===1));
   await close();
@@ -84,6 +108,15 @@ export async function checkTutorial({frame,page,until,check}) {
     await selectStep(step.id);
     check(`tutorial ${step.id}: derived control is available`,await until(async()=>await frame.locator(step.target).evaluateAll(nodes=>nodes.some(node=>{const r=node.getBoundingClientRect(),s=getComputedStyle(node);return r.width>0 && r.height>0 && s.visibility!=='hidden' && s.display!=='none';})) && await card.locator('.guided-walkthrough-waiting').count()===0 && await frame.locator('.guided-walkthrough-highlight').count()===1));
   }
+
+  await selectStep('derived-correlation');
+  await frame.getByRole('button',{name:'Input correlation matrix',exact:true}).click();
+  check('correlation permits continuing while its window is open',await until(()=>next.isEnabled()));
+  await next.click();
+  check('leaving correlation dismisses its window',await until(()=>frame.getByRole('dialog',{name:'Input correlation matrix',exact:true}).count().then(count=>count===0)));
+  check('propagation controls remain accessible after correlation',await frame.locator('.budget-propagation-control').evaluate(node=>{
+    const r=node.getBoundingClientRect(),hit=document.elementFromPoint(r.left+r.width/2,r.top+r.height/2);return node.contains(hit);
+  }));
   await selectStep('column-menu');
   await frame.getByRole('button',{name:'Columns',exact:true}).click();
   const menu=frame.getByRole('dialog',{name:'Visible measurement point columns',exact:true});

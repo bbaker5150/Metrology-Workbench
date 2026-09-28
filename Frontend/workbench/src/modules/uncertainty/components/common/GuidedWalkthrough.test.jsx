@@ -140,7 +140,29 @@ describe("GuidedWalkthrough", () => {
     const {rerender}=render(view({}));
     fireEvent.click(screen.getByRole('button',{name:'Choose'}));
     rerender(view(navigation==='close'?{isOpen:false}:{stepIndex:1}));
-    await new Promise(resolve=>setTimeout(resolve,40));
+    await new Promise(resolve=>setTimeout(resolve,1000));
+    expect(onStepChange).not.toHaveBeenCalled();
+  });
+
+  it("skips an incomplete action without waiting or later advancing again", async () => {
+    const onStepChange=vi.fn();
+    const actionSteps=[{...steps[0],action:{label:'Edit',allowed:'[data-tour="target"]',complete:()=>false}},steps[1]];
+    render(<GuidedWalkthrough isOpen steps={actionSteps} stepIndex={0} onStepChange={onStepChange} onClose={vi.fn()}/>);
+    expect(screen.getByRole('button',{name:/^Next/})).toBeDisabled();
+    fireEvent.click(screen.getByRole('button',{name:'Skip'}));
+    expect(onStepChange).toHaveBeenCalledWith(1);
+  });
+
+  it("cancels automatic advancement if the completed value becomes invalid", async () => {
+    const onStepChange=vi.fn();
+    const actionSteps=[{...steps[0],action:{label:'Set value',allowed:'[data-tour="target"]',complete:context=>context.valid}},steps[1]];
+    const props={isOpen:true,steps:actionSteps,stepIndex:0,onStepChange,onClose:vi.fn()};
+    const {rerender}=render(<GuidedWalkthrough {...props} actionContext={{valid:false}}/>);
+    rerender(<GuidedWalkthrough {...props} actionContext={{valid:true}}/>);
+    expect(screen.getByRole('button',{name:/^Next/})).toBeEnabled();
+    rerender(<GuidedWalkthrough {...props} actionContext={{valid:false}}/>);
+    expect(screen.getByRole('button',{name:/^Next/})).toBeDisabled();
+    await new Promise(resolve=>setTimeout(resolve,1000));
     expect(onStepChange).not.toHaveBeenCalled();
   });
 

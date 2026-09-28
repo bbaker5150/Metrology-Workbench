@@ -4774,9 +4774,10 @@ export const InlineToleranceCell = ({
       ref={containerRef}
       className="inline-tolerance-editor inline-tolerance-editor--all"
       onKeyDownCapture={(event) => {
-        if (event.key === "Escape") {
+        if (event.key === "Escape" || (biasRole === "source" && event.key === "Enter" && event.target.matches("input, textarea"))) {
           event.preventDefault();
           event.stopPropagation();
+          if (biasRole === "source") event.target.blur?.();
           dismissToleranceEditor();
           return;
         }
@@ -16015,12 +16016,12 @@ function DetailedView({
                       <span>
                         Calculated:{" "}
                         <strong>
-                          {calculatedNominal?.toPrecision(6)} {uutNominal?.unit}
+                          {calculatedNominal?.toPrecision(6)} {getUnitDisplayLabel(uutNominal?.unit || "")}
                         </strong>
                       </span>
                     </div>
                     <div className="measurement-equation-status-target">
-                      Target {targetNominal?.toPrecision(6)} {uutNominal?.unit}
+                      Target {targetNominal?.toPrecision(6)} {getUnitDisplayLabel(uutNominal?.unit || "")}
                     </div>
                   </div>
                 )}

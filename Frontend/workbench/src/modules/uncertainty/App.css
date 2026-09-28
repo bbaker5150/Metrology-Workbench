@@ -21938,3 +21938,19 @@ body.light-mode .uncertainty-module .instrument-uncertainty-rail {
   overflow: visible; background: transparent; color: var(--text-color);
 }
 .guided-walkthrough-layer::backdrop { background: transparent; pointer-events: none; }
+
+/* A short success cue precedes automatic tutorial advancement. */
+.guided-walkthrough-highlight.is-action-complete {
+  border-color: #22c55e;
+  animation: walkthrough-success 900ms ease-out;
+}
+@keyframes walkthrough-success {
+  0%, 100% { box-shadow: 0 0 0 4px #22c55e55, 0 0 0 9999px rgba(5, 11, 24, .62); }
+  50% { box-shadow: 0 0 0 10px #22c55e88, 0 0 0 9999px rgba(5, 11, 24, .62); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .guided-walkthrough-highlight.is-action-complete { animation: none; }
+}
+
+.guided-walkthrough-skip { margin-left: auto; }
+.guided-walkthrough-skip + .guided-walkthrough-primary { margin-left: 0; }
