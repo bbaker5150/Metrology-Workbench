@@ -1,3 +1,4 @@
+import { prepareTutorial, checkTutorial } from './tutorial-checks.mjs';
 import { prepareSeptember28, checkSeptember28 } from './september28-checks.mjs';
 import { checkExpandedTmde } from "./expanded-tmde-checks.mjs";
 import { checkPointRisk } from "./point-risk-checks.mjs";
@@ -149,6 +150,7 @@ if (process.env.SEPTEMBER21_SMOKE) for (const session of sessions.values()) prep
 if (process.env.SEPTEMBER21_FOLLOWUP_SMOKE) for (const session of sessions.values()) prepareSeptember21Followup(session);
 if (process.env.SEPTEMBER21_BIAS_UI_SMOKE) for (const session of sessions.values()) prepareSeptember21BiasUi(session);
 if (process.env.SEPTEMBER21_COLLAPSE_SMOKE) for (const session of sessions.values()) prepareSeptember21Collapse(session);
+if (process.env.TUTORIAL_SMOKE) for (const session of sessions.values()) prepareTutorial(session);
 if (process.env.SEPTEMBER28_SMOKE) for (const session of sessions.values()) prepareSeptember28(session);
 if (process.env.EXPANDED_TMDE_SMOKE || process.env.POINT_RISK_SMOKE || process.env.WORKSPACE_POLISH_SMOKE || process.env.DOCUMENT_ONE_SMOKE || process.env.SIDEBAR_LAYOUT_FOLLOWUP_SMOKE) for (const session of sessions.values()) prepareWorkspacePolish(session);
 if (process.env.TASKING_TYPE_B_SMOKE) for (const session of sessions.values()) prepareTaskingTypeB(session);
@@ -341,6 +343,7 @@ if (/not set up yet/i.test(frameText)) {
   if (process.env.POINT_RISK_SMOKE) await checkPointRisk({ frame });
   if (process.env.SIDEBAR_LAYOUT_FOLLOWUP_SMOKE) await checkSidebarLayoutFollowup({ frame, page });
   if (process.env.WORKSPACE_POLISH_SMOKE) await checkWorkspacePolish({ frame, page, saved, until, check });
+  if (process.env.TUTORIAL_SMOKE) await checkTutorial({ frame, page, saved, until, check });
   if (process.env.SEPTEMBER28_SMOKE) await checkSeptember28({ frame, page, saved, until, check });
   if (process.env.DOCUMENT_ONE_SMOKE) {
     await checkDocumentOne({ frame, page, saved, until, check });

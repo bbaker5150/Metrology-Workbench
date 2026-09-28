@@ -21931,3 +21931,10 @@ body:not(.light-mode) .uncertainty-module .instrument-equipment-table > thead > 
 body.light-mode .uncertainty-module .instrument-uncertainty-rail {
   background: #fff;
 }
+
+/* The coach stays above native popover menus while the workspace remains usable. */
+.guided-walkthrough-layer[popover] {
+  margin: 0; padding: 0; border: 0; width: auto; height: auto;
+  overflow: visible; background: transparent; color: var(--text-color);
+}
+.guided-walkthrough-layer::backdrop { background: transparent; pointer-events: none; }

@@ -2171,7 +2171,7 @@ const SidebarSessionHeader = ({
           </div>
         )}
       </div>
-      <div className="session-default-inputs">
+      <div className="session-default-inputs" data-tour="session-requirements">
         <button type="button" className="session-section-toggle" aria-expanded={isRequirementsOpen}
           onClick={event => { event.stopPropagation(); onRequirementsOpenChange(!isRequirementsOpen); }}>
           <span>Risk &amp; Mitigation Inputs</span><FontAwesomeIcon icon={isRequirementsOpen ? faChevronDown : faChevronRight} />
@@ -2281,7 +2281,14 @@ function App({ showThemeToggle = false }) {
     if (!isWalkthroughOpen) return;
     const step = walkthroughSteps[walkthroughStepIndex];
     if (step?.id === "session-information") setIsSessionInfoOpen(true);
-    if (step?.workspace) setAnalysisMode(step.workspace === "budget" ? "uncertaintyTool" : "overview");
+    if (["session-requirements", "risk-inputs"].includes(step?.id)) setIsRequirementsOpen(true);
+    if (step?.workspace) {
+      setAnalysisMode({ budget: "uncertaintyTool", overview: "overview", notes: "notes" }[step.workspace]);
+      // A topic in the right pane must also be reachable from full-width points.
+      setWorkspacePane("split");
+      setSidebarAutoFit(false);
+      setSidebarWidth(width => Math.min(width, Math.max(300, window.innerWidth - 640)));
+    }
   }, [isWalkthroughOpen, walkthroughStepIndex, walkthroughSteps]);
 
   const [sessionImageCache, setSessionImageCache] = useState(new Map());

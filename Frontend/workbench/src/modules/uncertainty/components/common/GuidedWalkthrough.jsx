@@ -113,6 +113,24 @@ const GuidedWalkthrough = ({
 }) => {
   const step = steps[stepIndex];
   const cardRef = useRef(null);
+  const layerRef = useRef(null);
+  useLayoutEffect(() => {
+    if (!isOpen || !layerRef.current) return;
+    const layer = layerRef.current;
+    layer.showPopover?.();
+    // Menus now use the browser top layer. Keep tutorial navigation above a
+    // newly opened menu without raising or changing application containers.
+    const keepAboveMenu = event => {
+      if (event.target === layer || event.newState !== "open") return;
+      layer.hidePopover?.();
+      layer.showPopover?.();
+    };
+    document.addEventListener("toggle", keepAboveMenu, true);
+    return () => {
+      document.removeEventListener("toggle", keepAboveMenu, true);
+      layer.hidePopover?.();
+    };
+  }, [isOpen]);
   const [cardHeight, setCardHeight] = useState(360);
   useLayoutEffect(() => {
     if (!isOpen || !cardRef.current) return;
@@ -126,15 +144,23 @@ const GuidedWalkthrough = ({
   }, [isOpen, step]);
   const [targetRect, setTargetRect] = useState(null);
   const [hasTarget, setHasTarget] = useState(false);
+  const [placementRect, setPlacementRect] = useState(null);
 
   useLayoutEffect(() => {
     if (!isOpen || !step) return undefined;
 
     let frame = null;
+    let scrolledTarget = null;
     const update = () => {
       const target = visibleTarget(step.target);
       const revealedSurface = visibleTarget(step.revealedTarget);
-      setHasTarget(Boolean(target));
+      if (target && target !== scrolledTarget) {
+        scrolledTarget = target;
+        const rect = target.getBoundingClientRect();
+        if (rect.top < 8 || rect.bottom > window.innerHeight - 8) target.scrollIntoView({ behavior: "smooth", block: "center" });
+      }
+      setHasTarget(Boolean(target || revealedSurface));
+      setPlacementRect((revealedSurface || target)?.getBoundingClientRect() || null);
       setTargetRect(
         combineRects(
           target ? target.getBoundingClientRect() : null,
@@ -147,17 +173,12 @@ const GuidedWalkthrough = ({
       frame = window.requestAnimationFrame(update);
     };
 
-    const target = visibleTarget(step.target);
-    if (target) {
-      const rect = target.getBoundingClientRect();
-      if (rect.top < 8 || rect.bottom > window.innerHeight - 8) {
-        target.scrollIntoView({ behavior: "smooth", block: "center" });
-      }
-    }
     queueUpdate();
 
-    const observer = new MutationObserver(queueUpdate);
-    observer.observe(document.body, { childList: true, subtree: true });
+    const observer = new MutationObserver(records => {
+      if (records.some(record => !layerRef.current?.contains(record.target))) queueUpdate();
+    });
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["style", "class", "hidden", "open"] });
     window.addEventListener("resize", queueUpdate);
     window.addEventListener("scroll", queueUpdate, true);
 
@@ -184,8 +205,8 @@ const GuidedWalkthrough = ({
   }, [isOpen, onStepChange, step, stepIndex, steps.length]);
 
   const cardPosition = useMemo(
-    () => getWalkthroughCardPosition(targetRect, undefined, cardHeight),
-    [targetRect, cardHeight],
+    () => getWalkthroughCardPosition(placementRect, undefined, cardHeight),
+    [placementRect, cardHeight],
   );
 
   if (!isOpen || !step) return null;
@@ -200,7 +221,7 @@ const GuidedWalkthrough = ({
   const canAdvance = step.canAdvance !== false;
 
   return createPortal(
-    <div className="guided-walkthrough-layer" aria-live="polite">
+    <div ref={layerRef} popover="manual" className="guided-walkthrough-layer" aria-live="polite">
       {hasTarget && targetRect && (
         <div
           className="guided-walkthrough-highlight"
@@ -268,7 +289,7 @@ const GuidedWalkthrough = ({
               {steps.map((item, index) =>
                 item.workflow === step.workflow ? (
                   <option key={item.id} value={index}>
-                    {index + 1}. {item.title}
+                    {workflowSteps.indexOf(item) + 1}. {item.title}
                   </option>
                 ) : null,
               )}
