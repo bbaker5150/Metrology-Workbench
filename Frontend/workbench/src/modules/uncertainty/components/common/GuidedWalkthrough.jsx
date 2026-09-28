@@ -1,5 +1,5 @@
+import useWalkthroughAction from "./useWalkthroughAction";
 import React, {
-  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -56,7 +56,12 @@ export const getWalkthroughCardPosition = (
   viewport = { width: window.innerWidth, height: window.innerHeight },
   cardHeight = 260,
 ) => {
-  const width = Math.min(CARD_WIDTH, viewport.width - VIEWPORT_GAP * 2);
+  let width = Math.min(CARD_WIDTH, viewport.width - VIEWPORT_GAP * 2);
+  // Fit beside an editable region before overlapping it in a narrow window.
+  if (targetRect) {
+    const sideSpace = Math.max(targetRect.left, viewport.width - targetRect.right) - TARGET_GAP - VIEWPORT_GAP;
+    if (sideSpace >= 280) width = Math.min(width, sideSpace);
+  }
   if (!targetRect) {
     return {
       width,
@@ -110,6 +115,7 @@ const GuidedWalkthrough = ({
   stepIndex,
   onStepChange,
   onClose,
+  actionContext = {},
 }) => {
   const step = steps[stepIndex];
   const cardRef = useRef(null);
@@ -173,7 +179,7 @@ const GuidedWalkthrough = ({
       frame = window.requestAnimationFrame(update);
     };
 
-    queueUpdate();
+    update();
 
     const observer = new MutationObserver(records => {
       if (records.some(record => !layerRef.current?.contains(record.target))) queueUpdate();
@@ -190,19 +196,10 @@ const GuidedWalkthrough = ({
     };
   }, [isOpen, step]);
 
-  useEffect(() => {
-    if (!isOpen || !step?.advanceOnTargetClick || !step.target)
-      return undefined;
-    const handleTargetClick = (event) => {
-      if (!event.target?.closest?.(step.target)) return;
-      window.setTimeout(
-        () => onStepChange(Math.min(stepIndex + 1, steps.length - 1)),
-        180,
-      );
-    };
-    document.addEventListener("click", handleTargetClick, true);
-    return () => document.removeEventListener("click", handleTargetClick, true);
-  }, [isOpen, onStepChange, step, stepIndex, steps.length]);
+  const actionComplete = useWalkthroughAction({
+    isOpen, step, context: actionContext, cardRef, visibleTarget,
+    onAdvance: () => onStepChange(Math.min(stepIndex + 1, steps.length - 1)),
+  });
 
   const cardPosition = useMemo(
     () => getWalkthroughCardPosition(placementRect, undefined, cardHeight),
@@ -218,7 +215,7 @@ const GuidedWalkthrough = ({
   ];
   const isLast = stepIndex === steps.length - 1;
   const endsWorkflow = steps[stepIndex + 1]?.workflow !== step.workflow;
-  const canAdvance = step.canAdvance !== false;
+  const canAdvance = step.canAdvance !== false && actionComplete;
 
   return createPortal(
     <div ref={layerRef} popover="manual" className="guided-walkthrough-layer" aria-live="polite">
@@ -298,6 +295,11 @@ const GuidedWalkthrough = ({
         </div>
         <h3>{step.title}</h3>
         <p>{step.description}</p>
+        {step.action && (
+          <div className="guided-walkthrough-hint" role="status" data-action-complete={actionComplete}>
+            {actionComplete ? "Action completed. Continue when you’re ready." : `To continue: ${step.action.label}`}
+          </div>
+        )}
         {!hasTarget && step.target && (
           <div className="guided-walkthrough-waiting">
             {step.prerequisite ||
@@ -329,6 +331,7 @@ const GuidedWalkthrough = ({
               type="button"
               className="guided-walkthrough-primary"
               onClick={onClose}
+              disabled={!canAdvance}
             >
               <FontAwesomeIcon icon={faCheck} /> Finish
             </button>
@@ -336,7 +339,7 @@ const GuidedWalkthrough = ({
             <button
               type="button"
               className="guided-walkthrough-primary"
-              onClick={() => onStepChange(stepIndex + 1)}
+              onClick={() => canAdvance && onStepChange(stepIndex + 1)}
               disabled={!canAdvance}
             >
               {step.nextLabel || (endsWorkflow ? "Next workflow" : "Next")}{" "}

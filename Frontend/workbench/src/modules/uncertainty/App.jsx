@@ -17,7 +17,8 @@ import { POINT_REQUIREMENT_FIELDS, requirementColumn, getPointRequirements } fro
 import { claimWorkspaceSelection, WORKSPACE_SELECTION_EVENT } from "./utils/workspaceSelection";
 import { rawDecimal, exposeDecimalOnHover } from "./utils/rawDecimal";
 import ToolbarLayoutIcon from "../../shared/ToolbarLayoutIcon";
-import { clearDynamicComponentResults } from "./utils/dynamicBudgetComponents";
+import { validateEquation } from "./utils/equationValidation";
+import { validateBudgetEquation, clearDynamicComponentResults } from "./utils/dynamicBudgetComponents";
 import { decisionRiskColor } from "./utils/decisionRiskStatus";
 import UiSettings, { isUiScaleLocked } from "../../shared/UiSettings";
 import { formatPointLimit, pointDisplayResolution } from "./utils/pointLimitDisplay";
@@ -5791,6 +5792,14 @@ function App({ showThemeToggle = false }) {
         />
         <GuidedWalkthrough
           isOpen={isWalkthroughOpen}
+          actionContext={{
+            validateEquation, validateBudgetEquation,
+            sessionCount: sessions.length,
+            session: currentSessionData,
+            point: currentTestPoints.find(point => String(point.id) === String(selectedTestPointId)),
+            analysisMode,
+            layout: { workspacePane, sidebarWidth, sidebarAutoFit, instrumentAutoFit },
+          }}
           steps={walkthroughSteps}
           stepIndex={walkthroughStepIndex}
           onStepChange={setWalkthroughStepIndex}

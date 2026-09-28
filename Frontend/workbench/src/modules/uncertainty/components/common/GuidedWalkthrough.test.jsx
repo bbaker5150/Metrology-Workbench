@@ -11,7 +11,7 @@ const steps = [
     title: "Start here",
     description: "Use the highlighted control.",
     target: '[data-tour="target"]',
-    advanceOnTargetClick: true,
+
   },
   {
     id: "finish",
@@ -52,6 +52,12 @@ describe("GuidedWalkthrough", () => {
     expect(position.top + 480).toBeLessThanOrEqual(588);
   });
 
+  it("narrows the card to keep required inputs accessible beside it", () => {
+    const position=getWalkthroughCardPosition({left:4,right:544,top:338,bottom:550},{width:900,height:600},540);
+    expect(position.left).toBeGreaterThanOrEqual(558);
+    expect(position.left+position.width).toBeLessThanOrEqual(888);
+  });
+
   it("keeps the coach card inside the viewport", () => {
     expect(
       getWalkthroughCardPosition(
@@ -68,25 +74,74 @@ describe("GuidedWalkthrough", () => {
     expect(centered.width).toBe(296);
   });
 
-  it("advances when the highlighted action is selected", async () => {
+  it("advances only after the requested action changes application state", async () => {
     const onStepChange = vi.fn();
-    render(
-      <>
-        <button type="button" data-tour="target">
-          Create
-        </button>
-        <GuidedWalkthrough
-          isOpen
-          steps={steps}
-          stepIndex={0}
-          onStepChange={onStepChange}
-          onClose={vi.fn()}
-        />
-      </>,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Create" }));
+    const actionSteps = [{ ...steps[0], action: {
+      label: "Create a session", allowed: '[data-tour="target"]',
+      complete: context => context.sessionCount > 0, autoAdvance: true,
+    }}, steps[1]];
+    const props = { isOpen: true, steps: actionSteps, stepIndex: 0, onStepChange, onClose: vi.fn() };
+    const view = context => <><button data-tour="target">Create</button><GuidedWalkthrough {...props} actionContext={context} /></>;
+    const {rerender} = render(view({sessionCount:0}));
+    fireEvent.click(screen.getByRole("button", {name:"Create"}));
+    expect(screen.getByRole("button", {name:/^Next/})).toBeDisabled();
+    expect(onStepChange).not.toHaveBeenCalled();
+    rerender(view({sessionCount:1}));
     await waitFor(() => expect(onStepChange).toHaveBeenCalledWith(1));
+  });
+
+  it("blocks unrelated mouse and keyboard controls while keeping navigation and close available", () => {
+    const unrelated = vi.fn(), allowed = vi.fn(), onClose = vi.fn(), onStepChange = vi.fn();
+    const actionSteps = [{ ...steps[0], workflow:"Setup", action:{label:"Edit", allowed:'[data-tour="target"]', complete:()=>false}}, {...steps[1],workflow:"Review"}];
+    const props = {steps:actionSteps,stepIndex:0,onStepChange,onClose};
+    const view = isOpen => <><button onClick={unrelated} onKeyDown={unrelated}>Unrelated</button><button data-tour="target" onClick={allowed}>Edit</button><GuidedWalkthrough isOpen={isOpen} {...props}/></>;
+    const {rerender} = render(view(true));
+    fireEvent.click(screen.getByText("Unrelated"));
+    fireEvent.keyDown(screen.getByText("Unrelated"), {key:"Enter"});
+    expect(unrelated).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole("button",{name:"Edit"}));
+    expect(allowed).toHaveBeenCalledOnce();
+    const workspaceKey=vi.fn();
+    document.addEventListener('keydown',workspaceKey);
+    expect(() => fireEvent.keyDown(window,{key:'Delete'})).not.toThrow();
+    fireEvent.keyDown(screen.getByRole('combobox',{name:'Walkthrough workflow'}),{key:'Delete'});
+    expect(workspaceKey).not.toHaveBeenCalled();
+    document.removeEventListener('keydown',workspaceKey);
+    fireEvent.change(screen.getByRole("combobox",{name:"Walkthrough workflow"}),{target:{value:"Review"}});
+    expect(onStepChange).toHaveBeenCalledWith(1);
+    fireEvent.click(screen.getByRole("button",{name:"Close walkthrough"}));
+    expect(onClose).toHaveBeenCalledOnce();
+    rerender(view(false));
+    fireEvent.click(screen.getByText("Unrelated"));
+    expect(unrelated).toHaveBeenCalledOnce();
+  });
+
+  it("remembers completed actions on Back and resets them when closed", () => {
+    const onStepChange = vi.fn();
+    const actionSteps = [{...steps[0], action:{label:"Edit",allowed:'[data-tour="target"]', snapshot:context=>context.value, complete:(context,baseline)=>context.value!==baseline}}, steps[1]];
+    const props = {isOpen:true,steps:actionSteps,onStepChange,onClose:vi.fn()};
+    const {rerender} = render(<GuidedWalkthrough {...props} stepIndex={0} actionContext={{value:0}}/>);
+    rerender(<GuidedWalkthrough {...props} stepIndex={0} actionContext={{value:1}}/>);
+    expect(screen.getByRole('button',{name:/^Next/})).toBeEnabled();
+    rerender(<GuidedWalkthrough {...props} stepIndex={1} actionContext={{value:1}}/>);
+    rerender(<GuidedWalkthrough {...props} stepIndex={0} actionContext={{value:1}}/>);
+    expect(screen.getByRole('button',{name:/^Next/})).toBeEnabled();
+    rerender(<GuidedWalkthrough {...props} isOpen={false} stepIndex={0} actionContext={{value:1}}/>);
+    rerender(<GuidedWalkthrough {...props} stepIndex={0} actionContext={{value:1}}/>);
+    expect(screen.getByRole('button',{name:/^Next/})).toBeDisabled();
+    expect(onStepChange).not.toHaveBeenCalled();
+  });
+
+  it.each(['jump', 'close'])("cancels deferred advancement after %s", async navigation => {
+    const onStepChange=vi.fn();
+    const actionSteps=[{...steps[0],action:{label:'Choose',allowed:'[data-tour="target"]',acceptEvent:event=>event.type==='click',complete:(_context,_baseline,ui)=>ui.evidence,autoAdvance:true}},steps[1]];
+    const props={isOpen:true,steps:actionSteps,stepIndex:0,onStepChange,onClose:vi.fn()};
+    const view=overrides=><><button data-tour="target">Choose</button><GuidedWalkthrough {...props} {...overrides}/></>;
+    const {rerender}=render(view({}));
+    fireEvent.click(screen.getByRole('button',{name:'Choose'}));
+    rerender(view(navigation==='close'?{isOpen:false}:{stepIndex:1}));
+    await new Promise(resolve=>setTimeout(resolve,40));
+    expect(onStepChange).not.toHaveBeenCalled();
   });
 
   it("explains when a later dynamic target is not available yet", async () => {

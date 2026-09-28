@@ -43,3 +43,17 @@ Reviewed the guided walkthrough against the current application controls and rec
 - Tutorial and base Forge browser smoke: 114 checks passed, covering all 50 targets, missing derived prerequisites, native column popovers, menu dragging, uncertainty type menus, both themes, short viewports, full-width points, and Notes routing.
 - Local screenshots reviewed for light-mode column navigation and dark-mode short-window layout.
 - Re-run with `TUTORIAL_SMOKE=1 node scripts/smoke-forge-srcdoc.mjs` after building the single-file app.
+
+## Required actions
+
+Hands-on steps now show the action required to unlock Next. The tutorial watches committed session/point changes or the requested menu/selection state; clicking a highlighted control alone does not satisfy a data-entry step. New points require a numeric value and UUT assignment; uncertainty tables require numeric entries; equations require valid syntax and uncertainty equations require their fixed variables. Repeatability requires saved readings.
+
+While an action is pending, mouse and keyboard interactions outside its working area are blocked. Its editor menus remain usable. Workflow selection, Jump to step, Back, and Close are always available. Explanatory steps use ordinary Next. Completed actions remain completed when revisiting them during the same walkthrough; closing resets progress. Only first-session creation advances automatically, after the session exists. All other actions wait for Next. Pending advancement is cancelled when the user jumps or closes.
+
+The checks include saved-action completion, invalid inputs, unrelated controls, independent step state, revisiting completed steps, cancellation on jump/close, and restoring normal app interactions after closing.
+
+### Action-gating verification
+
+- Audit: zero vulnerabilities; full suite: 197 files / 2,341 tests passed.
+- Single-file build passed; tutorial/browser checks cover all 50 targets plus action gating, portal selection, navigation, cancellation, and restoration of ordinary interactions.
+- Compact-window verification sizes the Forge iframe to the browser viewport, so card-fit assertions exercise the actual app viewport.

@@ -16,6 +16,7 @@ export function prepareTutorial(session) {
 
 export async function checkTutorial({frame,page,until,check}) {
   await page.setViewportSize({width:1600,height:1050});
+  await page.locator('iframe#app').evaluate(node => { node.style.height = '100vh'; });
   const steps=createWalkthroughSteps(2);
   const card=frame.getByRole('dialog',{name:'Uncertalytics walkthrough',exact:true});
   const open=()=>frame.getByRole('button',{name:'Open walkthrough',exact:true}).click();
@@ -41,6 +42,39 @@ export async function checkTutorial({frame,page,until,check}) {
     await selectStep(step.id);
     check(`tutorial ${step.id}: current control is available`,await until(async()=>await frame.locator(step.target).evaluateAll(nodes=>nodes.some(node=>{const r=node.getBoundingClientRect(),s=getComputedStyle(node);return r.width>0 && r.height>0 && s.visibility!=='hidden' && s.display!=='none';})) && await card.locator('.guided-walkthrough-waiting').count()===0 && await frame.locator('.guided-walkthrough-highlight').count()===1));
   }
+  await selectStep('session-information');
+  const next=card.locator('.guided-walkthrough-primary');
+  check('tutorial requires a saved action before Next',await next.isDisabled());
+  const currentTitle=await card.locator('h3').textContent();
+  await frame.locator('[data-tour="tab-notes"]').click({force:true});
+  check('tutorial blocks unrelated tab clicks while an action is pending',await frame.locator('[data-tour="tab-notes"]').evaluate(node=>!node.classList.contains('active')));
+  const sessionFields=frame.locator('[data-tour="session-information"]');
+  const editable=sessionFields.locator('input').first();
+  if(!await editable.count()) await sessionFields.locator('.session-header-name').click();
+  const field=sessionFields.locator('input').first();
+  const original=await field.inputValue();
+  await field.fill(original+' tutorial');
+  await field.press('Enter');
+  check('tutorial unlocks Next after the session edit is saved',await until(()=>next.isEnabled()));
+  check('tutorial waits for explicit Next after an editing action',await card.locator('h3').textContent()===currentTitle);
+  await selectStep('session-requirements');
+  check('jumping starts the new action with its own completion state',await next.isDisabled());
+  await card.getByRole('button',{name:'Back',exact:true}).click();
+  check('Back remembers a completed action without requiring another edit',await until(()=>next.isEnabled()));
+  await close();
+  await frame.locator('[data-tour="tab-notes"]').click();
+  check('closing the tutorial restores ordinary tab interaction',await frame.locator('[data-tour="tab-notes"]').evaluate(node=>node.classList.contains('active')));
+  await frame.locator('[data-tour="tab-overview"]').click();
+  await open();
+  await selectStep('instrument-units');
+  const uutTable=frame.locator('[data-tour="uut-table"]');
+  await uutTable.locator('[data-range-cell] .inline-tolerance-summary').first().click();
+  await uutTable.getByRole('button',{name:'Range unit base unit',exact:true}).first().click();
+  const unitMenu=frame.locator('.inline-unit-menu');
+  await unitMenu.waitFor();
+  check('opening a unit menu alone does not complete the action',await next.isDisabled());
+  await unitMenu.locator('[role="option"][aria-selected="true"]').first().click();
+  check('required action permits portal options and completes after selection',await until(()=>next.isEnabled()));
   await selectStep('derived-equation');
   check('tutorial explains derived prerequisites on a direct point',await until(async()=>await card.locator('.guided-walkthrough-waiting').count()===1));
   await close();
@@ -96,4 +130,5 @@ export async function checkTutorial({frame,page,until,check}) {
   await close();
   await frame.getByRole('button',{name:'Switch to light mode',exact:true}).click();
   await frame.locator('[data-tour="tab-overview"]').click();
+  await page.locator('iframe#app').evaluate(node => { node.style.height = '900px'; });
 }

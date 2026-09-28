@@ -276,6 +276,7 @@ describe("UncertaintyApp", () => {
       </ThemeProvider>,
     );
 
+    fireEvent.click(await screen.findByRole("button", { name: "Close walkthrough" }));
     const builderButton = await screen.findByRole("button", {
       name: "Instrument builder",
     });
@@ -366,6 +367,7 @@ describe("UncertaintyApp", () => {
     );
 
     await screen.findByText(/No Session Available/i);
+    fireEvent.click(await screen.findByRole("button", { name: "Close walkthrough" }));
     fireEvent.click(screen.getByTitle("Columns"));
 
     expect(screen.getByText("Comb. Uncertainty", { exact: true })).toBeInTheDocument();

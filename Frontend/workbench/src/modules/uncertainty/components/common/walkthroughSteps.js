@@ -1,6 +1,7 @@
+import { walkthroughActions } from "./walkthroughActions.js";
 // Keep these instructions tied to visible controls. No tutorial step edits analysis data.
 export const createWalkthroughSteps = (sessionCount) => {
-  const step = (workflow, id, title, description, target, extra = {}) => ({ workflow, id, title, description, target, ...extra });
+  const step = (workflow, id, title, description, target, extra = {}) => ({ workflow, id, title, description, target, action: walkthroughActions[id], ...extra });
   const overview = { workspace: "overview", prerequisite: "Create or select a session. This control is in Instrument Overview." };
   const budget = { workspace: "budget", prerequisite: "Create a measurement point, select its row, and open Uncertainty Budget." };
   const derived = { ...budget, prerequisite: "Choose Derived in Measurement Area Settings, create a new point, and select that point in Uncertainty Budget." };
@@ -15,7 +16,7 @@ export const createWalkthroughSteps = (sessionCount) => {
   return [
     step("Session setup", "new-session", "Start an analysis session",
       "Use + to create a session for your instruments, measurement points, budgets, requirements, and notes. You can follow this tutorial while editing the app, or use Workflow and Jump to step to visit a specific topic.",
-      '[data-tour="add-session"]', { advanceOnTargetClick: true, canAdvance: sessionCount > 0,
+      '[data-tour="add-session"]', { canAdvance: sessionCount > 0,
         hint: sessionCount ? "Continue with the current session or create another. Tutorial actions use your real session; changes save as you edit." : "Click + to begin. You can close Help and reopen it at any time." }),
     step("Session setup", "session-information", "Complete the session information",
       "Expand Session Info to name the analysis and enter the analyst, organization, document, and date. These details identify the analysis when you return to it or export it.",
