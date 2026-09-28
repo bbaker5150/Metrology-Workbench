@@ -4566,7 +4566,7 @@ export const InstrumentUncertaintyRow = ({ source, activeRange, referencePoint, 
     : resolved?.pendingReason ? "Not Set" : resolved?.dynamicSummary || "Not Set";
   const commitName = () => { if (name !== source.name) onChange({ ...source, name }); };
   return <tr {...rowProps} ref={sourceRowRef} className={`instrument-function-row inline-range-row instrument-uncertainty-row${selected ? " instrument-selected is-selected-range" : ""}`}
-    data-range-cell data-range-id={uncertaintyRowId(source.id)} data-range-selected={selected}
+    data-range-id={uncertaintyRowId(source.id)} data-range-selected={selected}
     data-uncertainty-source-id={source.id} style={{ ...style, "--uncertainty-source-count": sourceCount }}>
     {renderCustomAfter("description")}
     <td className="cell-range instrument-uncertainty-name-cell" data-range-cell>

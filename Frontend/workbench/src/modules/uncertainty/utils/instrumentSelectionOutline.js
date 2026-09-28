@@ -53,10 +53,14 @@ export function createInstrumentSelectionOutline(container, table) {
       table.querySelectorAll(SELECTED_CELLS).forEach(cell => {
         const rect = cell.getBoundingClientRect();
         if (!rect.width || !rect.height) return;
-        const color = getComputedStyle(cell).getPropertyValue('--instrument-function-color').trim() || 'var(--primary-color)';
+        const style = getComputedStyle(cell);
+        // The shared label rail belongs to the group, outside an individual range selection.
+        const inset = table.dataset.selectionMode === 'range' && cell.classList.contains('instrument-uncertainty-name-cell')
+          ? parseFloat(style.getPropertyValue('--instrument-uncertainty-rail-width')) || 0 : 0;
+        const color = style.getPropertyValue('--instrument-function-color').trim() || 'var(--primary-color)';
         if (!groups.has(color)) groups.set(color, []);
         groups.get(color).push({
-          left: (rect.left - bounds.left) / scale, right: (rect.right - bounds.left) / scale,
+          left: (rect.left - bounds.left) / scale + inset, right: (rect.right - bounds.left) / scale,
           top: (rect.top - bounds.top) / scale, bottom: (rect.bottom - bounds.top) / scale,
         });
       });

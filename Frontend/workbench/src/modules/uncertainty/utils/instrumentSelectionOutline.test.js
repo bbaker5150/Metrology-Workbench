@@ -27,6 +27,23 @@ describe('selection perimeter', () => {
     expect(selectionPerimeter([])).toEqual([]);
   });
 
+  it('excludes the shared uncertainty rail only in range mode, including at browser zoom', () => {
+    const container = document.createElement('div');
+    container.innerHTML = '<table><tbody><tr><td data-cell-selected class="instrument-uncertainty-name-cell" style="--instrument-uncertainty-rail-width:22px">Source</td></tr></tbody></table>';
+    const table = container.querySelector('table');
+    const bounds = { left: 10, top: 20, right: 210, bottom: 60, width: 200, height: 40 };
+    Object.defineProperty(container, 'offsetWidth', { value: 100 });
+    container.getBoundingClientRect = table.getBoundingClientRect = table.querySelector('td').getBoundingClientRect = () => bounds;
+    const outline = createInstrumentSelectionOutline(container, table);
+    table.dataset.selectionMode = 'range';
+    outline.sync();
+    expect(container.querySelector('path').getAttribute('d')).toBe('M22,0L100,0 M22,20L100,20 M22,0L22,20 M100,0L100,20');
+    table.dataset.selectionMode = 'instrument';
+    outline.sync();
+    expect(container.querySelector('path').getAttribute('d')).toBe('M0,0L100,0 M0,20L100,20 M0,0L0,20 M100,0L100,20');
+    outline.destroy();
+  });
+
   it('clears stale outlines and removes its overlay on cleanup', () => {
     const container = document.createElement('div');
     container.innerHTML = '<table><tbody><tr class="instrument-function-row selected-row"><td>Selected</td></tr></tbody></table>';

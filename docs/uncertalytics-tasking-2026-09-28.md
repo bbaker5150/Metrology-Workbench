@@ -15,3 +15,11 @@ Source: attached Tasking.docx (8A6C4516-F65D-43A6-AD2E-5149A6D03EF2).
 - Single-file build passed.
 - September 28 browser checks and base Forge smoke: 68 checks passed, including rail geometry in both themes, expanded editors, the Units label, and actual A/B text alignment.
 - Existing expanded-TMDE authoring checks passed for primary/secondary editing, distribution, type selection, selection/deletion, and budget addition.
+
+## Additional uncertainty selection follow-up
+
+- Clicking outside an additional uncertainty's Range cell now uses instrument selection, including shared Description and Sync cells, just like ordinary ranges.
+- Range selection starts at the right edge of the shared label rail, including continuation rows and browser zoom.
+- Compose ADD’L UNCERTAINTY horizontally before rotating the label so the apostrophe retains its normal position.
+- Verification: audit clean; 196 test files / 2,327 tests passed; single-file build passed; 95 September 28 and base Forge browser checks passed, including both themes and both instrument-table views.
+- Existing expanded-TMDE authoring/selection/deletion checks and its 54-check base Forge run passed.

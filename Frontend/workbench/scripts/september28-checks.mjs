@@ -29,9 +29,34 @@ export async function checkSeptember28({frame,page,until,check}) {
       return Math.abs(box.top-first.top)<2 && Math.abs(box.bottom-last.bottom)<2 && text.top>=box.top-1 && text.bottom<=box.bottom+1 && getComputedStyle(rail.parentElement).overflowY === 'visible';
     })));
   };
+  const checkSelection = async mode => {
+    for (let index = 0; index < 2; index++) {
+      const row = sourceRows.nth(index);
+      await row.locator('.cell-range').click({position:{x:26,y:3}});
+      check(`${mode}: source ${index + 1} range selection excludes the label rail and shared description`, await until(()=>table.evaluate((node,index)=>{
+        const row=node.querySelectorAll('tr[data-uncertainty-source-id]')[index];
+        const cell=row.querySelector('.cell-range');
+        const rail=node.querySelector('.instrument-uncertainty-rail');
+        const overlay=node.parentElement.querySelector('.instrument-selection-outline');
+        if(!overlay || node.dataset.selectionMode!=='range' || node.querySelector('.cell-description[data-cell-selected]')) return false;
+        const box=cell.getBoundingClientRect(), origin=overlay.getBoundingClientRect();
+        const scale=origin.width/parseFloat(overlay.style.width);
+        const x=(rail.getBoundingClientRect().right-origin.left)/scale;
+        const y1=(box.top-origin.top)/scale,y2=(box.bottom-origin.top)/scale;
+        return [...overlay.querySelectorAll('path')].some(path=>[...path.getAttribute('d').matchAll(/M([\d.-]+),([\d.-]+)L([\d.-]+),([\d.-]+)/g)].some(m=>Math.abs(+m[1]-x)<1 && Math.abs(+m[3]-x)<1 && Math.abs(+m[2]-y1)<1 && Math.abs(+m[4]-y2)<1));
+      },index)));
+      for(const column of ['tolerance','distribution','resolution']) {
+        await row.locator(`.cell-${column}`).click({position:{x:3,y:3}});
+        check(`${mode}: source ${index + 1} ${column} selects shared instrument cells`, await until(()=>table.evaluate(node=>node.dataset.selectionMode==='instrument' && Boolean(node.querySelector('.cell-description[data-cell-selected]')) && Boolean(node.querySelector('.cell-sync[data-cell-selected]')))));
+      }
+    }
+    check(`${mode}: label retains an apostrophe in horizontally composed rotated text`, await table.locator('.instrument-uncertainty-rail > span').evaluate(node=>node.textContent==='ADD’L UNCERTAINTY' && getComputedStyle(node).writingMode==='horizontal-tb'));
+  };
   await checkRail('overview light');
+  await checkSelection('overview light');
   await frame.getByRole('button',{name:'Switch to dark mode',exact:true}).click();
   await checkRail('overview dark');
+  await checkSelection('overview dark');
   await sourceRows.first().locator('.instrument-source-row-name button').click();
   await sourceRows.first().getByRole('textbox',{name:'Uncertainty name'}).press('Tab');
   await checkRail('expanded editor');
@@ -46,6 +71,7 @@ export async function checkSeptember28({frame,page,until,check}) {
   if(await expand.count()) await expand.first().click();
   await frame.locator('[data-point-id="point"] [data-sidebar-column="pfa"]').click();
   await checkRail('measurement point');
+  await checkSelection('measurement point');
   check('budget A and B text share the same column center',await until(async()=>frame.locator('.uncertainty-budget-table').first().evaluate(table=>{
     const cells=[...table.querySelectorAll('td.budget-component-type')];
     if(!table.querySelector('.budget-component-type button') || !cells.some(c=>c.textContent.trim()==='A') || !cells.some(c=>c.textContent.trim()==='B')) return false;

@@ -21900,19 +21900,21 @@ body:not(.light-mode) .uncertainty-module .instrument-equipment-table > thead > 
 /* Group independent instrument sources in the Range column without adding a
    table column or changing range/custom-column alignment. */
 .uncertainty-module .instrument-equipment-table .instrument-uncertainty-name-cell {
-  position: relative; padding-left: 30px;
+  --instrument-uncertainty-rail-width: 22px;
+  position: relative; padding-left: calc(var(--instrument-uncertainty-rail-width) + 8px);
 }
 .uncertainty-module .instrument-uncertainty-name-cell > .range-row-cell {
   min-height: max(24px, calc(108px / var(--uncertainty-source-count, 1) - 16px));
 }
 .uncertainty-module .instrument-uncertainty-rail {
-  position: absolute; top: 0; left: 0; width: 22px; height: var(--uncertainty-rail-height, 100%);
+  position: absolute; top: 0; left: 0; width: var(--instrument-uncertainty-rail-width); height: var(--uncertainty-rail-height, 100%);
   display: flex; align-items: center; justify-content: center; box-sizing: border-box;
   color: var(--text-color-muted); background: color-mix(in srgb, var(--instrument-function-color, var(--primary-color)) 8%, var(--content-background));
   border-right: 1px solid var(--table-divider-color); pointer-events: none; z-index: 2;
 }
 .uncertainty-module .instrument-uncertainty-rail > span {
-  writing-mode: vertical-rl; transform: rotate(180deg); white-space: nowrap;
+  position: absolute; left: 50%; top: 50%;
+  writing-mode: horizontal-tb; transform: translate(-50%, -50%) rotate(-90deg); white-space: nowrap;
   font-family: inherit; font-size: 9px; font-weight: 600; letter-spacing: .035em; line-height: 1;
 }
 .uncertainty-module .uncertainty-budget-table .budget-component-type {
