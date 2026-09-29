@@ -138,7 +138,7 @@ it("displays shared table points in the current point unit without changing thei
   definition.rows[0].point = 1;
   const commit = vi.fn();
   render(<table><tbody><DynamicBudgetComponentRow component={createDynamicComponent(definition)} referencePoint={{ value: 1000, unit: 'mV' }} onCommit={commit} autoEdit /></tbody></table>);
-  expect(screen.getByRole('columnheader', { name: 'Measurement point mV' })).toBeInTheDocument();
+  expect(screen.getByRole('columnheader', { name: 'Point mV' })).toBeInTheDocument();
   const input = screen.getByLabelText('Measurement point row 1');
   expect(input).toHaveValue('1000');
   fireEvent.change(input, { target: { value: '2000' } });
