@@ -184,12 +184,12 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
   }));
   const pointUnitSummary=instrumentCell.getByRole('button',{name:'Edit point unit',exact:true});
   await pointUnitSummary.click();
-  check('Point header opens its own unit and prefix controls',await instrumentCell.getByRole('button',{name:'Point unit',exact:true}).isVisible() && await instrumentCell.getByRole('button',{name:'Point unit prefix',exact:true}).isVisible());
+  check('Point header opens its own unit and prefix controls',await instrumentCell.getByRole('button',{name:'Point unit base unit',exact:true}).isVisible() && await instrumentCell.getByRole('button',{name:'Point unit prefix',exact:true}).isVisible());
   await instrumentCell.getByLabel('Measurement point row 1',{exact:true}).click();
   const unitSummary=instrumentCell.getByRole('button',{name:'Edit uncertainty unit',exact:true});
   check('tabular units start as a collapsed summary',await unitSummary.isVisible());
   await unitSummary.click();
-  check('tabular unit summary opens both selectors',await instrumentCell.getByRole('button',{name:'Uncertainty unit',exact:true}).isVisible() && await instrumentCell.getByRole('button',{name:'Uncertainty unit prefix',exact:true}).isVisible());
+  check('tabular unit summary opens both selectors',await instrumentCell.getByRole('button',{name:'Uncertainty unit base unit',exact:true}).isVisible() && await instrumentCell.getByRole('button',{name:'Uncertainty unit prefix',exact:true}).isVisible());
   await instrumentCell.getByLabel('Measurement point row 1',{exact:true}).fill('0');
   check('tabular unit selectors collapse when editing a value',await unitSummary.isVisible());
   await instrumentCell.getByLabel('Uncertainty row 1',{exact:true}).fill('1');
