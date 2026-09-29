@@ -68,6 +68,8 @@ export async function checkWorkspacePolish({ frame, page, saved, until, check })
     return headers.every(cell => cell.getBoundingClientRect().right <= edge + 1) &&
       wrappers.every(wrapper => wrapper.scrollWidth <= wrapper.clientWidth + 1);
   })));
+  const valueCell = frame.locator('[data-point-id="point"] [data-sidebar-column="value"]');
+  const collapsedWidth = await valueCell.evaluate(node => node.getBoundingClientRect().width);
   await frame.locator('[data-point-id="point"]').getByRole("button", {name:"Edit measurement point value",exact:true}).click();
   const expandedUnit = frame.locator('[data-point-id="point"] .point-unit-control .inline-unit-base-button');
   await expandedUnit.click();
@@ -78,14 +80,23 @@ export async function checkWorkspacePolish({ frame, page, saved, until, check })
     const number = cell.querySelector('.point-value-number').getBoundingClientRect();
     return [...cell.querySelectorAll('.inline-unit-combobox')].every(button => {
       const box = button.getBoundingClientRect(), label = button.querySelector('span');
-      return box.left >= bounds.left - 1 && box.right <= bounds.right + 1 && label.scrollWidth <= label.clientWidth + 1;
+      return box.left >= bounds.left - 1 && box.right <= bounds.right + 1 && label.scrollWidth <= label.clientWidth + 1 && Math.abs(box.top + box.height / 2 - number.top - number.height / 2) < 2;
     });
   }))));
+  check('Value column grows for its single-row editor', await valueCell.evaluate((node, width) => node.getBoundingClientRect().width > width + 10, collapsedWidth));
+  check('expanded Value does not introduce horizontal scrolling', await frame.locator('.measurement-points-table-content').evaluate(node => node.scrollWidth <= node.clientWidth + 1));
   await capture('full-width-measurement-columns');
   await expandedUnit.click();
   await frame.getByPlaceholder('Search units...', { exact: true }).fill('V');
   await frame.locator('.inline-unit-menu').getByText('V', { exact: true }).click();
   await frame.locator('[data-point-id="point"] .point-value-input-slot input').press('Enter');
+  check('Value column retracts after closing its editor', await until(async () => valueCell.evaluate((node, width) => Math.abs(node.getBoundingClientRect().width - width) < 2, collapsedWidth)));
+  await valueCell.locator('.point-value-number').hover();
+  check('collapsed Value has one hover outline', await valueCell.evaluate(node => {
+    const inner = getComputedStyle(node.querySelector('.point-value-number'));
+    const outer = getComputedStyle(node.querySelector('.point-value-summary'));
+    return inner.borderTopColor === 'rgba(0, 0, 0, 0)' && outer.borderTopColor !== 'rgba(0, 0, 0, 0)';
+  }));
   check('full-width points collapse session details and requirements', await frame.getByRole('button', { name: /Session Info/i }).getAttribute('aria-expanded') === 'false' && await frame.getByRole('button', { name: 'Risk & Mitigation Inputs', exact: true }).getAttribute('aria-expanded') === 'false');
   await divider.dblclick();
   check('third divider state fits instrument tables', await until(async () => await frame.locator('.workspace-pane-instrument-fit').count() === 1 && await frame.locator('.results-content').isVisible()));
