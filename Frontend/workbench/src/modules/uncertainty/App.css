@@ -19962,7 +19962,7 @@ body.uncertainty-active .context-menu li:not(.context-menu-divider):hover {
 .uncertainty-module .instrument-equipment-table {
   width: var(--instrument-live-table-width, 100%) !important;
 }
-.uncertainty-module .instrument-equipment-table col {
+.uncertainty-module .instrument-equipment-table > colgroup > col {
   width: var(--instrument-live-column-width) !important;
 }
 .uncertainty-module .instrument-equipment-table thead th {
