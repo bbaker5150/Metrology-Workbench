@@ -233,6 +233,12 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
       const bounds=scroll.getBoundingClientRect();
       return scroll.scrollWidth<=scroll.clientWidth+1 && [...scroll.querySelectorAll('.dynamic-row-action-cell > button')].every(button=>button.getBoundingClientRect().right<=bounds.right+1);
     }));
+    const hoverRow=instrumentCell.locator('.dynamic-lookup-table tbody tr').first();
+    await hoverRow.hover();
+    check(`tabular hover highlight reaches the left edge in ${theme} mode`, await hoverRow.evaluate(row=>{
+      const gutter=getComputedStyle(row,'::before'), style=getComputedStyle(row), bounds=row.getBoundingClientRect(), scroll=row.closest('.dynamic-table-scroll').getBoundingClientRect();
+      return gutter.backgroundColor===style.backgroundColor && style.backgroundColor!=='rgba(0, 0, 0, 0)' && Math.abs(bounds.left+parseFloat(gutter.left)-scroll.left)<1 && Math.abs(parseFloat(gutter.width)-48)<1;
+    }));
     await instrumentCell.locator('.instrument-tolerance-toolbar').hover();
     check(`tabular actions stay hidden off-row in ${theme} mode`, await instrumentCell.locator('.dynamic-row-action-cell > button').evaluateAll(buttons=>buttons.every(button=>getComputedStyle(button).opacity==='0')));
     if(process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await instrumentCell.screenshot({path:`${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/instrument-tabular-${theme}.png`});
