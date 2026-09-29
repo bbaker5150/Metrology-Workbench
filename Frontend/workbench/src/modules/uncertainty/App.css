@@ -22039,10 +22039,10 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
 }
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table > :is(thead, tbody) > tr > :is(th, td) {
   padding: 6px 10px !important; text-align: center !important; vertical-align: middle;
-  border: 0 !important; border-bottom: 1px solid var(--dynamic-grid-color) !important;
+  border: 0 !important;
 }
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table > :is(thead, tbody) > tr > :is(th, td):not(:last-child):not(:nth-last-child(2)) {
-  border-right: 1px solid var(--dynamic-grid-color) !important;
+  border-right: 0 !important;
 }
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table input { margin: 0 auto !important; }
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table .dynamic-row-action-cell { padding-inline: 4px !important; white-space: nowrap; }
