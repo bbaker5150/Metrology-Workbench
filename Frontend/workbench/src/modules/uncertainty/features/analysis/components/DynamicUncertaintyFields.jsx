@@ -35,6 +35,7 @@ export default function DynamicUncertaintyFields({
   const displayColumns = draft.columns.filter(column => column.id === (component.dynamicOutputId || draft.columns[0]?.id));
   const cells = [{ label: "Measurement point", key: "point" }, ...displayColumns.flatMap(column =>
     (draft.mode === "limits" ? ["low", "high"] : ["value"]).map(key => ({ column: column.id, key, label: key === "low" ? "Low" : key === "high" ? "High" : "Uncertainty" })))];
+  const columnWidths = cells.map(cell => `calc(${Math.max(1, ...draft.rows.map(row => String(cell.key === "point" ? displayPoint(row.point) : row.values?.[cell.column]?.[cell.key] ?? "").length))}ch + 16px)`);
   const setCell = (rows, index, cell, value) => {
     const row = rows[index];
     let point = value;
@@ -44,9 +45,10 @@ export default function DynamicUncertaintyFields({
     rows[index] = cell.key === "point" ? { ...row, point } : { ...row, values: { ...row.values, [cell.column]: { ...row.values?.[cell.column], [cell.key]: value } } };
   };
   const focusCell = (row, col = 0) => requestAnimationFrame(() => rowRef.current?.querySelector(`[data-dynamic-cell="${row}:${col}"]`)?.focus());
-  const addRow = () => {
-    const nextIndex = draftRef.current.rows.length;
-    change({ rows: [...draftRef.current.rows, emptyRow()] });
+  const addRow = (nextIndex = draftRef.current.rows.length) => {
+    const rows = [...draftRef.current.rows];
+    rows.splice(nextIndex, 0, emptyRow());
+    change({ rows });
     focusCell(nextIndex);
   };
   const updateEquation = (equation, key = "equation") => {
@@ -93,21 +95,21 @@ export default function DynamicUncertaintyFields({
     </div>
   );
   return (<div ref={rowRef} className="dynamic-budget-editor" data-budget-editor="limit" role="group" aria-label={`${kindLabel} uncertainty editor`}>
-            <div className="dynamic-budget-options">
-              {unitField("outputUnit", "Uncertainty unit")}
+            <div className="dynamic-budget-modebar">
               <div className="inline-tolerance-mini-toggle" role="group" aria-label="Error limit symmetry">
                 <button type="button" title="Symmetric tolerance" aria-pressed={draft.mode !== "limits"} className={draft.mode !== "limits" ? "is-active" : ""} onClick={() => changeSymmetry(false)}>±</button>
                 <button type="button" title="Asymmetric tolerance" aria-pressed={draft.mode === "limits"} className={draft.mode === "limits" ? "is-active" : ""} onClick={() => changeSymmetry(true)}>+/−</button>
               </div>
             </div>
+            <div className="dynamic-budget-options">{unitField("outputUnit", "Uncertainty unit")}</div>
             {draft.kind === "table" ? <>
-              <div className="dynamic-table-scroll"><table className="dynamic-input-table"><thead>
+              <div className="dynamic-table-scroll"><table className="dynamic-input-table dynamic-lookup-table"><thead>
                 <tr><th>Measurement point <span className="dynamic-header-unit">{getUnitDisplayLabel(measurementUnit)}</span></th>
-                  {cells.slice(1).map(cell => <th key={`${cell.column}:${cell.key}`}>{cell.key === "value" ? "±" : cell.label}<span className="dynamic-header-unit">{getUnitDisplayLabel(draft.outputUnit)}</span></th>)}<th aria-label="Row actions" /></tr>
+                  {cells.slice(1).map(cell => <th key={`${cell.column}:${cell.key}`}>{cell.key === "value" ? "Uncertainty" : cell.key === "low" ? "Unc. (Low)" : "Unc. (High)"}<span className="dynamic-header-unit">{getUnitDisplayLabel(draft.outputUnit)}</span></th>)}<th aria-label="Row actions" /></tr>
               </thead><tbody>
                 {draft.rows.map((row, index) => <tr key={row.id}>
                   {cells.map((cell, col) => <td key={`${cell.column || "point"}:${cell.key}`}>
-                    <GrowingNumericInput inputMode="decimal" data-dynamic-cell={`${index}:${col}`} aria-label={`${cell.label} row ${index + 1}`}
+                    <GrowingNumericInput style={{ "--dynamic-column-width": columnWidths[col] }} inputMode="decimal" data-dynamic-cell={`${index}:${col}`} aria-label={`${cell.label} row ${index + 1}`}
                       placeholder="—" value={cell.key === "point" ? displayPoint(row.point) : row.values?.[cell.column]?.[cell.key] ?? ""}
                       onChange={event => { const rows = [...draft.rows]; setCell(rows, index, cell, event.target.value); change({ rows }); }}
                       onPaste={event => {
@@ -131,14 +133,11 @@ export default function DynamicUncertaintyFields({
                         }
                       }} />
                   </td>)}
-                  <td className="dynamic-row-action-cell"><button type="button" className="dynamic-inline-action dynamic-row-remove" title="Remove row" aria-label={`Delete table row ${index + 1}`}
+                  <td className="dynamic-row-action-cell"><button type="button" className="dynamic-inline-action dynamic-row-add" title="Add row below" aria-label={`Add table row after row ${index + 1}`}
+                    onClick={() => addRow(index + 1)}><FontAwesomeIcon icon={faPlus} /></button><button type="button" className="dynamic-inline-action dynamic-row-remove" title="Remove row" aria-label={`Delete table row ${index + 1}`}
                     onClick={() => change({ rows: draft.rows.length === 1 ? [emptyRow()] : draft.rows.filter(r => r.id !== row.id) })}><FontAwesomeIcon icon={faTimes} /></button></td>
                 </tr>)}
               </tbody></table></div>
-              <div className="dynamic-editor-actions">
-                <button type="button" className="dynamic-inline-action" onClick={addRow}><FontAwesomeIcon icon={faPlus} /> Row</button>
-
-              </div>
             </> : <>
               {(draft.mode === "limits" ? ["lowerEquation", "upperEquation"] : ["equation"]).map(key => <div className="dynamic-equation-entry" key={key}>
                 <span>{key === "equation" ? "±" : key === "lowerEquation" ? "Low" : "High"}</span>

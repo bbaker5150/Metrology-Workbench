@@ -15215,7 +15215,7 @@ function DetailedView({
               <tr className="measurement-inputs-match-status">
                 <td colSpan={3} style={{ color: calcStatusStyle.color, backgroundColor: calcStatusStyle.backgroundColor }}>
                   {calcStatusStyle.icon && <FontAwesomeIcon icon={calcStatusStyle.icon} />}{" "}
-                  Does not match measurement point
+                  {nominalPreview.unitsMatch ? "Does not match measurement point value" : "Does not match measurement point unit"}
                 </td>
               </tr>
             </tfoot>

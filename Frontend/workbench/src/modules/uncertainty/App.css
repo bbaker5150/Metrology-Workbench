@@ -21998,3 +21998,20 @@ body.light-mode .uncertainty-module .instrument-uncertainty-rail {
 .uncertainty-module .measurement-group-container .point-value-summary .point-value-number:hover {
   border-color: transparent !important; background: transparent !important; box-shadow: none !important;
 }
+
+/* Compact shared table editors retain one input width per numeric column. */
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-lookup-table { width: max-content; }
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-lookup-table input.growing-numeric-input {
+  width: var(--dynamic-column-width) !important; min-width: var(--dynamic-column-width) !important;
+  max-width: var(--dynamic-column-width) !important; field-sizing: fixed;
+}
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor .dynamic-table-scroll,
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-lookup-table :is(th, td) { border-block: 0 !important; }
+.dynamic-budget-modebar { display: flex; align-items: center; margin-bottom: 6px; }
+.dynamic-row-add { opacity: 0; }
+.dynamic-input-table tr:is(:hover, :focus-within) .dynamic-row-add { opacity: 1; }
+.uncertainty-module .instrument-equipment-table .inline-tolerance-greater-toggle { color: var(--text-color); }
+/* Sticky offsets must never interpolate as the parent scroller moves. */
+body.light-mode .uncertainty-module .instrument-equipment-table > thead > tr > th,
+body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th { transition: none !important; }
+.uncertainty-module .instrument-first-hint { box-sizing: border-box; }

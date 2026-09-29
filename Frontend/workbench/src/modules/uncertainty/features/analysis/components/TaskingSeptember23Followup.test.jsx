@@ -33,9 +33,9 @@ it("offers only base units in Repeatability while preserving a saved prefix", ()
   expect(options.some(option => /^(mV|uV|kV)/.test(option.textContent))).toBe(false);
 });
 
-const EquationHarness = ({ calculated = 5 }) => {
+const EquationHarness = ({ calculated = 5, inputUnit = "V" }) => {
   const [point, setPoint] = useState({ id: "followup-equation", measurementType: "derived", equationString: "E", variableMappings: { E: "Input" },
-    variableNominals: { E: { value: 5, unit: "V" } }, testPointInfo: { parameter: { value: 5, unit: "V" } }, components: [] });
+    variableNominals: { E: { value: 5, unit: inputUnit } }, testPointInfo: { parameter: { value: 5, unit: "V" } }, components: [] });
   return <UncertaintyPanel testPointData={point} sessionData={{ id: "s", uuts: [], tmdes: [], testPoints: [point] }}
     calcResults={{ calculatedNominalValue: calculated }} uutNominal={point.testPointInfo.parameter} tmdeTolerancesData={[]}
     onUpdateTestPoint={patch => setPoint(previous => ({ ...previous, ...patch }))} />;
@@ -77,7 +77,7 @@ it("keeps invalid syntax editable after clicking away and collapses after correc
   expect(screen.getByRole("button", { name: "Edit measurement equation" })).toBeInTheDocument();
 });
 
-it.each([[5, null], [6, "Does not match measurement point"], [null, null]])("only shows a mismatch row for calculated value %s", (calculated, label) => {
+it.each([[5, null], [6, "Does not match measurement point value"], [null, null]])("only shows a mismatch row for calculated value %s", (calculated, label) => {
   render(<EquationHarness calculated={calculated} />);
   const table = document.querySelector(".measurement-inputs-table");
   if (label) expect(within(table).getByText(label)).toBeInTheDocument();
@@ -99,4 +99,10 @@ it.each(["", "5"])("retains source units for an unassigned point unit and value 
   expect(getSpecRows(component.authoredTolerance)[0]).toContain("mV");
   if (value) expect(component.value_native).toBeCloseTo(2 / Math.sqrt(3), 8);
   else expect(component.pendingReason).toBeTruthy();
+});
+
+it("distinguishes a unit mismatch when the numeric measurement value matches", () => {
+  render(<EquationHarness inputUnit="A" />);
+  expect(screen.getByText("Does not match measurement point unit")).toBeInTheDocument();
+  expect(screen.queryByText("Does not match measurement point value")).toBeNull();
 });

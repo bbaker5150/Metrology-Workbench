@@ -6,6 +6,8 @@ import UncertaintyBudgetTable from './features/analysis/components/UncertaintyBu
 import { UnitSelect } from './features/analysis/components/UncertaintyPanel';
 import { normalizeInlineManualComponent } from './features/analysis/utils/manualComponentUtils';
 import { unitSystem } from './utils/uncertaintyMath';
+import DynamicUncertaintyFields from './features/analysis/components/DynamicUncertaintyFields';
+import { createDynamicDefinition } from './utils/dynamicBudgetComponents';
 import BuilderUnitSelect from './features/instruments/components/BuilderUnitSelect';
 vi.mock('plotly.js-dist', () => ({ default: {} }));
 
@@ -67,4 +69,30 @@ it('allows mixed budget source types to move in the displayed order', () => {
   fireEvent.click(within(container.querySelectorAll('.component-group-tbody > tr')[2]).getByRole('button',{name:'Move component up'}));
   expect(names()[1]).toContain('Repeatability');
   expect(screen.getByRole('button',{name:'Edit repeatability measurements'})).toHaveTextContent('± 1.000 V');
+});
+
+it('inserts tabular rows in place and retains unit prefix selection', () => {
+  function Harness() {
+    const [definition,save]=useState(() => {
+      const value=createDynamicDefinition('table',{unit:''});
+      value.rows=[{id:'first',point:'98',values:{}},{id:'last',point:'100',values:{}}];
+      return value;
+    });
+    return <DynamicUncertaintyFields definition={definition} UnitSelectComponent={UnitSelect} showPreview={false}
+      onChange={patch=>save(previous=>({...previous,...patch}))}/>;
+  }
+  render(<Harness/>);
+  expect(screen.getByRole('columnheader',{name:'Uncertainty',exact:true})).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button',{name:'Add table row after row 1'}));
+  expect(screen.getByLabelText('Measurement point row 3')).toHaveValue('100');
+  fireEvent.change(screen.getByLabelText('Measurement point row 2'),{target:{value:'99'}});
+  fireEvent.click(screen.getByRole('button',{name:'Add table row after row 1'}));
+  expect(screen.getByLabelText('Measurement point row 3')).toHaveValue('99');
+  expect(screen.getByLabelText('Measurement point row 4')).toHaveValue('100');
+  fireEvent.click(screen.getByRole('button',{name:'Uncertainty unit prefix'}));
+  fireEvent.click(screen.getByRole('option',{name:/Kilo/}));
+  expect(screen.getByRole('button',{name:'Uncertainty unit prefix'})).toHaveTextContent('k');
+  fireEvent.click(screen.getByTitle('Asymmetric tolerance'));
+  expect(screen.getByRole('columnheader',{name:/Unc. \(Low\)/})).toBeInTheDocument();
+  expect(screen.getByRole('columnheader',{name:/Unc. \(High\)/})).toBeInTheDocument();
 });

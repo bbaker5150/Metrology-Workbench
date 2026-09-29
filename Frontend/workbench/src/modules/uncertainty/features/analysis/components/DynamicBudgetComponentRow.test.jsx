@@ -122,7 +122,7 @@ it("uses the point unit in the header and supports symmetric and asymmetric tabl
   expect(screen.queryByRole('button', { name: 'Measurement unit' })).not.toBeInTheDocument();
   expect(screen.queryByRole('button', { name: 'Values represent' })).not.toBeInTheDocument();
   expect(screen.getByRole('columnheader', { name: 'Measurement point V' })).toBeInTheDocument();
-  expect(screen.getByRole('columnheader', { name: '± V' })).toBeInTheDocument();
+  expect(screen.getByRole('columnheader', { name: 'Uncertainty V' })).toBeInTheDocument();
   fireEvent.change(screen.getByLabelText('Measurement point row 1'), { target: { value: '100' } });
   fireEvent.change(screen.getByLabelText('Uncertainty row 1'), { target: { value: '.2' } });
   fireEvent.click(screen.getByTitle('Asymmetric tolerance'));
