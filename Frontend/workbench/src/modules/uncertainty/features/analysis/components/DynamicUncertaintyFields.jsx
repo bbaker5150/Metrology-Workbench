@@ -1,3 +1,4 @@
+import { createPortal } from "react-dom";
 import React, { useMemo, useRef } from "react";
 import { v4 as uuid } from "uuid";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -11,7 +12,7 @@ const emptyRow = () => ({ id: uuid(), point: "", values: {} });
 // Shared uncertainty-value editor. Distribution belongs to the surrounding table column.
 export default function DynamicUncertaintyFields({
   definition: draft, component = {}, referencePoint, measurementPoint = referencePoint,
-  onChange, UnitSelectComponent, showPreview = true,
+  onChange, UnitSelectComponent, showPreview = true, modebarTarget,
 }) {
   const rowRef = useRef(null);
   const draftRef = useRef(draft);
@@ -94,14 +95,15 @@ export default function DynamicUncertaintyFields({
       <UnitSelectComponent ariaLabel={label} value={draft[key]} onChange={value => change({ [key]: value })} compact width="max-content" />
     </div>
   );
-  return (<div ref={rowRef} className="dynamic-budget-editor" data-dynamic-kind={draft.kind} data-budget-editor="limit" role="group" aria-label={`${kindLabel} uncertainty editor`}>
-            <div className="dynamic-budget-header">
-            <div className="dynamic-budget-modebar">
+  const symmetryControl = (<div className="dynamic-budget-modebar">
               <div className="inline-tolerance-mini-toggle" role="group" aria-label="Error limit symmetry">
                 <button type="button" title="Symmetric tolerance" aria-pressed={draft.mode !== "limits"} className={draft.mode !== "limits" ? "is-active" : ""} onClick={() => changeSymmetry(false)}>±</button>
                 <button type="button" title="Asymmetric tolerance" aria-pressed={draft.mode === "limits"} className={draft.mode === "limits" ? "is-active" : ""} onClick={() => changeSymmetry(true)}>+/−</button>
               </div>
-            </div>
+            </div>);
+  return (<div ref={rowRef} className="dynamic-budget-editor" data-dynamic-kind={draft.kind} data-budget-editor="limit" role="group" aria-label={`${kindLabel} uncertainty editor`}>
+            <div className="dynamic-budget-header">
+            {draft.kind === "table" && modebarTarget ? createPortal(symmetryControl, modebarTarget) : symmetryControl}
             <div className="dynamic-budget-options">{unitField("outputUnit", "Uncertainty unit")}</div>
             </div>
             {draft.kind === "table" ? <>
@@ -113,6 +115,7 @@ export default function DynamicUncertaintyFields({
                 {draft.rows.map((row, index) => <tr key={row.id}>
                   {cells.map((cell, col) => <td key={`${cell.column || "point"}:${cell.key}`}>
                     <GrowingNumericInput style={{ "--dynamic-column-width": columnWidths[col] }} inputMode="decimal" data-dynamic-cell={`${index}:${col}`} aria-label={`${cell.label} row ${index + 1}`}
+                      data-has-value={String(cell.key === "point" ? row.point ?? "" : row.values?.[cell.column]?.[cell.key] ?? "").trim() !== ""}
                       placeholder="—" value={cell.key === "point" ? displayPoint(row.point) : row.values?.[cell.column]?.[cell.key] ?? ""}
                       onChange={event => { const rows = [...draft.rows]; setCell(rows, index, cell, event.target.value); change({ rows }); }}
                       onPaste={event => {

@@ -23,6 +23,7 @@ export default function DynamicBudgetComponentRow({
   onKindChange,
   UnitSelectComponent = FallbackUnitSelect, autoEdit = false, onEditorOpened,
 }) {
+  const [dynamicModebarTarget, setDynamicModebarTarget] = useState(null);
   const draftKey = `dynamic:${component.id}`;
   const recovered = useRef(readEditorDraft(draftKey));
   const [draft, setDraft] = useState(() => recovered.current || implicitUnits(component.dynamicDefinition, referencePoint, measurementPoint));
@@ -194,13 +195,13 @@ export default function DynamicBudgetComponentRow({
           </button>
         ) : (
           <>
-          {onKindChange && <div className="budget-uncertainty-type-toolbar"><UncertaintyTypeMenu value={draft.kind} onChange={kind => {
+          {onKindChange && <div className="budget-uncertainty-type-toolbar">{draft.kind === "table" && <span className="dynamic-symmetry-slot" ref={setDynamicModebarTarget} />}<UncertaintyTypeMenu value={draft.kind} onChange={kind => {
             clearEditorDraft(draftKey); dirty.current = false;
             onKindChange(kind, draftRef.current);
           }}/></div>}
           <DynamicUncertaintyFields definition={draft} component={component} showPreview={draft.kind !== "table"}
             referencePoint={referencePoint} measurementPoint={measurementPoint}
-            onChange={change} UnitSelectComponent={UnitSelectComponent} />
+            onChange={change} UnitSelectComponent={UnitSelectComponent} modebarTarget={dynamicModebarTarget} />
           </>
         )}
       </td>

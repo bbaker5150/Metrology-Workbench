@@ -22059,3 +22059,10 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
 }
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] tr:hover .dynamic-row-action-cell > button,
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-row-action-cell > button:focus-visible { opacity: 1; }
+
+.dynamic-symmetry-slot { display: inline-flex; align-items: center; }
+.dynamic-symmetry-slot .dynamic-budget-modebar { margin: 0; }
+.budget-uncertainty-type-toolbar { display: flex; align-items: center; justify-content: flex-end; gap: 6px; }
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table input[data-has-value="true"]:not(:focus):not(:hover) {
+  border-color: transparent !important; background: transparent !important; box-shadow: none !important; outline: none;
+}

@@ -104,7 +104,7 @@ it.each(["table", "equation"])("uses budget editor controls and only the adjacen
   fireEvent.click(within(container.querySelector(".cell-tolerance")).getByRole("button", { name: "Set tolerance" }));
   const editor = container.querySelector(".dynamic-budget-editor");
   expect(editor).toBeInTheDocument();
-  expect(within(editor).getByRole("group", { name: "Error limit symmetry" })).toBeInTheDocument();
+  expect(within(kind === "table" ? container.querySelector(".dynamic-symmetry-slot") : editor).getByRole("group", { name: "Error limit symmetry" })).toBeInTheDocument();
   expect(within(editor).queryByRole("button", { name: /distribution|interpretation/i })).toBeNull();
   if (kind === "table") {
     fireEvent.change(within(editor).getByRole("textbox", { name: "Measurement point row 1" }), { target: { value: "5" } });

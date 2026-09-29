@@ -84,9 +84,9 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
     const add=table.querySelector('.dynamic-row-add').getBoundingClientRect(), remove=table.querySelector('.dynamic-row-remove').getBoundingClientRect();
     return remove.right <= add.left + 1 && [...table.querySelectorAll('th,td')].every(cell=>getComputedStyle(cell).borderBottomWidth==='1px');
   }));
-  check('tabular units sit at the upper right beside symmetry', await tableEditor.locator('.dynamic-budget-editor').evaluate(editor => {
-    const mode=editor.querySelector('.dynamic-budget-modebar').getBoundingClientRect(), units=editor.querySelector('.dynamic-budget-options').getBoundingClientRect(), header=editor.querySelector('.dynamic-budget-header').getBoundingClientRect();
-    return units.left > mode.right && Math.abs(units.right-header.right)<2 && Math.abs(mode.top+mode.height/2-units.top-units.height/2)<2;
+  check('tabular units stay at the upper right', await tableEditor.locator('.dynamic-budget-editor').evaluate(editor => {
+    const units=editor.querySelector('.dynamic-budget-options').getBoundingClientRect(), header=editor.querySelector('.dynamic-budget-header').getBoundingClientRect();
+    return Math.abs(units.right-header.right)<2;
   }));
   check('tabular inputs align across rows and the column divider is continuous', await tableEditor.locator('.dynamic-lookup-table').evaluate(table => {
     const rows=[...table.tBodies[0].rows];
@@ -181,6 +181,8 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
   await instrumentCell.getByRole('button',{name:'Add table row after row 1',exact:true}).click();
   await instrumentCell.getByLabel('Measurement point row 2',{exact:true}).fill('1');
   await instrumentCell.getByLabel('Uncertainty row 2',{exact:true}).fill('2');
+  await instrumentCell.getByRole('button',{name:'Change uncertainty type',exact:true}).click();
+  await instrumentCell.getByRole('button',{name:'Change uncertainty type',exact:true}).click();
   for (const theme of ['light','dark']) {
     await frame.evaluate(theme=>{document.body.classList.toggle('light-mode',theme==='light');document.body.classList.toggle('dark-mode',theme==='dark');},theme);
     check(`instrument tabular grid centers inputs with continuous dividers in ${theme} mode`, await instrumentCell.locator('.dynamic-lookup-table').evaluate(table=>{
@@ -197,6 +199,11 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
         });
       });
     }));
+    check(`tabular symmetry sits directly left of its gear in ${theme} mode`, await instrumentCell.evaluate(cell=>{
+      const mode=cell.querySelector('.dynamic-symmetry-slot').getBoundingClientRect(), gear=cell.querySelector('[aria-label="Change uncertainty type"]').getBoundingClientRect();
+      return mode.right<=gear.left+1 && gear.left-mode.right<14 && Math.abs(mode.top+mode.height/2-gear.top-gear.height/2)<2;
+    }));
+    check(`completed tabular values are plain until edited in ${theme} mode`, await instrumentCell.locator('input[data-has-value="true"]').evaluateAll(inputs=>inputs.every(input=>getComputedStyle(input).borderTopColor==='rgba(0, 0, 0, 0)' && getComputedStyle(input).backgroundColor==='rgba(0, 0, 0, 0)')));
     check(`tabular row actions fit without horizontal scrolling in ${theme} mode`, await instrumentCell.locator('.dynamic-table-scroll').evaluate(scroll=> {
       const bounds=scroll.getBoundingClientRect();
       return scroll.scrollWidth<=scroll.clientWidth+1 && [...scroll.querySelectorAll('.dynamic-row-action-cell > button')].every(button=>button.getBoundingClientRect().right<=bounds.right+1);

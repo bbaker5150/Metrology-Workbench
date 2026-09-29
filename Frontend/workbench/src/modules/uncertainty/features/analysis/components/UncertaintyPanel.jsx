@@ -4642,6 +4642,7 @@ export const InlineToleranceCell = ({
   const [sidedness, setSidedness] = useState(inferredMode.sidedness);
   // Reopening a configured range returns to its bias editor. Tolerance mode
   // remains independent, so toggling Bias never rewrites or clears limits.
+  const [dynamicModebarTarget, setDynamicModebarTarget] = useState(null);
   const [showBias, setShowBias] = useState(() => Boolean(biasRole && tolerance.bias?.value != null && tolerance.bias.value !== ""));
 
   useLayoutEffect(() => {
@@ -4857,6 +4858,7 @@ export const InlineToleranceCell = ({
       </>}
       {(biasRole === "tmde" || biasRole === "source" || onAddSecondary || onUncertaintyKindChange) && <div className="instrument-source-toolbar">
         <div className="instrument-source-actions">
+          {selectedType === "table" && <span className="dynamic-symmetry-slot" ref={setDynamicModebarTarget} />}
           <UncertaintyTypeMenu value={selectedType} onChange={kind => {
             if (onUncertaintyKindChange) return onUncertaintyKindChange(kind);
             const definitions = { ...((selectedSecondary || tolerance).uncertaintyTypeDrafts || {}),
@@ -4938,7 +4940,7 @@ export const InlineToleranceCell = ({
       </div>}
       </> : <>
         <DynamicUncertaintyFields definition={selectedDefinition || createDynamicDefinition(selectedType, referencePoint || activeRange)}
-          referencePoint={referencePoint || activeRange} UnitSelectComponent={UnitSelect} showPreview={false}
+          referencePoint={referencePoint || activeRange} UnitSelectComponent={UnitSelect} showPreview={false} modebarTarget={dynamicModebarTarget}
           onChange={patch => updateSelectedSource(selectedSecondary ? { dynamicDefinition: { ...selectedDefinition, ...patch } } : { tmdeUncertaintyDefinition: { ...selectedDefinition, ...patch } })} />
       </>}
       {secondarySources.length > 0 && <div className="instrument-secondary-pills">
