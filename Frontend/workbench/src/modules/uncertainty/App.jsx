@@ -2404,7 +2404,13 @@ function App({ showThemeToggle = false }) {
 
   const sidebarAutoWidths = useSidebarAutoWidths(resultsContainerRef);
   const sidebarRenderedColumnWidths = useMemo(
-    () => ({ ...sidebarAutoWidths, ...getSidebarRiskColumnWidths(sidebarColumnWidths, pointRiskMap) }),
+    () => ({
+      ...sidebarAutoWidths,
+      ...getSidebarRiskColumnWidths(sidebarColumnWidths, pointRiskMap),
+      // A pinned width must still accommodate an open value editor. Auto sizing
+      // is transient, so closing it restores the saved or collapsed width.
+      value: Math.max(sidebarAutoWidths.value || 0, sidebarColumnWidths.value || 0),
+    }),
     [sidebarAutoWidths, sidebarColumnWidths, pointRiskMap],
   );
 

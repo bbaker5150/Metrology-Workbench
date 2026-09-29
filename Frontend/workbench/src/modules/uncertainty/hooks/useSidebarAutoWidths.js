@@ -35,13 +35,14 @@ export default function useSidebarAutoWidths(rootRef) {
           if (style.display === "grid") copy.style.gridTemplateColumns = `repeat(${style.gridTemplateColumns.split(" ").length}, max-content)`;
           if (source.matches('.point-value-with-unit > .point-edit-affordance')) {
             copy.style.display = 'flex';
-            copy.style.flexDirection = 'column';
+            copy.style.flexDirection = 'row';
+            copy.style.flexWrap = 'nowrap';
           }
           copy.removeAttribute("id");
           copy.style.setProperty("width", "max-content");
           copy.style.setProperty("min-width", "0");
           copy.style.setProperty("max-width", "none");
-          copy.style.setProperty("position", "static");
+          copy.style.setProperty("position", source.matches(".point-value-input-slot > input") ? "absolute" : "static");
           copy.style.setProperty("transform", "none");
           copy.style.setProperty("white-space", "nowrap");
           copy.style.setProperty("flex", "none");

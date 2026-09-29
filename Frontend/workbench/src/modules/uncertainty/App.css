@@ -21980,11 +21980,11 @@ body.light-mode .uncertainty-module .instrument-uncertainty-rail {
   background: color-mix(in srgb, var(--sidebar-function-color, var(--primary-color)) 10%, transparent);
 }
 .uncertainty-module .measurement-group-container .point-value-editing > .point-edit-affordance {
-  display: flex; flex-direction: column; align-items: center; gap: 3px;
-  min-width: 0; max-width: 100%;
+  display: flex; flex-direction: row; flex-wrap: nowrap; align-items: center; gap: 5px;
+  width: max-content; min-width: max-content; max-width: none;
 }
 .uncertainty-module .measurement-group-container .point-value-editing .point-unit-control > .inline-unit-split-select {
-  display: flex; flex-wrap: wrap; justify-content: center; gap: 3px; max-width: 100%;
+  display: flex; flex-wrap: nowrap; justify-content: center; gap: 3px; width: max-content; max-width: none;
 }
 .uncertainty-module .measurement-group-container .point-value-editing .point-unit-control { max-width: 100%; }
 /* Read-only budget cells share the same baseline and inset regardless of source. */
@@ -21992,3 +21992,9 @@ body.light-mode .uncertainty-module .instrument-uncertainty-rail {
 .uncertainty-module .uncertainty-budget-table .component-group-tbody > tr > td:nth-child(2),
 .uncertainty-module .uncertainty-budget-table .component-group-tbody > tr > td:nth-child(3) { padding-left: 10px; }
 .uncertainty-module .uncertainty-budget-table .component-group-tbody > tr > td > .inline-tolerance-summary { margin: 0; padding-left: 0; padding-right: 0; }
+
+/* The collapsed value and unit share one hover outline. */
+.uncertainty-module .measurement-group-container .point-value-summary .point-value-number,
+.uncertainty-module .measurement-group-container .point-value-summary .point-value-number:hover {
+  border-color: transparent !important; background: transparent !important; box-shadow: none !important;
+}
