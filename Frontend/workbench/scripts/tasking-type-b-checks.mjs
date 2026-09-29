@@ -80,9 +80,9 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
     const widths=inputs.map(input=>input.getBoundingClientRect().width);
     return Math.max(...widths)-Math.min(...widths)<1 && widths.every(width=>width<70);
   }));
-  check('tabular delete precedes add and horizontal separators are removed', await tableEditor.locator('.dynamic-lookup-table').evaluate(table => {
+  check('tabular delete precedes add and row separators share one color', await tableEditor.locator('.dynamic-lookup-table').evaluate(table => {
     const add=table.querySelector('.dynamic-row-add').getBoundingClientRect(), remove=table.querySelector('.dynamic-row-remove').getBoundingClientRect();
-    return remove.right <= add.left + 1 && [...table.querySelectorAll('th,td')].every(cell=>getComputedStyle(cell).borderBottomWidth==='0px');
+    return remove.right <= add.left + 1 && [...table.querySelectorAll('th,td')].every(cell=>getComputedStyle(cell).borderBottomWidth==='1px');
   }));
   check('tabular units sit at the upper right beside symmetry', await tableEditor.locator('.dynamic-budget-editor').evaluate(editor => {
     const mode=editor.querySelector('.dynamic-budget-modebar').getBoundingClientRect(), units=editor.querySelector('.dynamic-budget-options').getBoundingClientRect(), header=editor.querySelector('.dynamic-budget-header').getBoundingClientRect();
@@ -92,7 +92,8 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
     const rows=[...table.tBodies[0].rows];
     return rows.every(row=> {
       const a=row.cells[0].querySelector('input').getBoundingClientRect(), b=row.cells[1].querySelector('input').getBoundingClientRect();
-      return Math.abs(a.top-b.top)<1 && Math.abs(a.height-b.height)<1 && getComputedStyle(row.cells[0]).borderRightWidth==='1px';
+      const ac=row.cells[0].getBoundingClientRect(), bc=row.cells[1].getBoundingClientRect();
+      return Math.abs(a.top-b.top)<1 && Math.abs(a.height-b.height)<1 && Math.abs(a.left+a.width/2-ac.left-ac.width/2)<1 && Math.abs(b.left+b.width/2-bc.left-bc.width/2)<1 && Math.abs(ac.width-bc.width)<1 && getComputedStyle(row.cells[0]).borderRightWidth==='1px';
     }) && getComputedStyle(table.tHead.rows[0].cells[0]).borderRightWidth==='1px';
   }));
   if (process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await page.screenshot({ path: `${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/tasking-builder-table.png` });
@@ -171,4 +172,31 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
   check("risk breakdown explains signed bias and metric equations", await breakdown.getByText("3. Apply signed bias", { exact: true }).count() === 1 && await breakdown.getByText("4. Follow the calculation for this metric", { exact: true }).count() === 1);
   if (process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await page.screenshot({ path: `${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/tasking-risk-breakdown.png` });
   await breakdown.locator(".modal-close-button").click();
+  const instrumentCell = frame.locator('.instrument-equipment-table').nth(1).locator('tr.instrument-function-row .cell-tolerance').first();
+  await instrumentCell.locator('.inline-tolerance-summary').click();
+  await instrumentCell.getByRole('button', {name:'Change uncertainty type',exact:true}).click();
+  await instrumentCell.getByRole('button', {name:'Table',exact:true}).click();
+  await instrumentCell.getByLabel('Measurement point row 1',{exact:true}).fill('0');
+  await instrumentCell.getByLabel('Uncertainty row 1',{exact:true}).fill('1');
+  await instrumentCell.getByRole('button',{name:'Add table row after row 1',exact:true}).click();
+  await instrumentCell.getByLabel('Measurement point row 2',{exact:true}).fill('1');
+  await instrumentCell.getByLabel('Uncertainty row 2',{exact:true}).fill('2');
+  for (const theme of ['light','dark']) {
+    await frame.evaluate(theme=>{document.body.classList.toggle('light-mode',theme==='light');document.body.classList.toggle('dark-mode',theme==='dark');},theme);
+    check(`instrument tabular grid centers inputs with continuous dividers in ${theme} mode`, await instrumentCell.locator('.dynamic-lookup-table').evaluate(table=>{
+      const header=table.tHead.rows[0].cells[0].getBoundingClientRect();
+      return [...table.tHead.rows[0].cells].every(cell=>cell.scrollWidth <= cell.clientWidth+1) && getComputedStyle(table).borderCollapse==='collapse' && [...table.tBodies[0].rows].every(row=>{
+        const cells=[row.cells[0],row.cells[1]], bounds=cells.map(cell=>cell.getBoundingClientRect());
+        return Math.abs(bounds[0].width-bounds[1].width)<1 && Math.abs(bounds[0].right-header.right)<1 && cells.every(cell=>{
+          const box=cell.getBoundingClientRect(), input=cell.querySelector('input').getBoundingClientRect(), style=getComputedStyle(cell);
+          return Math.abs(input.left+input.width/2-box.left-box.width/2)<1 && style.borderBottomWidth==='1px' && style.borderBottomColor===getComputedStyle(row.cells[0]).borderRightColor;
+        });
+      });
+    }));
+    if(process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await instrumentCell.screenshot({path:`${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/instrument-tabular-${theme}.png`});
+  }
+  await instrumentCell.getByRole('button',{name:'Change uncertainty type',exact:true}).click();
+  await instrumentCell.getByRole('button',{name:'Manual',exact:true}).click();
+  await frame.locator('.analysis-tabs').click({position:{x:5,y:5}});
+
 }

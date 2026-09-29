@@ -22031,3 +22031,18 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
   vertical-align: middle; padding: 3px 6px; text-align: left;
 }
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-lookup-table input { display: block; margin: 0; height: 24px; box-sizing: border-box; }
+
+/* Isolate nested lookup geometry from the outer instrument/budget table. */
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table {
+  width: var(--dynamic-table-width); table-layout: fixed; border-collapse: collapse !important; border-spacing: 0 !important;
+  --dynamic-grid-color: var(--instrument-editor-divider, var(--table-divider-color, var(--border-color)));
+}
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table > :is(thead, tbody) > tr > :is(th, td) {
+  padding: 6px 10px !important; text-align: center !important; vertical-align: middle;
+  border: 0 !important; border-bottom: 1px solid var(--dynamic-grid-color) !important;
+}
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table > :is(thead, tbody) > tr > :is(th, td):not(:last-child):not(:nth-last-child(2)) {
+  border-right: 1px solid var(--dynamic-grid-color) !important;
+}
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table input { margin: 0 auto !important; }
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table .dynamic-row-action-cell { padding-inline: 4px !important; white-space: nowrap; }
