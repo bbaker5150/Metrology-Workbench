@@ -184,7 +184,12 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
     for(let i=0;i<20;i++) { await new Promise(requestAnimationFrame); widths.push(table.getBoundingClientRect().width); }
     return Math.max(...widths)-Math.min(...widths)<1;
   }));
+  const unitSummary=instrumentCell.getByRole('button',{name:'Edit uncertainty unit',exact:true});
+  check('tabular units start as a collapsed summary',await unitSummary.isVisible());
+  await unitSummary.click();
+  check('tabular unit summary opens both selectors',await instrumentCell.getByRole('button',{name:'Uncertainty unit',exact:true}).isVisible() && await instrumentCell.getByRole('button',{name:'Uncertainty unit prefix',exact:true}).isVisible());
   await instrumentCell.getByLabel('Measurement point row 1',{exact:true}).fill('0');
+  check('tabular unit selectors collapse when editing a value',await unitSummary.isVisible());
   await instrumentCell.getByLabel('Uncertainty row 1',{exact:true}).fill('1');
   await instrumentCell.getByRole('button',{name:'Add table row after row 1',exact:true}).click();
   await instrumentCell.getByLabel('Measurement point row 2',{exact:true}).fill('1');

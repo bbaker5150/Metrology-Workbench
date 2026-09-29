@@ -22106,3 +22106,8 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table { width: 100%; }
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table > :is(thead, tbody) > tr > :is(th, td):first-child { position: relative; }
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table > :is(thead, tbody) > tr > :is(th, td):first-child::after { content: ""; position: absolute; left: -48px; bottom: -1px; width: 48px; border-bottom: 1px solid var(--dynamic-grid-color); pointer-events: none; }
+
+/* Match the measurement-value unit summary until its selector is opened. */
+.dynamic-unit-summary { display: inline-flex; align-items: center; justify-content: center; padding: 3px 5px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: inherit; font: inherit; cursor: pointer; white-space: nowrap; }
+.dynamic-unit-summary:is(:hover, :focus-visible) { border-color: var(--sidebar-function-color, var(--primary-color)); background: color-mix(in srgb, var(--sidebar-function-color, var(--primary-color)) 10%, transparent); }
+.dynamic-unit-control { display: inline-flex; align-items: center; }

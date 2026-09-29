@@ -71,6 +71,7 @@ it("opens a new definition with a quiet centered source name", () => {
 it("keeps portaled selectors inside the editing session and Escape discards the draft", () => {
   const { onCommit } = setup('table');
   fireEvent.change(screen.getByLabelText('Measurement point row 1'), { target: { value: '100' } });
+  if (screen.queryByRole('button', { name: 'Edit uncertainty unit' })) fireEvent.click(screen.getByRole('button', { name: 'Edit uncertainty unit' }));
   fireEvent.click(screen.getByRole('button', { name: 'Uncertainty unit' }));
   // The full unit catalog has hundreds of options. Find the visible label
   // within its list first, then verify the option's accessible identity;
@@ -152,6 +153,7 @@ it("supports low and high equations and warns about incompatible output units", 
   fireEvent.click(screen.getByTitle('Asymmetric tolerance'));
   fireEvent.change(screen.getByLabelText('High error limit equation'), { target: { value: 'x/50' } });
   expect(screen.getByRole('status')).toHaveTextContent('-1 to 2 V');
+  if (screen.queryByRole('button', { name: 'Edit uncertainty unit' })) fireEvent.click(screen.getByRole('button', { name: 'Edit uncertainty unit' }));
   fireEvent.click(screen.getByRole('button', { name: 'Uncertainty unit' }));
   // Scope this lookup as above instead of naming every unit in the catalog.
   const option = within(screen.getByRole('listbox')).getByText('A', { exact: true }).closest('[role="option"]');

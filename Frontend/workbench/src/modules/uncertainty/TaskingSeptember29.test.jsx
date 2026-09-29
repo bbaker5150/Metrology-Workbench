@@ -89,8 +89,14 @@ it('inserts tabular rows in place and retains unit prefix selection', () => {
   fireEvent.click(screen.getByRole('button',{name:'Add table row after row 1'}));
   expect(screen.getByLabelText('Measurement point row 3')).toHaveValue('99');
   expect(screen.getByLabelText('Measurement point row 4')).toHaveValue('100');
+  fireEvent.click(screen.getByRole('button',{name:'Edit uncertainty unit'}));
   fireEvent.click(screen.getByRole('button',{name:'Uncertainty unit prefix'}));
   fireEvent.click(screen.getByRole('option',{name:/Kilo/}));
+  expect(screen.getByRole('button',{name:'Uncertainty unit prefix'})).toHaveTextContent('k');
+  fireEvent.pointerDown(screen.getByLabelText('Measurement point row 1'));
+  expect(screen.queryByRole('button',{name:'Uncertainty unit prefix'})).not.toBeInTheDocument();
+  expect(screen.getByRole('button',{name:'Edit uncertainty unit'})).toHaveTextContent('k');
+  fireEvent.click(screen.getByRole('button',{name:'Edit uncertainty unit'}));
   expect(screen.getByRole('button',{name:'Uncertainty unit prefix'})).toHaveTextContent('k');
   fireEvent.click(screen.getByTitle('Asymmetric tolerance'));
   expect(screen.getByRole('columnheader',{name:/Unc. \(Low\)/})).toBeInTheDocument();

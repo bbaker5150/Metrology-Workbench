@@ -1,5 +1,5 @@
 import { createPortal } from "react-dom";
-import React, { useMemo, useRef } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { v4 as uuid } from "uuid";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus, faTimes, faLink } from "@fortawesome/free-solid-svg-icons";
@@ -8,6 +8,34 @@ import { getUnitDisplayLabel } from "../../../utils/uncertaintyMath";
 import { resolveDynamicComponent, validateBudgetEquation, dynamicMeasurementValue } from "../../../utils/dynamicBudgetComponents";
 
 const emptyRow = () => ({ id: uuid(), point: "", values: {} });
+
+function CollapsibleUnitControl({ value, label, onChange, UnitSelectComponent }) {
+  const [editing, setEditing] = useState(false);
+  const rootRef = useRef(null);
+  useEffect(() => {
+    if (!editing) return;
+    rootRef.current?.querySelector('button')?.focus();
+    const outside = event => {
+      if (rootRef.current?.contains(event.target) || event.target.closest?.('.inline-unit-menu, .inline-menu-popover')) return;
+      setEditing(false);
+    };
+    document.addEventListener('pointerdown', outside, true);
+    return () => document.removeEventListener('pointerdown', outside, true);
+  }, [editing]);
+  return <span ref={rootRef} className="dynamic-unit-control"
+    onBlur={event => {
+      if (event.relatedTarget && !rootRef.current?.contains(event.relatedTarget) && !event.relatedTarget.closest?.('.inline-unit-menu, .inline-menu-popover')) setEditing(false);
+    }}
+    onKeyDown={event => {
+      if (event.key === 'Escape' && !event.target.closest?.('.inline-unit-menu, .inline-menu-popover')) {
+        event.stopPropagation(); setEditing(false);
+        requestAnimationFrame(() => rootRef.current?.querySelector('button')?.focus());
+      }
+    }}>
+    {editing ? <UnitSelectComponent ariaLabel={label} value={value} onChange={onChange} compact width="max-content" />
+      : <button type="button" className="dynamic-unit-summary" aria-label={`Edit ${label.toLowerCase()}`} onClick={() => setEditing(true)}>{getUnitDisplayLabel(value) || 'Units'}</button>}
+  </span>;
+}
 
 // Shared uncertainty-value editor. Distribution belongs to the surrounding table column.
 export default function DynamicUncertaintyFields({
@@ -92,7 +120,9 @@ export default function DynamicUncertaintyFields({
   const unitField = (key, label) => (
     <div className="dynamic-inline-field">
       {draft.kind !== "table" && <span>{label}</span>}
-      <UnitSelectComponent ariaLabel={label} value={draft[key]} onChange={value => change({ [key]: value })} compact width="max-content" />
+      {draft.kind === "table"
+        ? <CollapsibleUnitControl label={label} value={draft[key]} onChange={value => change({ [key]: value })} UnitSelectComponent={UnitSelectComponent} />
+        : <UnitSelectComponent ariaLabel={label} value={draft[key]} onChange={value => change({ [key]: value })} compact width="max-content" />}
     </div>
   );
   const symmetryControl = (<div className="dynamic-budget-modebar">
