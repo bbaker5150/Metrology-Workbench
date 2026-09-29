@@ -177,6 +177,13 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
   await instrumentCell.locator('.inline-tolerance-summary').click();
   await instrumentCell.getByRole('button', {name:'Change uncertainty type',exact:true}).click();
   await instrumentCell.getByRole('button', {name:'Table',exact:true}).click();
+  check('tabular auto width settles without growing on each frame', await instrumentCell.evaluate(async cell => {
+    const table=cell.closest('.instrument-equipment-table');
+    for(let i=0;i<8;i++) await new Promise(requestAnimationFrame);
+    const widths=[];
+    for(let i=0;i<20;i++) { await new Promise(requestAnimationFrame); widths.push(table.getBoundingClientRect().width); }
+    return Math.max(...widths)-Math.min(...widths)<1;
+  }));
   await instrumentCell.getByLabel('Measurement point row 1',{exact:true}).fill('0');
   await instrumentCell.getByLabel('Uncertainty row 1',{exact:true}).fill('1');
   await instrumentCell.getByRole('button',{name:'Add table row after row 1',exact:true}).click();

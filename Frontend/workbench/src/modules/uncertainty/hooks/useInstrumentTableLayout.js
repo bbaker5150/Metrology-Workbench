@@ -138,6 +138,34 @@ export default function useInstrumentTableLayout(containerRef) {
         // scrollWidth/offsetWidth are layout pixels; client rects include CSS
         // zoom and cannot be mixed into colgroup widths.
         let width = Math.max(editor.scrollWidth, editor.offsetWidth);
+        const lookup = editor.querySelector('.dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table');
+        if (lookup) {
+          // A full-width editor follows its assigned cell. Measuring that width
+          // and adding cell padding would grow the column on every observer pass.
+          // Resolve its authored content requirement outside the observed table.
+          const lookupStyle = getComputedStyle(lookup);
+          const probe = document.createElement('div');
+          probe.style.cssText = 'position:fixed;left:-100000px;top:0;visibility:hidden;pointer-events:none;';
+          probe.style.font = lookupStyle.font;
+          probe.style.setProperty('--dynamic-data-width', lookupStyle.getPropertyValue('--dynamic-data-width'));
+          probe.style.setProperty('--dynamic-table-width', lookupStyle.getPropertyValue('--dynamic-table-width'));
+          probe.style.width = 'calc(var(--dynamic-table-width) + 48px)';
+          document.body.appendChild(probe);
+          width = probe.offsetWidth;
+          probe.remove();
+          const toolbar = editor.querySelector('.instrument-tolerance-toolbar');
+          if (toolbar) {
+            const toolbarStyle = getComputedStyle(toolbar);
+            const children = [...toolbar.children].filter(node => node.getClientRects().length);
+            const toolbarWidth = children.reduce((sum, node) => sum + Math.max(node.scrollWidth, node.offsetWidth), 0)
+              + Math.max(0, children.length - 1) * (parseFloat(toolbarStyle.columnGap) || 0)
+              + (parseFloat(toolbarStyle.paddingLeft) || 0) + (parseFloat(toolbarStyle.paddingRight) || 0);
+            width = Math.max(width, toolbarWidth);
+          }
+          const editorStyle = getComputedStyle(editor);
+          width += (parseFloat(editorStyle.paddingLeft) || 0) + (parseFloat(editorStyle.paddingRight) || 0);
+        }
+
         if (content !== editor) {
           // The range wrapper stretches to the cell. Measure intrinsic children,
           // never feed that already-expanded width back into its own requirement.
