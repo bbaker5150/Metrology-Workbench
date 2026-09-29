@@ -4796,7 +4796,7 @@ export const InlineToleranceCell = ({
       }}
     >
       <div className="instrument-tolerance-toolbar">
-      {selectedType === "table" && <span className="dynamic-unit-slot" ref={setDynamicUnitTarget} />}
+      {selectedType === "table" && <><span className="dynamic-symmetry-slot" ref={setDynamicModebarTarget} /><span className="dynamic-unit-slot" ref={setDynamicUnitTarget} /></>}
       {selectedType === "parametric" && <>
       <div className="inline-tolerance-modebar" aria-label="Tolerance mode">
         <div className="inline-tolerance-mini-toggle" role="group" aria-label="Tolerance symmetry">
@@ -4860,7 +4860,6 @@ export const InlineToleranceCell = ({
       </>}
       {(biasRole === "tmde" || biasRole === "source" || onAddSecondary || onUncertaintyKindChange) && <div className="instrument-source-toolbar">
         <div className="instrument-source-actions">
-          {selectedType === "table" && <span className="dynamic-symmetry-slot" ref={setDynamicModebarTarget} />}
           <UncertaintyTypeMenu value={selectedType} onChange={kind => {
             if (onUncertaintyKindChange) return onUncertaintyKindChange(kind);
             const definitions = { ...((selectedSecondary || tolerance).uncertaintyTypeDrafts || {}),

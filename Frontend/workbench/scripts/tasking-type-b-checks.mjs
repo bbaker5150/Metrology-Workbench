@@ -80,22 +80,22 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
     const widths=inputs.map(input=>input.getBoundingClientRect().width);
     return Math.max(...widths)-Math.min(...widths)<1 && widths.every(width=>width<70);
   }));
-  check('tabular delete precedes add and internal separators stay hidden', await tableEditor.locator('.dynamic-lookup-table').evaluate(table => {
+  check('tabular delete precedes add and internal separators remain consistent', await tableEditor.locator('.dynamic-lookup-table').evaluate(table => {
     const add=table.querySelector('.dynamic-row-add').getBoundingClientRect(), remove=table.querySelector('.dynamic-row-remove').getBoundingClientRect();
-    return remove.right <= add.left + 1 && [...table.querySelectorAll('th,td')].every(cell=>getComputedStyle(cell).borderBottomWidth==='0px');
+    return remove.right <= add.left + 1 && [...table.querySelectorAll('th,td')].every(cell=>getComputedStyle(cell).borderBottomWidth==='1px');
   }));
-  check('tabular units share a single toolbar row at the left', await tableEditor.evaluate(row => {
-    const controls=row.querySelector('.dynamic-inline-field');
-    const units=controls.getBoundingClientRect(), gear=(row.querySelector('[aria-label="Change uncertainty type"]') || row.querySelector('.dynamic-budget-modebar')).getBoundingClientRect();
-    return units.right<gear.left && Math.abs(units.top+units.height/2-gear.top-gear.height/2)<2;
+  check('tabular units are centered in the header row', await tableEditor.evaluate(row => {
+    const units=row.querySelector('.dynamic-inline-field').getBoundingClientRect();
+    const header=(row.querySelector('.budget-uncertainty-type-toolbar') || row.querySelector('.dynamic-budget-header')).getBoundingClientRect();
+    return Math.abs(units.left+units.width/2-header.left-header.width/2)<2;
   }));
-  check('tabular inputs align across rows without internal dividers', await tableEditor.locator('.dynamic-lookup-table').evaluate(table => {
+  check('tabular inputs align across rows with internal dividers', await tableEditor.locator('.dynamic-lookup-table').evaluate(table => {
     const rows=[...table.tBodies[0].rows];
     return rows.every(row=> {
       const a=row.cells[0].querySelector('input').getBoundingClientRect(), b=row.cells[1].querySelector('input').getBoundingClientRect();
       const ac=row.cells[0].getBoundingClientRect(), bc=row.cells[1].getBoundingClientRect();
-      return Math.abs(a.top-b.top)<1 && Math.abs(a.height-b.height)<1 && Math.abs(a.left+a.width/2-ac.left-ac.width/2)<1 && Math.abs(b.left+b.width/2-bc.left-bc.width/2)<1 && Math.abs(ac.width-bc.width)<1 && getComputedStyle(row.cells[0]).borderRightWidth==='0px';
-    }) && getComputedStyle(table.tHead.rows[0].cells[0]).borderRightWidth==='0px';
+      return Math.abs(a.top-b.top)<1 && Math.abs(a.height-b.height)<1 && Math.abs(a.left+a.width/2-ac.left-ac.width/2)<1 && Math.abs(b.left+b.width/2-bc.left-bc.width/2)<1 && Math.abs(ac.width-bc.width)<1 && getComputedStyle(row.cells[0]).borderRightWidth==='1px';
+    }) && getComputedStyle(table.tHead.rows[0].cells[0]).borderRightWidth==='1px';
   }));
   if (process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await page.screenshot({ path: `${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/tasking-builder-table.png` });
   await tableEditor.hover();
@@ -193,7 +193,15 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
   await instrumentCell.getByRole('button',{name:'Change uncertainty type',exact:true}).click();
   for (const theme of ['light','dark']) {
     await frame.evaluate(theme=>{document.body.classList.toggle('light-mode',theme==='light');document.body.classList.toggle('dark-mode',theme==='dark');},theme);
-    check(`instrument tabular grid centers inputs without internal dividers in ${theme} mode`, await instrumentCell.locator('.dynamic-lookup-table').evaluate(table=>{
+    check(`tabular horizontal dividers span the full editor in ${theme} mode`, await instrumentCell.locator('.dynamic-table-scroll').evaluate(scroll=>{
+      const bounds=scroll.getBoundingClientRect(), table=scroll.querySelector('table');
+      return [...table.rows].every(row=>{
+        const first=row.cells[0], last=row.cells[row.cells.length-1];
+        const gutter=getComputedStyle(first,'::after'), cell=first.getBoundingClientRect();
+        return Math.abs(cell.left+parseFloat(gutter.left)-bounds.left)<1 && Math.abs(last.getBoundingClientRect().right-bounds.right)<1 && gutter.borderBottomWidth==='1px' && gutter.borderBottomColor===getComputedStyle(first).borderBottomColor;
+      });
+    }));
+    check(`instrument tabular grid centers inputs with internal dividers in ${theme} mode`, await instrumentCell.locator('.dynamic-lookup-table').evaluate(table=>{
       const header=table.tHead.rows[0].cells[0].getBoundingClientRect();
       return [...table.tHead.rows[0].cells].slice(0,-1).every(cell=>{
         const range=document.createRange(); range.selectNodeContents(cell);
@@ -203,7 +211,7 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
         const cells=[row.cells[0],row.cells[1]], bounds=cells.map(cell=>cell.getBoundingClientRect());
         return Math.abs(bounds[0].width-bounds[1].width)<1 && Math.abs(bounds[0].right-header.right)<1 && cells.every(cell=>{
           const box=cell.getBoundingClientRect(), input=cell.querySelector('input').getBoundingClientRect(), style=getComputedStyle(cell);
-          return Math.abs(input.left+input.width/2-box.left-box.width/2)<1 && style.borderBottomWidth==='0px' && style.borderBottomColor===getComputedStyle(row.cells[0]).borderRightColor;
+          return Math.abs(input.left+input.width/2-box.left-box.width/2)<1 && style.borderBottomWidth==='1px' && style.borderBottomColor===getComputedStyle(row.cells[0]).borderRightColor;
         });
       });
     }));
@@ -212,11 +220,13 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
       const table=cell.querySelector('.dynamic-lookup-table'), scroll=cell.querySelector('.dynamic-table-scroll').getBoundingClientRect();
       const headers=[...table.tHead.rows[0].cells].slice(0,-1), first=headers[0].getBoundingClientRect(), last=headers.at(-1).getBoundingClientRect();
       const editor=cell.querySelector('.inline-tolerance-editor').getBoundingClientRect();
-      return units.right<gear.left && Math.abs(units.top+units.height/2-gear.top-gear.height/2)<2 && Math.abs((first.left+last.right)/2-scroll.left-scroll.width/2)<2 && Math.abs((first.left+last.right)/2-editor.left-editor.width/2)<2;
+      const toolbar=cell.querySelector('.instrument-tolerance-toolbar').getBoundingClientRect();
+      return Math.abs(units.left+units.width/2-toolbar.left-toolbar.width/2)<2 && units.right<gear.left && Math.abs(units.top+units.height/2-gear.top-gear.height/2)<2 && Math.abs((first.left+last.right)/2-scroll.left-scroll.width/2)<2 && Math.abs((first.left+last.right)/2-editor.left-editor.width/2)<2;
     }));
-    check(`tabular symmetry sits directly left of its gear in ${theme} mode`, await instrumentCell.evaluate(cell=>{
+    check(`tabular symmetry sits at the left opposite its gear in ${theme} mode`, await instrumentCell.evaluate(cell=>{
       const mode=cell.querySelector('.dynamic-symmetry-slot').getBoundingClientRect(), gear=cell.querySelector('[aria-label="Change uncertainty type"]').getBoundingClientRect();
-      return mode.right<=gear.left+1 && gear.left-mode.right<14 && Math.abs(mode.top+mode.height/2-gear.top-gear.height/2)<2;
+      const toolbar=cell.querySelector('.instrument-tolerance-toolbar').getBoundingClientRect();
+      return Math.abs(mode.left-toolbar.left)<8 && mode.right<gear.left && Math.abs(mode.top+mode.height/2-gear.top-gear.height/2)<2;
     }));
     check(`completed tabular values are plain until edited in ${theme} mode`, await instrumentCell.locator('input[data-has-value="true"]').evaluateAll(inputs=>inputs.every(input=>getComputedStyle(input).borderTopColor==='rgba(0, 0, 0, 0)' && getComputedStyle(input).backgroundColor==='rgba(0, 0, 0, 0)')));
     check(`tabular row actions fit without horizontal scrolling in ${theme} mode`, await instrumentCell.locator('.dynamic-table-scroll').evaluate(scroll=> {

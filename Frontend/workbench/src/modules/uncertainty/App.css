@@ -22085,3 +22085,20 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
 .uncertainty-module .instrument-equipment-table .inline-tolerance-editor:has(.dynamic-budget-editor[data-dynamic-kind="table"]) { width: 100%; box-sizing: border-box; }
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] { width: 100%; max-width: none; min-width: 0; box-sizing: border-box; align-self: stretch; }
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] > .dynamic-table-scroll { width: 100%; padding-left: 48px; box-sizing: border-box; }
+
+/* Comparison layout: symmetry left, units centered, source actions right. */
+:is(.instrument-tolerance-toolbar, .budget-uncertainty-type-toolbar):has(> .dynamic-unit-slot) {
+  display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 8px;
+}
+:is(.instrument-tolerance-toolbar, .budget-uncertainty-type-toolbar) > .dynamic-symmetry-slot { grid-column: 1; grid-row: 1; justify-self: start; }
+:is(.instrument-tolerance-toolbar, .budget-uncertainty-type-toolbar) > .dynamic-unit-slot { grid-column: 2; grid-row: 1; justify-self: center; margin: 0; }
+:is(.instrument-tolerance-toolbar, .budget-uncertainty-type-toolbar):has(> .dynamic-unit-slot) > :is(.instrument-source-toolbar, .uncertainty-type-menu) { grid-column: 3; grid-row: 1; justify-self: end; margin: 0; }
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-budget-header:has(.dynamic-inline-field) { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); }
+.dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-budget-header > .dynamic-budget-modebar { grid-column: 1; grid-row: 1; justify-self: start; }
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-budget-header > .dynamic-budget-options { grid-column: 2; grid-row: 1; justify-self: center; margin: 0; }
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table > :is(thead, tbody) > tr > :is(th, td) { border-bottom: 1px solid var(--dynamic-grid-color) !important; }
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table > :is(thead, tbody) > tr > :is(th, td):not(:last-child):not(:nth-last-child(2)) { border-right: 1px solid var(--dynamic-grid-color) !important; }
+/* Carry row separators through the balancing gutter without moving the data. */
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table { width: 100%; }
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table > :is(thead, tbody) > tr > :is(th, td):first-child { position: relative; }
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table > :is(thead, tbody) > tr > :is(th, td):first-child::after { content: ""; position: absolute; left: -48px; bottom: -1px; width: 48px; border-bottom: 1px solid var(--dynamic-grid-color); pointer-events: none; }
