@@ -68,22 +68,24 @@ export async function checkWorkspacePolish({ frame, page, saved, until, check })
     return headers.every(cell => cell.getBoundingClientRect().right <= edge + 1) &&
       wrappers.every(wrapper => wrapper.scrollWidth <= wrapper.clientWidth + 1);
   })));
+  await frame.locator('[data-point-id="point"]').getByRole("button", {name:"Edit measurement point value",exact:true}).click();
   const expandedUnit = frame.locator('[data-point-id="point"] .point-unit-control .inline-unit-base-button');
   await expandedUnit.click();
   await frame.getByPlaceholder('Search units...', { exact: true }).fill('psig');
   await frame.locator('.inline-unit-menu').getByText('psig', { exact: true }).click();
-  check('full-width value and menus stay readable on one line within their column', await until(async () => frame.locator('.point-grid-item [data-sidebar-column="value"]').evaluateAll(cells => cells.every(cell => {
+  check('full-width expanded value editor keeps all fields readable within its column', await until(async () => frame.locator('.point-grid-item [data-sidebar-column="value"]').evaluateAll(cells => cells.every(cell => {
     const bounds = cell.getBoundingClientRect();
     const number = cell.querySelector('.point-value-number').getBoundingClientRect();
     return [...cell.querySelectorAll('.inline-unit-combobox')].every(button => {
       const box = button.getBoundingClientRect(), label = button.querySelector('span');
-      return Math.abs((box.top + box.bottom) / 2 - (number.top + number.bottom) / 2) < 2 && box.left >= bounds.left - 1 && box.right <= bounds.right + 1 && label.scrollWidth <= label.clientWidth + 1;
+      return box.left >= bounds.left - 1 && box.right <= bounds.right + 1 && label.scrollWidth <= label.clientWidth + 1;
     });
   }))));
   await capture('full-width-measurement-columns');
   await expandedUnit.click();
   await frame.getByPlaceholder('Search units...', { exact: true }).fill('V');
   await frame.locator('.inline-unit-menu').getByText('V', { exact: true }).click();
+  await frame.locator('[data-point-id="point"] .point-value-input-slot input').press('Enter');
   check('full-width points collapse session details and requirements', await frame.getByRole('button', { name: /Session Info/i }).getAttribute('aria-expanded') === 'false' && await frame.getByRole('button', { name: 'Risk & Mitigation Inputs', exact: true }).getAttribute('aria-expanded') === 'false');
   await divider.dblclick();
   check('third divider state fits instrument tables', await until(async () => await frame.locator('.workspace-pane-instrument-fit').count() === 1 && await frame.locator('.results-content').isVisible()));
@@ -130,6 +132,7 @@ export async function checkWorkspacePolish({ frame, page, saved, until, check })
   for (const theme of ['light', 'dark']) {
     if (theme === 'dark') await frame.getByRole('button', { name: 'Switch to dark mode', exact: true }).click();
     await frame.locator('.analysis-tabs').hover();
+    await point.getByRole('button', {name:'Edit measurement point value',exact:true}).click();
     const valueMenus = point.locator('.point-unit-control .inline-unit-combobox');
     check(`Value dropdown borders are hidden at rest in ${theme} mode`, await until(async () => valueMenus.evaluateAll(buttons => buttons.every(button => getComputedStyle(button).borderTopColor === 'rgba(0, 0, 0, 0)'))));
     for (const index of [0, 1]) {
@@ -137,6 +140,7 @@ export async function checkWorkspacePolish({ frame, page, saved, until, check })
       check(`Value ${index === 0 ? 'unit' : 'prefix'} border appears only on its hovered field in ${theme} mode`, await until(async () => valueMenus.evaluateAll((buttons, hovered) => buttons.every((button, i) => (getComputedStyle(button).borderTopColor !== 'rgba(0, 0, 0, 0)') === (i === hovered)), index)));
     }
     await frame.locator('.analysis-tabs').hover();
+    await point.locator('.point-value-input-slot input').press('Enter');
     check(`Section text matches the other point fields in ${theme} mode`, await frame.locator('.point-grid-item').evaluateAll(rows => rows.every(row => {
       const section = getComputedStyle(row.querySelector('.point-section'));
       const value = getComputedStyle(row.querySelector('.point-value-number'));
@@ -192,6 +196,7 @@ export async function checkWorkspacePolish({ frame, page, saved, until, check })
   }
   await frame.evaluate(() => { document.documentElement.style.zoom = ''; window.dispatchEvent(new Event('resize')); });
   await point.locator('[data-sidebar-column="pfa"]').click();
+  await point.getByRole('button', {name:'Edit measurement point value',exact:true}).click();
   const unit = point.getByRole('button', { name: 'Measurement point unit base unit', exact: true });
   await unit.click();
   check('measurement point units use the styled picker too', await frame.locator('.inline-unit-search').isVisible() && await frame.getByRole('listbox', {name:'Measurement point unit',exact:true}).isVisible());

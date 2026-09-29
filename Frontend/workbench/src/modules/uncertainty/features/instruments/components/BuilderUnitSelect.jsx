@@ -36,15 +36,17 @@ const BuilderUnitSelect = ({
   const baseOptions = useMemo(() => {
     const seen = new Set();
     return [{value: "", label: "Units"}, ...flattenUnitGroups(options)].flatMap(option => {
-      const base = unitSystem.units[option.value]?.prefixBase || option.value;
+      const root = unitSystem.units[option.value]?.prefixBase || option.value;
+      const base = root === "Units" ? "" : root;
       if (seen.has(base)) return [];
       seen.add(base);
       return [{ ...option, value: base, label: base ? getUnitDisplayLabel(base) : "Units" }];
     });
   }, [options]);
   const flatOptions = baseOptions;
-  const model = unitSystem.units[value];
-  const baseValue = model?.prefixBase || value;
+  const model = unitSystem.units[value || "Units"];
+  const prefixBase = model?.prefixBase || value;
+  const baseValue = prefixBase === "Units" ? "" : prefixBase;
   const prefix = model?.prefixKey || "";
   const selectedOption =
     flatOptions.find((option) => option.value === baseValue) ||
@@ -147,8 +149,8 @@ const BuilderUnitSelect = ({
       {model && <InlineMenuSelect ariaLabel={`${ariaLabel} prefix`} value={prefix}
         width="58px" prefixTable options={SI_PREFIX_OPTIONS.map(item => ({ value: item.key, label: item.label, shortLabel: item.shortLabel }))}
         onChange={nextPrefix => {
-          const key = prefixedUnitKey(baseValue, nextPrefix);
-          onChange(unitSystem.units[key]?.prefixBase === baseValue ? key : `${nextPrefix}(${baseValue})`);
+          const key = prefixedUnitKey(prefixBase, nextPrefix);
+          onChange(prefixBase === "Units" && !nextPrefix ? "" : unitSystem.units[key]?.prefixBase === prefixBase ? key : `${nextPrefix}(${prefixBase})`);
         }} />}
       {isOpen &&
         menuRect &&

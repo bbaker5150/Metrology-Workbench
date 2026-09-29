@@ -34,8 +34,8 @@ export default function useSidebarAutoWidths(rootRef) {
           for (const property of ["display", "font", "font-variant-numeric", "font-feature-settings", "text-transform", "letter-spacing", "padding", "border-width", "border-style", "box-sizing", "gap", "flex-direction", "align-items", "margin", "line-height"]) copy.style.setProperty(property, style.getPropertyValue(property));
           if (style.display === "grid") copy.style.gridTemplateColumns = `repeat(${style.gridTemplateColumns.split(" ").length}, max-content)`;
           if (source.matches('.point-value-with-unit > .point-edit-affordance')) {
-            const numberWidth = style.getPropertyValue('--point-value-number-width').trim() || '38px';
-            copy.style.gridTemplateColumns = `minmax(${numberWidth}, max-content) max-content`;
+            copy.style.display = 'flex';
+            copy.style.flexDirection = 'column';
           }
           copy.removeAttribute("id");
           copy.style.setProperty("width", "max-content");

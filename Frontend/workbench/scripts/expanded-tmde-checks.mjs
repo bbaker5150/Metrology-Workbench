@@ -171,6 +171,7 @@ export async function checkExpandedTmde({ frame, page, saved }) {
   const detailSource = frame.locator('tr[data-uncertainty-source-id]').first();
   assert.ok((await detailSource.locator('.cell-tolerance').textContent()).includes('0.3'), 'point view displays the actual manual spec');
   const point = frame.locator('[data-point-id="point"]');
+  await point.getByRole('button', {name:'Edit measurement point value',exact:true}).click();
   const unit = point.getByRole('button', { name: 'Measurement point unit base unit', exact: true });
   const prefix = point.getByRole('button', { name: 'Measurement point unit prefix', exact: true });
   await unit.click(); await frame.getByRole('option', {name:/^Pa\s/}).click();

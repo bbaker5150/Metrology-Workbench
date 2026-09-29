@@ -16,6 +16,7 @@ export async function checkSeptember22Followup({ frame, page, saved, until, chec
   await columns.getByRole('button', { name: 'Close column settings', exact: true }).click();
   const point = frame.locator('[data-point-id="point"]');
   check('bias columns are available with independent source values', await point.locator('[data-sidebar-column="uutBias"]').count() === 1 && await point.locator('[data-sidebar-column="tmdeBias"]').count() === 1);
+  await point.getByRole("button", {name:"Edit measurement point value",exact:true}).click();
   for (const zoom of [.75, 1, 1.25]) {
     await frame.evaluate(value => { document.documentElement.style.zoom = String(value); window.dispatchEvent(new Event('resize')); }, zoom);
     check(`value column includes the entire unit control at ${zoom * 100}%`, await until(async () => point.locator('[data-sidebar-column="value"]').evaluate(cell => {
@@ -27,6 +28,7 @@ export async function checkSeptember22Followup({ frame, page, saved, until, chec
     })));
   }
   await frame.evaluate(() => { document.documentElement.style.zoom = ''; window.dispatchEvent(new Event('resize')); });
+  await point.locator('.point-value-input-slot input').press('Enter');
   check('session picker chevron is at the right edge', await frame.locator('#session-select').evaluate(node => getComputedStyle(node, '::picker-icon').marginInlineStart !== '0px'));
 
   await frame.getByRole('button', { name: 'Edit measurement equation', exact: true }).click();

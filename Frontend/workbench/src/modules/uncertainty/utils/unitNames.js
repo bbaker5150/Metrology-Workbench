@@ -1,6 +1,7 @@
 import { SI_PREFIX_OPTIONS } from "./siPrefixes";
 // Search names are separate from symbols and conversion factors.
 const bases = {
+  Units: "unitless",
   V: "volt", A: "ampere", Ohm: "ohm", F: "farad", H: "henry", Hz: "hertz",
   s: "second", min: "minute", h: "hour", hr: "hour", K: "kelvin", degC: "degree Celsius", degF: "degree Fahrenheit",
   m: "meter", in: "inch", inch: "inch", ft: "foot", yd: "yard", mi: "mile", g: "gram", lb: "pound", oz: "ounce", t: "tonne",

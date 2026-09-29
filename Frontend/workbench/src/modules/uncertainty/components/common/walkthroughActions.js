@@ -102,7 +102,7 @@ export const walkthroughActions = {
     complete: (_context, _baseline, ui) => ui.evidence && !ui.visible('.correlation-matrix-modal'),
   },
   'budget-method': changed('Choose a propagation method or set its trial count.', '.budget-propagation-control', context => ({method:readPoint(context).budgetPropagationMethod, trials:readPoint(context).monteCarloTrials})),
-  'budget-edit': changed('Edit or reorder a budget contributor.', `${budget}, ${units}`, context => readPoint(context).components),
+  'budget-edit': changed('Edit or reorder a budget contributor.', `${budget}, ${units}`, context => ({ components: readPoint(context).components, order: readPoint(context).budgetComponentOrder })),
   'budget-dynamic': { ...added('Add a tabular or equation component from the budget + menu.', `${budget}, ${units}`, context => (readPoint(context).components || []).filter(component => component.dynamicDefinitionId)), },
   'repeatability': { ...changed('Add repeatability readings and save them to the budget.', `${budget}, ${units}`, repeatability),
     complete: (context, baseline) => json(repeatability(context)) !== baseline && repeatability(context).some(component => component.savedInputs.readings?.some(filled)),

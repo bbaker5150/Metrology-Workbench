@@ -824,6 +824,7 @@ export const SidebarPointItem = ({
   );
   const groupedCellRefs = useRef({});
   const pointRowRef = useRef(null);
+  const valueEditorRef = useRef(null);
   const [groupedCellGeometry, setGroupedCellGeometry] = useState({});
   const orderedVisibleColumns = getVisibleSidebarColumnOrder(
     visibleColumns,
@@ -957,7 +958,7 @@ export const SidebarPointItem = ({
         ...prevInfo,
         parameter: { ...prevParam, value: tempValue },
       };
-      onSave({ ...point, testPointInfo: newInfo });
+      if (String(prevParam.value ?? "") !== String(tempValue)) onSave({ ...point, testPointInfo: newInfo });
     } else if (editingField === "qualifier") {
       const prevInfo = point.testPointInfo || {};
       const prevQual = prevInfo.qualifier || {};
@@ -998,12 +999,22 @@ export const SidebarPointItem = ({
   const savePointUnit = (unit, editing) => {
     onSave({ ...point, testPointInfo: { ...point.testPointInfo,
       parameter: { ...point.testPointInfo?.parameter, ...(editing ? { value: tempValue } : {}), unit, unitless: !unit, unitSelectionExplicit: true, unavailableUnit: undefined } } });
-    if (editing) setEditingField(null);
+
   };
   const pointUnitControl = (editing = false) => <span className="point-unit-control" onClick={event => event.stopPropagation()} onPointerDown={event => event.stopPropagation()}
-    onBlur={event => { if (editing && !event.currentTarget.parentElement?.contains(event.relatedTarget) && !event.relatedTarget?.closest('.inline-unit-menu, .inline-menu-popover')) commitEdit(); }}>
+    onBlur={event => { if (editing && !valueEditorRef.current?.contains(event.relatedTarget) && !event.relatedTarget?.closest('.inline-unit-menu, .inline-menu-popover')) commitEdit(); }}>
     <UnitSelect value={displayUnit} onChange={unit => savePointUnit(unit, editing)} ariaLabel="Measurement point unit" compact />
   </span>;
+
+  useEffect(() => {
+    if (editingField !== "value") return;
+    const outside = event => {
+      if (valueEditorRef.current?.contains(event.target) || event.target.closest?.('.inline-unit-menu, .inline-menu-popover')) return;
+      commitEdit();
+    };
+    document.addEventListener('pointerdown', outside, true);
+    return () => document.removeEventListener('pointerdown', outside, true);
+  }, [editingField, tempValue, point]);
 
   // The spanning content is absolutely positioned, so measuring it cannot
   // enlarge the point rows. Use the real rendered row bounds to keep merged
@@ -1480,14 +1491,14 @@ export const SidebarPointItem = ({
       {/* Col 2: Value */}
       {visibleColumns.value &&
         (editingField === "value" ? (
-          <span className="point-value point-value-with-unit sidebar-value-sticky point-value-editing">
+          <span ref={valueEditorRef} className="point-value point-value-with-unit sidebar-value-sticky point-value-editing">
             <span className="point-edit-affordance">
             <PointNumericInput
               autoFocus
               value={tempValue}
               placeholder="Value"
               onChange={(e) => setTempValue(e.target.value)}
-              onBlur={event => { if (!event.relatedTarget?.closest('.point-unit-control')) commitEdit(); }}
+              onBlur={event => { if (!valueEditorRef.current?.contains(event.relatedTarget) && !event.relatedTarget?.closest('.inline-unit-menu, .inline-menu-popover')) commitEdit(); }}
               onKeyDown={handleKeyDown}
               onClick={(e) => e.stopPropagation()}
             />
@@ -1501,12 +1512,11 @@ export const SidebarPointItem = ({
               displayUnit ? ` ${getUnitDisplayLabel(displayUnit)}` : ""
             }`}
           >
-            <span className="point-edit-affordance">
-              <span className="point-value-number" onClick={(e) => handleSingleClickEdit(e, "value", displayValue)}>
-                {displayValue || <span className="point-placeholder">Value</span>}
-              </span>
-              {pointUnitControl()}
-            </span>
+            <button type="button" className="point-value-summary" aria-label="Edit measurement point value"
+              onClick={event => handleSingleClickEdit(event, "value", displayValue)}>
+              <span className="point-value-number">{displayValue !== "" && displayValue != null ? displayValue : <span className="point-placeholder">Value</span>}</span>
+              {" "}<span>{getUnitDisplayLabel(displayUnit) || "Units"}</span>
+            </button>
 
           </span>
         ))}
@@ -4835,10 +4845,12 @@ function App({ showThemeToggle = false }) {
         const scroller = table.parentElement;
         const scale = (table.getBoundingClientRect().width / table.offsetWidth || 1) / containerScale;
         const natural = parseFloat(table.style.getPropertyValue('--instrument-natural-table-width')) || parseFloat(table.style.minWidth) || 1200;
-        const overhead = (pane.getBoundingClientRect().width - scroller.getBoundingClientRect().width) / containerScale;
+        // An overflowing scroller can be wider than the pane during the transition.
+        // It contributes no negative padding and must never consume the pane itself.
+        const overhead = Math.max(0, (pane.getBoundingClientRect().width - scroller.getBoundingClientRect().width) / containerScale);
         return natural * scale + overhead + 2;
       }));
-      const width = Math.max(300, Math.min(1800, available - needed));
+      const width = Math.max(300, Math.min(1800, available - Math.max(320, needed)));
       setSidebarWidth(previous => Math.abs(previous - width) < 1 ? previous : width);
     };
     const schedule = () => { if (frame === null) frame = requestAnimationFrame(fit); };

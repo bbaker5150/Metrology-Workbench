@@ -234,8 +234,8 @@ export const normalizeInlineManualComponent = ({
   referencePoint,
 }) => {
   const physicalUnit = unit => unit && !relativeBudgetUnit(unit) ? unit : "";
-  const authoredUnit = physicalUnit(draft.unit) || ["floor", "reading", "range", "singleSided"]
-    .map(key => physicalUnit(draft.tolerance?.[key]?.unit)).find(Boolean) || "";
+  const authoredUnit = ["floor", "reading", "range", "singleSided"]
+    .map(key => physicalUnit(draft.tolerance?.[key]?.unit)).find(Boolean) || physicalUnit(draft.unit) || "";
   if (!referencePoint?.unit && authoredUnit) {
     // A blank measurement unit adopts the authored error limit's frame for
     // this component, without changing the measurement input itself.

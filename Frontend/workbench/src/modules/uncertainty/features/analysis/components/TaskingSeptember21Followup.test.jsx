@@ -110,5 +110,5 @@ it.each([UnitSelect, BuilderUnitSelect])("offers Units in each shared unit selec
   fireEvent.click(screen.getByRole("option",{name:/Units/}));
   expect(saved).toBe("");
   expect(screen.getByRole("button",{name:/Test unit( base unit)?$/})).toHaveTextContent("Units");
-  expect(screen.queryByRole("button",{name:"Test unit prefix"})).not.toBeInTheDocument();
+  expect(screen.getByRole("button",{name:"Test unit prefix"})).toHaveTextContent("Base");
 });

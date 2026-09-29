@@ -21967,3 +21967,28 @@ body.light-mode .uncertainty-module .instrument-uncertainty-rail {
 @media (prefers-reduced-motion: reduce) {
   .guided-walkthrough-card.is-action-complete { animation: none; }
 }
+
+/* A measurement value is one compact field until the user opens its editor. */
+.uncertainty-module .point-value-summary {
+  display: inline-flex; align-items: center; justify-content: center; gap: 5px;
+  max-width: 100%; min-width: 0; padding: 3px 5px; border: 1px solid transparent;
+  border-radius: 4px; background: transparent; color: inherit; font: inherit;
+  cursor: pointer; white-space: nowrap;
+}
+.uncertainty-module .point-value-summary:is(:hover, :focus-visible) {
+  border-color: var(--sidebar-function-color, var(--primary-color));
+  background: color-mix(in srgb, var(--sidebar-function-color, var(--primary-color)) 10%, transparent);
+}
+.uncertainty-module .measurement-group-container .point-value-editing > .point-edit-affordance {
+  display: flex; flex-direction: column; align-items: center; gap: 3px;
+  min-width: 0; max-width: 100%;
+}
+.uncertainty-module .measurement-group-container .point-value-editing .point-unit-control > .inline-unit-split-select {
+  display: flex; flex-wrap: wrap; justify-content: center; gap: 3px; max-width: 100%;
+}
+.uncertainty-module .measurement-group-container .point-value-editing .point-unit-control { max-width: 100%; }
+/* Read-only budget cells share the same baseline and inset regardless of source. */
+.uncertainty-module .uncertainty-budget-table .component-group-tbody > tr > td { vertical-align: middle; }
+.uncertainty-module .uncertainty-budget-table .component-group-tbody > tr > td:nth-child(2),
+.uncertainty-module .uncertainty-budget-table .component-group-tbody > tr > td:nth-child(3) { padding-left: 10px; }
+.uncertainty-module .uncertainty-budget-table .component-group-tbody > tr > td > .inline-tolerance-summary { margin: 0; padding-left: 0; padding-right: 0; }

@@ -80,6 +80,7 @@ export async function checkSeptember22({ frame, page, saved, until, check }) {
   check('Section can be edited and saved in the first default column', await until(async () => saved().testPoints[0].section === '4.2.1' && (await first.locator('[data-sidebar-column="section"]').innerText()).includes('4.2.1')));
   await first.locator('[data-sidebar-column="section"] .point-grouped-cell-label').click();
   await sectionInput.fill(originalSection); await sectionInput.press('Enter');
+  await first.getByRole('button', {name:'Edit measurement point value',exact:true}).click();
   const unit = first.getByRole('button', { name: 'Measurement point unit base unit', exact: true });
   check('compatible percentage tolerance initially produces limits and risk', await until(async () => /\d/.test(await first.locator('[data-sidebar-column="pfa"]').innerText())));
   const cardSizes = () => frame.locator('.budget-decision-card').evaluateAll(nodes => nodes.map(node => ({width:node.getBoundingClientRect().width,height:node.getBoundingClientRect().height})));

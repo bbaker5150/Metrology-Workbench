@@ -29,6 +29,7 @@ const canonicalUnit = (unit) => UNIT_ALIASES[unit] || unit;
 
 export const unitSystem = {
   units: {
+    Units: { to_si: 1, quantity: "Unitless" },
     // --- Voltage ---
     V: { to_si: 1, quantity: "Voltage" },
     mV: { to_si: 1e-3, quantity: "Voltage" },
@@ -1584,6 +1585,7 @@ const NONLINEARITY_WARN_RATIO = 0.1;
 // as torque). Keep this map separate from the display-unit conversion table so
 // existing unit aliases continue to work unchanged.
 const DIMENSIONS_BY_QUANTITY = {
+  Unitless: { M: 0, L: 0, T: 0, I: 0, Th: 0 },
   Ratio: { M: 0, L: 0, T: 0, I: 0, Th: 0 },
   Length: { M: 0, L: 1, T: 0, I: 0, Th: 0 },
   Area: { M: 0, L: 2, T: 0, I: 0, Th: 0 },

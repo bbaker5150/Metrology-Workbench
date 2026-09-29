@@ -38,12 +38,12 @@ export async function checkFieldStability({ frame, page, check }) {
     const row = frame.locator('.point-grid-item').first();
     await row.scrollIntoViewIfNeeded();
     const before = await metrics(row.locator('.point-value-number'));
-    const unitBefore = await metrics(row.locator('.point-unit-control'));
+    check(`${theme} point value hides unit controls until expanded`, await row.locator('.point-unit-control').count() === 0);
     await row.locator('.point-value-number').click(); await settle();
     const after = await metrics(row.locator('.sidebar-inline-input.value'));
     const unitAfter = await metrics(row.locator('.point-unit-control'));
-    check(`${theme} point value keeps row height, font, and text origin on edit`, Math.abs(before.rowHeight-after.rowHeight)<.6 && Math.abs(before.textX-after.textX)<.6 && before.font===after.font, JSON.stringify({before,after}));
-    check(`${theme} point unit stays in place on value edit`, Math.abs(unitBefore.x-unitAfter.x)<.6 && Math.abs(unitBefore.y-unitAfter.y)<.6, JSON.stringify({unitBefore,unitAfter}));
+    check(`${theme} point value keeps its font when the editor expands`, before.font===after.font, JSON.stringify({before,after}));
+    check(`${theme} point value expands to visible unit controls`, unitAfter.width > 0 && unitAfter.height > 0, JSON.stringify(unitAfter));
     await row.locator('.sidebar-inline-input.value').press('Escape');
   }
   const requirementFields = [

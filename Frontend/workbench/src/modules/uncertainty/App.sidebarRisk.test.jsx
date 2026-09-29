@@ -1198,6 +1198,7 @@ test("commits the edited value when tabbing through both unit controls and leavi
 test("measurement point units use the searchable instrument picker", () => {
   const onSave = vi.fn();
   const { container } = render(<SidebarPointItem point={{id:"p",testPointInfo:{parameter:{value:5,unit:"V"}}}} visibleColumns={{value:true}} onSave={onSave} onSelect={vi.fn()} />);
+  fireEvent.click(screen.getByRole("button", {name:"Edit measurement point value",exact:true}));
   fireEvent.click(screen.getByRole("button", {name:"Measurement point unit base unit",exact:true}));
   const search = document.querySelector(".inline-unit-search");
   expect(search).toBeInTheDocument();

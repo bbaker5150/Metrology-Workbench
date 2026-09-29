@@ -1,3 +1,4 @@
+import { measurementPreview } from '../../../utils/measurementPreview';
 import { newMeasurementAreaColor } from "../../../utils/measurementAreaGrouping";
 import MeasurementAreaEmptyHint from "../../../components/common/MeasurementAreaEmptyHint";
 import UncertaintyTypeMenu from "./UncertaintyTypeMenu";
@@ -399,8 +400,8 @@ const buildUnitPartModel = () => {
   const allSupportedUnits = Object.keys(unitSystem.units);
   const supportedUnitSet = new Set(allSupportedUnits);
   const scalableByUnit = new Map();
-  const baseOptionsByCategory = [{ label: "General", options: [{ value: "", unit: "", label: "Units", scalable: false }] }];
-  const usedBaseUnits = new Set();
+  const baseOptionsByCategory = [{ label: "General", options: [{ value: "Units", unit: "", label: "Units", scalable: true }] }];
+  const usedBaseUnits = new Set(["Units"]);
   const usedScalableUnits = new Set();
 
   allSupportedUnits.forEach(unit => {
@@ -517,7 +518,7 @@ export const UnitSelect = ({
     });
     return byBase;
   }, [scalableByUnit]);
-  const selectedModel = scalableByUnit.get(selectedUnit);
+  const selectedModel = scalableByUnit.get(selectedUnit || "Units");
   const selectedBase = selectedModel?.base || selectedUnit;
   const selectedPrefix = selectedModel?.prefix || "";
   const flatBaseOptions = useMemo(
@@ -536,13 +537,7 @@ export const UnitSelect = ({
     () => rankUnitOptions(baseOptionsByCategory, query),
     [baseOptionsByCategory, query],
   );
-  const unitWidth = useMemo(() => {
-    const longestLabelLength = Math.max(
-      4,
-      ...flatBaseOptions.map((option) => String(option.label || option.value || "").length),
-    );
-    return `${Math.min(longestLabelLength + 10, 18)}ch`;
-  }, [flatBaseOptions]);
+  const unitWidth = `${Math.max(4, (selectedBaseOption?.label || selectedOption?.label || value || "Units").length) + 3}ch`;
   const prefixOptions = selectedModel
     ? selectedModel.prefixes
         .map((prefix) => SI_PREFIX_OPTIONS.find((option) => option.key === prefix))
@@ -587,7 +582,7 @@ export const UnitSelect = ({
   const chooseBaseUnit = (option) => {
     if (option.scalable) {
       const model = scalableByBase.get(option.value);
-      onChange(unitKeyFromParts(option.value, model?.defaultPrefix || ""));
+      onChange(option.value === "Units" ? "" : unitKeyFromParts(option.value, model?.defaultPrefix || ""));
     } else {
       onChange(option.unit || option.value);
     }
@@ -599,7 +594,7 @@ export const UnitSelect = ({
   };
   const choosePrefix = (prefix) => {
     if (!selectedModel) return;
-    onChange(unitKeyFromParts(selectedModel.base, prefix));
+    onChange(selectedModel.base === "Units" && !prefix ? "" : unitKeyFromParts(selectedModel.base, prefix));
   };
   const handleTab = (event) => {
     if (event.key !== "Tab" || event.shiftKey || !onTab) return;
@@ -13579,17 +13574,15 @@ function DetailedView({
     }
   };
 
-  const moveBudgetComponent = useCallback((componentId, direction) => {
-    const components = [...(testPointData.components || [])];
-    const index = components.findIndex(
-      (component) => String(component.id) === String(componentId),
-    );
-    if (index < 0) return;
+  const moveBudgetComponent = useCallback((componentId, direction, visibleIds = []) => {
+    const order = visibleIds.map(String);
+    const index = order.indexOf(String(componentId));
     const target = index + direction;
-    if (target < 0 || target >= components.length) return;
-    [components[index], components[target]] = [components[target], components[index]];
-    onUpdateTestPoint?.({ components });
-  }, [onUpdateTestPoint, testPointData.components]);
+    if (index < 0 || target < 0 || target >= order.length) return;
+    [order[index], order[target]] = [order[target], order[index]];
+    const otherIds = (testPointData.budgetComponentOrder || []).filter(id => !order.includes(String(id)));
+    onUpdateTestPoint?.({ budgetComponentOrder: [...otherIds, ...order] });
+  }, [onUpdateTestPoint, testPointData.budgetComponentOrder]);
 
   const inferVariableUnit = useCallback(
     (variableName) => {
@@ -15085,11 +15078,13 @@ function DetailedView({
     [calcResults],
   );
 
-  const calculatedNominal = calcResults?.calculatedNominalValue;
+  const nominalPreview = measurementPreview(testPointData, calcResults?.calculatedNominalValue);
+  const calculatedNominal = nominalPreview.value;
   const targetNominal = parseFloat(uutNominal?.value);
 
   const getCalculatedStatus = () => {
     if (calculatedNominal == null || !Number.isFinite(calculatedNominal) || !Number.isFinite(targetNominal)) return "neutral";
+    if (!nominalPreview.unitsMatch) return "mismatch";
     const diff = Math.abs(calculatedNominal - targetNominal);
     const tolerance = Math.max(Math.abs(targetNominal * 0.0001), 1e-9);
     return diff <= tolerance ? "match" : "mismatch";
@@ -15219,7 +15214,7 @@ function DetailedView({
             <tfoot>
               <tr className="measurement-inputs-match-status">
                 <td colSpan={3} style={{ color: calcStatusStyle.color, backgroundColor: calcStatusStyle.backgroundColor }}>
-                  <FontAwesomeIcon icon={calcStatusStyle.icon} />{" "}
+                  {calcStatusStyle.icon && <FontAwesomeIcon icon={calcStatusStyle.icon} />}{" "}
                   Does not match measurement point
                 </td>
               </tr>
@@ -16006,22 +16001,22 @@ function DetailedView({
             </div>
             <div className="measurement-equation-inputs-card">
                 {equationVariableInputs}
-                {calcStatus !== "neutral" && (
+                {Number.isFinite(calculatedNominal) && (
                   <div
                     className="measurement-equation-status"
                     style={{ color: calcStatusStyle.color }}
                   >
                     <div className="measurement-equation-status-main">
-                      <FontAwesomeIcon icon={calcStatusStyle.icon} />
+                      {calcStatusStyle.icon && <FontAwesomeIcon icon={calcStatusStyle.icon} />}
                       <span>
                         Calculated:{" "}
                         <strong>
-                          {calculatedNominal?.toPrecision(6)} {getUnitDisplayLabel(uutNominal?.unit || "")}
+                          {calculatedNominal?.toPrecision(6)} {nominalPreview.unitsMatch ? getUnitDisplayLabel(uutNominal?.unit || "") : ""}
                         </strong>
                       </span>
                     </div>
                     <div className="measurement-equation-status-target">
-                      Target {targetNominal?.toPrecision(6)} {getUnitDisplayLabel(uutNominal?.unit || "")}
+                      Target {Number.isFinite(targetNominal) ? targetNominal.toPrecision(6) : "Not Set"} {getUnitDisplayLabel(uutNominal?.unit || "")}
                     </div>
                   </div>
                 )}
@@ -16819,6 +16814,7 @@ function DetailedView({
               onRemove={onRemoveComponent}
               onComponentUpdate={handleComponentUpdate}
               onMoveComponent={moveBudgetComponent}
+              componentOrder={testPointData.budgetComponentOrder || []}
               ToleranceEditorComponent={InlineToleranceCell}
               UnitSelectComponent={UnitSelect}
               newDynamicComponentId={newDynamicComponentId}

@@ -54,7 +54,7 @@ const DIST_OPTIONS = [
 
 const DIST_SELECT_STYLE = {
   width: "100%",
-  padding: "2px 4px",
+  padding: "2px 0",
   backgroundColor: "transparent",
   color: "inherit",
   border: "1px solid transparent",
@@ -347,7 +347,7 @@ const ManualValueCell = ({ component, onCommit, suffix }) => {
       }}
       style={{
         width: "80px",
-        padding: "2px 4px",
+        padding: "2px 0",
         background: "transparent",
         color: "inherit",
         border: "1px solid var(--primary-color)",
@@ -672,7 +672,7 @@ export const InlineManualComponentRow = ({
               activeRange={{
                 id: component.id,
                 max: referencePoint?.value,
-                unit: referencePoint?.unit || draft.unit || "",
+                unit: referencePoint?.unit || draft.tolerance?.floor?.unit || draft.unit || "",
               }}
               key={activeField}
               editable
@@ -688,6 +688,7 @@ export const InlineManualComponentRow = ({
                     : { ...(current.tolerance || {}), [typeKey]: nextTerm };
                   return {
                     ...current,
+                    ...(typeKey === "floor" && nextTerm?.unit !== undefined ? { unit: nextTerm.unit } : {}),
                     tolerance: applyManualToleranceDistribution(
                       nextTolerance,
                       current.errorDistributionDivisor || "1.732",
@@ -871,6 +872,7 @@ const UncertaintyBudgetTable = ({
   setNotification,
   onComponentUpdate,
   onMoveComponent,
+  componentOrder = [],
   ToleranceEditorComponent,
   UnitSelectComponent,
   newDynamicComponentId,
@@ -1105,15 +1107,11 @@ const UncertaintyBudgetTable = ({
             unit: group.unit,
           }
         : referencePoint;
-    // Manual rows are authored in the order they were added, but generated
-    // rows (such as UUT resolution) can be rebuilt after them. Keep all manual
-    // additions at the bottom without disturbing either group's stable order.
-    const orderedComponents = [
-      ...(group.components || []).filter(
-        (component) => !isStandaloneManualComponent(component),
-      ),
-      ...(group.components || []).filter(isStandaloneManualComponent),
-    ];
+    const rank = new Map(componentOrder.map((id, index) => [String(id), index]));
+    const defaultOrder = [...(group.components || []).filter(component => !isStandaloneManualComponent(component)), ...(group.components || []).filter(isStandaloneManualComponent)];
+    const orderedComponents = defaultOrder.sort((a, b) =>
+      (rank.get(String(a.id)) ?? rank.size) - (rank.get(String(b.id)) ?? rank.size));
+    const visibleIds = orderedComponents.filter(component => !component.isPropagationSummary).map(component => component.id);
     const labeledComponents = orderedComponents.map(component => {
       if (budgetUut && (component.uutResolutionBudgetSource || component.name === "UUT Resolution")) {
         const name = `${formatErrorSourceDescription(budgetUut)} - Resolution`;
@@ -1148,7 +1146,7 @@ const UncertaintyBudgetTable = ({
             onKindChange={!component.tmdeUncertaintySourceId && !component.sourceTmdeId && !component.tmdeBudgetSourceId ? (kind, typeDraft) => { setSwitchedComponentId(component.id); onComponentUpdate?.(component.id,
               { uncertaintyKind: kind, typeDraft, referencePoint: manualReferencePoint }, component); } : undefined}
             onCommit={dynamicDefinition => onComponentUpdate?.(component.id, { dynamicDefinition }, component)} onRemove={onRemove}
-            onMoveUp={() => onMoveComponent?.(component.id, -1)} onMoveDown={() => onMoveComponent?.(component.id, 1)}/>;
+            onMoveUp={() => onMoveComponent?.(component.id, -1, visibleIds)} onMoveDown={() => onMoveComponent?.(component.id, 1, visibleIds)}/>;
           if (isStandaloneManualComponent(component)) {
             return (
               <InlineManualComponentRow
@@ -1174,8 +1172,8 @@ const UncertaintyBudgetTable = ({
                   )
                 }
                 onRemove={onRemove}
-                onMoveUp={() => onMoveComponent?.(component.id, -1)}
-                onMoveDown={() => onMoveComponent?.(component.id, 1)}
+                onMoveUp={() => onMoveComponent?.(component.id, -1, visibleIds)}
+                onMoveDown={() => onMoveComponent?.(component.id, 1, visibleIds)}
               />
             );
           }
@@ -1204,8 +1202,8 @@ const UncertaintyBudgetTable = ({
               >
                 {onMoveComponent && !component.isPropagationSummary && (
                   <BudgetOrderControls
-                    onMoveUp={() => onMoveComponent(component.id, -1)}
-                    onMoveDown={() => onMoveComponent(component.id, 1)}
+                    onMoveUp={() => onMoveComponent(component.id, -1, visibleIds)}
+                    onMoveDown={() => onMoveComponent(component.id, 1, visibleIds)}
                   />
                 )}
                 <span className="budget-source-description">{displayName}</span>
@@ -1230,7 +1228,7 @@ const UncertaintyBudgetTable = ({
               <td>
                 {isRepeatabilityComponent(component) ? (
                   <button type="button" className="inline-tolerance-summary" aria-label="Edit repeatability measurements" onClick={event => onEdit?.(event, component)}>
-                    {`${formatNumber(std.value, getGroupSigFigs(group))} ${getUnitDisplayLabel(std.unit)}`.trim()}
+                    {`± ${formatNumber(std.value, getGroupSigFigs(group))} ${getUnitDisplayLabel(std.unit)}`.trim()}
                   </button>
                 ) : editableTolerance ? (
                   <ManualValueCell
