@@ -235,10 +235,11 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
     }));
     const hoverRow=instrumentCell.locator('.dynamic-lookup-table tbody tr').first();
     await hoverRow.hover();
-    check(`tabular hover highlight reaches the left edge in ${theme} mode`, await hoverRow.evaluate(row=>{
-      const gutter=getComputedStyle(row,'::before'), style=getComputedStyle(row), bounds=row.getBoundingClientRect(), scroll=row.closest('.dynamic-table-scroll').getBoundingClientRect();
-      return gutter.backgroundColor===style.backgroundColor && style.backgroundColor!=='rgba(0, 0, 0, 0)' && Math.abs(bounds.left+parseFloat(gutter.left)-scroll.left)<1 && Math.abs(parseFloat(gutter.width)-48)<1;
-    }));
+    const hoverGeometry=await hoverRow.evaluate(row=>{
+      const gutter=getComputedStyle(row.cells[0],'::before'), style=getComputedStyle(row), bounds=row.getBoundingClientRect(), scroll=row.closest('.dynamic-table-scroll').getBoundingClientRect();
+      return {gutterColor:gutter.backgroundColor,rowColor:style.backgroundColor,left:bounds.left+parseFloat(gutter.left)-scroll.left,width:parseFloat(gutter.width),hovered:row.matches(':hover')};
+    });
+    check(`tabular hover highlight reaches the left edge in ${theme} mode`, hoverGeometry.gutterColor===hoverGeometry.rowColor && hoverGeometry.rowColor!=='rgba(0, 0, 0, 0)' && Math.abs(hoverGeometry.left)<1 && Math.abs(hoverGeometry.width-48)<1, JSON.stringify(hoverGeometry));
     await instrumentCell.locator('.instrument-tolerance-toolbar').hover();
     check(`tabular actions stay hidden off-row in ${theme} mode`, await instrumentCell.locator('.dynamic-row-action-cell > button').evaluateAll(buttons=>buttons.every(button=>getComputedStyle(button).opacity==='0')));
     if(process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await instrumentCell.screenshot({path:`${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/instrument-tabular-${theme}.png`});
