@@ -216,7 +216,7 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
       const bounds=scroll.getBoundingClientRect();
       return scroll.scrollWidth<=scroll.clientWidth+1 && [...scroll.querySelectorAll('.dynamic-row-action-cell > button')].every(button=>button.getBoundingClientRect().right<=bounds.right+1);
     }));
-    await instrumentCell.locator('.dynamic-budget-header').hover();
+    await instrumentCell.locator('.instrument-tolerance-toolbar').hover();
     check(`tabular actions stay hidden off-row in ${theme} mode`, await instrumentCell.locator('.dynamic-row-action-cell > button').evaluateAll(buttons=>buttons.every(button=>getComputedStyle(button).opacity==='0')));
     if(process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await instrumentCell.screenshot({path:`${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/instrument-tabular-${theme}.png`});
   }
