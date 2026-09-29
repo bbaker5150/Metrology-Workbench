@@ -85,8 +85,8 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
     return remove.right <= add.left + 1 && [...table.querySelectorAll('th,td')].every(cell=>getComputedStyle(cell).borderBottomWidth==='0px');
   }));
   check('tabular units share a single toolbar row at the left', await tableEditor.evaluate(row => {
-    const slot=row.querySelector('.dynamic-unit-slot'), controls=slot.querySelector('.dynamic-inline-field');
-    const units=controls.getBoundingClientRect(), gear=row.querySelector('[aria-label="Change uncertainty type"]').getBoundingClientRect();
+    const controls=row.querySelector('.dynamic-inline-field');
+    const units=controls.getBoundingClientRect(), gear=(row.querySelector('[aria-label="Change uncertainty type"]') || row.querySelector('.dynamic-budget-modebar')).getBoundingClientRect();
     return units.right<gear.left && Math.abs(units.top+units.height/2-gear.top-gear.height/2)<2;
   }));
   check('tabular inputs align across rows without internal dividers', await tableEditor.locator('.dynamic-lookup-table').evaluate(table => {

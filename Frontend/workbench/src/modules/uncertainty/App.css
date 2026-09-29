@@ -22074,3 +22074,9 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
 .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-budget-options:empty { display: none; }
 .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-budget-header:not(:has(.dynamic-inline-field, .dynamic-budget-modebar)) { display: none !important; }
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table { margin-inline: auto; }
+
+/* Standalone editors without a settings toolbar use the same compact row. */
+.dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-budget-header { flex-direction: row-reverse; }
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-budget-header > .dynamic-budget-options { margin: 0 auto 0 0; }
+.dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-inline-field { display: flex; align-items: center; gap: 6px; }
+.dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-inline-field > span { white-space: nowrap; }
