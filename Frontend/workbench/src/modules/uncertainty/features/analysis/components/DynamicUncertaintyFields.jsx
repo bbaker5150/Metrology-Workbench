@@ -91,7 +91,7 @@ export default function DynamicUncertaintyFields({
   };
   const unitField = (key, label) => (
     <div className="dynamic-inline-field">
-      <span>{label}</span>
+      {draft.kind !== "table" && <span>{label}</span>}
       <UnitSelectComponent ariaLabel={label} value={draft[key]} onChange={value => change({ [key]: value })} compact width="max-content" />
     </div>
   );
