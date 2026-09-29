@@ -102,3 +102,21 @@ it('inserts tabular rows in place and retains unit prefix selection', () => {
   expect(screen.getByRole('columnheader',{name:/Unc. \(Low\)/})).toBeInTheDocument();
   expect(screen.getByRole('columnheader',{name:/Unc. \(High\)/})).toBeInTheDocument();
 });
+
+it('edits the Point header unit independently and preserves physical lookup values', () => {
+  function Harness() {
+    const [definition, save] = useState(() => createDynamicDefinition('table', {value: 1, unit: 'V'}));
+    return <DynamicUncertaintyFields definition={definition} referencePoint={{value:1,unit:'V'}} UnitSelectComponent={UnitSelect} showPreview={false} onChange={patch=>save(previous=>({...previous,...patch}))}/>;
+  }
+  render(<Harness/>);
+  const pointHeader=screen.getByRole('columnheader',{name:'Point V'});
+  fireEvent.click(within(pointHeader).getByRole('button',{name:'Edit point unit'}));
+  fireEvent.click(screen.getByRole('button',{name:'Point unit prefix'}));
+  fireEvent.click(screen.getByRole('option',{name:/Milli/}));
+  fireEvent.pointerDown(screen.getByLabelText('Measurement point row 1'));
+  expect(screen.getByRole('columnheader',{name:'Point mV'})).toBeInTheDocument();
+  expect(screen.getByLabelText('Measurement point row 1')).toHaveValue('1000');
+  expect(screen.getByRole('columnheader',{name:'Uncertainty V'})).toBeInTheDocument();
+  fireEvent.click(screen.getByRole('button',{name:'Edit point unit'}));
+  expect(screen.getByRole('button',{name:'Point unit prefix'})).toHaveTextContent('m');
+});

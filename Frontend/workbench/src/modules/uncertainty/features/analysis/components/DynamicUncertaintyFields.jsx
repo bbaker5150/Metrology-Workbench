@@ -40,7 +40,7 @@ function CollapsibleUnitControl({ value, label, onChange, UnitSelectComponent })
 // Shared uncertainty-value editor. Distribution belongs to the surrounding table column.
 export default function DynamicUncertaintyFields({
   definition: draft, component = {}, referencePoint, measurementPoint = referencePoint,
-  onChange, UnitSelectComponent, showPreview = true, modebarTarget, unitTarget,
+  onChange, UnitSelectComponent, showPreview = true, modebarTarget,
 }) {
   const rowRef = useRef(null);
   const draftRef = useRef(draft);
@@ -56,7 +56,7 @@ export default function DynamicUncertaintyFields({
   let boundValue = "Not Set";
   try { boundValue = dynamicMeasurementValue(draft.kind === "equation" ? measurementPoint : referencePoint, draft.measurementUnit); } catch { /* The live preview explains incomplete inputs. */ }
   const kindLabel = draft.kind === "table" ? "Tabular" : "Equation";
-  const measurementUnit = (draft.kind === "equation" ? measurementPoint?.unit : referencePoint?.unit) || draft.measurementUnit;
+  const measurementUnit = draft.kind === "table" && draft.measurementUnitExplicit ? draft.measurementUnit : (draft.kind === "equation" ? measurementPoint?.unit : referencePoint?.unit) || draft.measurementUnit;
   const displayPoint = value => {
     if (value === "" || value == null || measurementUnit === draft.measurementUnit) return value;
     try { return Number(dynamicMeasurementValue({ value, unit: draft.measurementUnit }, measurementUnit).toPrecision(14)); } catch { return value; }
@@ -121,7 +121,15 @@ export default function DynamicUncertaintyFields({
     <div className="dynamic-inline-field">
       {draft.kind !== "table" && <span>{label}</span>}
       {draft.kind === "table"
-        ? <CollapsibleUnitControl label={label} value={draft[key]} onChange={value => change({ [key]: value })} UnitSelectComponent={UnitSelectComponent} />
+        ? <CollapsibleUnitControl label={label} value={key === "measurementUnit" ? measurementUnit : draft[key]} onChange={value => {
+          if (key !== 'measurementUnit') { change({ [key]: value }); return; }
+          const rows = draftRef.current.rows.map(row => {
+            if (row.point === '' || row.point == null) return row;
+            try { return { ...row, point: dynamicMeasurementValue({ value: row.point, unit: draftRef.current.measurementUnit }, value) }; }
+            catch { return row; }
+          });
+          change({ measurementUnit: value, measurementUnitExplicit: true, rows });
+        }} UnitSelectComponent={UnitSelectComponent} />
         : <UnitSelectComponent ariaLabel={label} value={draft[key]} onChange={value => change({ [key]: value })} compact width="max-content" />}
     </div>
   );
@@ -134,13 +142,13 @@ export default function DynamicUncertaintyFields({
   return (<div ref={rowRef} className="dynamic-budget-editor" data-dynamic-kind={draft.kind} data-budget-editor="limit" role="group" aria-label={`${kindLabel} uncertainty editor`}>
             <div className="dynamic-budget-header">
             {draft.kind === "table" && modebarTarget ? createPortal(symmetryControl, modebarTarget) : symmetryControl}
-            <div className="dynamic-budget-options">{draft.kind === "table" && unitTarget ? createPortal(unitField("outputUnit", "Uncertainty unit"), unitTarget) : unitField("outputUnit", "Uncertainty unit")}</div>
+            <div className="dynamic-budget-options">{draft.kind !== "table" && unitField("outputUnit", "Uncertainty unit")}</div>
             </div>
             {draft.kind === "table" ? <>
               <div className="dynamic-table-scroll"><table className="dynamic-input-table dynamic-lookup-table" style={{ "--dynamic-data-width": `max(${Math.max(11, ...cells.map(cell => ((cell.key === "point" ? "Point" : cell.key === "low" ? "Unc. (Low)" : cell.key === "high" ? "Unc. (High)" : "Uncertainty").length + getUnitDisplayLabel(cell.key === "point" ? measurementUnit : draft.outputUnit).length + 1) * 0.55 + 3))}rem, ${columnWidths.map(width => `calc(${width} + 20px)`).join(", ")})`, "--dynamic-table-width": `calc(var(--dynamic-data-width) * ${cells.length} + 48px)` }}>
                 <colgroup>{cells.map((cell, index) => <col key={index} style={{ width: `calc((100% - 48px) / ${cells.length})` }} />)}<col style={{ width: "48px" }} /></colgroup><thead>
-                <tr><th>Point <span className="dynamic-header-unit">{getUnitDisplayLabel(measurementUnit)}</span></th>
-                  {cells.slice(1).map(cell => <th key={`${cell.column}:${cell.key}`}>{cell.key === "value" ? "Uncertainty" : cell.key === "low" ? "Unc. (Low)" : "Unc. (High)"}<span className="dynamic-header-unit">{getUnitDisplayLabel(draft.outputUnit)}</span></th>)}<th aria-label="Row actions" /></tr>
+                <tr><th aria-label={`Point ${getUnitDisplayLabel(measurementUnit)}`.trim()}><span className="dynamic-column-heading">Point {unitField("measurementUnit", "Point unit")}</span></th>
+                  {cells.slice(1).map(cell => <th key={`${cell.column}:${cell.key}`} aria-label={`${cell.key === "value" ? "Uncertainty" : cell.key === "low" ? "Unc. (Low)" : "Unc. (High)"} ${getUnitDisplayLabel(draft.outputUnit)}`.trim()}><span className="dynamic-column-heading">{cell.key === "value" ? "Uncertainty" : cell.key === "low" ? "Unc. (Low)" : "Unc. (High)"}{unitField("outputUnit", "Uncertainty unit")}</span></th>)}<th aria-label="Row actions" /></tr>
               </thead><tbody>
                 {draft.rows.map((row, index) => <tr key={row.id}>
                   {cells.map((cell, col) => <td key={`${cell.column || "point"}:${cell.key}`}>

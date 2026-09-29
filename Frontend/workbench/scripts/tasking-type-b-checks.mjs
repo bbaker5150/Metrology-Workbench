@@ -84,10 +84,8 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
     const add=table.querySelector('.dynamic-row-add').getBoundingClientRect(), remove=table.querySelector('.dynamic-row-remove').getBoundingClientRect();
     return remove.right <= add.left + 1 && [...table.querySelectorAll('th,td')].every(cell=>getComputedStyle(cell).borderBottomWidth==='1px');
   }));
-  check('tabular units are centered in the header row', await tableEditor.evaluate(row => {
-    const units=row.querySelector('.dynamic-inline-field').getBoundingClientRect();
-    const header=(row.querySelector('.budget-uncertainty-type-toolbar') || row.querySelector('.dynamic-budget-header')).getBoundingClientRect();
-    return Math.abs(units.left+units.width/2-header.left-header.width/2)<2;
+  check('tabular units sit beside their column names', await tableEditor.evaluate(row => {
+    return ['Point','Uncertainty'].every((label,index)=>row.querySelectorAll('.dynamic-lookup-table th')[index].querySelector('.dynamic-unit-summary'));
   }));
   check('tabular inputs align across rows with internal dividers', await tableEditor.locator('.dynamic-lookup-table').evaluate(table => {
     const rows=[...table.tBodies[0].rows];
@@ -184,6 +182,10 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
     for(let i=0;i<20;i++) { await new Promise(requestAnimationFrame); widths.push(table.getBoundingClientRect().width); }
     return Math.max(...widths)-Math.min(...widths)<1;
   }));
+  const pointUnitSummary=instrumentCell.getByRole('button',{name:'Edit point unit',exact:true});
+  await pointUnitSummary.click();
+  check('Point header opens its own unit and prefix controls',await instrumentCell.getByRole('button',{name:'Point unit',exact:true}).isVisible() && await instrumentCell.getByRole('button',{name:'Point unit prefix',exact:true}).isVisible());
+  await instrumentCell.getByLabel('Measurement point row 1',{exact:true}).click();
   const unitSummary=instrumentCell.getByRole('button',{name:'Edit uncertainty unit',exact:true});
   check('tabular units start as a collapsed summary',await unitSummary.isVisible());
   await unitSummary.click();
@@ -220,13 +222,11 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
         });
       });
     }));
-    check(`tabular unit controls align on the toolbar and table stays centered in ${theme} mode`, await instrumentCell.evaluate(cell=>{
-      const units=cell.querySelector('.dynamic-unit-slot').getBoundingClientRect(), gear=cell.querySelector('[aria-label="Change uncertainty type"]').getBoundingClientRect();
+    check(`tabular header units and data stay centered in ${theme} mode`, await instrumentCell.evaluate(cell=>{
       const table=cell.querySelector('.dynamic-lookup-table'), scroll=cell.querySelector('.dynamic-table-scroll').getBoundingClientRect();
       const headers=[...table.tHead.rows[0].cells].slice(0,-1), first=headers[0].getBoundingClientRect(), last=headers.at(-1).getBoundingClientRect();
       const editor=cell.querySelector('.inline-tolerance-editor').getBoundingClientRect();
-      const toolbar=cell.querySelector('.instrument-tolerance-toolbar').getBoundingClientRect();
-      return Math.abs(units.left+units.width/2-toolbar.left-toolbar.width/2)<2 && units.right<gear.left && Math.abs(units.top+units.height/2-gear.top-gear.height/2)<2 && Math.abs((first.left+last.right)/2-scroll.left-scroll.width/2)<2 && Math.abs((first.left+last.right)/2-editor.left-editor.width/2)<2;
+      return headers.every(header=>header.querySelector('.dynamic-unit-summary')) && Math.abs((first.left+last.right)/2-scroll.left-scroll.width/2)<2 && Math.abs((first.left+last.right)/2-editor.left-editor.width/2)<2;
     }));
     check(`tabular symmetry sits at the left opposite its gear in ${theme} mode`, await instrumentCell.evaluate(cell=>{
       const mode=cell.querySelector('.dynamic-symmetry-slot').getBoundingClientRect(), gear=cell.querySelector('[aria-label="Change uncertainty type"]').getBoundingClientRect();

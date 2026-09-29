@@ -22111,3 +22111,11 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
 .dynamic-unit-summary { display: inline-flex; align-items: center; justify-content: center; padding: 3px 5px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: inherit; font: inherit; cursor: pointer; white-space: nowrap; }
 .dynamic-unit-summary:is(:hover, :focus-visible) { border-color: var(--sidebar-function-color, var(--primary-color)); background: color-mix(in srgb, var(--sidebar-function-color, var(--primary-color)) 10%, transparent); }
 .dynamic-unit-control { display: inline-flex; align-items: center; }
+
+/* Units belong to their data-column headers; the toolbar contains only actions. */
+:is(.instrument-tolerance-toolbar, .budget-uncertainty-type-toolbar):has(> .dynamic-symmetry-slot) { display: flex; align-items: center; justify-content: space-between; }
+:is(.instrument-tolerance-toolbar, .budget-uncertainty-type-toolbar) > .dynamic-symmetry-slot { margin-right: auto; }
+.dynamic-column-heading { display: inline-flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 3px; }
+.dynamic-column-heading .dynamic-inline-field { display: inline-flex; margin: 0; }
+.dynamic-column-heading .dynamic-unit-summary { padding: 2px 3px; }
+.dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-budget-header:has(> .dynamic-budget-modebar) { flex-direction: row; justify-content: flex-start; }
