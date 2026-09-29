@@ -105,9 +105,9 @@ export default function DynamicUncertaintyFields({
             <div className="dynamic-budget-options">{unitField("outputUnit", "Uncertainty unit")}</div>
             </div>
             {draft.kind === "table" ? <>
-              <div className="dynamic-table-scroll"><table className="dynamic-input-table dynamic-lookup-table" style={{ "--dynamic-data-width": `max(${Math.max(14, ...cells.map(cell => ((cell.key === "point" ? "Measurement point" : cell.key === "low" ? "Unc. (Low)" : cell.key === "high" ? "Unc. (High)" : "Uncertainty").length + getUnitDisplayLabel(cell.key === "point" ? measurementUnit : draft.outputUnit).length + 1) * 0.55 + 3))}rem, ${columnWidths.map(width => `calc(${width} + 20px)`).join(", ")})`, "--dynamic-table-width": `calc(var(--dynamic-data-width) * ${cells.length} + 48px)` }}>
+              <div className="dynamic-table-scroll"><table className="dynamic-input-table dynamic-lookup-table" style={{ "--dynamic-data-width": `max(${Math.max(11, ...cells.map(cell => ((cell.key === "point" ? "Point" : cell.key === "low" ? "Unc. (Low)" : cell.key === "high" ? "Unc. (High)" : "Uncertainty").length + getUnitDisplayLabel(cell.key === "point" ? measurementUnit : draft.outputUnit).length + 1) * 0.55 + 3))}rem, ${columnWidths.map(width => `calc(${width} + 20px)`).join(", ")})`, "--dynamic-table-width": `calc(var(--dynamic-data-width) * ${cells.length} + 48px)` }}>
                 <colgroup>{cells.map((cell, index) => <col key={index} style={{ width: `calc((100% - 48px) / ${cells.length})` }} />)}<col style={{ width: "48px" }} /></colgroup><thead>
-                <tr><th>Measurement point <span className="dynamic-header-unit">{getUnitDisplayLabel(measurementUnit)}</span></th>
+                <tr><th>Point <span className="dynamic-header-unit">{getUnitDisplayLabel(measurementUnit)}</span></th>
                   {cells.slice(1).map(cell => <th key={`${cell.column}:${cell.key}`}>{cell.key === "value" ? "Uncertainty" : cell.key === "low" ? "Unc. (Low)" : "Unc. (High)"}<span className="dynamic-header-unit">{getUnitDisplayLabel(draft.outputUnit)}</span></th>)}<th aria-label="Row actions" /></tr>
               </thead><tbody>
                 {draft.rows.map((row, index) => <tr key={row.id}>
