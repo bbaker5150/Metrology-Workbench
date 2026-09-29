@@ -215,3 +215,10 @@ it.each(["table", "equation"])("retains the active %s distribution instead of a 
     if (saved.kind !== 'parametric') expect(saved.dynamicDefinition.distribution).toBe('1.414');
   }
 });
+
+it.each(['table', 'equation'])('hides Bias controls for %s components even when a manual bias was saved', kind => {
+  render(<InlineToleranceCell tolerance={{bias:{value:1,unit:'V'},tmdeUncertaintyDefinition:createDynamicDefinition(kind,{unit:'V'})}}
+    activeRange={{unit:'V'}} biasRole="tmde" editable openRequested onCommit={()=>{}} />);
+  expect(screen.queryByRole('button',{name:/bias/i})).toBeNull();
+  expect(document.querySelector('.instrument-bias-editor')).toBeNull();
+});

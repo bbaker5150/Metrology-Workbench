@@ -4857,15 +4857,6 @@ export const InlineToleranceCell = ({
       </>}
       {(biasRole === "tmde" || biasRole === "source" || onAddSecondary || onUncertaintyKindChange) && <div className="instrument-source-toolbar">
         <div className="instrument-source-actions">
-          {activeBiasRole && !selectedSecondary && selectedType !== "parametric" && <button type="button"
-            aria-label="Edit Bias" title="Edit Bias" aria-pressed={showBias}
-            onClick={() => {
-              if (showBias) {
-                const { bias: removedBias, ...withoutBias } = tolerance;
-                onCommit("__replace__", withoutBias);
-              }
-              setShowBias(value => !value);
-            }}>Bias</button>}
           <UncertaintyTypeMenu value={selectedType} onChange={kind => {
             if (onUncertaintyKindChange) return onUncertaintyKindChange(kind);
             const definitions = { ...((selectedSecondary || tolerance).uncertaintyTypeDrafts || {}),
@@ -4949,12 +4940,6 @@ export const InlineToleranceCell = ({
         <DynamicUncertaintyFields definition={selectedDefinition || createDynamicDefinition(selectedType, referencePoint || activeRange)}
           referencePoint={referencePoint || activeRange} UnitSelectComponent={UnitSelect} showPreview={false}
           onChange={patch => updateSelectedSource(selectedSecondary ? { dynamicDefinition: { ...selectedDefinition, ...patch } } : { tmdeUncertaintyDefinition: { ...selectedDefinition, ...patch } })} />
-        {activeBiasRole && !selectedSecondary && showBias && <div className="instrument-bias-editor">
-          <span className="instrument-bias-label">Bias:</span>
-          <BiasValueEditor label="Range source bias" value={tolerance.bias}
-            unit={activeRange.unit || referencePoint?.unit}
-            onChange={bias => onCommit("__replace__", { ...tolerance, bias: { ...bias, corrected: false } })} />
-        </div>}
       </>}
       {secondarySources.length > 0 && <div className="instrument-secondary-pills">
         <button type="button" className={!selectedSecondary ? "instrument-secondary-pill is-active" : "instrument-secondary-pill"}
