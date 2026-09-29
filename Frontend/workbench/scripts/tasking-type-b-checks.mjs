@@ -202,8 +202,10 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
     }));
     check(`tabular unit controls align on the toolbar and table stays centered in ${theme} mode`, await instrumentCell.evaluate(cell=>{
       const units=cell.querySelector('.dynamic-unit-slot').getBoundingClientRect(), gear=cell.querySelector('[aria-label="Change uncertainty type"]').getBoundingClientRect();
-      const table=cell.querySelector('.dynamic-lookup-table').getBoundingClientRect(), scroll=cell.querySelector('.dynamic-table-scroll').getBoundingClientRect();
-      return units.right<gear.left && Math.abs(units.top+units.height/2-gear.top-gear.height/2)<2 && Math.abs(table.left+table.width/2-scroll.left-scroll.width/2)<2;
+      const table=cell.querySelector('.dynamic-lookup-table'), scroll=cell.querySelector('.dynamic-table-scroll').getBoundingClientRect();
+      const headers=[...table.tHead.rows[0].cells].slice(0,-1), first=headers[0].getBoundingClientRect(), last=headers.at(-1).getBoundingClientRect();
+      const editor=cell.querySelector('.inline-tolerance-editor').getBoundingClientRect();
+      return units.right<gear.left && Math.abs(units.top+units.height/2-gear.top-gear.height/2)<2 && Math.abs((first.left+last.right)/2-scroll.left-scroll.width/2)<2 && Math.abs((first.left+last.right)/2-editor.left-editor.width/2)<2;
     }));
     check(`tabular symmetry sits directly left of its gear in ${theme} mode`, await instrumentCell.evaluate(cell=>{
       const mode=cell.querySelector('.dynamic-symmetry-slot').getBoundingClientRect(), gear=cell.querySelector('[aria-label="Change uncertainty type"]').getBoundingClientRect();
