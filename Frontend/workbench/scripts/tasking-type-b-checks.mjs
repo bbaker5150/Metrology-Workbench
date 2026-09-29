@@ -84,9 +84,10 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
     const add=table.querySelector('.dynamic-row-add').getBoundingClientRect(), remove=table.querySelector('.dynamic-row-remove').getBoundingClientRect();
     return remove.right <= add.left + 1 && [...table.querySelectorAll('th,td')].every(cell=>getComputedStyle(cell).borderBottomWidth==='0px');
   }));
-  check('tabular units stay at the upper right', await tableEditor.locator('.dynamic-budget-editor').evaluate(editor => {
-    const units=editor.querySelector('.dynamic-budget-options').getBoundingClientRect(), header=editor.querySelector('.dynamic-budget-header').getBoundingClientRect();
-    return Math.abs(units.right-header.right)<2;
+  check('tabular units share a single toolbar row at the left', await tableEditor.evaluate(row => {
+    const slot=row.querySelector('.dynamic-unit-slot'), controls=slot.querySelector('.dynamic-inline-field');
+    const units=controls.getBoundingClientRect(), gear=row.querySelector('[aria-label="Change uncertainty type"]').getBoundingClientRect();
+    return units.right<gear.left && Math.abs(units.top+units.height/2-gear.top-gear.height/2)<2;
   }));
   check('tabular inputs align across rows without internal dividers', await tableEditor.locator('.dynamic-lookup-table').evaluate(table => {
     const rows=[...table.tBodies[0].rows];
@@ -198,6 +199,11 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
           return Math.abs(input.left+input.width/2-box.left-box.width/2)<1 && style.borderBottomWidth==='0px' && style.borderBottomColor===getComputedStyle(row.cells[0]).borderRightColor;
         });
       });
+    }));
+    check(`tabular unit controls align on the toolbar and table stays centered in ${theme} mode`, await instrumentCell.evaluate(cell=>{
+      const units=cell.querySelector('.dynamic-unit-slot').getBoundingClientRect(), gear=cell.querySelector('[aria-label="Change uncertainty type"]').getBoundingClientRect();
+      const table=cell.querySelector('.dynamic-lookup-table').getBoundingClientRect(), scroll=cell.querySelector('.dynamic-table-scroll').getBoundingClientRect();
+      return units.right<gear.left && Math.abs(units.top+units.height/2-gear.top-gear.height/2)<2 && Math.abs(table.left+table.width/2-scroll.left-scroll.width/2)<2;
     }));
     check(`tabular symmetry sits directly left of its gear in ${theme} mode`, await instrumentCell.evaluate(cell=>{
       const mode=cell.querySelector('.dynamic-symmetry-slot').getBoundingClientRect(), gear=cell.querySelector('[aria-label="Change uncertainty type"]').getBoundingClientRect();

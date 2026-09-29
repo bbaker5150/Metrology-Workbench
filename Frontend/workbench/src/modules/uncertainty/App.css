@@ -22066,3 +22066,11 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table input[data-has-value="true"]:not(:focus):not(:hover) {
   border-color: transparent !important; background: transparent !important; box-shadow: none !important; outline: none;
 }
+
+.dynamic-unit-slot { display: inline-flex; align-items: center; margin-right: auto; }
+.dynamic-unit-slot .dynamic-inline-field { display: flex; align-items: center; gap: 6px; }
+.dynamic-unit-slot .dynamic-inline-field > span { white-space: nowrap; }
+.dynamic-unit-slot .inline-unit-split-select { display: inline-flex; flex-wrap: nowrap; align-items: center; }
+.dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-budget-options:empty { display: none; }
+.dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-budget-header:not(:has(.dynamic-inline-field, .dynamic-budget-modebar)) { display: none !important; }
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table { margin-inline: auto; }
