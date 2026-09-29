@@ -80,11 +80,21 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
     const widths=inputs.map(input=>input.getBoundingClientRect().width);
     return Math.max(...widths)-Math.min(...widths)<1 && widths.every(width=>width<70);
   }));
-  check('tabular row add precedes delete and separators are removed', await tableEditor.locator('.dynamic-lookup-table').evaluate(table => {
+  check('tabular delete precedes add and horizontal separators are removed', await tableEditor.locator('.dynamic-lookup-table').evaluate(table => {
     const add=table.querySelector('.dynamic-row-add').getBoundingClientRect(), remove=table.querySelector('.dynamic-row-remove').getBoundingClientRect();
-    return add.right <= remove.left + 1 && [...table.querySelectorAll('th,td')].every(cell=>getComputedStyle(cell).borderBottomWidth==='0px');
+    return remove.right <= add.left + 1 && [...table.querySelectorAll('th,td')].every(cell=>getComputedStyle(cell).borderBottomWidth==='0px');
   }));
-  check('tabular symmetry sits above unit selection', await tableEditor.locator('.dynamic-budget-editor').evaluate(editor => editor.querySelector('.dynamic-budget-modebar').getBoundingClientRect().bottom <= editor.querySelector('.dynamic-budget-options').getBoundingClientRect().top + 1));
+  check('tabular units sit at the upper right beside symmetry', await tableEditor.locator('.dynamic-budget-editor').evaluate(editor => {
+    const mode=editor.querySelector('.dynamic-budget-modebar').getBoundingClientRect(), units=editor.querySelector('.dynamic-budget-options').getBoundingClientRect(), header=editor.querySelector('.dynamic-budget-header').getBoundingClientRect();
+    return units.left > mode.right && Math.abs(units.right-header.right)<2 && Math.abs(mode.top+mode.height/2-units.top-units.height/2)<2;
+  }));
+  check('tabular inputs align across rows and the column divider is continuous', await tableEditor.locator('.dynamic-lookup-table').evaluate(table => {
+    const rows=[...table.tBodies[0].rows];
+    return rows.every(row=> {
+      const a=row.cells[0].querySelector('input').getBoundingClientRect(), b=row.cells[1].querySelector('input').getBoundingClientRect();
+      return Math.abs(a.top-b.top)<1 && Math.abs(a.height-b.height)<1 && getComputedStyle(row.cells[0]).borderRightWidth==='1px';
+    }) && getComputedStyle(table.tHead.rows[0].cells[0]).borderRightWidth==='1px';
+  }));
   if (process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await page.screenshot({ path: `${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/tasking-builder-table.png` });
   await tableEditor.hover();
   await tableEditor.getByRole('button', { name: 'Remove dynamic component', exact: true }).click();

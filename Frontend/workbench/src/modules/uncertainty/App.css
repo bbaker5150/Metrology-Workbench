@@ -22015,3 +22015,19 @@ body.light-mode .uncertainty-module .instrument-uncertainty-rail {
 body.light-mode .uncertainty-module .instrument-equipment-table > thead > tr > th,
 body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th { transition: none !important; }
 .uncertainty-module .instrument-first-hint { box-sizing: border-box; }
+
+/* Tabular controls share a top row; numeric columns retain a clear divider. */
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] > .dynamic-budget-header {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 8px;
+}
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-budget-header > .dynamic-budget-options {
+  margin: 0 0 0 auto;
+}
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-budget-modebar { margin: 0; }
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-lookup-table > :is(thead, tbody) > tr > :is(th, td):first-child {
+  border-right: 1px solid var(--instrument-editor-divider, var(--table-divider-color, var(--border-color)));
+}
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-lookup-table > :is(thead, tbody) > tr > :is(th, td) {
+  vertical-align: middle; padding: 3px 6px; text-align: left;
+}
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-lookup-table input { display: block; margin: 0; height: 24px; box-sizing: border-box; }

@@ -94,7 +94,8 @@ export default function DynamicUncertaintyFields({
       <UnitSelectComponent ariaLabel={label} value={draft[key]} onChange={value => change({ [key]: value })} compact width="max-content" />
     </div>
   );
-  return (<div ref={rowRef} className="dynamic-budget-editor" data-budget-editor="limit" role="group" aria-label={`${kindLabel} uncertainty editor`}>
+  return (<div ref={rowRef} className="dynamic-budget-editor" data-dynamic-kind={draft.kind} data-budget-editor="limit" role="group" aria-label={`${kindLabel} uncertainty editor`}>
+            <div className="dynamic-budget-header">
             <div className="dynamic-budget-modebar">
               <div className="inline-tolerance-mini-toggle" role="group" aria-label="Error limit symmetry">
                 <button type="button" title="Symmetric tolerance" aria-pressed={draft.mode !== "limits"} className={draft.mode !== "limits" ? "is-active" : ""} onClick={() => changeSymmetry(false)}>±</button>
@@ -102,6 +103,7 @@ export default function DynamicUncertaintyFields({
               </div>
             </div>
             <div className="dynamic-budget-options">{unitField("outputUnit", "Uncertainty unit")}</div>
+            </div>
             {draft.kind === "table" ? <>
               <div className="dynamic-table-scroll"><table className="dynamic-input-table dynamic-lookup-table"><thead>
                 <tr><th>Measurement point <span className="dynamic-header-unit">{getUnitDisplayLabel(measurementUnit)}</span></th>
@@ -133,9 +135,9 @@ export default function DynamicUncertaintyFields({
                         }
                       }} />
                   </td>)}
-                  <td className="dynamic-row-action-cell"><button type="button" className="dynamic-inline-action dynamic-row-add" title="Add row below" aria-label={`Add table row after row ${index + 1}`}
-                    onClick={() => addRow(index + 1)}><FontAwesomeIcon icon={faPlus} /></button><button type="button" className="dynamic-inline-action dynamic-row-remove" title="Remove row" aria-label={`Delete table row ${index + 1}`}
-                    onClick={() => change({ rows: draft.rows.length === 1 ? [emptyRow()] : draft.rows.filter(r => r.id !== row.id) })}><FontAwesomeIcon icon={faTimes} /></button></td>
+                  <td className="dynamic-row-action-cell"><button type="button" className="dynamic-inline-action dynamic-row-remove" title="Remove row" aria-label={`Delete table row ${index + 1}`}
+                    onClick={() => change({ rows: draft.rows.length === 1 ? [emptyRow()] : draft.rows.filter(r => r.id !== row.id) })}><FontAwesomeIcon icon={faTimes} /></button><button type="button" className="dynamic-inline-action dynamic-row-add" title="Add row below" aria-label={`Add table row after row ${index + 1}`}
+                    onClick={() => addRow(index + 1)}><FontAwesomeIcon icon={faPlus} /></button></td>
                 </tr>)}
               </tbody></table></div>
             </> : <>
