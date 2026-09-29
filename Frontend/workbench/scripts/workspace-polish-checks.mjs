@@ -144,6 +144,7 @@ export async function checkWorkspacePolish({ frame, page, saved, until, check })
     if (theme === 'dark') await frame.getByRole('button', { name: 'Switch to dark mode', exact: true }).click();
     await frame.locator('.analysis-tabs').hover();
     await point.getByRole('button', {name:'Edit measurement point value',exact:true}).click();
+    check(`instrument headers do not animate scrolling in ${theme} mode`, await frame.locator('.instrument-equipment-table > thead > tr > th').evaluateAll(headers => headers.length > 0 && headers.every(header => getComputedStyle(header).transitionDuration === '0s')));
     const valueMenus = point.locator('.point-unit-control .inline-unit-combobox');
     check(`Value dropdown borders are hidden at rest in ${theme} mode`, await until(async () => valueMenus.evaluateAll(buttons => buttons.every(button => getComputedStyle(button).borderTopColor === 'rgba(0, 0, 0, 0)'))));
     for (const index of [0, 1]) {

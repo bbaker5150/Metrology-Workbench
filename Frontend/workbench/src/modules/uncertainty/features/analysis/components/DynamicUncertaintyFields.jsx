@@ -35,7 +35,7 @@ export default function DynamicUncertaintyFields({
   const displayColumns = draft.columns.filter(column => column.id === (component.dynamicOutputId || draft.columns[0]?.id));
   const cells = [{ label: "Measurement point", key: "point" }, ...displayColumns.flatMap(column =>
     (draft.mode === "limits" ? ["low", "high"] : ["value"]).map(key => ({ column: column.id, key, label: key === "low" ? "Low" : key === "high" ? "High" : "Uncertainty" })))];
-  const columnWidths = cells.map(cell => `calc(${Math.max(1, ...draft.rows.map(row => String(cell.key === "point" ? displayPoint(row.point) : row.values?.[cell.column]?.[cell.key] ?? "").length))}ch + 16px)`);
+  const columnWidths = cells.map(cell => `calc(${Math.max(1, ...(draft.rows || []).map(row => String(cell.key === "point" ? displayPoint(row.point) : row.values?.[cell.column]?.[cell.key] ?? "").length))}ch + 16px)`);
   const setCell = (rows, index, cell, value) => {
     const row = rows[index];
     let point = value;

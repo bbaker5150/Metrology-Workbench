@@ -70,6 +70,21 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
   await tableEditor.locator('[data-dynamic-cell="0:0"]').fill('5');
   await tableEditor.locator('[data-dynamic-cell="0:1"]').fill('.01');
   check('builder table inputs share the themed inline styling', await tableEditor.locator('[data-dynamic-cell="0:1"]').evaluate(node => getComputedStyle(node).borderRadius === '4px' && getComputedStyle(node).backgroundColor !== 'rgb(255, 255, 255)'));
+  await tableEditor.getByLabel('Measurement point row 1', {exact:true}).fill('98');
+  await tableEditor.getByRole('button', {name:'Add table row after row 1',exact:true}).click();
+  await tableEditor.getByLabel('Measurement point row 2', {exact:true}).fill('100');
+  await tableEditor.getByRole('button', {name:'Add table row after row 1',exact:true}).click();
+  await tableEditor.getByLabel('Measurement point row 2', {exact:true}).fill('99');
+  check('tabular add inserts between existing rows', await tableEditor.getByLabel('Measurement point row 3', {exact:true}).inputValue() === '100');
+  check('tabular column fields fit their longest value with equal compact widths', await tableEditor.locator('[data-dynamic-cell$=":0"]').evaluateAll(inputs => {
+    const widths=inputs.map(input=>input.getBoundingClientRect().width);
+    return Math.max(...widths)-Math.min(...widths)<1 && widths.every(width=>width<70);
+  }));
+  check('tabular row add precedes delete and separators are removed', await tableEditor.locator('.dynamic-lookup-table').evaluate(table => {
+    const add=table.querySelector('.dynamic-row-add').getBoundingClientRect(), remove=table.querySelector('.dynamic-row-remove').getBoundingClientRect();
+    return add.right <= remove.left + 1 && [...table.querySelectorAll('th,td')].every(cell=>getComputedStyle(cell).borderBottomWidth==='0px');
+  }));
+  check('tabular symmetry sits above unit selection', await tableEditor.locator('.dynamic-budget-editor').evaluate(editor => editor.querySelector('.dynamic-budget-modebar').getBoundingClientRect().bottom <= editor.querySelector('.dynamic-budget-options').getBoundingClientRect().top + 1));
   if (process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await page.screenshot({ path: `${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/tasking-builder-table.png` });
   await tableEditor.hover();
   await tableEditor.getByRole('button', { name: 'Remove dynamic component', exact: true }).click();
