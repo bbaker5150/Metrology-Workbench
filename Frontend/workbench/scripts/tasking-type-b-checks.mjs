@@ -185,7 +185,11 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
     await frame.evaluate(theme=>{document.body.classList.toggle('light-mode',theme==='light');document.body.classList.toggle('dark-mode',theme==='dark');},theme);
     check(`instrument tabular grid centers inputs with continuous dividers in ${theme} mode`, await instrumentCell.locator('.dynamic-lookup-table').evaluate(table=>{
       const header=table.tHead.rows[0].cells[0].getBoundingClientRect();
-      return [...table.tHead.rows[0].cells].every(cell=>cell.scrollWidth <= cell.clientWidth+1) && getComputedStyle(table).borderCollapse==='collapse' && [...table.tBodies[0].rows].every(row=>{
+      return [...table.tHead.rows[0].cells].slice(0,-1).every(cell=>{
+        const range=document.createRange(); range.selectNodeContents(cell);
+        const text=range.getBoundingClientRect(), box=cell.getBoundingClientRect();
+        return text.left-box.left>=12 && box.right-text.right>=12 && Math.abs((text.left-box.left)-(box.right-text.right))<2;
+      }) && getComputedStyle(table).borderCollapse==='collapse' && [...table.tBodies[0].rows].every(row=>{
         const cells=[row.cells[0],row.cells[1]], bounds=cells.map(cell=>cell.getBoundingClientRect());
         return Math.abs(bounds[0].width-bounds[1].width)<1 && Math.abs(bounds[0].right-header.right)<1 && cells.every(cell=>{
           const box=cell.getBoundingClientRect(), input=cell.querySelector('input').getBoundingClientRect(), style=getComputedStyle(cell);
