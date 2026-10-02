@@ -1,6 +1,6 @@
 // @vitest-environment node
 import { describe, it, expect } from 'vitest';
-import { globSync, readFileSync } from 'node:fs';
+import { existsSync, globSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { createSharePointAdapter } from './axiosSharePointAdapter';
 
@@ -23,6 +23,31 @@ import { createSharePointAdapter } from './axiosSharePointAdapter';
 
 const SRC = path.resolve(import.meta.dirname, '../..');
 const API_ROOT = 'https://tenant.example/api/uncertainty';
+const WORKBENCH_IMPORTER = 'modules/uncertainty/components/tools/AcShuntImportTool.jsx';
+
+// The Workbench injects its AC-shunt importer into the shared app. Follow both
+// static and lazy relative imports so moving that dependency into shared code
+// fails this contract, even if the button is hidden at runtime.
+function reachableModules(entry) {
+  const visited = new Set();
+  function visit(file) {
+    if (visited.has(file)) return;
+    visited.add(file);
+    const source = readFileSync(file, 'utf8');
+    const imports = /(?:\b(?:import|export)\s+(?:[^;'"`]*?\s+from\s*)?|\bimport\s*\(\s*)['"](\.[^'"]+)['"]/g;
+    for (const [, specifier] of source.matchAll(imports)) {
+      const base = path.resolve(path.dirname(file), specifier);
+      const dependency = [base, `${base}.js`, `${base}.jsx`, `${base}.mjs`,
+        path.join(base, 'index.js'), path.join(base, 'index.jsx')]
+        .find((candidate) => /\.(?:jsx?|mjs)$/.test(candidate) && existsSync(candidate));
+      if (dependency) visit(dependency);
+    }
+  }
+  visit(path.join(SRC, entry));
+  return new Set([...visited].map((file) => path.relative(SRC, file).replaceAll('\\', '/')));
+}
+
+const standaloneModules = reachableModules('standalone/main.jsx');
 
 /** `axios.<method>(`<template>`` — the method may sit a line above the URL. */
 const AXIOS_CALL = /\baxios\s*\.\s*(get|post|put|patch|delete|head|options)\s*\(\s*`([^`]*)`/g;
@@ -38,6 +63,10 @@ function discoverCalls() {
   const files = globSync('**/*.{js,jsx}', { cwd: SRC })
     // The adapter and its neighbours are the other side of this contract.
     .filter((f) => !f.startsWith('standalone') && !/\.test\.[jt]sx?$/.test(f))
+    // Exempt only this Workbench feature, and only while it is unreachable
+    // from the standalone entry. All other call sites keep the broad scan.
+    .filter((f) => f.replaceAll('\\', '/') !== WORKBENCH_IMPORTER
+      || standaloneModules.has(WORKBENCH_IMPORTER))
     .sort();
 
   const calls = [];
@@ -90,6 +119,14 @@ function routeProbe() {
 const calls = discoverCalls();
 
 describe('the module\'s API calls', () => {
+  it('keeps the AC-shunt importer and its backend calls out of standalone', () => {
+    expect(standaloneModules).toContain('modules/uncertainty/App.jsx');
+    expect(standaloneModules).toContain('modules/uncertainty/hooks/useSessionManager.js');
+    expect(standaloneModules).not.toContain(WORKBENCH_IMPORTER);
+    expect(reachableModules('modules/uncertainty/UncertaintyApp.jsx')).toContain(WORKBENCH_IMPORTER);
+    expect(calls.some((call) => call.endpoint.startsWith('/ac-shunt/'))).toBe(false);
+  });
+
   it('were actually found by the scanner', () => {
     // A regex that quietly matches nothing would make every assertion below
     // vacuous, so the scan has to prove it saw the traffic it is checking.
