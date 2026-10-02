@@ -10,6 +10,8 @@ from . import views
 app_name = "uncertainty"
 
 urlpatterns = [
+    path("ac-shunt/sessions/", views.ac_shunt_sessions, name="ac-shunt-sessions"),
+    path("ac-shunt/sessions/<int:session_id>/", views.ac_shunt_snapshot, name="ac-shunt-snapshot"),
     path("info/", views.module_info, name="module-info"),
     path("system_info/", views.system_info, name="system-info"),
 

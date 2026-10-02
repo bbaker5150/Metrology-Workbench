@@ -39,6 +39,20 @@ beforeEach(() => {
 });
 
 describe("prepareImportedSession", () => {
+  it("keeps the current workspace when a required import save fails", async () => {
+    const { result } = renderHook(() => useSessionManager());
+    await waitFor(() => expect(result.current.currentSessionData?.name).toBe("Original"));
+    axios.put.mockRejectedValue(new Error("Database offline"));
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await act(async () => {
+        await expect(result.current.importSession({name:"AC/DC import",testPoints:[]},new Map(),{requireSaved:true}))
+          .rejects.toThrow("could not be saved");
+      });
+      expect(result.current.currentSessionData.name).toBe("Original");
+      expect(result.current.sessions).toHaveLength(1);
+    } finally { log.mockRestore(); }
+  });
   it("always creates a separate session without changing nested IDs", () => {
     const loadedSession = {
       id: 100,

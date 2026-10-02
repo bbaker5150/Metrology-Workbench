@@ -18,6 +18,23 @@ from . import models, serializers
 
 @api_view(["GET"])
 @permission_classes([AllowAny])
+def ac_shunt_sessions(request):
+    from reports.services import list_ac_shunt_sessions
+    return Response(list_ac_shunt_sessions(request.query_params))
+
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def ac_shunt_snapshot(request, session_id):
+    from .ac_shunt_import import session_snapshot
+    snapshot = session_snapshot(session_id)
+    if snapshot is None:
+        return Response({"detail": "AC-shunt session not found."}, status=404)
+    return Response(snapshot)
+
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
 def module_info(request):
     """Report that the Uncertainty Budget backend is present and wired."""
     return Response({

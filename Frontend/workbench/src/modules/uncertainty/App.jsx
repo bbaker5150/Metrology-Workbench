@@ -2196,7 +2196,7 @@ const SidebarSessionHeader = ({
   );
 };
 
-function App({ showThemeToggle = false }) {
+function App({ showThemeToggle = false, AcShuntImportTool = null }) {
   useSelectInputText();
   const confirmRecordDeletes = useConfirmRecordDeletes();
   const workbenchIssues = useWorkbenchIssues();
@@ -5981,6 +5981,7 @@ function App({ showThemeToggle = false }) {
                   >
                     <FontAwesomeIcon icon={faRightLeft} />
                   </button>
+                  {AcShuntImportTool && <AcShuntImportTool onImport={session => importSession(session, new Map(), { requireSaved: true })} />}
                 </div>
 
                 <span className="app-chrome-meta-sep" aria-hidden="true" />

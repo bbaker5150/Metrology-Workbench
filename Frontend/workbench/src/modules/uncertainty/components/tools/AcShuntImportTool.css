@@ -1,0 +1,27 @@
+.ac-shunt-import { color:var(--text-color,#e8edf5); background:var(--content-background-solid,#17202e); border:1px solid var(--border-color,#42516a); border-radius:18px; width:min(570px,calc(100vw - 40px)); max-height:85vh; padding:24px; box-shadow:0 24px 90px #0006; }
+.ac-shunt-import::backdrop { background:#08111e80; backdrop-filter:blur(5px); }
+.ac-shunt-import header,.ac-shunt-import footer,.ac-shunt-import nav { display:flex; align-items:center; justify-content:space-between; gap:16px; }
+.ac-shunt-import h2 {font-size:20px; margin:5px 0 0;}
+.ac-shunt-import-eyebrow {font-size:11px; letter-spacing:.18em; color:#73b7ef; font-weight:700;}
+.ac-shunt-import p {font-size:12px; line-height:1.6; opacity:.8; white-space:pre-line;}
+.ac-shunt-import button,.ac-shunt-import input {font:inherit; color:inherit; border:1px solid var(--border-color,#42516a); border-radius:8px; background:transparent; padding:8px 11px;}
+.ac-shunt-import input[type=search] {width:100%;box-sizing:border-box;margin:4px 0 12px;}
+.ac-shunt-import button {cursor:pointer;}
+.ac-shunt-import button:disabled {opacity:.45;cursor:default;}
+.ac-shunt-import button:focus-visible,.ac-shunt-import input:focus-visible {outline:2px solid #73b7ef;outline-offset:2px;}
+.ac-shunt-import-sessions {display:grid;gap:5px;max-height:230px;overflow:auto;}
+.ac-shunt-import-sessions button {text-align:left;padding:12px;border-color:transparent;}
+.ac-shunt-import-sessions button:hover {background:#73b7ef12;}
+.ac-shunt-import-sessions button.selected {border-color:#73b7ef;background:#73b7ef18;}
+.ac-shunt-import-sessions strong {display:block;font-size:13px;overflow-wrap:anywhere;}
+.ac-shunt-import-sessions span {display:block;font-size:11px;opacity:.7;margin-top:5px;}
+.ac-shunt-import time {float:right;}
+.ac-shunt-import-preview {margin-top:18px;padding-top:16px;border-top:1px solid var(--border-color,#42516a);font-size:12px;}
+.ac-shunt-import label {display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:12px;margin:12px 0;}
+.ac-shunt-import input[type=number] {width:80px;}
+.ac-shunt-import details {margin:10px 0;font-size:12px;}
+.ac-shunt-import summary {cursor:pointer;}
+.ac-shunt-import li {margin:7px 0;line-height:1.5;}
+.ac-shunt-import footer {margin-top:18px;font-size:11px;}
+.ac-shunt-import button.ac-shunt-import-create {background:#2e73bc;border-color:#2e73bc;color:white;font-weight:600;}
+.ac-shunt-import [role=alert] {color:#ef9c84;}

@@ -13,6 +13,7 @@ import React, { useEffect } from "react";
 import { Routes, Route } from "react-router";
 import { UncertaintyProvider } from "./contexts/UncertaintyContext";
 import UncertalyticsApp from "./App";
+import AcShuntImportTool from "./components/tools/AcShuntImportTool";
 import "./UncertaintyApp.css";
 
 // The ported Uncertalytics app (./App.jsx) is the module's content. It owns its
@@ -33,10 +34,10 @@ export default function UncertaintyApp() {
   return (
     <UncertaintyProvider>
       <Routes>
-        <Route index element={<UncertalyticsApp />} />
+        <Route index element={<UncertalyticsApp AcShuntImportTool={AcShuntImportTool} />} />
         {/* All internal sub-paths render the same app; navigation within the
             tool is state-driven (sidebar tree + analysis views). */}
-        <Route path="*" element={<UncertalyticsApp />} />
+        <Route path="*" element={<UncertalyticsApp AcShuntImportTool={AcShuntImportTool} />} />
       </Routes>
     </UncertaintyProvider>
   );

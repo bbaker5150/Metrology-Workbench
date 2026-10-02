@@ -367,8 +367,10 @@ const useSessionManager = () => {
             }
           }
           acknowledgeSession("saves", key, token);
+          return true;
         } catch (err) {
           console.error("Failed to save session to backend", err);
+          return false;
         }
       });
 
@@ -838,7 +840,7 @@ const useSessionManager = () => {
   );
 
   const importSession = useCallback(
-    async (loadedSession, importedImages = new Map()) => {
+    async (loadedSession, importedImages = new Map(), { requireSaved = false } = {}) => {
       recordWorkspaceUndoSnapshot("workspace:import-session");
       const saves = [];
       const currentSession = sessions.find(
@@ -850,6 +852,9 @@ const useSessionManager = () => {
         loadedSession,
         sessions,
       );
+      if (requireSaved && !(await persistSession(importedSession))) {
+        throw new Error("The new budget could not be saved to the database. Your current session is unchanged.");
+      }
       replaceSessions((prev) => [importedSession, ...prev]);
       setSelectedSessionId(importedSession.id);
       setSelectedTestPointId(importedSession.testPoints?.[0]?.id || null);
@@ -862,7 +867,7 @@ const useSessionManager = () => {
           fileName: image.fileName,
         }));
 
-      saves.push(persistSession(importedSession, imagesToSave));
+      if (!requireSaved || imagesToSave.length) saves.push(persistSession(importedSession, imagesToSave));
       await Promise.all(saves);
       return importedSession;
     },
