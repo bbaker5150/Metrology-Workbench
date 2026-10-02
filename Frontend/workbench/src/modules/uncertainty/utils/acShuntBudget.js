@@ -88,7 +88,19 @@ export function buildAcShuntBudget(snapshot, { rocK = 2 } = {}) {
       const ppm = source ? source.expandedPpm/rocK : null;
       const name = `${side==='std'?'Standard':'Test'} TVC NPSL RoC`;
       add(name,ppm,'B',{certificate:source,coverageFactor:rocK});
-      if (source) recordSpec(instruments.get(`tvc:${side}`),point,name,ppm,{certificate:source,coverageFactor:rocK});
+      if (source) {
+        const instrument=instruments.get(`tvc:${side}`);
+        recordSpec(instrument,point,name,ppm,{certificate:source,coverageFactor:rocK});
+        if (finite(source.testVoltage) && source.testVoltage>0) {
+          let fn=instrument.instrument.functions[0];
+          if (!fn) {fn={id:uuid(),name:'AC/DC transfer',unit:'V',ranges:[]};instrument.instrument.functions.push(fn);}
+          fn.ranges.push({id:uuid(),range:`${source.testVoltage} V / ${point.frequency} Hz`,
+            min:source.testVoltage,max:source.testVoltage,unit:'V',
+            qualifier:{name:'Frequency',value:point.frequency,unit:'Hz'},
+            tolerances:{reading:{high:source.expandedPpm,low:-source.expandedPpm,unit:'ppm',symmetric:true,distribution:String(rocK)}},
+            acShuntSource:{certificate:source,coverageFactor:rocK}});
+        }
+      }
       warnings.add('TVC certificates use current reports; historical TVC report links are not stored.');
     }
     const byReader = new Map();

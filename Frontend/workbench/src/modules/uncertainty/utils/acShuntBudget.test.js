@@ -11,7 +11,7 @@ export const fixture = (model='Y5020',shared=false) => ({id:10,name:'Saved run',
     standard_tvc_serial:'T1',test_tvc_serial:'T2'},
   points:[{sourcePointIds:[1,2],current:10,frequency:1000,analytics:{pair_type_a_uncertainty_ppm:2,n_pairs_used:4,pair_delta_uut_ppm:3},
     shuntSources:[{expandedPpm:4,report:{selection:'saved test-point report'}}],
-    tvcs:{std:{expandedPpm:6},ti:{expandedPpm:8}},
+    tvcs:{std:{expandedPpm:6,testVoltage:1},ti:{expandedPpm:8,testVoltage:1}},
     readerPoints:['Forward','Reverse'].map(direction=>({direction,rangeMode:'.22',eta_std:1,eta_ti:1,
       phases:Object.fromEntries(['std','ti'].flatMap(side=>['ac_open','ac_close','dc_pos','dc_neg'].map(p=>[`${side}_${p}`,.2])))}))}]});
 
@@ -35,6 +35,7 @@ describe('AC-shunt budget import',()=>{
     const {session}=buildAcShuntBudget(fixture('A40B'),{rocK:2});
     expect(session.tmdes).toHaveLength(5);
     expect(session.testPoints[0].components.filter(c=>c.name.includes('TVC')).map(c=>c.value)).toEqual([3,4]);
+    expect(session.tmdes.find(t=>t.assetId==='T1').instrument.functions[0].ranges[0].tolerances.reading.high).toBe(6);
   });
   it('does not reduce uncertainty for a shared reader or duplicate its identity',()=>{
     const {session}=buildAcShuntBudget(fixture('Y5020',true));

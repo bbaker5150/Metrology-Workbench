@@ -54,7 +54,7 @@ def tvc_source(serial, frequency):
     return {"expandedPpm": correction.expanded_uncertainty,
             "correctionPpm": correction.ac_dc_difference,
             "report": report_info(report, "current TVC report; historical report not stored"),
-            "serial": str(serial), "model": "TVC"}
+            "serial": str(serial), "model": "TVC", "testVoltage": device.test_voltage}
 
 
 def session_snapshot(session_id):
