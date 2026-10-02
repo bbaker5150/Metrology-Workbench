@@ -5,6 +5,7 @@ import { calculateUncertaintyFromToleranceObject, unitSystem } from "./uncertain
 import { getInstrumentRangeRows } from "./instrumentFunctionSelection";
 import { reconcileTmdeInstances, refreshTmdeInstancesFromMasters } from "./tmdeReconcile";
 import { validateEquation } from "./equationValidation";
+import { resolveTmdeTransferComponent } from './tmdeTransferComponent';
 
 const numeric = v => v !== "" && v != null && Number.isFinite(Number(v));
 const finite = pair => {
@@ -71,6 +72,18 @@ export function computePointTmdeLimits(point, session = {}) {
       if (!c.tmdeBudgetSourceId) continue;
       const master=(session.tmdes || []).find(t=>String(t.id)===String(c.tmdeBudgetSourceId)||String(t.sourceId)===String(c.tmdeBudgetSourceId));
       if (!master) throw Error("A linked TMDE is missing; reassign its budget source.");
+      if (c.tmdeTransferSources) {
+        if (derived) throw Error('Transfer sensitivities require their original direct measurement point.');
+        const resolved=resolveTmdeTransferComponent(c,session,nominal);
+        if (resolved.pendingReason) throw Error(resolved.pendingReason);
+        const limit=resolved.toleranceLimit_native;
+        const key=`transfer:${c.id}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
+        sources.push({id:key,master,name:c.name,nominal,quantity:1,
+          tolerance:{unit:nominal.unit,floor:{high:limit,low:-limit,unit:nominal.unit,symmetric:true,distribution:'1.000'}}});
+        continue;
+      }
       const reference = derived ? point.variableNominals?.[Object.keys(point.variableMappings || {}).find(k=>point.variableMappings[k]===c.variableType)] : nominal;
       const ranges=getInstrumentRangeRows(master,{flattenTolerances:true});
       const range=c.tmdeBudgetRangeId

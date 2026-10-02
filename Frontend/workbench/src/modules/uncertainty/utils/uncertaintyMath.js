@@ -667,6 +667,18 @@ export const distributionDivisorValue = (rawValue) => {
   return shape?.value ?? numeric;
 };
 
+// Resolve persisted numeric spellings to the same named choices used by the
+// normal instrument editor. Some manufacturers round normal 99% coverage to
+// 2.58; retain that stated divisor rather than silently replacing it with 2.576.
+export const resolveErrorDistribution = (rawValue) => {
+  const value=distributionDivisorValue(rawValue);
+  const exact=errorDistributions.find(d=>d.value===String(rawValue) ||
+    (Number.isFinite(value) && Math.abs(distributionDivisorValue(d.value)-value)<1e-9));
+  if (exact) return exact;
+  if (Number(rawValue)===2.58) return {value:'2.580',label:'Normal (99%)',shortLabel:'k = 2.580'};
+  return null;
+};
+
 // ---------------------------------------------------------------------------
 // Student-t inverse CDF (coverage factor at finite degrees of freedom)
 // ---------------------------------------------------------------------------

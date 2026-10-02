@@ -14,6 +14,7 @@ import {
   errorDistributions,
   DISTRIBUTION_NOT_SET,
   distributionDivisorValue,
+  resolveErrorDistribution,
   effectiveFloorTerm,
   selectGreatestTolerance,
 } from "../../../utils/uncertaintyMath";
@@ -257,11 +258,7 @@ export const getBudgetComponentsFromTolerance = (
           tolComp.distribution != null
             ? String(tolComp.distribution)
             : toleranceObject.bandDistribution ?? DISTRIBUTION_NOT_SET;
-        const distEntry = errorDistributions.find(
-          (d) =>
-            d.value === rawDistribution ||
-            parseFloat(d.value) === parseFloat(rawDistribution)
-        );
+        const distEntry = resolveErrorDistribution(rawDistribution);
         activeDistributionRaw = distEntry
           ? distEntry.value
           : rawDistribution;

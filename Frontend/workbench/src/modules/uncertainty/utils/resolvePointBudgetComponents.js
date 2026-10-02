@@ -7,6 +7,7 @@ import { getInstrumentRangeRows } from "./instrumentFunctionSelection";
 import { getBudgetComponentsFromTolerance, getUutResolutionComponent, refreshLinkedTypeBComponents } from "../features/analysis/utils/budgetUtils";
 import { normalizeInlineManualComponent, getInlineManualDraft } from "../features/analysis/utils/manualComponentUtils";
 import { reconcileTmdeInstances, refreshTmdeInstancesFromMasters } from "./tmdeReconcile";
+import { resolveTmdeTransferComponent } from './tmdeTransferComponent';
 
 // Resolve the same explicit budget sources for the open view, sidebar and exports.
 // A resolution row explicitly added to a budget stays included regardless of
@@ -29,6 +30,7 @@ export function resolvePointBudgetComponents(point, sessionData, instruments = [
     // already-added budget row without reintroducing equation-variable assignment.
     const refreshedTmdeComponents = rawComponents
       .map((component) => {
+        if (component.tmdeTransferSources) return resolveTmdeTransferComponent(component, sessionData, getReferencePoint(component));
         if (component.type === "A" && component.savedInputs) return resolveRepeatabilityComponent(component, getReferencePoint(component));
         if (component?.uutResolutionBudgetSource) {
           const source = Array.isArray(uutToleranceData)

@@ -4,6 +4,7 @@ const escapeRegExp = (value) =>
   value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 
 export const formatRangeLabel = (range = {}, { preferBounds = false } = {}) => {
+  const contextual = label => range.contextLabel ? `${label} · ${range.contextLabel}` : label;
   const explicitLabel =
     typeof range.range === "string" ? range.range.trim() : "";
   const hasBounds =
@@ -22,16 +23,16 @@ export const formatRangeLabel = (range = {}, { preferBounds = false } = {}) => {
   const unit = typeof range.unit === "string" ? range.unit.trim() : "";
   const unitLabel = getUnitDisplayLabel(unit);
 
-  if (!unit || rangeText === "Full Range") return rangeText;
+  if (!unit || rangeText === "Full Range") return contextual(rangeText);
 
   const unitAtEnd = new RegExp(
     `${escapeRegExp(unit)}(?:\\s+Range)?$`,
     "i",
   );
 
-  return unitAtEnd.test(rangeText)
+  return contextual(unitAtEnd.test(rangeText)
     ? rangeText.replace(unitAtEnd, (match) =>
         match.replace(new RegExp(escapeRegExp(unit), "i"), unitLabel),
       )
-    : `${rangeText} ${unitLabel}`;
+    : `${rangeText} ${unitLabel}`);
 };

@@ -81,8 +81,9 @@ export default function AcShuntImportTool({ onImport }) {
       {selected && !snapshot && !error && <p role="status">Reading measurements and certificates…</p>}
       {preview?.session && <section className="ac-shunt-import-preview" aria-label="Import preview">
         <strong>{preview.topology} · {preview.session.testPoints.length} points · {preview.session.tmdes.length} reference instruments</strong>
+        <p role="status">Risk calculated for {preview.riskCalculated} of {preview.session.testPoints.length} points (TUR, PFA and PFR).</p>
         <label>Certificate coverage factor (k)<input type="number" min="0.01" step="any" value={rocK} disabled={saving} onChange={e=>setRocK(e.target.value)}/></label>
-        <p>Reader specs: 1 year. Certificate k is an import assumption; verify against the RoCs. Reader errors use conservative phase sensitivities.</p>
+        <p>UUT limits: manufacturer current accuracy. Reader specs: 1 year. Certificate k is an import assumption; verify against the RoCs. Budget errors follow the selected TMDE ranges.</p>
         <details><summary>Specification conditions and source notes</summary><p>{preview.session.notes}</p></details>
         {!!preview.warnings.length && <details open><summary>{preview.warnings.length} items to review</summary><ul>{preview.warnings.map(w=><li key={w}>{w}</li>)}</ul></details>}
       </section>}

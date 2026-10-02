@@ -458,6 +458,17 @@ describe("inline resolution distribution", () => {
     expect(onChange).toHaveBeenCalledWith("2.449");
   });
 
+  it.each([['2','Normal (95.45%)'],[String(Math.sqrt(3)),'Rectangular'],['2.58','Normal (99%)']])(
+    'names imported divisor %s using the normal distribution editor', (divisor,label) => {
+      const onChange=vi.fn();
+      render(<InlineDistributionCell divisor={divisor} onChange={onChange}/>);
+      expect(screen.getByRole('button',{name:label})).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button',{name:label}));
+      expect(screen.getByRole('button',{name:'Spec band distribution'})).toHaveTextContent(label);
+      expect(onChange).not.toHaveBeenCalled();
+    },
+  );
+
   it("uses the same Not Set label for an empty distribution", () => {
     render(<InlineDistributionCell divisor="" onChange={vi.fn()} />);
 

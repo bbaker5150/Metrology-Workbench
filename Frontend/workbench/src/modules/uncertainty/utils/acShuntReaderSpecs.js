@@ -37,7 +37,7 @@ export function readerSpec(model, voltage, frequency, rangeMode, isDc = false) {
   // The 5790B has no DC ranges below 220 mV.
   const range = isDc ? Math.max(.22, selected) : selected;
   if (v > range * (auto ? 1 : 1.01)) throw new Error(`Saved voltage exceeds the ${range} V range.`);
-  let readingPpm, floorVolts;
+  let readingPpm, floorVolts, frequencyBand;
   if (isDc) {
     readingPpm = dcPpm[range]; floorVolts = range < 2.2 ? 1.5e-6 : 0;
   } else {
@@ -47,8 +47,9 @@ export function readerSpec(model, voltage, frequency, rangeMode, isDc = false) {
     const floors = range < .07 ? [1.3,1.3,1.3,2,2.5,4,8,8] : [1.5,1.5,1.5,2,2.5,4,8,8];
     const i = indexes.reduce((best,i) => acPpm[range][i]*v+(range<2.2?floors[i]:0) > acPpm[range][best]*v+(range<2.2?floors[best]:0) ? i : best);
     readingPpm = acPpm[range][i]; floorVolts = range < 2.2 ? floors[i]*1e-6 : 0;
+    frequencyBand = [bands[i],bands[i+1]];
   }
-  return {range, readingPpm, floorVolts, limitVolts:readingPpm*1e-6*v+floorVolts,
+  return {range, readingPpm, floorVolts, frequencyBand, limitVolts:readingPpm*1e-6*v+floorVolts,
     divisor:2.58, source:READER_SOURCES.fluke, functionName:isDc?'DC Voltage':'AC Voltage',
     conditions:'1 year; within ±5 °C of calibration; warm-up ≥30 minutes or twice off-time; DC zero every 30 days; normal k=2.58.'};
 }
@@ -76,5 +77,5 @@ export function readerContribution(model, side, point, frequency) {
   });
   const sensitivities = [1/(2*eta*dc),1/(2*eta*dc),av/(2*eta*dc*dc),av/(2*eta*dc*dc)];
   const standardPpm = specs.reduce((sum,s,i) => sum + sensitivities[i]*s.limitVolts/s.divisor*1e6,0);
-  return {standardPpm, specs, eta, voltages:values, direction:point.direction};
+  return {standardPpm, specs, eta, voltages:values, sensitivities, direction:point.direction};
 }

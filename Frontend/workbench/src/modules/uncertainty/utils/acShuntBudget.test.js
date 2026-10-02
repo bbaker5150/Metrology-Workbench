@@ -2,7 +2,10 @@ import { describe, expect, it } from 'vitest';
 import { buildAcShuntBudget } from './acShuntBudget';
 import { readerSpec, readerContribution } from './acShuntReaderSpecs';
 import { resolvePointBudgetComponents } from './resolvePointBudgetComponents';
-import { computeUncertaintyForPoint } from './riskCompute';
+import { computeUncertaintyForPoint, computePointRiskMetrics } from './riskCompute';
+import { acShuntUutSpec } from './acShuntUutSpecs';
+import { syncPointTolerances } from './pointToleranceSync';
+import { getBudgetRangeWarnings } from './pointDiagnostics';
 
 export const fixture = (model='Y5020',shared=false) => ({id:10,name:'Saved run',createdAt:'2026-10-02T00:00:00Z',
   instruments:{test_instrument_model:model,test_instrument_serial:'UUT',standard_instrument_model:model,
@@ -16,6 +19,65 @@ export const fixture = (model='Y5020',shared=false) => ({id:10,name:'Saved run',
       phases:Object.fromEntries(['std','ti'].flatMap(side=>['ac_open','ac_close','dc_pos','dc_neg'].map(p=>[`${side}_${p}`,.2])))}))}]});
 
 describe('AC-shunt budget import',()=>{
+  it.each(['Y5020','A40B'])('calculates risk and links UUT limits and every Type B to %s instruments',model=>{
+    const {session,riskCalculated}=buildAcShuntBudget(fixture(model));
+    const point=session.testPoints[0];
+    expect(riskCalculated).toBe(1);
+    expect(point.uutTolerance.tolerances.reading.high).toBe(model==='A40B'?37:250);
+    expect(point.uutTolerance.rangeId).toBe(session.uuts[0].instrument.functions[0].ranges[0].id);
+    expect(point.uutTolerance.tolerances.bias.value).toBeCloseTo(30e-6);
+    expect(point.expanded_uncertainty_absolute_base).toBeGreaterThan(0);
+    for (const row of point.components.filter(c=>c.type==='B')) {
+      expect(row.tmdeBudgetSourceId).toBeTruthy();
+      expect(row.tmdeBudgetRangeId).toBeTruthy();
+      expect(row.toleranceLimit_native).toBeGreaterThan(0);
+      expect(row.isInlineManual).not.toBe(true);
+      expect(row.distribution).toMatch(/^(Normal|Rectangular)/);
+      expect(row.distribution).not.toMatch(/^k\s*=/);
+    }
+    const risk=computePointRiskMetrics(point,session);
+    for (const key of ['tur','tar','pfa','pfr']) expect(Number.isFinite(risk[key]),key).toBe(true);
+    expect(risk.tmdeLimits.reason).toBeNull();
+    expect(getBudgetRangeWarnings({components:point.components,directNominal:point.testPointInfo.parameter,tmdes:session.tmdes})).toEqual({});
+    expect(risk.tur).toBeGreaterThan(0);
+  });
+  it('deduplicates repeated TVC and reader specs while retaining distinct frequency conditions',()=>{
+    const source=fixture('A40B');source.shuntRange=10;
+    source.points=[5,7,10].flatMap(current=>[1000,10000].map(frequency=>({...source.points[0],current,frequency})));
+    const {session,riskCalculated}=buildAcShuntBudget(source);
+    expect(riskCalculated).toBe(6);
+    for (const reader of session.tmdes.filter(t=>t.instrument.model==='34420A')) {
+      expect(reader.instrument.functions).toHaveLength(1);
+      expect(reader.instrument.functions[0].ranges).toHaveLength(1);
+      expect(reader.instrument.typeBComponents || []).toHaveLength(0);
+    }
+    for (const tvc of session.tmdes.filter(t=>t.instrument.model==='TVC')) expect(tvc.instrument.functions[0].ranges).toHaveLength(2);
+  });
+  it('recomputes error, uncertainty and risk from edits to the matching TMDE range after persistence',()=>{
+    const {session}=buildAcShuntBudget(fixture());
+    const original=JSON.parse(JSON.stringify(session));
+    const previous=computePointRiskMetrics(original.testPoints[0],original);
+    const range=session.tmdes[1].instrument.functions[0].ranges[0];
+    range.tolerances.reading.high=380;range.tolerances.reading.low=-380;
+    const next=syncPointTolerances(session,original);
+    const rows=resolvePointBudgetComponents(next.testPoints[0],next);
+    expect(rows[2].toleranceLimit_native).toBeGreaterThan(original.testPoints[0].components[2].toleranceLimit_native);
+    expect(rows[3].toleranceLimit_native).toBe(original.testPoints[0].components[3].toleranceLimit_native);
+    expect(next.testPoints[0].expanded_uncertainty_absolute_base).toBeGreaterThan(original.testPoints[0].expanded_uncertainty_absolute_base);
+    expect(computePointRiskMetrics(next.testPoints[0],next).tur).toBeLessThan(previous.tur);
+    // Removing a linked physical range must not silently use the first range.
+    next.tmdes[1].instrument.functions[0].ranges=[];
+    expect(computeUncertaintyForPoint(next.testPoints[0],next)).toBeNull();
+    expect(computePointRiskMetrics(next.testPoints[0],next)).toBeNull();
+  });
+  it('matches UUT manufacturer frequency limits and refuses extrapolation',()=>{
+    expect(acShuntUutSpec('A40B',10,5500,10,40).ppm).toBe(48.5);
+    expect(acShuntUutSpec('A40B',10,1000,10,60).ppm).toBe(57);
+    expect(acShuntUutSpec('Y5020',20,1000,20).ppm).toBe(250);
+    expect(acShuntUutSpec('Y5020',20,1001,20).ppm).toBe(350);
+    expect(()=>acShuntUutSpec('Y5020',20,6000,20)).toThrow(/5 kHz/);
+    expect(()=>acShuntUutSpec('A40B',10,1000,20)).toThrow(/range/);
+  });
   it('creates Electrical points with finite Type A dof and a calculable budget',()=>{
     const {session}=buildAcShuntBudget(fixture());
     expect(session.tmdes).toHaveLength(3);

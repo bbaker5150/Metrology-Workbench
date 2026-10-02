@@ -145,6 +145,7 @@ import {
   unitSystem,
   unitCategories,
   errorDistributions,
+  resolveErrorDistribution,
   DISTRIBUTION_NOT_SET,
 } from "../../../utils/uncertaintyMath";
 import {
@@ -1767,7 +1768,7 @@ const getBandDistLabel = (tolerance = {}) => {
   const divisor = getBandDistDivisor(tolerance);
   if (!divisor) return "—";
   return (
-    errorDistributions.find((e) => e.value === String(divisor))?.label ||
+    resolveErrorDistribution(divisor)?.label ||
     `k=${divisor}`
   );
 };
@@ -3416,7 +3417,7 @@ export const InlineDistributionCell = ({ divisor, editable = true, onChange }) =
   });
 
   const label = !isUnset
-    ? errorDistributions.find((e) => e.value === String(divisor))?.label ||
+    ? resolveErrorDistribution(divisor)?.label ||
       `k=${divisor}`
     : "Not Set";
 
@@ -3496,8 +3497,9 @@ export const InlineDistributionCell = ({ divisor, editable = true, onChange }) =
     >
       <InlineMenuSelect
         autoOpen
-        value={String(divisor || DISTRIBUTION_NOT_SET)}
-        options={errorDistributions}
+        value={resolveErrorDistribution(divisor)?.value || String(divisor || DISTRIBUTION_NOT_SET)}
+        options={errorDistributions.map(option=>option.label===resolveErrorDistribution(divisor)?.label
+          ? resolveErrorDistribution(divisor) : option)}
         ariaLabel="Spec band distribution"
         getDisplayLabel={option => option?.label}
         title="Distribution used for this tolerance band"

@@ -2,6 +2,11 @@ import { describe, expect, it } from "vitest";
 import { formatRangeLabel } from "./rangeFormatting";
 
 describe("formatRangeLabel", () => {
+  it('distinguishes identical physical bounds used for AC, DC and different frequencies',()=>{
+    const range={min:0,max:.22,unit:'V'};
+    expect(formatRangeLabel({...range,contextLabel:'AC Voltage · 40–20000 Hz'},{preferBounds:true})).toBe('0 to 0.22 V · AC Voltage · 40–20000 Hz');
+    expect(formatRangeLabel({...range,contextLabel:'DC Voltage'},{preferBounds:true})).toBe('0 to 0.22 V · DC Voltage');
+  });
   it("renders equal numeric bounds as one point without duplicating its unit", () => {
     expect(formatRangeLabel({ min: '1', max: 1, unit: 'lbf' }, { preferBounds: true })).toBe('1 lbf');
     expect(formatRangeLabel({ min: 0, max: '0', unit: 'V' })).toBe('0 V');

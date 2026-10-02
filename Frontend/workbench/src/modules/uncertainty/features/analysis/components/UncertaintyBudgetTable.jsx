@@ -1207,7 +1207,11 @@ const UncertaintyBudgetTable = ({
                   />
                 )}
                 <span className="budget-source-description">{displayName}</span>
-                {component.budgetRangeOptions?.length > 0 && !component.isManual && (
+                {component.tmdeTransferDetails?.length > 0 && <span className="budget-range-selector"
+                  title="Uses saved input voltages and sensitivities. Edit the linked TMDE uncertainties in Instrument Overview.">
+                  {[...new Set(component.tmdeTransferDetails.map(source=>source.range))].join('; ')}
+                </span>}
+                {component.budgetRangeOptions?.length > 0 && !component.isManual && !component.tmdeTransferSources && (
                   <InlineMenuSelect className="budget-range-selector" ariaLabel={`Range for ${displayName}`}
                     width="max-content" menuWidth={440} showOptionMeta={false}
                     value={String(Math.max(0, component.budgetRangeOptions.findIndex(range =>

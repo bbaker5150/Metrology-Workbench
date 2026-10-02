@@ -49,6 +49,19 @@ export function getBudgetRangeWarnings({
   const warnings = {};
   for (const component of components) {
     if (!component?.isBudgetInstance || !component.tmdeBudgetRangeId) continue;
+    if (component.tmdeTransferSources) {
+      for (const input of component.tmdeTransferSources) {
+        const master=tmdes.find(t=>String(t.id)===String(input.sourceId));
+        const range=master && getInstrumentRangeRows(master).find(r=>String(r.rangeId)===String(input.rangeId) && String(r.functionId)===String(input.functionId));
+        const reason=!range ? 'The linked TMDE range is missing.'
+          : !assessRangeCompatibility(range,input.nominal,'transfer input').compatible
+            ? `Saved reader input ${label(input.nominal)} is outside ${formatRangeLabel(range,{preferBounds:true})}.` : null;
+        if (reason && !(warnings.final || []).some(w=>w.componentId===component.id && w.reason===reason)) {
+          (warnings.final ||= []).push({componentId:component.id,name:component.name,reason});
+        }
+      }
+      continue;
+    }
     const key =
       measurementType === "derived"
         ? String(component.variableType || "")
