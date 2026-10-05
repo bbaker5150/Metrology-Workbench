@@ -99,7 +99,14 @@ export default function useInstrumentTableLayout(containerRef) {
         const header = button.closest('th').getBoundingClientRect();
         const center = header.right;
         const visible = center >= rect.left && center <= rect.right + 1 && header.bottom > top;
-        if (!visible) { if (button.matches(':popover-open')) button.hidePopover(); return; }
+        if (!visible) {
+          if (button.matches(':popover-open')) button.hidePopover();
+          // A closed popover can still match the authored display:flex rule.
+          // Its stale fixed coordinates then create phantom scroll overflow.
+          setProperty(button, 'display', 'none');
+          return;
+        }
+        setProperty(button, 'display', '');
         button.style.position = 'fixed';
         button.style.margin = '0';
         button.style.right = 'auto';

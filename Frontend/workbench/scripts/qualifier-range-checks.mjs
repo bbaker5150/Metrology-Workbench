@@ -42,10 +42,18 @@ export async function checkQualifierRanges({frame, page, saved, until, check}) {
         const remove=cell.querySelector('.range-row-delete').getBoundingClientRect();
         return add.left>=editor.right-1 && remove.left>=add.right && remove.right<=cell.getBoundingClientRect().right && Math.abs(add.top-remove.top)<1;
       }));
-      check(`${view} ${kind} instrument delete remains visible during scroll`, await table.evaluate(table=>{
+      check(`${view} ${kind} instrument delete remains visible during scroll`, await table.evaluate(async table=>{
+        await new Promise(requestAnimationFrame);
         const container=table.parentElement, cell=table.querySelector('td.cell-sync');
         const previous=container.scrollLeft;
-        const visible=[0,container.scrollWidth-container.clientWidth].every(position=>{ container.scrollLeft=position; const button=cell.querySelector('.instrument-row-delete').getBoundingClientRect(), box=container.getBoundingClientRect(); return button.left>=box.left && button.right<=box.right+1; });
+        let visible=true;
+        for (const position of [0,container.scrollWidth-container.clientWidth]) {
+          container.scrollLeft=position;
+          await new Promise(requestAnimationFrame);
+          await new Promise(requestAnimationFrame);
+          const button=cell.querySelector('.instrument-row-delete').getBoundingClientRect(), box=container.getBoundingClientRect();
+          visible &&= button.left>=box.left && button.right<=box.right+1;
+        }
         container.scrollLeft=previous;
         return visible;
       }));
@@ -66,7 +74,9 @@ export async function checkQualifierRanges({frame, page, saved, until, check}) {
         }));
         if(process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await table.screenshot({path:`${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/qualifier-${view}-${kind}-${theme}.png`});
       }
+      await rows.nth(1).locator('[data-qualifier-cell]').hover();
       await rows.nth(1).getByRole('button',{name:'Delete qualifier range'}).click();
+      await first.locator('[data-qualifier-cell]').hover();
       await first.getByRole('button',{name:'Delete qualifier range'}).click();
       check(`${view} ${kind} removes the unused qualifier column`,await table.locator('thead [data-instrument-column="qualifier"]').count()===0);
     }
