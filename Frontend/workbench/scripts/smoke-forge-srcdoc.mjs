@@ -322,6 +322,8 @@ if (/not set up yet/i.test(frameText)) {
   check('app mounted after provisioning', !/not set up yet/i.test(after));
   if (storageAdminSmoke) {
     check('storage setup uses grouped names and hides all four containers', [...storageMetadata.values()].every(record=>record.Title.startsWith('Uncertalytics — ') && record.Hidden && !record.OnQuickLaunch));
+    check('storage administration is hidden by default', await frame.getByRole('button',{name:'Storage administration',exact:true}).count() === 0);
+    await frame.locator('body').press('Control+Shift+T');
     await frame.getByRole('button',{name:'Storage administration',exact:true}).click();
     await frame.getByRole('button',{name:'Organize storage',exact:true}).waitFor();
     check('storage administrator page lists all four settings links',await frame.locator('.sp-storage-admin').getByRole('link',{name:'Settings',exact:true}).count()===4);

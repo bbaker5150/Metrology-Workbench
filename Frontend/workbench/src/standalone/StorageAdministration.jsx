@@ -1,15 +1,25 @@
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
-import { faDatabase } from '@fortawesome/free-solid-svg-icons';
+import { faDatabase, faFolderTree, faTimes } from '@fortawesome/free-solid-svg-icons';
 import React, { useEffect, useRef, useState } from 'react';
 
 export default function StorageAdministration({ store }) {
   const [allowed, setAllowed] = useState(false);
+  const [revealed, setRevealed] = useState(false);
   const [open, setOpen] = useState(false);
   const [records, setRecords] = useState([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const dialog = useRef(null);
   useEffect(() => { let active = true; store.canManageStorage?.().then(value => { if (active) setAllowed(value); }).catch(() => {}); return () => { active = false; }; }, [store]);
+  useEffect(() => {
+    const reveal = event => {
+      if (!allowed || event.repeat || !event.ctrlKey || !event.shiftKey || event.altKey || event.metaKey || event.key.toLowerCase() !== 't') return;
+      event.preventDefault();
+      setRevealed(true);
+    };
+    window.addEventListener('keydown', reveal);
+    return () => window.removeEventListener('keydown', reveal);
+  }, [allowed]);
   useEffect(() => {
     if (!open) return;
     const fit = () => {
@@ -30,11 +40,11 @@ export default function StorageAdministration({ store }) {
     catch (error) { setMessage(error.message); }
     finally { setBusy(false); }
   };
-  if (!allowed) return null;
+  if (!allowed || !revealed) return null;
   return <>
     <button type="button" className="app-chrome-meta-icon" title="Storage administration" aria-label="Storage administration" onClick={() => setOpen(true)}><FontAwesomeIcon icon={faDatabase} /></button>
     {open && <dialog ref={dialog} className="sp-storage-admin" aria-labelledby="sp-storage-heading" onClose={() => setOpen(false)} onCancel={event => { if (busy) event.preventDefault(); }}>
-      <header><h2 id="sp-storage-heading">Application storage</h2><button disabled={busy || records.length !== 4} onClick={organize}>{busy ? 'Working…' : 'Organize storage'}</button><button aria-label="Close storage administration" disabled={busy} onClick={() => dialog.current.close()}>×</button></header>
+      <header><h2 id="sp-storage-heading">Application storage</h2><button type="button" className="app-chrome-meta-icon" title={busy ? 'Working…' : 'Organize storage'} aria-label="Organize storage" disabled={busy || records.length !== 4} onClick={organize}><FontAwesomeIcon icon={faFolderTree} /></button><button type="button" className="app-chrome-meta-icon" title="Close storage administration" aria-label="Close storage administration" disabled={busy} onClick={() => dialog.current.close()}><FontAwesomeIcon icon={faTimes} /></button></header>
       <h3>Uncertalytics{store.prefix !== 'Uncertainty' ? ` · ${store.prefix}` : ''}</h3>
       <p>Manage this application's lists and document library. Hidden storage remains available through these links.</p>
       <table><thead><tr><th>Storage</th><th>Purpose</th><th>Visibility</th><th>Manage</th></tr></thead>
