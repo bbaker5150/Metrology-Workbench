@@ -182,7 +182,7 @@ export default function useInstrumentTableLayout(containerRef) {
         // Later range rows omit row-spanned description cells, so cellIndex
         // is not their logical column index. Resolve via the actual header.
         const key = editor.matches('.inline-desc-fields') ? 'description'
-          : editor.matches('.inline-range-editor') ? 'range'
+          : editor.matches('.inline-range-editor') ? (cell.hasAttribute('data-qualifier-cell') ? 'qualifier' : 'range')
           : editor.matches('.inline-tolerance-editor') ? 'tolerance'
           : editor.matches('.inline-resolution-editor') ? 'resolution' : editor.matches('.instrument-custom-field-input') ? cell.dataset.customColumn : 'distribution';
         const index = [...(table.tHead?.rows[0]?.cells || [])].findIndex(header => header.dataset.instrumentColumn === key);

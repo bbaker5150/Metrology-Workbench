@@ -7,10 +7,20 @@ export async function checkQualifierRanges({frame, page, saved, until, check}) {
       const first=table.locator('tr[data-selection-key][data-range-id]').first();
       const group=await first.getAttribute('data-selection-key');
       const baseRange=first.locator('[data-range-cell]').first();
+      await baseRange.click();
+      await baseRange.locator('.inline-tolerance-summary').click();
+      check(`${view} ${kind} range width settles with qualifier controls`, await table.evaluate(async table => {
+        const widths=[];
+        for(let i=0;i<30;i++) {
+          await new Promise(requestAnimationFrame);
+          widths.push(table.getBoundingClientRect().width);
+        }
+        return Math.max(...widths.slice(-10))-Math.min(...widths.slice(-10))<1;
+      }));
       await first.getByRole('button',{name:'Add qualifier',exact:true}).click();
       check(`${view} ${kind} adds Qualifier header`,await table.locator('thead [data-instrument-column="qualifier"]').count()===1);
       const qualifier=first.locator('[data-qualifier-cell]');
-      await qualifier.locator('.inline-range-summary').click();
+      await qualifier.locator('.inline-tolerance-summary').click();
       await qualifier.getByPlaceholder('min',{exact:true}).fill('100');
       await qualifier.getByPlaceholder('max',{exact:true}).fill('1000');
       await qualifier.getByPlaceholder('max',{exact:true}).press('Enter');
@@ -18,7 +28,7 @@ export async function checkQualifierRanges({frame, page, saved, until, check}) {
       const rows=table.locator(`tr[data-selection-key="${group}"]:has([data-qualifier-cell])`);
       check(`${view} ${kind} shares the parent range`,await rows.count()===2 && await baseRange.getAttribute('rowspan')==='2');
       const second=rows.nth(1).locator('[data-qualifier-cell]');
-      await second.locator('.inline-range-summary').click();
+      await second.locator('.inline-tolerance-summary').click();
       await second.getByPlaceholder('min',{exact:true}).fill('1000');
       await second.getByPlaceholder('max',{exact:true}).fill('10000');
       await second.getByPlaceholder('max',{exact:true}).press('Enter');

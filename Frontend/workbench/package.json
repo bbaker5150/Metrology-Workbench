@@ -49,7 +49,10 @@
     "exceljs": {
       "uuid": "^11.1.1"
     },
-    "maplibre-gl": "6.4.1"
+    "maplibre-gl": "6.4.1",
+    "vite-plugin-singlefile": {
+      "micromatch": "npm:picomatch@4.0.7"
+    }
   },
   "scripts": {
     "start": "vite --host 0.0.0.0 --port 3000",

@@ -8202,6 +8202,8 @@ const SummaryDashboard = ({
               }
               onOpenRequestHandled={() => setPendingRangeEditKey(null)}
             />
+            {showRangeActions && <span className="range-row-controls">
+            {!range.qualifier && <button type="button" className="range-qualifier-add" aria-label="Add qualifier" title="Add qualifier range" onMouseDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); updateQualifier("enable"); }}>+ Qual</button>}
             {showRangeActions && (
               <button
                 type="button"
@@ -8233,11 +8235,11 @@ const SummaryDashboard = ({
                 x
               </button>
             )}
-            {!range.qualifier && <button type="button" className="range-qualifier-add" aria-label="Add qualifier" title="Add qualifier range" onMouseDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); updateQualifier("enable"); }}>+ Qual</button>}
+            </span>}
           </div>
         </td>}
         {qualifierEnabled && range.qualifier && <td data-range-cell="true" data-qualifier-cell="true" className="cell-value qualifier-range-cell">
-          <RangeCell ranges={[{ ...range.qualifier, min: range.qualifier.min ?? range.qualifier.value ?? "", max: range.qualifier.max ?? range.qualifier.value ?? "" }]} activeIndex={0} activeRange={range.qualifier} editable
+          <RangeCell ranges={[{ ...range.qualifier, min: range.qualifier.min ?? range.qualifier.value ?? "", max: range.qualifier.max ?? range.qualifier.value ?? "" }]} activeIndex={0} activeRange={{ ...range.qualifier, id: `${rangeKey}:qualifier`, min: range.qualifier.min ?? range.qualifier.value ?? "", max: range.qualifier.max ?? range.qualifier.value ?? "" }} editable
             onEditBound={(field, value) => updateQualifier("patch", { [field]: value })}
             onEditUnit={unit => updateQualifier("patch", { unit })}
             onPatchRange={patch => updateQualifier("patch", patch)}
@@ -11905,6 +11907,8 @@ function DetailedView({
               }
               onOpenRequestHandled={() => setPendingRangeEditKey(null)}
             />
+            {showRangeActions && <span className="range-row-controls">
+            {!range.qualifier && <button type="button" className="range-qualifier-add" aria-label="Add qualifier" title="Add qualifier range" onMouseDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); updateQualifier("enable"); }}>+ Qual</button>}
             {showRangeActions && (
               <button
                 type="button"
@@ -11936,11 +11940,11 @@ function DetailedView({
                 x
               </button>
             )}
-            {!range.qualifier && <button type="button" className="range-qualifier-add" aria-label="Add qualifier" title="Add qualifier range" onMouseDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); updateQualifier("enable"); }}>+ Qual</button>}
+            </span>}
           </div>
         </td>}
         {qualifierEnabled && range.qualifier && <td data-range-cell="true" data-qualifier-cell="true" className="cell-value qualifier-range-cell">
-          <RangeCell ranges={[{ ...range.qualifier, min: range.qualifier.min ?? range.qualifier.value ?? "", max: range.qualifier.max ?? range.qualifier.value ?? "" }]} activeIndex={0} activeRange={range.qualifier} editable
+          <RangeCell ranges={[{ ...range.qualifier, min: range.qualifier.min ?? range.qualifier.value ?? "", max: range.qualifier.max ?? range.qualifier.value ?? "" }]} activeIndex={0} activeRange={{ ...range.qualifier, id: `${rangeKey}:qualifier`, min: range.qualifier.min ?? range.qualifier.value ?? "", max: range.qualifier.max ?? range.qualifier.value ?? "" }} editable
             onEditBound={(field, value) => updateQualifier("patch", { [field]: value })}
             onEditUnit={unit => updateQualifier("patch", { unit })}
             onPatchRange={patch => updateQualifier("patch", patch)}

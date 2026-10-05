@@ -12,11 +12,20 @@ function Harness({viewMode}) {
 it.each(['session','point'])('adds and merges qualifier sub-ranges in %s view',async viewMode=>{
  render(<Harness viewMode={viewMode}/>);
  let row=document.querySelector('tr[data-range-group="uut:u1"]');
+ expect(within(row).queryByRole('button',{name:'Add qualifier',exact:true})).not.toBeInTheDocument();
+ fireEvent.mouseDown(row.querySelector('[data-range-cell]'));
  fireEvent.click(within(row).getByRole('button',{name:'Add qualifier',exact:true}));
  row=document.querySelector('tr[data-range-group="uut:u1"]');
  const table=row.closest('table');
  expect(within(table).getByText('Qualifier',{exact:true})).toBeInTheDocument();
  expect(document.querySelector('tr[data-range-group="uut:u2"] [data-range-cell]')).toHaveAttribute('colspan','2');
+ const qualifier=row.querySelector('[data-qualifier-cell]');
+ fireEvent.click(qualifier.querySelector('.inline-tolerance-summary'));
+ const min=within(qualifier).getByPlaceholderText('min'), max=within(qualifier).getByPlaceholderText('max');
+ fireEvent.change(min,{target:{value:'100'}});
+ fireEvent.change(max,{target:{value:'1000'}});
+ fireEvent.blur(max);
+ expect(JSON.parse(screen.getByTestId('state').textContent).uuts[0].instrument.functions[0].ranges[0].qualifier).toMatchObject({min:'100',max:'1000'});
  fireEvent.click(within(row).getByRole('button',{name:'Add qualifier range',exact:true}));
  const rows=[...document.querySelectorAll('tr[data-range-group="uut:u1"]')];
  expect(rows).toHaveLength(2);

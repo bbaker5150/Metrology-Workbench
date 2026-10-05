@@ -27,7 +27,7 @@ export function editQualifierRange(item, rangeId, action, patch = {}) {
       newRangeId = uuid();
       const group = range.qualifierGroupId || qualifierGroupKey(range) || uuid();
       next[index] = { ...range, qualifierGroupId: group };
-      next.splice(index + 1, 0, { ...structuredClone(range), id: newRangeId, ...(range.rangeId ? { rangeId: newRangeId } : {}), qualifierGroupId: group,
+      next.splice(index + 1, 0, { ...Object.fromEntries(Object.entries(range).filter(([key]) => ['min','max','value','isSingleValue','unit','unitless','functionId','functionName','functionUnit','resolution','resolutionUnit','resolutionDistribution','measuringResolution','measuringResolutionUnit','measuringResolutionDistribution'].includes(key))), id: newRangeId, ...(range.rangeId ? { rangeId: newRangeId } : {}), qualifierGroupId: group,
         qualifier: { name: range.qualifier?.name || "Frequency", min: "", max: "", unit: range.qualifier?.unit || "Hz" }, tolerances: {} });
     }
     if (action === "remove") {
