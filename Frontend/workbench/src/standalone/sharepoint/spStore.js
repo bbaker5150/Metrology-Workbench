@@ -130,6 +130,12 @@ export function listTitle(prefix, key) {
   return `${cleaned || DEFAULT_PREFIX}${containerFor(key).suffix}`;
 }
 
+export function storageDisplayTitle(prefix, key) {
+  const app = !prefix || prefix === DEFAULT_PREFIX ? 'Uncertalytics' : String(prefix).replace(/[^A-Za-z0-9]/g, '') || 'Uncertalytics';
+  return `${app} — ${key === 'bugReports' ? 'Bug Reports' : containerFor(key).suffix}`;
+}
+const storageDescription = container => `Managed by Uncertalytics. ${container.description} Use the app to edit records; manage access through SharePoint permissions.`;
+
 const listApi = (prefix, key) => `/_api/web/lists/getbytitle('${encodeURIComponent(listTitle(prefix, key))}')`;
 
 const formValuesFor = (fields = {}) =>
@@ -181,6 +187,7 @@ export class SharePointStore {
     this.prefix = prefix;
     this.fetchImpl = fetchImpl;
     this._folderCache = null;
+    this._storageTitles = new Map();
     this._currentUser = currentUser ? normalizeUser(currentUser) : null;
     this._currentUserPromise = null;
     this._sessionFiles = new Map();
@@ -188,8 +195,66 @@ export class SharePointStore {
     this._imageFiles = new Map();
   }
 
-  get = (path) => spGet(this.webUrl, path, this.fetchImpl);
-  post = (path, options) => spPost(this.webUrl, path, options, this.fetchImpl);
+  async storageRequest(path, send) {
+    let resolved = path;
+    for (const container of CONTAINERS) {
+      const original = listApi(this.prefix, container.key);
+      if (!path.startsWith(original)) continue;
+      const known = this._storageTitles.get(container.key);
+      if (known) resolved = path.replace(original, `/_api/web/lists/getbytitle('${encodeURIComponent(known)}')`);
+      try { return await send(resolved); }
+      catch (error) {
+        if (error.status !== 404 || known) throw error;
+        // A missing item must never redirect a write to another container.
+        let missingContainer = false;
+        try { await spGet(this.webUrl, `${original}?$select=Id`, this.fetchImpl); }
+        catch (lookupError) { if (lookupError.status === 404) missingContainer = true; else throw lookupError; }
+        if (!missingContainer) throw error;
+        const title = storageDisplayTitle(this.prefix, container.key);
+        const result = await send(path.replace(original, `/_api/web/lists/getbytitle('${encodeURIComponent(title)}')`));
+        this._storageTitles.set(container.key, title);
+        return result;
+      }
+    }
+    return send(resolved);
+  }
+  get = path => this.storageRequest(path, resolved => spGet(this.webUrl, resolved, this.fetchImpl));
+  post = (path, options) => this.storageRequest(path, resolved => spPost(this.webUrl, resolved, options, this.fetchImpl));
+
+  async canManageStorage() {
+    const result = await this.get('/_api/web/EffectiveBasePermissions');
+    const permissions = result.EffectiveBasePermissions || result;
+    return (Number(permissions.Low) & 2048) !== 0;
+  }
+
+  async storageInventory() {
+    return Promise.all(CONTAINERS.map(async container => {
+      const info = await this.get(`${listApi(this.prefix, container.key)}?$select=Id,Title,Description,Hidden,OnQuickLaunch,DefaultViewUrl,ItemCount`);
+      return { ...container, ...info, displayTitle: storageDisplayTitle(this.prefix, container.key) };
+    }));
+  }
+
+  async organizeStorage() {
+    if (!(await this.canManageStorage())) throw new Error('A site owner or someone with Manage Lists permission must organize this storage.');
+    const inventory = await this.storageInventory();
+    // Check every destination before updating anything. Never replace another list.
+    for (const container of inventory) {
+      if (container.Title === container.displayTitle) continue;
+      try {
+        const other = await spGet(this.webUrl, `/_api/web/lists/getbytitle('${encodeURIComponent(container.displayTitle)}')?$select=Id`, this.fetchImpl);
+        if (other.Id !== container.Id) throw new Error(`A separate list named ${container.displayTitle} already exists. Ask a site owner to resolve the duplicate; no lists were deleted.`);
+      } catch (error) { if (error.status !== 404) throw error; }
+    }
+    for (const container of inventory) {
+      if (!/^[0-9a-f-]{36}$/i.test(container.Id || '')) throw new Error('SharePoint returned an invalid storage identifier. No replacement list will be created.');
+      await this.post(`/_api/web/lists(guid'${container.Id}')`, {
+        headers: { 'X-HTTP-Method': 'MERGE', 'IF-MATCH': '*' },
+        body: { Title: container.displayTitle, Description: storageDescription(container), Hidden: true, OnQuickLaunch: false },
+      });
+      this._storageTitles.set(container.key, container.displayTitle);
+    }
+    return this.storageInventory();
+  }
 
   async getItems(path) {
     const items = [];
@@ -305,7 +370,9 @@ export class SharePointStore {
         await this.post('/_api/web/lists', {
           body: {
             Title: title,
-            Description: container.description,
+            Description: storageDescription(container),
+            Hidden: true,
+            OnQuickLaunch: false,
             BaseTemplate: container.template,
             AllowContentTypes: false,
             ContentTypesEnabled: false,

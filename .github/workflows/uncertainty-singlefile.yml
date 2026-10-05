@@ -101,6 +101,8 @@ jobs:
         # web from the parent frame, and provisions. A bundle that fails here
         # must not become a release.
         run: node scripts/smoke-forge-srcdoc.mjs
+        env:
+          STORAGE_ADMIN_SMOKE: '1'
 
       - name: Verify sidebar scrolling, column menus and incompatible units
         run: node scripts/smoke-forge-srcdoc.mjs

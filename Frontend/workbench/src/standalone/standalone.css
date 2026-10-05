@@ -107,3 +107,15 @@ body.dark-mode .sp-gate-card {
 body.dark-mode .sp-gate-card code {
   background: rgba(255, 255, 255, 0.1);
 }
+
+.sp-storage-launch { position: fixed; bottom: 8px; right: 12px; z-index: 100; border: 1px solid var(--border-color, #cbd5e1); border-radius: 5px; background: var(--content-background, white); color: var(--text-color, #172033); font: inherit; font-size: 11px; padding: 4px 8px; cursor: pointer; }
+.sp-storage-admin { width: min(850px, 90vw); max-height: 85vh; overflow: auto; padding: 24px; border: 1px solid var(--border-color, #cbd5e1); border-radius: 10px; background: var(--content-background, white); color: var(--text-color, #172033); font: 14px/1.5 system-ui, sans-serif; }
+.sp-storage-admin::backdrop { background: #0008; }
+.sp-storage-admin header { display: flex; justify-content: space-between; align-items: center; gap: 20px; }
+.sp-storage-admin h2 { margin: 0; }
+.sp-storage-admin button { font: inherit; cursor: pointer; }
+.sp-storage-admin table { width: 100%; border-collapse: collapse; }
+.sp-storage-admin th, .sp-storage-admin td { padding: 10px; border-bottom: 1px solid var(--border-color, #cbd5e1); text-align: left; }
+.sp-storage-admin small { display: block; color: var(--text-color-muted, #64748b); }
+.sp-storage-admin a { color: var(--primary-color, #2563eb); }
+.sp-storage-admin footer { display: flex; justify-content: flex-end; }

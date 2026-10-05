@@ -685,3 +685,71 @@ describe("user-scoped instrument records", () => {
     expect(http.find(/files\/add/)).toHaveLength(0);
   });
 });
+
+
+describe('organized application storage', () => {
+  const ids = CONTAINERS.map((_, i) => `00000000-0000-4000-8000-00000000000${i}`);
+  const titles = ['Uncertalytics — Sessions', 'Uncertalytics — Instruments', 'Uncertalytics — Equations', 'Uncertalytics — Bug Reports'];
+  function setup() {
+    const rows = CONTAINERS.map((c,i) => ({Id:ids[i],Title:listTitle('Uncertainty',c.key),Hidden:false,OnQuickLaunch:true,ItemCount:7}));
+    http.on(/EffectiveBasePermissions/, {json:{Low:'2048',High:'0'}});
+    http.on(/getbytitle/, ({url}) => {
+      const title=decodeURIComponent(url.match(/getbytitle\('([^']+)'\)/)[1]);
+      const row=rows.find(r=>r.Title===title);
+      return row ? {json:row} : {status:404};
+    });
+    http.on(/lists\(guid'/, ({url,init})=>{
+      const row=rows.find(r=>url.includes(r.Id));
+      Object.assign(row,JSON.parse(init.body));
+      return {status:204};
+    });
+    return rows;
+  }
+  it('renames and hides existing storage in place without altering data or permissions', async()=>{
+    const rows=setup();
+    const result=await store.organizeStorage();
+    expect(result.map(r=>r.Title)).toEqual(titles);
+    expect(rows.map(r=>r.Id)).toEqual(ids);
+    expect(rows.every(r=>r.ItemCount===7 && r.Hidden && !r.OnQuickLaunch)).toBe(true);
+    const writes=http.calls.filter(c=>c.method==='POST' && !c.url.includes('contextinfo'));
+    expect(writes).toHaveLength(4);
+    for(const write of writes) {
+      expect(write.spMethod).toBe('MERGE');
+      expect(Object.keys(JSON.parse(write.body)).sort()).toEqual(['Description','Hidden','OnQuickLaunch','Title']);
+    }
+  });
+  it('reopens renamed storage in a fresh app instance', async()=>{
+    setup(); await store.organizeStorage();
+    const reopened=new SharePointStore({webUrl:WEB,fetchImpl:http});
+    expect(await reopened.listExists('UncertaintySessions')).toBe(true);
+    expect((await reopened.storageInventory()).map(r=>r.Title)).toEqual(titles);
+  });
+  it('refuses collisions before modifying any container', async()=>{
+    setup();
+    http.on(new RegExp(encodeURIComponent(titles[2])),{json:{Id:'another-list'}});
+    await expect(store.organizeStorage()).rejects.toThrow(/separate list/);
+    expect(http.find(/lists\(guid'/)).toHaveLength(0);
+  });
+  it('resumes after a partial rename without replacing containers', async()=>{
+    const rows=setup(); let rejected=true;
+    http.on(new RegExp(`lists\\(guid'${ids[1]}`), ({init})=>{
+      if(rejected) { rejected=false; return {status:403}; }
+      Object.assign(rows[1],JSON.parse(init.body)); return {status:204};
+    });
+    await expect(store.organizeStorage()).rejects.toThrow();
+    expect(rows[0].Title).toBe(titles[0]);
+    const reopened=new SharePointStore({webUrl:WEB,fetchImpl:http});
+    expect((await reopened.organizeStorage()).map(r=>r.Title)).toEqual(titles);
+    expect(rows.map(r=>r.Id)).toEqual(ids);
+  });
+  it('requires Manage Lists and never changes permission assignments', async()=>{
+    setup(); http.on(/EffectiveBasePermissions/,{json:{Low:'3',High:'0'}});
+    await expect(store.organizeStorage()).rejects.toThrow(/Manage Lists/);
+    expect(http.calls.some(c=>c.method==='POST')).toBe(false);
+  });
+  it('does not redirect a missing record write when the original list exists', async()=>{
+    setup(); http.on(/items\(999\)/,{status:404});
+    await expect(store.post("/_api/web/lists/getbytitle('UncertaintyInstruments')/items(999)",{body:{Title:'test'}})).rejects.toThrow();
+    expect(http.calls.some(c=>c.method==='POST' && c.url.includes('Uncertalytics'))).toBe(false);
+  });
+});

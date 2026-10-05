@@ -112,6 +112,8 @@ page.on('response', (r) => {
 });
 
 const lists = new Set();
+const storageAdminSmoke = Boolean(process.env.STORAGE_ADMIN_SMOKE);
+const storageMetadata = new Map();
 const rangeInstrument = id => ({
   id, rangeId: `${id}-low`, ranges: [{ id: `${id}-low`, min: 0, max: 10, unit: 'V' }], description: `Range action ${id}`, measurementArea: 'Voltage', measurementAreaId: 'voltage',
   instrument: { manufacturer: 'Smoke', model: id, description: `Range action ${id}`,
@@ -168,11 +170,19 @@ const instrumentItems = [301, 302].map(id => ({
   PayloadJson: JSON.stringify({ id: `instrument-${id}`, manufacturer: 'Smoke', model: `DMM-${id}`, description: 'Archive smoke instrument', scope: 'validated', functions: [] }),
 }));
 await page.route('**/_api/**', async (route) => {
-  const url = decodeURIComponent(new URL(route.request().url()).pathname + new URL(route.request().url()).search);
+  let url = decodeURIComponent(new URL(route.request().url()).pathname + new URL(route.request().url()).search);
   apiCalls.push(url);
   const ok = (body) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify(body) });
   const request = route.request();
   const method = request.headers()['x-http-method'] || request.method();
+  if (url.includes('/_api/web/EffectiveBasePermissions')) return ok({Low:storageAdminSmoke ? '2048' : '0',High:'0'});
+  if (storageAdminSmoke && method === 'MERGE' && /lists\(guid'/.test(url)) {
+    const id=url.match(/lists\(guid'([^']+)'/)[1], existing=storageMetadata.get(id);
+    const update=JSON.parse(request.postData() || '{}');
+    if(!existing || Object.keys(update).some(key=>!['Title','Description','Hidden','OnQuickLaunch'].includes(key))) return route.fulfill({status:400,body:'Invalid storage metadata update'});
+    lists.delete(existing.Title); Object.assign(existing,update); lists.add(existing.Title);
+    return ok({});
+  }
   if (/DELETE|MERGE/i.test(method) || /recycle|delete|\$batch/i.test(url)) {
     destructiveCalls.push(`${method} ${url}`);
     return route.fulfill({ status: 400, body: 'Unexpected destructive operation' });
@@ -194,13 +204,17 @@ await page.route('**/_api/**', async (route) => {
   const probe = /getbytitle\('([^']+)'\)\?\$select=Id/.exec(url);
   if (probe) {
     return lists.has(probe[1])
-      ? ok({ Id: 'g' })
+      ? ok(storageAdminSmoke ? [...storageMetadata.values()].find(record=>record.Title===probe[1]) : { Id: 'g' })
       : route.fulfill({ status: 404, contentType: 'application/json', body: '{}' });
   }
   if (/\/_api\/web\/lists$/.test(url)) {
-    lists.add(JSON.parse(route.request().postData() || '{}').Title);
-    return ok({ Id: 'g' });
+    const created=JSON.parse(route.request().postData() || '{}');
+    lists.add(created.Title);
+    const Id=`00000000-0000-4000-8000-${String(storageMetadata.size+1).padStart(12,'0')}`;
+    storageMetadata.set(Id,{...created,Id,ItemCount:0});
+    return ok({Id:storageAdminSmoke ? Id : 'g'});
   }
+  if(storageAdminSmoke) url=url.replace(/Uncertalytics — (Sessions|Instruments|Equations|Bug Reports)/g,(_,kind)=>'Uncertainty'+kind.replaceAll(' ',''));
   if (/createfieldasxml/.test(url)) return ok({ Id: 'f' });
   // What the live tenant answered: the Fields collection is polymorphic, so a
   // plain JSON body carries no way to tell what kind of column to create.
@@ -306,6 +320,17 @@ if (/not set up yet/i.test(frameText)) {
   check('provisioning created all four containers', lists.size === 4, `(${lists.size})`);
   const after = await frame.locator('body').innerText();
   check('app mounted after provisioning', !/not set up yet/i.test(after));
+  if (storageAdminSmoke) {
+    check('storage setup uses grouped names and hides all four containers', [...storageMetadata.values()].every(record=>record.Title.startsWith('Uncertalytics — ') && record.Hidden && !record.OnQuickLaunch));
+    await frame.getByRole('button',{name:'Storage administration',exact:true}).click();
+    await frame.getByRole('button',{name:'Organize storage',exact:true}).waitFor();
+    check('storage administrator page lists all four settings links',await frame.locator('.sp-storage-admin').getByRole('link',{name:'Settings',exact:true}).count()===4);
+    await frame.getByRole('button',{name:'Organize storage',exact:true}).click();
+    await frame.getByText('Storage organized.',{exact:false}).waitFor();
+    check('reorganizing preserves the four container identities',storageMetadata.size===4 && lists.size===4);
+    await frame.getByRole('button',{name:'Close storage administration',exact:true}).click();
+  }
+
 
   // Every image has to be embedded, not addressed. A src the frame cannot
   // resolve fails silently — the element is simply blank — so the check is on
