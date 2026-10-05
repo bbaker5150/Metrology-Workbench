@@ -2028,7 +2028,7 @@ export const getRangeColumnClickContext = (target) => {
 // Range actions sit beside the editor, sometimes on another row of the same
 // instrument. Dismissing on their pointer-down moves the button before click.
 const isRelatedRangeAction = (target, editor) => {
-  if (!target?.closest?.(".range-row-add, .range-row-delete")) return false;
+  if (!target?.closest?.(".range-row-add, .range-row-delete, .range-qualifier-add")) return false;
   const editorGroup = getRangeColumnClickContext(editor).key;
   return Boolean(editorGroup) && getRangeColumnClickContext(target).key === editorGroup;
 };
@@ -2662,6 +2662,7 @@ const useInstrumentColumnWidths = (kind, customColumns = [], qualifierEnabled = 
   }, [defaults, storageKey]);
 
   const minimumWidth = useCallback((key) => {
+    if (!Object.hasOwn(INSTRUMENT_COLUMN_LABELS, key)) return 64;
     if (key === "sync") return 60;
     if (key === "distribution") return 60;
     if (key === "range") return 80;
@@ -4588,7 +4589,7 @@ export const InstrumentUncertaintyRow = ({ source, activeRange, referencePoint, 
       {sourceIndex === 0 && <span className="instrument-uncertainty-rail" aria-label="Additional uncertainty"><span>ADD’L UNCERTAINTY</span></span>}
       <div className="range-row-cell">
       <div className="instrument-source-row-name">
-        {editingName ? <input className="instrument-custom-field-input" aria-label="Uncertainty name" value={name} autoFocus
+        {editingName ? <input className="instrument-custom-field-input instrument-source-name-input" style={{ width: `calc(${Math.max(5, (name || "Not Set").length)}ch + 16px)` }} aria-label="Uncertainty name" value={name} autoFocus
           placeholder="Not Set" onChange={event => setName(event.target.value)}
           onBlur={() => { commitName(); setEditingName(false); }}
           onKeyDown={event => {
@@ -7953,6 +7954,7 @@ const SummaryDashboard = ({
   const [pendingToleranceRangeKey, setPendingToleranceRangeKey] = useState(null);
   const [pendingResolutionRangeKey, setPendingResolutionRangeKey] = useState(null);
   const [pendingRangeEditKey, setPendingRangeEditKey] = useState(null);
+  const [pendingQualifierEditKey, setPendingQualifierEditKey] = useState(null);
   const rangeClickGroupRef = useRef(null);
   // Click-away collapse: an expanded range column stays open only while the
   // user is interacting with that same instrument's range cells. Clicking a
@@ -8151,9 +8153,11 @@ const SummaryDashboard = ({
     const span = qualifierRowSpan(getInstrumentRangeRows(item), range);
     const updateQualifier = (action, patch) => {
       const current = (latestSessionDataRef.current[kind === "uut" ? "uuts" : "tmdes"] || []).find(entry => sameId(entry.id, item.id)) || item;
-      persistInlineItem(kind, action === "enable"
-        ? applyItemRangePatch(current, rangeKey, { qualifierGroupId: uuidv4(), qualifier: { name: "Frequency", min: "", max: "", unit: "Hz" } })
-        : editQualifierRange(current, rangeKey, action, patch).item);
+      const result = action === "enable"
+        ? { item: applyItemRangePatch(current, rangeKey, { qualifierGroupId: uuidv4(), qualifier: { name: "Frequency", min: "", max: "", unit: "Hz" } }), newRangeId: rangeKey }
+        : editQualifierRange(current, rangeKey, action, patch);
+      persistInlineItem(kind, result.item);
+      if (action === "enable" || action === "add") setPendingQualifierEditKey(`${kind}:${item.id}:${result.newRangeId}`);
     };
     return (
       <>
@@ -8239,15 +8243,19 @@ const SummaryDashboard = ({
           </div>
         </td>}
         {qualifierEnabled && range.qualifier && <td data-range-cell="true" data-qualifier-cell="true" className="cell-value qualifier-range-cell">
+          <div className="range-row-cell">
           <RangeCell ranges={[{ ...range.qualifier, min: range.qualifier.min ?? range.qualifier.value ?? "", max: range.qualifier.max ?? range.qualifier.value ?? "" }]} activeIndex={0} activeRange={{ ...range.qualifier, id: `${rangeKey}:qualifier`, min: range.qualifier.min ?? range.qualifier.value ?? "", max: range.qualifier.max ?? range.qualifier.value ?? "" }} editable
             onEditBound={(field, value) => updateQualifier("patch", { [field]: value })}
             onEditUnit={unit => updateQualifier("patch", { unit })}
             onPatchRange={patch => updateQualifier("patch", patch)}
+            openRequested={pendingQualifierEditKey === `${kind}:${item.id}:${rangeKey}`}
+            onOpenRequestHandled={() => setPendingQualifierEditKey(null)}
             onAdvanceRange={() => updateQualifier("add")} />
-          <span className="qualifier-row-actions">
-            <button type="button" aria-label="Delete qualifier range" onClick={event => { event.stopPropagation(); updateQualifier("remove"); }}>×</button>
-            <button type="button" aria-label="Add qualifier range" onClick={event => { event.stopPropagation(); updateQualifier("add"); }}>+</button>
+          <span className="range-row-controls">
+            <button type="button" className="range-row-add" title="Add qualifier range" aria-label="Add qualifier range" onClick={event => { event.stopPropagation(); updateQualifier("add"); }}><FontAwesomeIcon icon={faPlus} /></button>
+            <button type="button" className="range-row-delete" title="Delete qualifier range" aria-label="Delete qualifier range" onClick={event => { event.stopPropagation(); updateQualifier("remove"); }}>×</button>
           </span>
+          </div>
         </td>}
         {renderCustomAfter("range")}
 
@@ -10345,6 +10353,7 @@ function DetailedView({
   const [pendingToleranceRangeKey, setPendingToleranceRangeKey] = useState(null);
   const [pendingResolutionRangeKey, setPendingResolutionRangeKey] = useState(null);
   const [pendingRangeEditKey, setPendingRangeEditKey] = useState(null);
+  const [pendingQualifierEditKey, setPendingQualifierEditKey] = useState(null);
   const rangeClickGroupRef = useRef(null);
   // --- NEW: Local Selection State ---
   const [selectedUutIds, setSelectedUutIds] = useState([]);
@@ -11856,9 +11865,11 @@ function DetailedView({
     const span = qualifierRowSpan(getInstrumentRangeRows(item), range);
     const updateQualifier = (action, patch) => {
       const current = (latestSessionDataRef.current[kind === "uut" ? "uuts" : "tmdes"] || []).find(entry => sameId(entry.id, item.id)) || item;
-      persistInlineItemDetail(kind, action === "enable"
-        ? applyItemRangePatch(current, rangeKey, { qualifierGroupId: uuidv4(), qualifier: { name: "Frequency", min: "", max: "", unit: "Hz" } })
-        : editQualifierRange(current, rangeKey, action, patch).item);
+      const result = action === "enable"
+        ? { item: applyItemRangePatch(current, rangeKey, { qualifierGroupId: uuidv4(), qualifier: { name: "Frequency", min: "", max: "", unit: "Hz" } }), newRangeId: rangeKey }
+        : editQualifierRange(current, rangeKey, action, patch);
+      persistInlineItemDetail(kind, result.item);
+      if (action === "enable" || action === "add") setPendingQualifierEditKey(`${kind}:${item.id}:${result.newRangeId}`);
     };
     return (
       <>
@@ -11944,15 +11955,19 @@ function DetailedView({
           </div>
         </td>}
         {qualifierEnabled && range.qualifier && <td data-range-cell="true" data-qualifier-cell="true" className="cell-value qualifier-range-cell">
+          <div className="range-row-cell">
           <RangeCell ranges={[{ ...range.qualifier, min: range.qualifier.min ?? range.qualifier.value ?? "", max: range.qualifier.max ?? range.qualifier.value ?? "" }]} activeIndex={0} activeRange={{ ...range.qualifier, id: `${rangeKey}:qualifier`, min: range.qualifier.min ?? range.qualifier.value ?? "", max: range.qualifier.max ?? range.qualifier.value ?? "" }} editable
             onEditBound={(field, value) => updateQualifier("patch", { [field]: value })}
             onEditUnit={unit => updateQualifier("patch", { unit })}
             onPatchRange={patch => updateQualifier("patch", patch)}
+            openRequested={pendingQualifierEditKey === `${kind}:${item.id}:${rangeKey}`}
+            onOpenRequestHandled={() => setPendingQualifierEditKey(null)}
             onAdvanceRange={() => updateQualifier("add")} />
-          <span className="qualifier-row-actions">
-            <button type="button" aria-label="Delete qualifier range" onClick={event => { event.stopPropagation(); updateQualifier("remove"); }}>×</button>
-            <button type="button" aria-label="Add qualifier range" onClick={event => { event.stopPropagation(); updateQualifier("add"); }}>+</button>
+          <span className="range-row-controls">
+            <button type="button" className="range-row-add" title="Add qualifier range" aria-label="Add qualifier range" onClick={event => { event.stopPropagation(); updateQualifier("add"); }}><FontAwesomeIcon icon={faPlus} /></button>
+            <button type="button" className="range-row-delete" title="Delete qualifier range" aria-label="Delete qualifier range" onClick={event => { event.stopPropagation(); updateQualifier("remove"); }}>×</button>
           </span>
+          </div>
         </td>}
         {renderCustomAfter("range")}
 

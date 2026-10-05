@@ -20,19 +20,34 @@ export async function checkQualifierRanges({frame, page, saved, until, check}) {
       await first.getByRole('button',{name:'Add qualifier',exact:true}).click();
       check(`${view} ${kind} adds Qualifier header`,await table.locator('thead [data-instrument-column="qualifier"]').count()===1);
       const qualifier=first.locator('[data-qualifier-cell]');
-      await qualifier.locator('.inline-tolerance-summary').click();
+      check(`${view} ${kind} new qualifier opens focused`, await qualifier.getByPlaceholder('min',{exact:true}).evaluate(node=>node===document.activeElement));
       await qualifier.getByPlaceholder('min',{exact:true}).fill('100');
+      await qualifier.getByPlaceholder('min',{exact:true}).press('Tab');
+      check(`${view} ${kind} qualifier Tab preserves focus`, await qualifier.getByPlaceholder('max',{exact:true}).evaluate(node=>node===document.activeElement));
       await qualifier.getByPlaceholder('max',{exact:true}).fill('1000');
       await qualifier.getByPlaceholder('max',{exact:true}).press('Enter');
       await first.getByRole('button',{name:'Add qualifier range',exact:true}).click();
       const rows=table.locator(`tr[data-selection-key="${group}"]:has([data-qualifier-cell])`);
       check(`${view} ${kind} shares the parent range`,await rows.count()===2 && await baseRange.getAttribute('rowspan')==='2');
       const second=rows.nth(1).locator('[data-qualifier-cell]');
-      await second.locator('.inline-tolerance-summary').click();
+      check(`${view} ${kind} added qualifier opens focused`, await second.getByPlaceholder('min',{exact:true}).evaluate(node=>node===document.activeElement));
       await second.getByPlaceholder('min',{exact:true}).fill('1000');
       await second.getByPlaceholder('max',{exact:true}).fill('10000');
       await second.getByPlaceholder('max',{exact:true}).press('Enter');
       await table.locator('thead').click();
+      check(`${view} ${kind} qualifier controls align beside inputs`,await second.evaluate(cell=>{
+        const editor=cell.querySelector('.inline-range-editor').getBoundingClientRect();
+        const add=cell.querySelector('.range-row-add').getBoundingClientRect();
+        const remove=cell.querySelector('.range-row-delete').getBoundingClientRect();
+        return add.left>=editor.right-1 && remove.left>=add.right && Math.abs(add.top-remove.top)<1;
+      }));
+      check(`${view} ${kind} instrument delete remains visible during scroll`, await table.evaluate(table=>{
+        const container=table.parentElement, cell=table.querySelector('td.cell-sync');
+        const previous=container.scrollLeft;
+        const visible=[0,container.scrollWidth-container.clientWidth].every(position=>{ container.scrollLeft=position; const button=cell.querySelector('.instrument-row-delete').getBoundingClientRect(), box=container.getBoundingClientRect(); return button.left>=box.left && button.right<=box.right+1; });
+        container.scrollLeft=previous;
+        return visible;
+      }));
       check(`${view} ${kind} saves independent qualifier bounds`,await until(()=>{
         const item=saved()[kind==='uut'?'uuts':'tmdes'].find(item=>`${kind}:${item.id}`===group);
         const ranges=item?.ranges || item?.instrument?.functions?.flatMap(fn=>fn.ranges||[]) || item?.instrument?.ranges || [];
