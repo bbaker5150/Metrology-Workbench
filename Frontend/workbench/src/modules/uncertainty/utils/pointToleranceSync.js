@@ -30,14 +30,14 @@ export function syncPointTolerances(session, previous) {
     const existing = point.uutTolerance;
     // A standalone, manually authored point tolerance has no source range.
     if (existing && Object.keys(existing).length && existing.rangeId == null && existing.id == null && !existing.functionId) return point;
-    const parameter = point.testPointInfo?.parameter || {};
+    const parameter = { ...point.testPointInfo?.parameter, qualifier: point.testPointInfo?.qualifier };
     const rows = getInstrumentRangeRows(uut);
     const candidates = rows.filter(row => {
       if (isDraftInstrumentRange(row)) return false;
       if (parameter.unitSelectionExplicit && !parameter.unit) return false;
       return assessRangeCompatibility(row, parameter, "UUT range").compatible;
     });
-    const next = rows.find(row => sameId(row.rangeId ?? row.id, existing?.rangeId ?? existing?.id) &&
+    const next = rows.find(row => (!row.qualifier || assessRangeCompatibility(row, parameter, "UUT range").compatible) && sameId(row.rangeId ?? row.id, existing?.rangeId ?? existing?.id) &&
       (!existing?.functionId || sameId(row.functionId, existing.functionId))) || candidates[0] || null;
     const tolerance = next ? {
       ...next,

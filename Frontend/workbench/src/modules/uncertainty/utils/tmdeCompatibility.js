@@ -63,6 +63,13 @@ export const assessRangeCompatibility = (
     };
   }
 
+  if (range.qualifier && (range.qualifierGroupId || measurementPoint?.qualifier)) {
+    const qualifier = range.qualifier;
+    const nominal = measurementPoint?.qualifier;
+    if (!hasValue(nominal?.value) || !nominal?.unit) return { compatible: false, reason: `Define the measurement point qualifier (${qualifier.unit || 'unit not set'}) for this ${rangeLabel}.` };
+    const result = assessRangeCompatibility({ ...qualifier, min: qualifier.min ?? qualifier.value, max: qualifier.max ?? qualifier.value }, nominal, "qualifier range");
+    if (!result.compatible) return result;
+  }
   return { compatible: true, reason: "" };
 };
 

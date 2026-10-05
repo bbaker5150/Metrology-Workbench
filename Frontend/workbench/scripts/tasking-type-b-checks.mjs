@@ -1,3 +1,4 @@
+import { checkQualifierRanges } from "./qualifier-range-checks.mjs";
 import { prepareInputTasking } from "./input-tasking-checks.mjs";
 export function prepareTaskingTypeB(session) {
   prepareInputTasking(session);
@@ -252,5 +253,7 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
   await instrumentCell.getByRole('button',{name:'Change uncertainty type',exact:true}).click();
   await instrumentCell.getByRole('button',{name:'Manual',exact:true}).click();
   await frame.locator('.analysis-tabs').click({position:{x:5,y:5}});
+
+  await checkQualifierRanges({ frame, page, saved, until, check });
 
 }

@@ -22119,3 +22119,12 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
 .dynamic-column-heading .dynamic-inline-field { display: inline-flex; margin: 0; }
 .dynamic-column-heading .dynamic-unit-summary { padding: 2px 3px; }
 .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-budget-header:has(> .dynamic-budget-modebar) { flex-direction: row; justify-content: flex-start; }
+
+/* Qualifier bands share the instrument range and keep independent error cells. */
+.range-qualifier-add { border: 0; background: transparent; color: var(--text-muted); font: inherit; font-size: 10px; padding: 2px 5px; white-space: nowrap; cursor: pointer; }
+.range-qualifier-add:hover { color: var(--primary-color); background: var(--primary-color-light); border-radius: 3px; }
+.qualifier-range-cell { position: relative; }
+.qualifier-row-actions { display: inline-flex; gap: 3px; margin-left: 6px; opacity: 0; }
+.qualifier-range-cell:hover .qualifier-row-actions, .qualifier-row-actions:focus-within { opacity: 1; }
+.qualifier-row-actions button { border: 0; background: transparent; color: var(--text-muted); cursor: pointer; padding: 2px 4px; }
+.qualifier-row-actions button:hover { color: var(--primary-color); background: var(--primary-color-light); }

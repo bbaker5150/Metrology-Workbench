@@ -35,6 +35,7 @@ export function getBudgetRangeWarnings({
   components = [],
   measurementType = "direct",
   directNominal,
+  qualifier = directNominal?.qualifier,
   groups = [],
   tmdes = [],
 } = {}) {
@@ -90,7 +91,7 @@ export function getBudgetRangeWarnings({
     };
     const compatibility = assessRangeCompatibility(
       range,
-      nominal,
+      { ...nominal, qualifier },
       "error source range",
     );
     if (compatibility.compatible) continue;
@@ -101,7 +102,7 @@ export function getBudgetRangeWarnings({
     (warnings[key] ||= []).push({
       componentId: component.id || component.componentId,
       name: component.name || "TMDE component",
-      reason: `${subject} ${label(nominal)} does not fall within error source range: ${formatRangeLabel(range, { preferBounds: true })}. Choose a range that includes this value and has compatible units.`,
+      reason: range.qualifier && !assessRangeCompatibility(range, { ...nominal, qualifier }, "error source range").compatible ? compatibility.reason : `${subject} ${label(nominal)} does not fall within error source range: ${formatRangeLabel(range, { preferBounds: true })}. Choose a range that includes this value and has compatible units.`,
     });
   }
   return warnings;
@@ -120,6 +121,10 @@ export function getPointDiagnosticEntries(
   const add = (message, category = "input") => {
     if (!warnings.some(entry => entry.message === message)) warnings.push({ message, category });
   };
+  if (tolerance.qualifier) {
+    const match = assessRangeCompatibility(tolerance, { ...nominal, qualifier: point.testPointInfo?.qualifier }, "UUT range");
+    if (!match.compatible) add(`UUT: ${match.reason}`, "warning");
+  }
   const unitError = toleranceUnitMismatch(tolerance, nominal.unit, unitSystem);
   if (unitError) add(`UUT tolerance ${unitError} Choose compatible measurement-point and UUT units to calculate limits, uncertainty, and risk.`);
   const specification = { ...tolerance, ...(tolerance.tolerances || tolerance.tolerance || {}) };
@@ -203,6 +208,7 @@ export function getPointDiagnosticEntries(
       components,
       measurementType: point.measurementType,
       directNominal: nominal,
+      qualifier: point.testPointInfo?.qualifier,
       groups,
       tmdes: session.tmdes || [],
     }),

@@ -1,0 +1,38 @@
+import React, {useState} from 'react';
+import { render, fireEvent, screen, within, waitFor } from '@testing-library/react';
+import {it, expect, vi} from 'vitest';
+import UncertaintyPanel from './UncertaintyPanel';
+vi.mock('plotly.js-dist',()=>({default:{}}));
+const makeItem=id=>({id,description:id,instrument:{functions:[{id:id+'f',name:'Current',unit:'A',ranges:[{id:id+'r',min:10,max:100,unit:'A',tolerances:{reading:{value:1,unit:'%'}}}]}]}});
+function Harness({viewMode}) {
+ const [session,save]=useState({id:'s',name:'Test',uuts:[makeItem('u1'),makeItem('u2')],tmdes:[makeItem('t1')],testPoints:[],uncReq:{}});
+ const point={id:'p',viewMode,testPointInfo:{parameter:{name:'Current',value:50,unit:'A'},qualifier:{value:200,unit:'Hz'}},associatedUutIds:['u1'],components:[],tmdeTolerances:[],specifications:{}};
+ return <><UncertaintyPanel testPointData={point} sessionData={session} onSessionSave={save} uutNominal={point.testPointInfo.parameter} tmdeTolerancesData={[]} setNotification={()=>{}} onInstrumentSynced={()=>{}}/><output data-testid="state">{JSON.stringify(session)}</output></>;
+}
+it.each(['session','point'])('adds and merges qualifier sub-ranges in %s view',async viewMode=>{
+ render(<Harness viewMode={viewMode}/>);
+ let row=document.querySelector('tr[data-range-group="uut:u1"]');
+ fireEvent.click(within(row).getByRole('button',{name:'Add qualifier',exact:true}));
+ row=document.querySelector('tr[data-range-group="uut:u1"]');
+ const table=row.closest('table');
+ expect(within(table).getByText('Qualifier',{exact:true})).toBeInTheDocument();
+ expect(document.querySelector('tr[data-range-group="uut:u2"] [data-range-cell]')).toHaveAttribute('colspan','2');
+ fireEvent.click(within(row).getByRole('button',{name:'Add qualifier range',exact:true}));
+ const rows=[...document.querySelectorAll('tr[data-range-group="uut:u1"]')];
+ expect(rows).toHaveLength(2);
+ expect(rows[0].querySelector('[data-range-cell]')).toHaveAttribute('rowspan','2');
+ expect(rows[1].querySelectorAll('[data-range-cell]')).toHaveLength(1);
+ fireEvent.mouseDown(rows[0].querySelector('[data-range-cell]'));
+ expect(rows.every(r=>r.dataset.rangeSelected==='true')).toBe(true);
+ fireEvent.mouseDown(rows[1].querySelector('[data-qualifier-cell]'));
+ expect(rows[0].dataset.rangeSelected).toBe('false');
+ expect(rows[1].dataset.rangeSelected).toBe('true');
+ fireEvent.mouseDown(rows[1].querySelector('.cell-tolerance'));
+ fireEvent.pointerMove(rows[1].querySelector('.cell-tolerance'));
+ await waitFor(()=>expect(rows[0].querySelector('.cell-description')).toHaveAttribute('data-cell-selected'));
+ expect(rows[0].querySelector('[data-range-cell]')).toHaveAttribute('data-cell-selected');
+ const state=JSON.parse(screen.getByTestId('state').textContent);
+ expect(state.uuts[0].instrument.functions[0].ranges).toHaveLength(2);
+ fireEvent.click(within(rows[1]).getByRole('button',{name:'Delete qualifier range'}));
+ expect(document.querySelectorAll('tr[data-range-group="uut:u1"]')).toHaveLength(1);
+});

@@ -1,3 +1,4 @@
+import { editQualifierRange, hasQualifierRanges, qualifierGroupKey, qualifierRowSpan } from "../../../utils/qualifierRanges";
 import { measurementPreview } from '../../../utils/measurementPreview';
 import { newMeasurementAreaColor } from "../../../utils/measurementAreaGrouping";
 import MeasurementAreaEmptyHint from "../../../components/common/MeasurementAreaEmptyHint";
@@ -1045,9 +1046,11 @@ export const applyItemRangePatch = (item, rangeId, rangePatch) => {
     }
   }
   rangePatch = { ...rangePatch, ...resolutionPatch };
+  const target = findItemRange(item, rangeId);
+  const sharedPatch = Object.fromEntries(Object.entries(rangePatch).filter(([key]) => ["min", "max", "value", "isSingleValue", "unit", "unitless"].includes(key)));
   const patch = (ranges) =>
     (ranges || []).map((r) => {
-      if (!rangeMatches(r, rangeId)) return r;
+      if (!rangeMatches(r, rangeId)) return target?.qualifier && qualifierGroupKey(r) === qualifierGroupKey(target) && Object.keys(sharedPatch).length ? { ...r, ...sharedPatch } : r;
       const next = { ...r, ...rangePatch };
       if (Object.keys(resolutionPatch).length) {
         for (const nested of ["tolerance", "tolerances"]) {
@@ -1206,6 +1209,10 @@ export const addRangeToItem = (item, activeRangeId) => {
   item = { ...item, rangeOrderMode: "manual" };
   const inst = item?.instrument || {};
   const activeRange = findItemRange(item, activeRangeId);
+  if (activeRange?.qualifier) {
+    const peers = getInstrumentRangeRows(item).filter(range => qualifierGroupKey(range) === qualifierGroupKey(activeRange));
+    activeRangeId = rangeIdOf(peers.at(-1)) || activeRangeId;
+  }
   const seededTolerances = blankToleranceFrom(getItemRangeTolerance(item, activeRangeId));
   for (const key of ["floor", "readings_iv", "singleSided"]) {
     if (seededTolerances[key]) seededTolerances[key] = { ...seededTolerances[key], unit: "" };
@@ -1250,11 +1257,19 @@ export const addRangeToItem = (item, activeRangeId) => {
   };
 };
 
+export const removeParentRangeFromItem = (item, rangeId) => {
+  const ranges = getInstrumentRangeRows(item);
+  const range = ranges.find(candidate => sameId(rangeIdOf(candidate), rangeId));
+  const ids = range?.qualifier ? ranges.filter(candidate => qualifierGroupKey(candidate) === qualifierGroupKey(range)).map(rangeIdOf) : [rangeId];
+  return ids.reduce((current, id) => removeRangeFromItem(current, id), item);
+};
+
 // Deep-clone a range for the range clipboard / paste, with a fresh id so the
 // pasted copy is an independent duplicate.
 const cloneRangeForPaste = (range = {}) => {
   const clone = JSON.parse(JSON.stringify(range || {}));
   clone.id = uuidv4();
+  if (clone.qualifier) clone.qualifierGroupId = uuidv4();
   if (clone.rangeId !== undefined) clone.rangeId = clone.id;
   delete clone._id;
   return clone;
@@ -2529,18 +2544,20 @@ const INSTRUMENT_STANDARD_COLUMNS = {
 const INSTRUMENT_COLUMN_LABELS = {
   description: "Description",
   range: "Range",
+  qualifier: "Qualifier",
   tolerance: "Tolerance",
   distribution: "Distribution",
   resolution: "Resolution",
   sync: "Sync",
 };
 
-export const getInstrumentColumnOrder = (kind, customColumns = []) => {
+export const getInstrumentColumnOrder = (kind, customColumns = [], qualifierEnabled = false) => {
   const order = [...(INSTRUMENT_STANDARD_COLUMNS[kind] || [])];
+  if (qualifierEnabled) order.splice(order.indexOf("range") + 1, 0, "qualifier");
   let legacyAnchor = "resolution";
   customColumns.forEach((column) => {
     const key = instrumentColumnKey(column);
-    const requestedAnchor = column.insertAfter || legacyAnchor;
+    const requestedAnchor = qualifierEnabled && column.insertAfter === "range" ? "qualifier" : column.insertAfter || legacyAnchor;
     const syncIndex = order.indexOf("sync");
     const anchorIndex = order.indexOf(requestedAnchor);
     const insertionIndex =
@@ -2588,13 +2605,13 @@ const renderedInstrumentColumnWidths = (table) => {
   return Object.fromEntries(headers.map(header => [header.dataset.instrumentColumn, header.getBoundingClientRect().width / (table.getBoundingClientRect().width / table.offsetWidth || 1)]));
 };
 
-const useInstrumentColumnWidths = (kind, customColumns = []) => {
+const useInstrumentColumnWidths = (kind, customColumns = [], qualifierEnabled = false) => {
   const beginResize = usePointerResize();
   const customSignature = customColumns
     .map((column) => `${column.key}:${column.insertAfter || "legacy"}`)
     .join("|");
   const defaults = useMemo(() => {
-    const base = { ...(INSTRUMENT_COLUMN_DEFAULTS[kind] || {}) };
+    const base = { ...(INSTRUMENT_COLUMN_DEFAULTS[kind] || {}), qualifier: 220 };
     customColumns.forEach((column) => {
       base[instrumentColumnKey(column)] = 160;
     });
@@ -2653,10 +2670,10 @@ const useInstrumentColumnWidths = (kind, customColumns = []) => {
   }, []);
 
   const keys = useMemo(
-    () => getInstrumentColumnOrder(kind, customColumns),
+    () => getInstrumentColumnOrder(kind, customColumns, qualifierEnabled),
     // customSignature intentionally captures insertion positions.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [kind, customSignature],
+    [kind, customSignature, qualifierEnabled],
   );
   const resolvedWidths = useMemo(
     () =>
@@ -2727,6 +2744,7 @@ const useInstrumentColumnWidths = (kind, customColumns = []) => {
   );
 
   return {
+    qualifierEnabled,
     fillColumn: widths.__fillColumn || keys[keys.length - 1],
     widthFor: (key) =>
       widths.__absolute ? `${resolvedWidths[key] || 160}px` : `${((resolvedWidths[key] || 160) / totalWidth) * 100}%`,
@@ -2808,7 +2826,7 @@ const ResizableInstrumentHeader = ({
 
 const InstrumentTableColgroup = ({ kind, customColumns, columns }) => (
   <colgroup>
-    {getInstrumentColumnOrder(kind, customColumns).map((columnKey) => (
+    {getInstrumentColumnOrder(kind, customColumns, columns.qualifierEnabled).map((columnKey) => (
       <col key={columnKey} data-fill={columns.fillColumn === columnKey} style={{ width: columns.widthFor(columnKey) }} />
     ))}
   </colgroup>
@@ -2824,7 +2842,7 @@ const InstrumentTableHeader = ({
   const customByKey = new Map(
     customColumns.map((column) => [instrumentColumnKey(column), column]),
   );
-  const order = getInstrumentColumnOrder(kind, customColumns);
+  const order = getInstrumentColumnOrder(kind, customColumns, columns.qualifierEnabled);
   const labelFor = (columnKey) => {
     const custom = customByKey.get(columnKey);
     if (custom) return custom.label || "Name";
@@ -4527,7 +4545,7 @@ const SingleSidedToleranceEditor = ({
 // The close is deferred so a blurred input commits before the editor unmounts.
 // Independent sources share the instrument description, but never participate
 // in range calculations. Selection and deletion share the range-row controls.
-export const InstrumentUncertaintyRow = ({ source, activeRange, referencePoint, style, onChange, onRemove, onAddSecondary, sourceIndex = 0, sourceCount = 1, rowProps = {}, selected = false, showRowActions = false, renderCustomAfter = () => null }) => {
+export const InstrumentUncertaintyRow = ({ source, activeRange, referencePoint, style, onChange, onRemove, onAddSecondary, sourceIndex = 0, sourceCount = 1, rowProps = {}, selected = false, showRowActions = false, qualifierEnabled = false, renderCustomAfter = () => null }) => {
   const sourceRowRef = useRef(null);
   useLayoutEffect(() => {
     if (sourceIndex !== 0) return undefined;
@@ -4566,7 +4584,7 @@ export const InstrumentUncertaintyRow = ({ source, activeRange, referencePoint, 
     data-range-id={uncertaintyRowId(source.id)} data-range-selected={selected}
     data-uncertainty-source-id={source.id} style={{ ...style, "--uncertainty-source-count": sourceCount }}>
     {renderCustomAfter("description")}
-    <td className="cell-range instrument-uncertainty-name-cell" data-range-cell>
+    <td colSpan={qualifierEnabled ? 2 : 1} className="cell-range instrument-uncertainty-name-cell" data-range-cell>
       {sourceIndex === 0 && <span className="instrument-uncertainty-rail" aria-label="Additional uncertainty"><span>ADD’L UNCERTAINTY</span></span>}
       <div className="range-row-cell">
       <div className="instrument-source-row-name">
@@ -5779,6 +5797,7 @@ export const resolveUutRangeHelper = (
   // Priority B: Saved Tolerance (Robust Match)
   if (activeIndex === -1 && savedTolerance) {
     activeIndex = allRanges.findIndex((r) => {
+      if (r.qualifier && uutNominal && !assessRangeCompatibility(r, uutNominal, "UUT range").compatible) return false;
       // Stable range/function ids are preferred because function names and row
       // order can change as multifunction instruments evolve.
       if (
@@ -5859,6 +5878,7 @@ const budgetRangeSnapshot = (range = {}) => {
       : undefined;
   return {
     rangeId: range.rangeId ?? range.id ?? "",
+    ...(range.qualifier ? { qualifier: range.qualifier, qualifierGroupId: range.qualifierGroupId } : {}),
     functionId: range.functionId ?? "",
     functionName: range.functionName ?? "",
     min: range.min ?? singleValue ?? "",
@@ -6738,10 +6758,12 @@ const SummaryDashboard = ({
   const uutTableColumns = useInstrumentColumnWidths(
     "uut",
     customColumnsFor("uut"),
+    hasQualifierRanges(sessionData.uuts),
   );
   const tmdeTableColumns = useInstrumentColumnWidths(
     "tmde",
     customColumnsFor("tmde"),
+    hasQualifierRanges(sessionData.tmdes),
   );
   const uutTableHeight = useInstrumentTableHeight(
     "overview",
@@ -7515,7 +7537,7 @@ const SummaryDashboard = ({
   };
   const handleRemoveRange = (kind, item, rangeId) => {
     if (!onSessionSave) return;
-    const updated = removeRangeFromItem(item, rangeId);
+    const updated = removeParentRangeFromItem(item, rangeId);
     persistItem(kind, updated);
     const setIdx = kind === "uut" ? setLocalRangeIndices : setTmdeRangeIndices;
     setIdx((prev) => {
@@ -8125,9 +8147,19 @@ const SummaryDashboard = ({
     // range controls belong only to an explicitly selected range.
     const showRangeActions = lastSelectionTarget === "range" && (selectedRangeIds[itemStateKey(kind, item.id)] || []).some(id => sameId(id, rangeKey));
 
+    const qualifierEnabled = (kind === "uut" ? uutTableColumns : tmdeTableColumns).qualifierEnabled;
+    const span = qualifierRowSpan(getInstrumentRangeRows(item), range);
+    const updateQualifier = (action, patch) => {
+      const current = (latestSessionDataRef.current[kind === "uut" ? "uuts" : "tmdes"] || []).find(entry => sameId(entry.id, item.id)) || item;
+      persistInlineItem(kind, action === "enable"
+        ? applyItemRangePatch(current, rangeKey, { qualifierGroupId: uuidv4(), qualifier: { name: "Frequency", min: "", max: "", unit: "Hz" } })
+        : editQualifierRange(current, rangeKey, action, patch).item);
+    };
     return (
       <>
-        <td
+        {span > 0 && <td
+          rowSpan={span}
+          colSpan={qualifierEnabled && !range.qualifier ? 2 : 1}
           data-range-cell="true"
           className={`cell-value ${hoveredCell.tableId === tableId && hoveredCell.colIndex === 1 ? "col-hovered" : ""}`}
           onMouseEnter={() => setHoveredCell({ tableId, colIndex: 1 })}
@@ -8201,8 +8233,20 @@ const SummaryDashboard = ({
                 x
               </button>
             )}
+            {!range.qualifier && <button type="button" className="range-qualifier-add" aria-label="Add qualifier" title="Add qualifier range" onMouseDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); updateQualifier("enable"); }}>+ Qual</button>}
           </div>
-        </td>
+        </td>}
+        {qualifierEnabled && range.qualifier && <td data-range-cell="true" data-qualifier-cell="true" className="cell-value qualifier-range-cell">
+          <RangeCell ranges={[{ ...range.qualifier, min: range.qualifier.min ?? range.qualifier.value ?? "", max: range.qualifier.max ?? range.qualifier.value ?? "" }]} activeIndex={0} activeRange={range.qualifier} editable
+            onEditBound={(field, value) => updateQualifier("patch", { [field]: value })}
+            onEditUnit={unit => updateQualifier("patch", { unit })}
+            onPatchRange={patch => updateQualifier("patch", patch)}
+            onAdvanceRange={() => updateQualifier("add")} />
+          <span className="qualifier-row-actions">
+            <button type="button" aria-label="Delete qualifier range" onClick={event => { event.stopPropagation(); updateQualifier("remove"); }}>×</button>
+            <button type="button" aria-label="Add qualifier range" onClick={event => { event.stopPropagation(); updateQualifier("add"); }}>+</button>
+          </span>
+        </td>}
         {renderCustomAfter("range")}
 
         <td
@@ -9083,7 +9127,7 @@ const SummaryDashboard = ({
             <tbody>
               {groupedUutRows.length === 0 ? (
                 <tr className="panel-empty-row">
-                  <td colSpan={5 + customColumnsFor("uut").length}>
+                  <td colSpan={5 + Number(uutTableColumns.qualifierEnabled) + customColumnsFor("uut").length}>
                     <MeasurementAreaEmptyHint />
                   </td>
                 </tr>
@@ -9614,7 +9658,7 @@ const SummaryDashboard = ({
             <tbody>
               {groupedTmdeRows.length === 0 ? (
                 <tr className="panel-empty-row">
-                  <td colSpan={6 + customColumnsFor("tmde").length}>
+                  <td colSpan={6 + Number(tmdeTableColumns.qualifierEnabled) + customColumnsFor("tmde").length}>
                     <MeasurementAreaEmptyHint />
                   </td>
                 </tr>
@@ -9754,7 +9798,7 @@ const SummaryDashboard = ({
                             </tr>
                           );
                         })}
-                      {sources.map((source, sourceIndex) => <InstrumentUncertaintyRow key={source.id} source={source} sourceIndex={sourceIndex} sourceCount={sources.length}
+                      {sources.map((source, sourceIndex) => <InstrumentUncertaintyRow qualifierEnabled={tmdeTableColumns.qualifierEnabled} key={source.id} source={source} sourceIndex={sourceIndex} sourceCount={sources.length}
                             onAddSecondary={type => addInstrumentSource(tmde, type, activeRange)}
                             showRowActions={lastSelectionTarget === "range" && selectedRangeIds[itemStateKey("tmde", tmde.id)]?.includes(uncertaintyRowId(source.id))}
                             selected={selectedRangeIds[itemStateKey("tmde", tmde.id)]?.includes(uncertaintyRowId(source.id)) ?? isSelected}
@@ -10239,7 +10283,7 @@ function DetailedView({
   instruments = [],
   calcResults,
   calculationError,
-  uutNominal,
+  uutNominal: rawUutNominal,
   uutToleranceData: propUutToleranceData,
   tmdeTolerancesData,
   onAddManualComponent,
@@ -10280,6 +10324,7 @@ function DetailedView({
   keyboardShortcutsEnabled = true,
   onInstrumentSelection = () => {},
 }) {
+  const uutNominal = useMemo(() => rawUutNominal ? { ...rawUutNominal, qualifier: testPointData.testPointInfo?.qualifier } : rawUutNominal, [rawUutNominal, testPointData.testPointInfo?.qualifier]);
   sessionData = useMemo(() => migrateMeasurementAreas(sessionData), [sessionData]);
   const latestSessionDataRef = useRef(sessionData);
   latestSessionDataRef.current = sessionData;
@@ -10377,10 +10422,12 @@ function DetailedView({
   const uutTableColumns = useInstrumentColumnWidths(
     "uut",
     customColumnsFor("uut"),
+    hasQualifierRanges(sessionData.uuts),
   );
   const tmdeTableColumns = useInstrumentColumnWidths(
     "tmde",
     customColumnsFor("tmde"),
+    hasQualifierRanges(sessionData.tmdes),
   );
   const uutTableHeight = useInstrumentTableHeight(
     "detail",
@@ -11511,7 +11558,7 @@ function DetailedView({
   };
   const handleRemoveRangeDetail = (kind, item, rangeId) => {
     if (!onSessionSave) return;
-    const updated = removeRangeFromItem(item, rangeId);
+    const updated = removeParentRangeFromItem(item, rangeId);
     persistInlineItemDetail(kind, updated);
     const setIdx = kind === "uut" ? setLocalRangeIndices : setTmdeRangeIndices;
     setIdx((prev) => {
@@ -11803,9 +11850,19 @@ function DetailedView({
     // range controls belong only to an explicitly selected range.
     const showRangeActions = lastSelectionTarget === "range" && (selectedRangeIds[itemStateKey(kind, item.id)] || []).some(id => sameId(id, rangeKey));
 
+    const qualifierEnabled = (kind === "uut" ? uutTableColumns : tmdeTableColumns).qualifierEnabled;
+    const span = qualifierRowSpan(getInstrumentRangeRows(item), range);
+    const updateQualifier = (action, patch) => {
+      const current = (latestSessionDataRef.current[kind === "uut" ? "uuts" : "tmdes"] || []).find(entry => sameId(entry.id, item.id)) || item;
+      persistInlineItemDetail(kind, action === "enable"
+        ? applyItemRangePatch(current, rangeKey, { qualifierGroupId: uuidv4(), qualifier: { name: "Frequency", min: "", max: "", unit: "Hz" } })
+        : editQualifierRange(current, rangeKey, action, patch).item);
+    };
     return (
       <>
-        <td
+        {span > 0 && <td
+          rowSpan={span}
+          colSpan={qualifierEnabled && !range.qualifier ? 2 : 1}
           data-range-cell="true"
           className={`cell-value ${hoveredCell.tableId === tableId && hoveredCell.colIndex === cols.range ? "col-hovered" : ""}`}
           onMouseEnter={() => setHoveredCell({ tableId, colIndex: cols.range })}
@@ -11879,8 +11936,20 @@ function DetailedView({
                 x
               </button>
             )}
+            {!range.qualifier && <button type="button" className="range-qualifier-add" aria-label="Add qualifier" title="Add qualifier range" onMouseDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); updateQualifier("enable"); }}>+ Qual</button>}
           </div>
-        </td>
+        </td>}
+        {qualifierEnabled && range.qualifier && <td data-range-cell="true" data-qualifier-cell="true" className="cell-value qualifier-range-cell">
+          <RangeCell ranges={[{ ...range.qualifier, min: range.qualifier.min ?? range.qualifier.value ?? "", max: range.qualifier.max ?? range.qualifier.value ?? "" }]} activeIndex={0} activeRange={range.qualifier} editable
+            onEditBound={(field, value) => updateQualifier("patch", { [field]: value })}
+            onEditUnit={unit => updateQualifier("patch", { unit })}
+            onPatchRange={patch => updateQualifier("patch", patch)}
+            onAdvanceRange={() => updateQualifier("add")} />
+          <span className="qualifier-row-actions">
+            <button type="button" aria-label="Delete qualifier range" onClick={event => { event.stopPropagation(); updateQualifier("remove"); }}>×</button>
+            <button type="button" aria-label="Add qualifier range" onClick={event => { event.stopPropagation(); updateQualifier("add"); }}>+</button>
+          </span>
+        </td>}
         {renderCustomAfter("range")}
 
         <td
@@ -15303,7 +15372,7 @@ function DetailedView({
             <tbody>
               {visibleDetailUutRows.length === 0 ? (
                 <tr className="panel-empty-row">
-                  <td colSpan={5 + customColumnsFor("uut").length}>
+                  <td colSpan={5 + Number(uutTableColumns.qualifierEnabled) + customColumnsFor("uut").length}>
                     <MeasurementAreaEmptyHint />
                   </td>
                 </tr>
@@ -16093,7 +16162,7 @@ function DetailedView({
               <tbody>
                 {visibleDetailTmdeRows.length === 0 ? (
                   <tr className="panel-empty-row">
-                    <td colSpan={6 + customColumnsFor("tmde").length}>
+                    <td colSpan={6 + Number(tmdeTableColumns.qualifierEnabled) + customColumnsFor("tmde").length}>
                       <MeasurementAreaEmptyHint />
                     </td>
                   </tr>
@@ -16296,7 +16365,7 @@ function DetailedView({
                                 </tr>
                               );
                             })}
-                          {sources.map((source, sourceIndex) => <InstrumentUncertaintyRow key={source.id} source={source} sourceIndex={sourceIndex} sourceCount={sources.length}
+                          {sources.map((source, sourceIndex) => <InstrumentUncertaintyRow qualifierEnabled={tmdeTableColumns.qualifierEnabled} key={source.id} source={source} sourceIndex={sourceIndex} sourceCount={sources.length}
                             onAddSecondary={type => addInstrumentSource(masterTmde, type, activeRange)}
                             showRowActions={lastSelectionTarget === "range" && selectedRangeIds[itemStateKey("tmde", masterTmde.id)]?.includes(uncertaintyRowId(source.id))}
                             selected={selectedRangeIds[itemStateKey("tmde", masterTmde.id)]?.includes(uncertaintyRowId(source.id)) ?? isSelectedRow}
