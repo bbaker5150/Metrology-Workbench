@@ -2196,7 +2196,7 @@ const SidebarSessionHeader = ({
   );
 };
 
-function App({ showThemeToggle = false, AcShuntImportTool = null }) {
+function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras = null }) {
   useSelectInputText();
   const confirmRecordDeletes = useConfirmRecordDeletes();
   const workbenchIssues = useWorkbenchIssues();
@@ -6047,6 +6047,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null }) {
                   >
                     <FontAwesomeIcon icon={faBug} />
                   </button>)}
+                  {headerExtras}
                   {showThemeToggle && (
                     <button
                       type="button"

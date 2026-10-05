@@ -1,4 +1,3 @@
-import StorageAdministration from './StorageAdministration';
 import LoadingScreen from './LoadingScreen';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { setDeviceKeyOverride } from '../modules/uncertainty/utils/deviceKey';
@@ -56,7 +55,7 @@ export default function StorageGate({ store, children }) {
     }
   }, [store]);
 
-  if (state.phase === 'ready') return <>{children}<StorageAdministration store={store} /></>;
+  if (state.phase === 'ready') return children;
   if (state.phase === 'checking' || state.phase === 'provisioning') return <LoadingScreen/>;
 
   return (

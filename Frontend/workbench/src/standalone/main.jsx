@@ -27,6 +27,7 @@ import { SharePointStore, DEFAULT_PREFIX } from './sharepoint/spStore';
 import { resolveWebUrl } from './sharepoint/spContext';
 import { createSharePointAdapter } from './sharepoint/axiosSharePointAdapter';
 import StorageGate from './StorageGate';
+import StorageAdministration from './StorageAdministration';
 import installFormSubmitShim from './formSubmitShim';
 import './standalone.css';
 
@@ -70,7 +71,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         <StorageGate store={store}>
           <UncertaintyProvider>
             <ConfirmRecordDeletesContext.Provider value={false}>
-              <UncertalyticsApp showThemeToggle />
+              <UncertalyticsApp showThemeToggle headerExtras={<StorageAdministration store={store} />} />
             </ConfirmRecordDeletesContext.Provider>
           </UncertaintyProvider>
         </StorageGate>

@@ -1,3 +1,5 @@
+import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
+import { faDatabase } from '@fortawesome/free-solid-svg-icons';
 import React, { useEffect, useRef, useState } from 'react';
 
 export default function StorageAdministration({ store }) {
@@ -22,7 +24,7 @@ export default function StorageAdministration({ store }) {
   };
   if (!allowed) return null;
   return <>
-    <button className="sp-storage-launch" onClick={() => setOpen(true)}>Storage administration</button>
+    <button type="button" className="app-chrome-meta-icon" title="Storage administration" aria-label="Storage administration" onClick={() => setOpen(true)}><FontAwesomeIcon icon={faDatabase} /></button>
     {open && <dialog ref={dialog} className="sp-storage-admin" aria-labelledby="sp-storage-heading" onClose={() => setOpen(false)} onCancel={event => { if (busy) event.preventDefault(); }}>
       <header><h2 id="sp-storage-heading">Application storage</h2><button aria-label="Close storage administration" disabled={busy} onClick={() => dialog.current.close()}>×</button></header>
       <h3>Uncertalytics{store.prefix !== 'Uncertainty' ? ` · ${store.prefix}` : ''}</h3>
