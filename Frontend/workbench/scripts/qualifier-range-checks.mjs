@@ -26,6 +26,7 @@ export async function checkQualifierRanges({frame, page, saved, until, check}) {
       check(`${view} ${kind} qualifier Tab preserves focus`, await qualifier.getByPlaceholder('max',{exact:true}).evaluate(node=>node===document.activeElement));
       await qualifier.getByPlaceholder('max',{exact:true}).fill('1000');
       await qualifier.getByPlaceholder('max',{exact:true}).press('Enter');
+      await qualifier.hover();
       await first.getByRole('button',{name:'Add qualifier range',exact:true}).click();
       const rows=table.locator(`tr[data-selection-key="${group}"]:has([data-qualifier-cell])`);
       check(`${view} ${kind} shares the parent range`,await rows.count()===2 && await baseRange.getAttribute('rowspan')==='2');
@@ -39,7 +40,7 @@ export async function checkQualifierRanges({frame, page, saved, until, check}) {
         const editor=cell.querySelector('.inline-range-editor').getBoundingClientRect();
         const add=cell.querySelector('.range-row-add').getBoundingClientRect();
         const remove=cell.querySelector('.range-row-delete').getBoundingClientRect();
-        return add.left>=editor.right-1 && remove.left>=add.right && Math.abs(add.top-remove.top)<1;
+        return add.left>=editor.right-1 && remove.left>=add.right && remove.right<=cell.getBoundingClientRect().right && Math.abs(add.top-remove.top)<1;
       }));
       check(`${view} ${kind} instrument delete remains visible during scroll`, await table.evaluate(table=>{
         const container=table.parentElement, cell=table.querySelector('td.cell-sync');

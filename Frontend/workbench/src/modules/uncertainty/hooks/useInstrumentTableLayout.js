@@ -6,7 +6,7 @@ import { useCallback, useLayoutEffect, useState } from "react";
 import { preserveTableTextSelection } from "../utils/tableTextSelection";
 import { createInstrumentSelectionOutline } from "../utils/instrumentSelectionOutline";
 
-const EDITORS = ".inline-desc-fields, .inline-range-editor.is-editing, .inline-tolerance-editor, .inline-resolution-editor, .inline-distribution-editor, .instrument-custom-field-input";
+const EDITORS = ".inline-desc-fields, .inline-range-editor.is-editing, .qualifier-range-cell .inline-range-editor, .inline-tolerance-editor, .inline-resolution-editor, .inline-distribution-editor, .instrument-custom-field-input";
 const HOVER_CLASSES = new Set(['row-hovered', 'col-hovered', 'hovered-spec-row']);
 const layoutClasses = value => (value || '').split(/\s+/).filter(name => name && !HOVER_CLASSES.has(name)).sort().join(' ');
 
@@ -166,11 +166,25 @@ export default function useInstrumentTableLayout(containerRef) {
           width += (parseFloat(editorStyle.paddingLeft) || 0) + (parseFloat(editorStyle.paddingRight) || 0);
         }
 
+        const collapsedQualifier = cell.hasAttribute('data-qualifier-cell') && !editor.classList.contains('is-editing');
+        if (collapsedQualifier) {
+          // Summaries must reserve room for their adjacent actions too. Measure
+          // text independently: the editor's assigned width would feed back.
+          const summary = editor.querySelector('.inline-tolerance-summary');
+          const summaryStyle = getComputedStyle(summary);
+          const probe = document.createElement('span');
+          probe.style.cssText = 'position:fixed;left:-100000px;white-space:nowrap;visibility:hidden;';
+          probe.style.font = summaryStyle.font;
+          probe.textContent = summary.textContent;
+          document.body.appendChild(probe);
+          width = probe.offsetWidth + (parseFloat(summaryStyle.paddingLeft) || 0) + (parseFloat(summaryStyle.paddingRight) || 0) + 2;
+          probe.remove();
+        }
         if (content !== editor) {
           // The range wrapper stretches to the cell. Measure intrinsic children,
           // never feed that already-expanded width back into its own requirement.
           const children = [...content.children].filter(node => node.getClientRects().length);
-          width = children.reduce((sum, node) => sum + Math.max(node.scrollWidth, node.offsetWidth), 0)
+          width = children.reduce((sum, node) => sum + (collapsedQualifier && node === editor ? width : Math.max(node.scrollWidth, node.offsetWidth)), 0)
             + Math.max(0, children.length - 1) * (parseFloat(getComputedStyle(content).columnGap) || 0);
         }
         if (editor.matches('.inline-desc-fields')) {
