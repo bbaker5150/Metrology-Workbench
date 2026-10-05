@@ -12,9 +12,17 @@ export default function StorageAdministration({ store }) {
   useEffect(() => { let active = true; store.canManageStorage?.().then(value => { if (active) setAllowed(value); }).catch(() => {}); return () => { active = false; }; }, [store]);
   useEffect(() => {
     if (!open) return;
+    const fit = () => {
+      let height = window.innerHeight;
+      try { if (window.parent !== window) height = Math.min(height, window.parent.innerHeight - Math.max(0, window.frameElement?.getBoundingClientRect().top || 0)); } catch { /* Cross-origin hosts retain the frame's viewport. */ }
+      dialog.current?.style.setProperty('--storage-dialog-height', `${Math.max(180, height - 48)}px`);
+    };
+    fit();
+    window.addEventListener('resize', fit);
     dialog.current?.showModal();
     setBusy(true); setMessage('');
     store.storageInventory().then(setRecords).catch(error => setMessage(error.message)).finally(() => setBusy(false));
+    return () => window.removeEventListener('resize', fit);
   }, [open, store]);
   const organize = async () => {
     setBusy(true); setMessage('');
@@ -26,7 +34,7 @@ export default function StorageAdministration({ store }) {
   return <>
     <button type="button" className="app-chrome-meta-icon" title="Storage administration" aria-label="Storage administration" onClick={() => setOpen(true)}><FontAwesomeIcon icon={faDatabase} /></button>
     {open && <dialog ref={dialog} className="sp-storage-admin" aria-labelledby="sp-storage-heading" onClose={() => setOpen(false)} onCancel={event => { if (busy) event.preventDefault(); }}>
-      <header><h2 id="sp-storage-heading">Application storage</h2><button aria-label="Close storage administration" disabled={busy} onClick={() => dialog.current.close()}>×</button></header>
+      <header><h2 id="sp-storage-heading">Application storage</h2><button disabled={busy || records.length !== 4} onClick={organize}>{busy ? 'Working…' : 'Organize storage'}</button><button aria-label="Close storage administration" disabled={busy} onClick={() => dialog.current.close()}>×</button></header>
       <h3>Uncertalytics{store.prefix !== 'Uncertainty' ? ` · ${store.prefix}` : ''}</h3>
       <p>Manage this application's lists and document library. Hidden storage remains available through these links.</p>
       <table><thead><tr><th>Storage</th><th>Purpose</th><th>Visibility</th><th>Manage</th></tr></thead>
@@ -39,7 +47,6 @@ export default function StorageAdministration({ store }) {
       <p>Organizing updates names and descriptions and hides these containers from normal navigation. It preserves their contents, URLs, identifiers, and permissions.</p>
       <p>Hiding storage does not restrict access. Review access in each container's SharePoint settings.</p>
       {message && <p role="status">{message}</p>}
-      <footer><button disabled={busy || records.length !== 4} onClick={organize}>{busy ? 'Working…' : 'Organize storage'}</button></footer>
     </dialog>}
   </>;
 }
