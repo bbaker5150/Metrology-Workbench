@@ -92,7 +92,14 @@ jobs:
           COMMIT: ${{ github.sha }}
 
       - name: Install a browser for the smoke test
+        timeout-minutes: 5
         run: |
+          # The hosted runner's Azure HTTP mirror can stall apt for minutes.
+          # Keep dependency installation and every smoke gate, using the
+          # official HTTPS mirror that remains reachable during that outage.
+          if [ -f /etc/apt/apt-mirrors.txt ]; then
+            printf '%s\n' 'https://archive.ubuntu.com/ubuntu/' | sudo tee /etc/apt/apt-mirrors.txt > /dev/null
+          fi
           npx playwright install --with-deps chromium
 
       - name: Smoke test the built file in an iframe srcdoc
