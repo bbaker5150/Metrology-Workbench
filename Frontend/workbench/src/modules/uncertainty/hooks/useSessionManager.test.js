@@ -478,8 +478,12 @@ it('keeps background recalculation out of undo history but retains propagation-m
   act(()=>result.current.setSelectedTestPointId('p'));
   act(()=>result.current.updateTestPointData({section:'Authored'}));
   act(()=>result.current.updateTestPointData({calculatedBudgetComponents:[],combined_uncertainty:1,budgetPropagationMethod:'linear'}));
+  act(()=>result.current.updateTestPointData({uutTolerance:{min:0,max:10}}, {recordUndo:false}));
   act(()=>expect(result.current.undoLastSessionChange()).toBe(true));
   expect(result.current.currentSessionData.testPoints[0].section).toBeUndefined();
+  act(()=>result.current.updateTestPointData({uutTolerance:{min:0,max:20}}));
+  act(()=>expect(result.current.undoLastSessionChange()).toBe(true));
+  expect(result.current.currentSessionData.testPoints[0].uutTolerance).toBeUndefined();
   act(()=>result.current.updateTestPointData({budgetPropagationMethod:'montecarlo'}));
   act(()=>expect(result.current.undoLastSessionChange()).toBe(true));
   expect(result.current.currentSessionData.testPoints[0].budgetPropagationMethod).not.toBe('montecarlo');

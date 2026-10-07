@@ -4524,9 +4524,9 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
       point.id === refreshed.id ? refreshed : point) });
   };
 
-  const handleAnalysisDataSave = useCallback((updates) => {
+  const handleAnalysisDataSave = useCallback((updates, options) => {
     if (selectedTestPointId) {
-      updateTestPointData(updates);
+      updateTestPointData(updates, options);
     } else {
       setVirtualPoint((prev) => {
         if (!prev) return prev;

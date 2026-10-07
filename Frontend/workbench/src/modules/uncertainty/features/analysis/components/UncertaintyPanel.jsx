@@ -11268,7 +11268,7 @@ function DetailedView({
     );
 
     if (touched) {
-      onUpdateTestPoint({ tmdeTolerances: nextTolerances });
+      onUpdateTestPoint({ tmdeTolerances: nextTolerances }, { recordUndo: false });
     }
   };
   const persistInlineItemDetail = (
@@ -13938,7 +13938,7 @@ function DetailedView({
           }
         : tmde,
     );
-    onUpdateTestPoint({ tmdeTolerances: nextTolerances });
+    onUpdateTestPoint({ tmdeTolerances: nextTolerances }, { recordUndo: false });
   };
 
   const warnIfTmdeAccuracyIncomplete = (activeRange) => {
@@ -15216,7 +15216,7 @@ function DetailedView({
   useEffect(() => {
     if (activeResolvedTolerance && uutToleranceData) {
       if (specsDiffer(activeResolvedTolerance, uutToleranceData) && onUpdateTestPoint) {
-        onUpdateTestPoint({ uutTolerance: activeResolvedTolerance });
+        onUpdateTestPoint({ uutTolerance: activeResolvedTolerance }, { recordUndo: false });
       }
     }
   }, [activeResolvedTolerance, uutToleranceData, onUpdateTestPoint]);

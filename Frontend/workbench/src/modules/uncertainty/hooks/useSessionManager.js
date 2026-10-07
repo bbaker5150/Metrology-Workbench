@@ -1095,7 +1095,7 @@ const useSessionManager = () => {
   };
 
   const updateTestPointData = useCallback(
-    (updatedData) => {
+    (updatedData, { recordUndo = true } = {}) => {
       const session = sessionsRef.current.find(
         (item) => item.id === selectedSessionId,
       );
@@ -1132,7 +1132,7 @@ const useSessionManager = () => {
       ]);
       const keys = Object.keys(updatedData);
       const calculatedOnly = keys.some(key => calculatedKeys.has(key)) && keys.every(key => calculatedKeys.has(key) || key === "budgetPropagationMethod");
-      if (!calculatedOnly) recordUndoSnapshot(
+      if (recordUndo && !calculatedOnly) recordUndoSnapshot(
         session,
         isDiscreteBudgetChange
           ? `point:${selectedTestPointId}:${updatedKeys}:discrete:${++undoSequenceRef.current}`

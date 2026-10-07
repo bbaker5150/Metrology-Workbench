@@ -313,7 +313,7 @@ function Analysis({
     if (stored.length === tmdeTolerancesData.length) return; // already clean
     if (healedPointRef.current === testPointData.id) return;
     healedPointRef.current = testPointData.id;
-    onDataSave({ tmdeTolerances: tmdeTolerancesData });
+    onDataSave({ tmdeTolerances: tmdeTolerancesData }, { recordUndo: false });
   }, [
     isPointView,
     testPointData.id,
