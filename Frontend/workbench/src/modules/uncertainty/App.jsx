@@ -3377,7 +3377,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
         !e.altKey &&
         !e.shiftKey &&
         key === "z" &&
-        !isTextEntry
+        (!isTextEntry || (document.activeElement?.closest('[data-qualifier-cell]') && document.activeElement?.value === ''))
       ) {
         if (undoLastSessionChange()) e.preventDefault();
         return;
@@ -5981,7 +5981,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
                   >
                     <FontAwesomeIcon icon={faRightLeft} />
                   </button>
-                  {AcShuntImportTool && <AcShuntImportTool onImport={session => importSession(session, new Map(), { requireSaved: true })} />}
+                  {AcShuntImportTool && <AcShuntImportTool onImport={async session => { await importSession(session, new Map(), { requireSaved: true }); setSidebarColumns(columns => ({...columns,value:true,qualifier:true})); }} />}
                 </div>
 
                 <span className="app-chrome-meta-sep" aria-hidden="true" />

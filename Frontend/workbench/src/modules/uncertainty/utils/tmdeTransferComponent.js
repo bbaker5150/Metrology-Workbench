@@ -18,17 +18,18 @@ export function resolveTmdeTransferComponent(component, session, nominal) {
       const range = master && getInstrumentRangeRows(master,{flattenTolerances:true}).find(r =>
         String(r.rangeId) === String(source.rangeId) && String(r.functionId) === String(source.functionId));
       if (!range) throw Error('The linked TMDE range is missing.');
-      const resolved = getBudgetComponentsFromTolerance(range,source.nominal).filter(c=>!c.isResolution && !c.isManual);
+      const resolved = getBudgetComponentsFromTolerance(range,source.nominal).filter(c=>Boolean(c.isResolution) === Boolean(component.isResolution) && !c.isManual);
       if (!resolved.length || resolved.some(c=>c.pendingReason || !Number.isFinite(c.value_native))) throw Error('Set uncertainty and distribution for the linked TMDE range.');
       const sensitivity = Number(source.sensitivity);
       if (!Number.isFinite(sensitivity)) throw Error('The saved transfer sensitivity is invalid.');
       const groupKey = `${source.role}:${source.direction}`;
       const group = groups.get(groupKey) || {role:source.role,standard:0,limit:0};
       for (const c of resolved) {
-        const divisor=Number(c.distributionDivisor);
+        const rawDivisor=Number(c.distributionDivisor);
+        const divisor=c.isResolution && ["3.464","4.899"].includes(String(c.distributionDivisor)) ? rawDivisor / 2 : rawDivisor;
         divisors.add(divisor);
         group.standard += Math.abs(sensitivity*c.value_native);
-        group.limit += Math.abs(sensitivity*c.toleranceLimit_native);
+        group.limit += Math.abs(sensitivity*(c.isResolution ? c.value_native*divisor : c.toleranceLimit_native));
       }
       groups.set(groupKey,group);
       sourceDetails.push({instrument:master.name,range:formatRangeLabel(range,{preferBounds:true}),nominal:source.nominal,sensitivity});

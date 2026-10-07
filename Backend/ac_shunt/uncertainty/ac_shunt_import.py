@@ -85,6 +85,7 @@ def session_snapshot(session_id):
             settings = getattr(point, 'settings', None)
             reader_points.append({"direction": point.direction,
                 "rangeMode": getattr(settings, 'f5790_range_mode', None),
+                "filterMode": getattr(settings, 'f5790_filter_mode', None),
                 "nplc": getattr(settings, 'nplc', None),
                 "analogFilterRequested": bool(getattr(settings, 'enable_low_frequency_settings', False)
                                                and getattr(settings, 'enable_11hz_filter', False)),

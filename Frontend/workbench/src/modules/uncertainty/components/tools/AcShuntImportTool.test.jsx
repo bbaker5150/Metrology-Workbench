@@ -47,3 +47,13 @@ it('keeps the dialog open on save failure and permits correcting invalid certifi
   fireEvent.click(screen.getByRole('button',{name:'Create budget'}));
   expect(await screen.findByRole('alert')).toHaveTextContent('Save failed');
 });
+
+it('makes later session pages available in one scrollable list without paging buttons',async()=>{
+  axios.get.mockImplementation((url,{params})=>Promise.resolve({data:{available:true,page:params.page,pages:2,sessions:[{id:params.page,session_name:`Session ${params.page}`} ]}}));
+  render(<AcShuntImportTool onImport={vi.fn()}/>);
+  fireEvent.click(screen.getByRole('button',{name:'Import AC/DC shunt session'}));
+  expect(await screen.findByRole('button',{name:/Session 2/})).toBeInTheDocument();
+  expect(screen.getByRole('button',{name:/Session 1/})).toBeInTheDocument();
+  expect(screen.queryByRole('button',{name:'Previous'})).not.toBeInTheDocument();
+  expect(screen.queryByRole('button',{name:'Next'})).not.toBeInTheDocument();
+});

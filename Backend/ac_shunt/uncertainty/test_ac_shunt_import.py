@@ -31,7 +31,7 @@ class AcShuntImportTests(TestCase):
         for direction, deltas in [('Forward',[1,3,5]),('Reverse',[3,3,3])]:
             tp = TestPoint.objects.create(test_point_set=self.point_set,current=10,frequency=1000,
                                           direction=direction,correction_report=self.report)
-            CalibrationSettings.objects.create(test_point=tp,n_cycles=3,f5790_range_mode='0.22')
+            CalibrationSettings.objects.create(test_point=tp,n_cycles=3,f5790_range_mode='0.22',f5790_filter_mode='SLOW')
             result = CalibrationResults.objects.create(test_point=tp,outlier_filter_mode='none')
             for index,delta in enumerate(deltas,1):
                 CalibrationResultsCycle.objects.create(results=result,cycle_index=index,delta_uut_ppm=delta)
@@ -40,6 +40,7 @@ class AcShuntImportTests(TestCase):
         before = list(CalibrationResults.objects.values())
         snapshot = session_snapshot(self.session.pk)
         self.assertEqual(len(snapshot['points']),1)
+        self.assertEqual(snapshot['points'][0]['readerPoints'][0]['filterMode'],'SLOW')
         point = snapshot['points'][0]
         self.assertEqual(point['analytics']['n_pairs_used'],3)
         self.assertAlmostEqual(point['analytics']['pair_type_a_uncertainty_ppm'],1/(3**.5))

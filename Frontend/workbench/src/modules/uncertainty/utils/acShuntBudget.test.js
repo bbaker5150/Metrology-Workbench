@@ -46,12 +46,12 @@ describe('AC-shunt budget import',()=>{
     source.points=[5,7,10].flatMap(current=>[1000,10000].map(frequency=>({...source.points[0],current,frequency})));
     const {session,riskCalculated}=buildAcShuntBudget(source);
     expect(riskCalculated).toBe(6);
-    for (const reader of session.tmdes.filter(t=>t.instrument.model==='34420A')) {
+    for (const reader of session.tmdes.filter(t=>t.instrument.description==='34420A')) {
       expect(reader.instrument.functions).toHaveLength(1);
       expect(reader.instrument.functions[0].ranges).toHaveLength(1);
       expect(reader.instrument.typeBComponents || []).toHaveLength(0);
     }
-    for (const tvc of session.tmdes.filter(t=>t.instrument.model==='TVC')) expect(tvc.instrument.functions[0].ranges).toHaveLength(2);
+    for (const tvc of session.tmdes.filter(t=>t.instrument.description==='TVC')) expect(tvc.instrument.functions[0].ranges).toHaveLength(2);
   });
   it('recomputes error, uncertainty and risk from edits to the matching TMDE range after persistence',()=>{
     const {session}=buildAcShuntBudget(fixture());
@@ -87,7 +87,7 @@ describe('AC-shunt budget import',()=>{
     expect(rows[0]).toMatchObject({type:'A',value:2,dof:3});
     expect(rows[0].value_native).toBeCloseTo(.00002,12);
     expect(rows[1].value).toBe(2);
-    expect(rows).toHaveLength(4);
+    expect(rows).toHaveLength(6);
     const uncertainty=computeUncertaintyForPoint(point,session);
     expect(uncertainty).not.toBeNull();
     expect(uncertainty.combined_uncertainty_absolute_base).toBeGreaterThan(.00002);
@@ -102,7 +102,7 @@ describe('AC-shunt budget import',()=>{
   it('does not reduce uncertainty for a shared reader or duplicate its identity',()=>{
     const {session}=buildAcShuntBudget(fixture('Y5020',true));
     expect(session.tmdes).toHaveLength(2);
-    const rows=session.testPoints[0].components.filter(c=>c.name.startsWith('Reader'));
+    const rows=session.testPoints[0].components.filter(c=>c.name.startsWith('Reader uncertainty'));
     expect(rows).toHaveLength(1);
     expect(rows[0].value).toBeCloseTo(4*(38+1.5/.2)/2.58);
   });
@@ -146,4 +146,24 @@ describe('reader specifications and propagation',()=>{
     expect(filtered.specs[2].readingPpm).toBe(35);
     expect(filtered.standardPpm).toBeGreaterThan(one);
   });
+});
+
+it('imports grouped frequency subranges, dedicated point fields and editable reader resolutions',()=>{
+  const source=fixture(); source.points=[100,1000,3000].map(frequency=>({...source.points[0],frequency}));
+  const {session}=buildAcShuntBudget(source);
+  expect(session.uuts[0].instrument).toMatchObject({manufacturer:'Fluke',model:'UUT',description:'Y5020'});
+  const ranges=session.uuts[0].instrument.functions[0].ranges;
+  expect(new Set(ranges.map(r=>r.qualifierGroupId)).size).toBe(1);
+  expect(ranges.map(r=>r.qualifier.min)).toEqual([100,1000,3000]);
+  expect(session.testPoints.every(p=>p.section==='' && p.testPointInfo.parameter.value===10 && p.testPointInfo.qualifier.unit==='Hz')).toBe(true);
+  expect(session.tmdes[1].instrument.functions[0].ranges[0]).toMatchObject({resolution:1e-7,resolutionUnit:'V',includeResolutionInBudget:true});
+  const resolutions=session.testPoints[0].components.filter(c=>c.isResolution);
+  expect(resolutions).toHaveLength(2);
+  expect(resolutions.every(c=>c.value_native>0 && !c.pendingReason)).toBe(true);
+});
+it('uses reader resolution appropriate to the saved filter and integration time',()=>{
+  expect(readerSpec('5790B',1,1000,'2.2',false,{filterMode:'FAST'}).resolutionVolts).toBe(1e-6);
+  expect(readerSpec('5790B',1,1000,'2.2',false,{filterMode:'MEDIUM'}).resolutionVolts).toBe(1e-7);
+  expect(readerSpec('34420A',1,1000,null,false,{nplc:100}).resolutionVolts).toBe(1e-7);
+  expect(readerSpec('34420A',1,1000,null,false,{nplc:10}).resolutionVolts).toBe(1e-6);
 });

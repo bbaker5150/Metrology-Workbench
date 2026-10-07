@@ -453,3 +453,20 @@ it("allocates unique point IDs when generated IDs collide with saved points and 
     random.mockRestore();
   }
 });
+
+
+it('undoes qualifier enable and additions individually without undoing earlier range edits', async () => {
+  const {result} = renderHook(() => useSessionManager());
+  await waitFor(() => expect(result.current.currentSessionData?.id).toBe(1));
+  const update = ranges => act(() => result.current.updateSession({...result.current.currentSessionData,uuts:[{id:'uut',instrument:{functions:[{id:'fn',unit:'A',ranges}]}}]}));
+  const base={id:'range',min:0,max:10,unit:'A'};
+  update([base]);
+  update([{...base,max:20}]);
+  update([{...base,max:20,qualifier:{min:'',max:'',unit:'Hz'}}]);
+  update([{...base,max:20,qualifier:{min:'',max:'',unit:'Hz'}},{...base,id:'second',qualifier:{min:'',max:'',unit:'Hz'}}]);
+  act(() => expect(result.current.undoLastSessionChange()).toBe(true));
+  expect(result.current.currentSessionData.uuts[0].instrument.functions[0].ranges).toHaveLength(1);
+  act(() => expect(result.current.undoLastSessionChange()).toBe(true));
+  expect(result.current.currentSessionData.uuts[0].instrument.functions[0].ranges[0]).toMatchObject({max:20});
+  expect(result.current.currentSessionData.uuts[0].instrument.functions[0].ranges[0].qualifier).toBeUndefined();
+});

@@ -1,3 +1,4 @@
+import { getInstrumentRangeRows } from "../utils/instrumentFunctionSelection";
 import { readRecovery, journalSession, acknowledgeSession, recoverSessions, saveNavigation } from "../utils/sessionRecovery";
 import { syncPointTolerances } from "../utils/pointToleranceSync";
 import { trackInstrumentOnboarding } from "../utils/instrumentOnboarding";
@@ -698,7 +699,9 @@ const useSessionManager = () => {
           );
         },
       );
-      const undoGroup = isDiscreteCollectionChange
+      const rangeStructure = session => ["uuts", "tmdes"].flatMap(key => (session?.[key] || []).map(item => [item.id, getInstrumentRangeRows(item).map(range => [range.rangeId ?? range.id, Boolean(range.qualifier)])]));
+      const isRangeStructureChange = JSON.stringify(rangeStructure(previousSession)) !== JSON.stringify(rangeStructure(updatedSession));
+      const undoGroup = isDiscreteCollectionChange || isRangeStructureChange
         ? `${changeGroup}:discrete:${++undoSequenceRef.current}`
         : changeGroup;
 

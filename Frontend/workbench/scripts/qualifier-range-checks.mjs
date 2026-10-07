@@ -20,6 +20,11 @@ export async function checkQualifierRanges({frame, page, saved, until, check}) {
       await first.getByRole('button',{name:'Add qualifier',exact:true}).click();
       check(`${view} ${kind} adds Qualifier header`,await table.locator('thead [data-instrument-column="qualifier"]').count()===1);
       const qualifier=first.locator('[data-qualifier-cell]');
+      await qualifier.getByPlaceholder('min',{exact:true}).press('Control+z');
+      check(`${view} ${kind} Ctrl+Z undoes qualifier creation while its empty editor is focused`,await until(async()=>await table.locator('thead [data-instrument-column="qualifier"]').count()===0));
+      await baseRange.click();
+      if (await first.getByRole('button',{name:'Add qualifier',exact:true}).count()===0) await baseRange.locator('.inline-tolerance-summary').click();
+      await first.getByRole('button',{name:'Add qualifier',exact:true}).click();
       check(`${view} ${kind} new qualifier opens focused`, await qualifier.getByPlaceholder('min',{exact:true}).evaluate(node=>node===document.activeElement));
       await qualifier.getByPlaceholder('min',{exact:true}).fill('100');
       await qualifier.getByPlaceholder('min',{exact:true}).press('Tab');

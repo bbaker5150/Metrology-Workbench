@@ -7,7 +7,9 @@ import { computePointRiskMetrics, recalculatePointUncertaintyFields } from './ri
 import { resolveErrorDistribution } from './uncertaintyMath';
 
 const finite = n => n !== null && n !== undefined && n !== '' && Number.isFinite(Number(n));
-const identity = (model, serial) => [model, serial && `S/N ${serial}`].filter(Boolean).join(' · ');
+const maker = model => /Y5020|A40B|5790/i.test(model || '') ? 'Fluke' : /34420/i.test(model || '') ? 'Agilent' : '';
+const identity = (model, serial) => [maker(model), serial, model].filter(Boolean).join(' ');
+const frequencyQualifier = value => ({name:'Frequency', min:value, max:value, value, isSingleValue:true, unit:'Hz'});
 const term = (value, distribution, unit='ppm') => ({high:value,low:-value,unit,symmetric:true,
   distribution:resolveErrorDistribution(distribution)?.value || String(distribution)});
 
@@ -25,7 +27,7 @@ export function buildAcShuntBudget(snapshot, { rocK = 2 } = {}) {
   const addInstrument = (key, model, serial, description) => {
     if (!instruments.has(key)) instruments.set(key, {id:uuid(), name:identity(model,serial) || description,
       assetId:serial || '', quantity:1, isInstrumentBased:true, measurementAreaNames:['Electrical'],
-      instrument:{id:uuid(), model:model || '', serialNumber:serial || '', description,functions:[]}});
+      instrument:{id:uuid(), manufacturer:maker(model), model:serial || model || '', serialNumber:serial || '', description:model || description,functions:[]}});
     return instruments.get(key);
   };
   // Reuse an authored range whenever its function, bounds, uncertainty and
@@ -36,9 +38,9 @@ export function buildAcShuntBudget(snapshot, { rocK = 2 } = {}) {
     const signature=JSON.stringify([instrument.id,name,unit,data]);
     let range=rangeCache.get(signature);
     if (!range) {
-      const contextLabel=data.qualifier ? `${data.qualifier.value} ${data.qualifier.unit}`
+      const contextLabel=data.qualifier ? `${data.qualifier.value ?? `${data.qualifier.min}–${data.qualifier.max}`} ${data.qualifier.unit}`
         : `${name}${data.frequencyBand ? ` · ${data.frequencyBand.join('–')} Hz` : ''}`;
-      range={id:uuid(),unit,...data,contextLabel};fn.ranges.push(range);rangeCache.set(signature,range);
+      range={id:uuid(),unit,...data,contextLabel, ...(data.qualifier ? {qualifierGroupId:JSON.stringify([instrument.id,fn.id,data.min,data.max,data.resolution])} : {})};fn.ranges.push(range);rangeCache.set(signature,range);
     }
     return {...range,rangeId:range.id,functionId:fn.id,functionName:fn.name};
   };
@@ -49,15 +51,15 @@ export function buildAcShuntBudget(snapshot, { rocK = 2 } = {}) {
     readers[side]=addInstrument(`reader:${model}:${serial || meta[`${role}_reader_address`] || side}`,model,serial,`${role} reader`);
     if (topology==='A40B') tvcs[side]=addInstrument(`tvc:${meta[`${role}_tvc_serial`] || side}`,'TVC',meta[`${role}_tvc_serial`],`${role} TVC`);
   }
-  const uut={id:uutId,name:identity(meta.test_instrument_model,meta.test_instrument_serial),description:'AC shunt under test',
+  const uut={id:uutId,name:identity(meta.test_instrument_model,meta.test_instrument_serial),description:meta.test_instrument_model,
     measurementArea:'Electrical',measurementAreaId:areaId,measurementAreaNames:['Electrical'],
-    instrument:{id:uuid(),model:meta.test_instrument_model,serialNumber:meta.test_instrument_serial,functions:[]}};
+    instrument:{id:uuid(),manufacturer:maker(meta.test_instrument_model),model:meta.test_instrument_serial || meta.test_instrument_model,serialNumber:meta.test_instrument_serial,description:meta.test_instrument_model,functions:[]}};
   const modelRange=String(meta.test_instrument_model).match(/A40B[- ](\d+(?:\.\d+)?)\s*(mA|A)/i);
   const nominalRange=modelRange ? Number(modelRange[1])*(modelRange[2].toLowerCase()==='ma'?.001:1)
     : Number(snapshot.shuntRange) || Math.max(...snapshot.points.map(p=>Number(p.current)));
   if (topology==='A40B' && !modelRange && !snapshot.shuntRange) warnings.add('UUT nominal shunt range inferred from the largest saved current; verify against the nameplate.');
   const testPoints=snapshot.points.map(point=>{
-    const nominal={name:'AC current',value:point.current,unit:'A'};
+    const nominal={name:'AC current',value:point.current,unit:'A',qualifier:{name:'Frequency',value:point.frequency,unit:'Hz'}};
     const components=[];
     const missing=(name,reason,source={})=>{
       warnings.add(`${point.current} A / ${point.frequency} Hz: ${reason}`);
@@ -87,7 +89,7 @@ export function buildAcShuntBudget(snapshot, { rocK = 2 } = {}) {
       const expanded=Math.max(...sources.map(s=>s.expandedPpm));
       const provenance={certificates:sources,coverageFactor:rocK};
       const range=rangeFor(shunt,'AC current','A',{range:`${point.current} A / ${point.frequency} Hz`,min:point.current,max:point.current,
-        qualifier:{name:'Frequency',value:point.frequency,unit:'Hz'},tolerances:{reading:term(expanded,rocK)},acShuntSource:provenance});
+        qualifier:frequencyQualifier(point.frequency),tolerances:{reading:term(expanded,rocK)},acShuntSource:provenance});
       linked(shunt,'Reference shunt RoC',range,provenance);
     } else missing('Reference shunt RoC','Reference shunt certificate uncertainty is unavailable.');
     if (sources.some(s=>s?.report.selection.includes('legacy'))) warnings.add('Legacy points use the current shunt report; verify it matches the calibration date.');
@@ -96,11 +98,11 @@ export function buildAcShuntBudget(snapshot, { rocK = 2 } = {}) {
       const name=`${side==='std'?'Standard':'Test'} TVC NPSL RoC`;
       if (source && finite(source.testVoltage) && source.testVoltage>0) {
         const range=rangeFor(instrument,'AC/DC transfer','V',{range:`${source.testVoltage} V / ${point.frequency} Hz`,
-          min:source.testVoltage,max:source.testVoltage,qualifier:{name:'Frequency',value:point.frequency,unit:'Hz'},
+          min:source.testVoltage,max:source.testVoltage,qualifier:frequencyQualifier(point.frequency),
           tolerances:{reading:term(source.expandedPpm,rocK)},acShuntSource:{certificate:source,coverageFactor:rocK}});
         const c=linked(instrument,name,range,{certificate:source,coverageFactor:rocK});
         c.tmdeTransferSources=[{sourceId:instrument.id,rangeId:range.rangeId,functionId:range.functionId,
-          nominal:{value:source.testVoltage,unit:'V'},sensitivity:point.current/source.testVoltage,role:side,direction:'certificate'}];
+          nominal:{value:source.testVoltage,unit:'V',qualifier:nominal.qualifier},sensitivity:point.current/source.testVoltage,role:side,direction:'certificate'}];
       } else missing(name,'TVC certificate uncertainty or test voltage is unavailable.');
       warnings.add('TVC certificates use current reports; historical TVC report links are not stored.');
     }
@@ -112,6 +114,8 @@ export function buildAcShuntBudget(snapshot, { rocK = 2 } = {}) {
       }
       try {
         if (!point.readerPoints.length) throw Error('Saved reader phase averages are incomplete.');
+        if (/34420/i.test(model || '') && point.readerPoints.some(p=>p.nplc==null)) warnings.add('34420A resolution assumes 100 NPLC when the saved integration time is unavailable; verify against the acquisition settings.');
+        if (/5790/i.test(model || '') && point.readerPoints.some(p=>!p.filterMode)) warnings.add('5790B resolution uses the conservative Fast-filter specification when the saved filter mode is unavailable.');
         const details=point.readerPoints.map(p=>readerContribution(model,side,p,point.frequency));
         const transfers=[];
         let firstRange;
@@ -119,31 +123,36 @@ export function buildAcShuntBudget(snapshot, { rocK = 2 } = {}) {
           const band=s.frequencyBand ? ` · ${s.frequencyBand[0]}–${s.frequencyBand[1]} Hz` : '';
           const range=rangeFor(reader,s.functionName,'V',{range:`${s.range} V${band}${s.readingPpm===55?' · analog filter':''}`,
             min:0,max:s.range,notes:s.conditions,source:s.source,
-            ...(s.frequencyBand?{frequencyBand:s.frequencyBand}:{}),
+            ...(s.frequencyBand?{frequencyBand:s.frequencyBand,qualifier:{name:'Frequency',min:s.frequencyBand[0],max:s.frequencyBand[1],unit:'Hz'}}:{}),
+            resolution:s.resolutionVolts,resolutionUnit:'V',includeResolutionInBudget:true,
             tolerances:{reading:term(s.readingPpm,s.divisor),floor:term(s.floorVolts,s.divisor,'V')}});
           firstRange ||= range;
           transfers.push({sourceId:reader.id,rangeId:range.rangeId,functionId:range.functionId,
-            nominal:{value:Math.abs(Number(d.voltages[i])),unit:'V'},sensitivity:d.sensitivities[i]*point.current,role:side,direction:d.direction});
+            nominal:{value:Math.abs(Number(d.voltages[i])),unit:'V',qualifier:nominal.qualifier},sensitivity:d.sensitivities[i]*point.current,role:side,direction:d.direction});
         }
         let c=byReader.get(reader.id);
         if (!c) {c=linked(reader,`Reader uncertainty · ${reader.name}`,firstRange,{interval:'1 year',details:[],method:'Sum absolute phase sensitivities; largest direction; shared reader roles summed.'});c.tmdeTransferSources=[];byReader.set(reader.id,c);}
         c.tmdeTransferSources.push(...transfers);c.acShuntSource.details.push(...details);
       } catch(error) {missing(`${role} reader · ${reader.name}`,error.message,{model,side});}
     }
+    for (const reader of byReader.values()) {
+      const id=uuid();
+      components.push({...reader,id,componentId:id,name:reader.name.replace('Reader uncertainty','Reader resolution'),isResolution:true,tmdeBudgetComponentKind:'Resolution'});
+    }
     let uutTolerance=null;
     try {
       const spec=acShuntUutSpec(meta.test_instrument_model,nominalRange,point.frequency,point.current,meta.humidity);
       uutTolerance=rangeFor(uut,'AC current','A',{range:`${point.current} A / ${point.frequency} Hz`,min:point.current,max:point.current,
-        qualifier:{name:'Frequency',value:point.frequency,unit:'Hz'},
+        qualifier:frequencyQualifier(point.frequency),
         tolerances:{reading:term(spec.ppm,spec.distribution),
           ...(finite(a?.pair_delta_uut_ppm)?{bias:{kind:'absolute',value:point.current*a.pair_delta_uut_ppm*1e-6,unit:'A'}}:{})},
         source:spec.source,notes:spec.conditions});
     } catch(error) {warnings.add(`${point.current} A / ${point.frequency} Hz: ${error.message}`);}
-    return {id:uuid(),section:`${point.current} A / ${point.frequency} Hz`,measurementAreaId:areaId,
+    return {id:uuid(),section:'',measurementAreaId:areaId,
       associatedUutIds:[uutId],activeUutId:uutId,measurementType:'direct',components,tmdeTolerances:[],uutTolerance,
       specifications:{mfg:{uncertainty:'',k:2},navy:{uncertainty:'',k:2}},
       is_detailed_uncertainty_calculated:false,coverageFactorMode:'auto',
-      testPointInfo:{measurementArea:'Electrical',parameter:nominal,qualifier:{name:'Frequency',value:point.frequency,unit:'Hz'},
+      testPointInfo:{measurementArea:'Electrical',parameter:nominal,qualifier:frequencyQualifier(point.frequency),
         acShuntSource:{sessionId:snapshot.id,pointIds:point.sourcePointIds,deltaPpm:a?.pair_delta_uut_ppm,importedAt:new Date().toISOString()}}};
   });
   const assumptions=[`Source: AC-shunt session ${snapshot.id} (${snapshot.name}).`,
@@ -159,6 +168,7 @@ export function buildAcShuntBudget(snapshot, { rocK = 2 } = {}) {
     uuts:[uut],tmdes:[...instruments.values()],testPoints,noteImages:[],uutTolerance:{},
     uncReq:{uncertaintyConfidence:95,reliability:85,calInt:12,neededTUR:4,reqPFA:2},
     detailSectionOrder:['instruments','equation','budget'],detailCollapsedSections:[]};
+  for (const item of [...session.uuts,...session.tmdes]) for (const fn of item.instrument.functions) fn.ranges.sort((a,b) => (a.min-b.min) || (a.max-b.max) || String(a.qualifierGroupId || '').localeCompare(String(b.qualifierGroupId || '')) || ((a.qualifier?.min ?? 0)-(b.qualifier?.min ?? 0)));
   session.testPoints=testPoints.map(point=>{
     const resolved={...point,components:resolvePointBudgetComponents(point,session)};
     return recalculatePointUncertaintyFields(resolved,session);
@@ -167,7 +177,7 @@ export function buildAcShuntBudget(snapshot, { rocK = 2 } = {}) {
   for (const point of session.testPoints) {
     const risk=computePointRiskMetrics(point,session);
     if (risk && ['tur','pfa','pfr'].every(key=>Number.isFinite(risk[key]))) riskCalculated++;
-    else warnings.add(`${point.section}: risk needs complete UUT limits and TMDE/Type A inputs.`);
+    else warnings.add(`${point.testPointInfo.parameter.value} A / ${point.testPointInfo.qualifier.value} Hz: risk needs complete UUT limits and TMDE/Type A inputs.`);
   }
   session.notes=[...assumptions,...warnings].join('\n');
   return {warnings:[...warnings],topology,riskCalculated,session};

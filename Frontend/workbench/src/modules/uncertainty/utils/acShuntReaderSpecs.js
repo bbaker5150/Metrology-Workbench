@@ -21,12 +21,14 @@ const dcPpm = {0.22:38, 0.7:33, 2.2:24, 7:24, 22:27};
 const ranges = Object.keys(acPpm).map(Number).sort((a,b) => a-b);
 const valid = x => x !== null && x !== '' && Number.isFinite(Number(x));
 
-export function readerSpec(model, voltage, frequency, rangeMode, isDc = false) {
+export function readerSpec(model, voltage, frequency, rangeMode, isDc = false, settings = {}) {
   if (!valid(voltage) || Math.abs(Number(voltage)) === 0) throw new Error('Saved reader voltage is missing or zero.');
   const v = Math.abs(Number(voltage));
   if (/34420A?$/i.test(model || '')) {
     if (v > 1.2) throw new Error('34420A reading exceeds the 1 V range.');
-    return {range:1, readingPpm:35, floorVolts:4e-6, limitVolts:35e-6*v+4e-6,
+    const nplc = settings.nplc == null ? 100 : Number(settings.nplc);
+    const digits = nplc < .2 ? 4 : nplc < 1 ? 5 : nplc < 20 ? 6 : 7;
+    return {range:1, resolutionVolts:10 ** -digits, readingPpm:35, floorVolts:4e-6, limitVolts:35e-6*v+4e-6,
       divisor:Math.sqrt(3), source:READER_SOURCES.keysight, functionName:'DC Voltage',
       conditions:'1 year; 23 ±5 °C; 2-hour warm-up; 100 NPLC; filters off. Rectangular error limit.'};
   }
@@ -49,7 +51,9 @@ export function readerSpec(model, voltage, frequency, rangeMode, isDc = false) {
     readingPpm = acPpm[range][i]; floorVolts = range < 2.2 ? floors[i]*1e-6 : 0;
     frequencyBand = [bands[i],bands[i+1]];
   }
-  return {range, readingPpm, floorVolts, frequencyBand, limitVolts:readingPpm*1e-6*v+floorVolts,
+  const fast = !/^(MEDIUM|SLOW)$/i.test(settings.filterMode || '');
+  const resolutionVolts = range <= .22 ? 1e-7 : range <= 2.2 ? (fast ? 1e-6 : 1e-7) : (fast ? 1e-5 : 1e-6);
+  return {range, resolutionVolts, readingPpm, floorVolts, frequencyBand, limitVolts:readingPpm*1e-6*v+floorVolts,
     divisor:2.58, source:READER_SOURCES.fluke, functionName:isDc?'DC Voltage':'AC Voltage',
     conditions:'1 year; within ±5 °C of calibration; warm-up ≥30 minutes or twice off-time; DC zero every 30 days; normal k=2.58.'};
 }
@@ -66,7 +70,7 @@ export function readerContribution(model, side, point, frequency) {
   const eta = Number(point[`eta_${side}`]);
   if (!dc || !Number.isFinite(eta) || eta <= 0) throw new Error('Saved DC voltage or sensitivity coefficient is missing.');
   const specs = values.map((v,i) => {
-    const spec=readerSpec(model,v,frequency,point.rangeMode,i>=2);
+    const spec=readerSpec(model,v,frequency,point.rangeMode,i>=2,point);
     // Conservatively include the manual's +0.002% reading allowance for AC
     // phases whenever the saved configuration requested the analog filter.
     if (/34420/i.test(model || '') && point.analogFilterRequested && frequency <= 40 && i<2) {

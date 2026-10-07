@@ -9,7 +9,6 @@ import './AcShuntImportTool.css';
 export default function AcShuntImportTool({ onImport }) {
   const [open,setOpen] = useState(false);
   const [query,setQuery] = useState('');
-  const [page,setPage] = useState(1);
   const [listing,setListing] = useState(null);
   const [selected,setSelected] = useState('');
   const [snapshot,setSnapshot] = useState(null);
@@ -30,13 +29,25 @@ export default function AcShuntImportTool({ onImport }) {
     const controller = new AbortController();
     setLoading(true); setError(''); setListing(null);
     const timer = setTimeout(() => {
-      axios.get(`${UNCERTAINTY_API}/ac-shunt/sessions/`,{params:{q:query,page,page_size:12},signal:controller.signal})
-        .then(({data}) => {if(!controller.signal.aborted) {setListing(data); if(!data.available)setError('The AC-shunt database is unavailable.');}})
-        .catch(e => {if(!controller.signal.aborted)setError(e.response?.data?.detail || 'Could not load AC-shunt sessions.');})
-        .finally(()=>{if(!controller.signal.aborted)setLoading(false);});
+      (async () => {
+        try {
+          let page = 1, pages = 1, sessions = [];
+          do {
+            const {data} = await axios.get(`${UNCERTAINTY_API}/ac-shunt/sessions/`, {params:{q:query,page,page_size:100},signal:controller.signal});
+            if (controller.signal.aborted) return;
+            sessions = [...sessions, ...(data.sessions || [])];
+            setListing({...data,sessions});
+            if (!data.available) {setError('The AC-shunt database is unavailable.');break;}
+            pages = data.pages || 1;
+            page++;
+          } while(page <= pages);
+        } catch(e) {
+          if(!controller.signal.aborted) setError(e.response?.data?.detail || 'Could not load AC-shunt sessions.');
+        } finally {if(!controller.signal.aborted)setLoading(false);}
+      })();
     },200);
     return () => {clearTimeout(timer);controller.abort();};
-  },[open,query,page]);
+  },[open,query]);
   useEffect(() => {
     if (!open || !selected) return;
     const controller = new AbortController();
@@ -68,7 +79,7 @@ export default function AcShuntImportTool({ onImport }) {
         <button aria-label="Close AC/DC importer" onClick={close} disabled={saving}><FontAwesomeIcon icon={faTimes}/></button></header>
       <p>Bring saved measurements, instruments and certificate uncertainties into a new Electrical budget.</p>
       <input autoFocus type="search" aria-label="Search AC-shunt sessions" placeholder="Search session, model or serial…" value={query}
-        disabled={saving} onChange={e=>{setQuery(e.target.value);setPage(1);setSelected('');setSnapshot(null);}}/>
+        disabled={saving} onChange={e=>{setQuery(e.target.value);setSelected('');setSnapshot(null);}}/>
       <div className="ac-shunt-import-sessions" aria-label="AC-shunt sessions" aria-busy={loading}>
         {loading && <p role="status">Loading sessions…</p>}
         {!loading && listing?.sessions?.length===0 && <p>No matching sessions.</p>}
@@ -76,8 +87,6 @@ export default function AcShuntImportTool({ onImport }) {
           onClick={()=>{setSnapshot(null);setSelected(s.id);}} aria-pressed={String(selected)===String(s.id)}>
           <strong>{s.session_name}</strong><span>{s.test_instrument_model || 'Unknown model'} · {s.test_instrument_serial || 'No serial'}<time>{s.created_at?.slice(0,10)}</time></span></button>)}
       </div>
-      {listing?.pages>1 && <nav aria-label="Session pages"><button disabled={page<=1 || saving || loading} onClick={()=>setPage(p=>p-1)}>Previous</button>
-        <span>{listing.page} / {listing.pages}</span><button disabled={page>=listing.pages || saving || loading} onClick={()=>setPage(p=>p+1)}>Next</button></nav>}
       {selected && !snapshot && !error && <p role="status">Reading measurements and certificates…</p>}
       {preview?.session && <section className="ac-shunt-import-preview" aria-label="Import preview">
         <strong>{preview.topology} · {preview.session.testPoints.length} points · {preview.session.tmdes.length} reference instruments</strong>
