@@ -1124,7 +1124,15 @@ const useSessionManager = () => {
           );
         },
       );
-      recordUndoSnapshot(
+      // Calculated outputs follow their authored change, not a separate user action.
+      const calculatedKeys = new Set([
+        "combined_uncertainty", "combined_uncertainty_absolute_base", "combined_uncertainty_inputs_native", "combined_uncertainty_inputs_base",
+        "effective_dof", "k_value", "expanded_uncertainty", "expanded_uncertainty_absolute_base", "is_detailed_uncertainty_calculated",
+        "calculatedBudgetComponents", "calculatedBudgetGroups", "calculatedNominalValue", "risk8MonteCarloResult",
+      ]);
+      const keys = Object.keys(updatedData);
+      const calculatedOnly = keys.some(key => calculatedKeys.has(key)) && keys.every(key => calculatedKeys.has(key) || key === "budgetPropagationMethod");
+      if (!calculatedOnly) recordUndoSnapshot(
         session,
         isDiscreteBudgetChange
           ? `point:${selectedTestPointId}:${updatedKeys}:discrete:${++undoSequenceRef.current}`

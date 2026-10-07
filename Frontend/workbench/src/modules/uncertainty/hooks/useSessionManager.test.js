@@ -470,3 +470,17 @@ it('undoes qualifier enable and additions individually without undoing earlier r
   expect(result.current.currentSessionData.uuts[0].instrument.functions[0].ranges[0]).toMatchObject({max:20});
   expect(result.current.currentSessionData.uuts[0].instrument.functions[0].ranges[0].qualifier).toBeUndefined();
 });
+
+it('keeps background recalculation out of undo history but retains propagation-mode edits', async () => {
+  const {result}=renderHook(()=>useSessionManager());
+  await waitFor(()=>expect(result.current.currentSessionData?.id).toBe(1));
+  act(()=>result.current.updateSession({...result.current.currentSessionData,testPoints:[{id:'p',testPointInfo:{parameter:{value:1,unit:'V'}}}]}));
+  act(()=>result.current.setSelectedTestPointId('p'));
+  act(()=>result.current.updateTestPointData({section:'Authored'}));
+  act(()=>result.current.updateTestPointData({calculatedBudgetComponents:[],combined_uncertainty:1,budgetPropagationMethod:'linear'}));
+  act(()=>expect(result.current.undoLastSessionChange()).toBe(true));
+  expect(result.current.currentSessionData.testPoints[0].section).toBeUndefined();
+  act(()=>result.current.updateTestPointData({budgetPropagationMethod:'montecarlo'}));
+  act(()=>expect(result.current.undoLastSessionChange()).toBe(true));
+  expect(result.current.currentSessionData.testPoints[0].budgetPropagationMethod).not.toBe('montecarlo');
+});
