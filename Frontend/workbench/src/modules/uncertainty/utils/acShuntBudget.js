@@ -38,9 +38,7 @@ export function buildAcShuntBudget(snapshot, { rocK = 2 } = {}) {
     const signature=JSON.stringify([instrument.id,name,unit,data]);
     let range=rangeCache.get(signature);
     if (!range) {
-      const contextLabel=data.qualifier ? `${data.qualifier.value ?? `${data.qualifier.min}–${data.qualifier.max}`} ${data.qualifier.unit}`
-        : `${name}${data.frequencyBand ? ` · ${data.frequencyBand.join('–')} Hz` : ''}`;
-      range={id:uuid(),unit,...data,contextLabel, ...(data.qualifier ? {qualifierGroupId:JSON.stringify([instrument.id,fn.id,data.min,data.max,data.resolution])} : {})};fn.ranges.push(range);rangeCache.set(signature,range);
+      range={id:uuid(),unit,...data, ...(data.qualifier ? {qualifierGroupId:JSON.stringify([instrument.id,fn.id,data.min,data.max,data.resolution])} : {})};fn.ranges.push(range);rangeCache.set(signature,range);
     }
     return {...range,rangeId:range.id,functionId:fn.id,functionName:fn.name};
   };
@@ -88,7 +86,7 @@ export function buildAcShuntBudget(snapshot, { rocK = 2 } = {}) {
     if (sources.length && sources.every(s=>s && finite(s.expandedPpm))) {
       const expanded=Math.max(...sources.map(s=>s.expandedPpm));
       const provenance={certificates:sources,coverageFactor:rocK};
-      const range=rangeFor(shunt,'AC current','A',{range:`${point.current} A / ${point.frequency} Hz`,min:point.current,max:point.current,
+      const range=rangeFor(shunt,'AC current','A',{range:`${point.current} A`,min:point.current,max:point.current,
         qualifier:frequencyQualifier(point.frequency),tolerances:{reading:term(expanded,rocK)},acShuntSource:provenance});
       linked(shunt,'Reference shunt RoC',range,provenance);
     } else missing('Reference shunt RoC','Reference shunt certificate uncertainty is unavailable.');
@@ -97,7 +95,7 @@ export function buildAcShuntBudget(snapshot, { rocK = 2 } = {}) {
       const source=point.tvcs[side],instrument=tvcs[side];
       const name=`${side==='std'?'Standard':'Test'} TVC NPSL RoC`;
       if (source && finite(source.testVoltage) && source.testVoltage>0) {
-        const range=rangeFor(instrument,'AC/DC transfer','V',{range:`${source.testVoltage} V / ${point.frequency} Hz`,
+        const range=rangeFor(instrument,'AC/DC transfer','V',{range:`${source.testVoltage} V`,
           min:source.testVoltage,max:source.testVoltage,qualifier:frequencyQualifier(point.frequency),
           tolerances:{reading:term(source.expandedPpm,rocK)},acShuntSource:{certificate:source,coverageFactor:rocK}});
         const c=linked(instrument,name,range,{certificate:source,coverageFactor:rocK});
@@ -120,8 +118,7 @@ export function buildAcShuntBudget(snapshot, { rocK = 2 } = {}) {
         const transfers=[];
         let firstRange;
         for (const d of details) for (const [i,s] of d.specs.entries()) {
-          const band=s.frequencyBand ? ` · ${s.frequencyBand[0]}–${s.frequencyBand[1]} Hz` : '';
-          const range=rangeFor(reader,s.functionName,'V',{range:`${s.range} V${band}${s.readingPpm===55?' · analog filter':''}`,
+          const range=rangeFor(reader,s.functionName,'V',{range:`0 to ${s.range} V`,
             min:0,max:s.range,notes:s.conditions,source:s.source,
             ...(s.frequencyBand?{frequencyBand:s.frequencyBand,qualifier:{name:'Frequency',min:s.frequencyBand[0],max:s.frequencyBand[1],unit:'Hz'}}:{}),
             resolution:s.resolutionVolts,resolutionUnit:'V',includeResolutionInBudget:true,
@@ -142,7 +139,7 @@ export function buildAcShuntBudget(snapshot, { rocK = 2 } = {}) {
     let uutTolerance=null;
     try {
       const spec=acShuntUutSpec(meta.test_instrument_model,nominalRange,point.frequency,point.current,meta.humidity);
-      uutTolerance=rangeFor(uut,'AC current','A',{range:`${point.current} A / ${point.frequency} Hz`,min:point.current,max:point.current,
+      uutTolerance=rangeFor(uut,'AC current','A',{range:`${point.current} A`,min:point.current,max:point.current,
         qualifier:frequencyQualifier(point.frequency),
         tolerances:{reading:term(spec.ppm,spec.distribution),
           ...(finite(a?.pair_delta_uut_ppm)?{bias:{kind:'absolute',value:point.current*a.pair_delta_uut_ppm*1e-6,unit:'A'}}:{})},

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { formatRangeLabel } from './rangeFormatting';
 import { buildAcShuntBudget } from './acShuntBudget';
 import { readerSpec, readerContribution } from './acShuntReaderSpecs';
 import { resolvePointBudgetComponents } from './resolvePointBudgetComponents';
@@ -19,6 +20,17 @@ export const fixture = (model='Y5020',shared=false) => ({id:10,name:'Saved run',
       phases:Object.fromEntries(['std','ti'].flatMap(side=>['ac_open','ac_close','dc_pos','dc_neg'].map(p=>[`${side}_${p}`,.2])))}))}]});
 
 describe('AC-shunt budget import',()=>{
+  it.each(['Y5020','A40B'])('keeps frequency exclusively in qualifiers for %s instrument ranges',model=>{
+    const {session}=buildAcShuntBudget(fixture(model));
+    const ranges=[...session.uuts,...session.tmdes].flatMap(item=>item.instrument.functions.flatMap(fn=>fn.ranges));
+    expect(ranges.some(range=>range.qualifier?.unit==='Hz')).toBe(true);
+    for (const range of ranges) {
+      expect(range.contextLabel).toBeUndefined();
+      expect(range.range).not.toMatch(/Hz|filter/);
+      for (const preferBounds of [false,true]) expect(formatRangeLabel(range,{preferBounds})).not.toMatch(/Hz/);
+    }
+    expect(session.uuts[0].instrument.functions[0].ranges[0].qualifier).toMatchObject({min:1000,max:1000,unit:'Hz'});
+  });
   it.each(['Y5020','A40B'])('calculates risk and links UUT limits and every Type B to %s instruments',model=>{
     const {session,riskCalculated}=buildAcShuntBudget(fixture(model));
     const point=session.testPoints[0];
