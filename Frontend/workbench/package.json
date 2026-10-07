@@ -52,7 +52,9 @@
     "maplibre-gl": "6.4.1",
     "vite-plugin-singlefile": {
       "micromatch": "npm:picomatch@4.0.7"
-    }
+    },
+    "compression": "^1.8.2",
+    "shell-quote": "^1.12.0"
   },
   "scripts": {
     "start": "vite --host 0.0.0.0 --port 3000",
