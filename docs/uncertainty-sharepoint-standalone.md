@@ -385,3 +385,58 @@ buttons. Neither is a form now: the buttons call their handler from `onClick`,
 and `utils/submitOnEnter.js` keeps Enter working from a single-line field —
 including the cases the browser also declined, so a textarea still takes
 newlines. Nothing depends on the form machinery Firepit blocks.
+
+## Visible storage names (October 2026)
+
+Use the same `App - Content` display-name convention as Modernization Tracker:
+
+| Display name | SharePoint type | Existing default internal name |
+| --- | --- | --- |
+| Uncertalytics - Sessions | Document library | UncertaintySessions |
+| Uncertalytics - Instruments | List | UncertaintyInstruments |
+| Uncertalytics - Equations | List | UncertaintyEquations |
+| Uncertalytics - Bug Reports | List | UncertaintyBugReports |
+
+New containers are visible in Site contents. Existing deployments need one explicit organization pass: deploy the new single-file HTML, open the app as an owner, focus the app and press **Ctrl+Shift+T**, open **Storage administration**, then choose **Organize storage**. Check all four entries show Visible. Close/reload other app tabs after renaming. The list-manager keyboard shortcut may be intercepted by the browser when the app frame is not focused.
+
+Organization updates titles, descriptions, Hidden=false, and OnQuickLaunch=false using existing list IDs. Sidebar links are not added. It preserves records, attachments, permissions, internal URLs, and library contents. Original internal titles and previous `Uncertalytics — ...` display names remain readable; no data migration or replacement containers are needed. Destination collisions stop before metadata changes, interrupted updates can be retried, already-correct metadata is skipped, and the result is read back before success is reported. Visibility is not an access restriction.
+
+## Proposed SharePoint groups and permissions
+
+This is a deployment/design plan, not an implemented group-role system. The single-file build uses the signed-in user's SharePoint identity and REST permissions; it has no Django backend and no Tracker-style role-group synchronization. No groups or ACLs are changed by the naming/visibility update.
+
+### Findings that affect the plan
+
+- Session documents and images live together in Sessions. The picker filters by AuthorId and new filenames include the user's ID. Those filters/names are not file permissions. Broad library Contribute would let users access/edit other users' files directly.
+- Instruments mixes local drafts and shared/validated definitions in one list. Local ownership is checked in the app using AuthorId; shared definitions are returned to all users. The SharePoint save path discards the submitted library password rather than enforcing it on a trusted server. A client password/publish control is not a permission boundary.
+- Equations and Bug Reports are shared list records. Their current adapter routes allow save/archive subject to actual SharePoint permissions, without a curator-role check.
+- Session and notes autosaves need Add/Edit access. The UI does not currently implement a complete permissions-aware read-only viewer experience. Read permission can block writes, but it will not hide all editing controls or stop attempted autosaves. The session picker also does not offer a cross-user reviewer view.
+- Deletes archive content through updates; routine users do not need permanent-delete rights for these app actions. Setup/schema management remains an owner responsibility. The current setup screen is explicit, not automatic, but is not a substitute for restricting Manage Lists.
+
+### Group model
+
+Keep existing Metrology App Users for page and HTML-folder Read. Add **Uncertalytics Analysts** for creating/editing budgets and **Uncertalytics Curators** for maintaining approved shared definitions. Keep Owners responsible for schema and permissions. Curators can also belong to Analysts; a separate Viewer group is unnecessary unless approved read-only sharing needs its own audience. Do not give Analysts or Curators site-wide Edit or Manage Permissions.
+
+### Target access (requires the code/storage work below)
+
+| Resource | App Users | Analysts | Curators | Owners |
+| --- | --- | --- | --- | --- |
+| Approved ASPX and its Site Assets folder | Read | Through App Users | Through App Users | Full Control |
+| Session documents/images | No data grant merely for opening the app | Add/Edit in their own secured folder; explicitly shared sessions only | Only approved review/session access, not automatically every analyst's data | Full Control |
+| Shared approved Instruments and Equations | Read only when intentionally part of the common reader audience | Read | Add/Edit and archive | Full Control |
+| Personal instrument/equation drafts | No blanket access | Own drafts | As explicitly needed | Full Control |
+| Bug Reports | Optional submission access | Add and read/edit own reports | Read/edit reports for triage | Full Control |
+
+For routine writers, consider a custom permission level copied from Contribute with Delete Items and Delete Versions removed, while retaining required Read/Add/Edit/Open dependencies. Validate archive, overwrite, notes, and image operations with that level before rollout. Do not alter built-in Read/Contribute. Curators do not need Tracker's Manage Permissions level for ordinary definition maintenance.
+
+### Safe implementation order
+
+1. Publish the visible-name update and organize existing containers. Record/export existing permissions and maintain library versioning. Do not move session files or reset unique ACLs as part of renaming.
+2. Keep the app page and HTML folder Read-only for general App Users. Adding someone here alone does not authorize all Uncertalytics data or make them a functioning analyst.
+3. Add permission-aware app capabilities/read-only behavior before introducing a broad viewer audience. Gate autosaves, archive actions, and shared-definition publishing by effective resource permissions; use SharePoint permissions as the enforcement boundary.
+4. Implement secured per-user session folders (including images) and update session lookup/save paths. An owner or approved provisioning service must establish folder access; do not give all analysts Manage Permissions. Document libraries do not offer the same simple list-level 'edit only own items' setting as generic lists. Preserve existing authors, IDs, references, and file paths through a planned migration.
+5. Separate personal drafts from curator-maintained shared definitions, or implement an equivalent owner-controlled item-permission/publication workflow. Simply granting Read on the current Instruments list prevents saving local drafts; granting Contribute allows writes beyond the intended curator boundary. Client-controlled `scope: validated` cannot establish trust. Generic-list own-item settings alone do not prevent an analyst publishing a newly created row as shared.
+6. Configure Bug Reports with actual SharePoint own-item rules for analysts and an explicitly tested triage permission for curators. Any privileged override must be scoped to this list; ordinary Contribute may still be constrained by own-item rules. Update the UI to match those capabilities.
+7. Test separate analyst A, analyst B, curator, reader, and owner accounts. Verify direct REST/file URLs as well as UI: no cross-user session/draft edits, only curators publish shared definitions, own-report rules work, and readers make no save requests. Test autosave, images, archive, reload, old-format sessions, and recovery after permission changes.
+
+Until these changes exist, broad write permissions are suitable only for a deliberately trusted collaborative group, not a claim of private sessions or curator-only publishing. Retain only necessary per-resource grants and SharePoint-generated Limited Access. A user who can load HTML or read data directly from SharePoint can access those permitted resources outside the app too; strict app-only data access requires a trusted backend.

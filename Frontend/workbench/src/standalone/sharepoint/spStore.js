@@ -132,7 +132,7 @@ export function listTitle(prefix, key) {
 
 export function storageDisplayTitle(prefix, key) {
   const app = !prefix || prefix === DEFAULT_PREFIX ? 'Uncertalytics' : String(prefix).replace(/[^A-Za-z0-9]/g, '') || 'Uncertalytics';
-  return `${app} — ${key === 'bugReports' ? 'Bug Reports' : containerFor(key).suffix}`;
+  return `${app} - ${key === 'bugReports' ? 'Bug Reports' : containerFor(key).suffix}`;
 }
 const storageDescription = container => `Managed by Uncertalytics. ${container.description} Use the app to edit records; manage access through SharePoint permissions.`;
 
@@ -210,10 +210,19 @@ export class SharePointStore {
         try { await spGet(this.webUrl, `${original}?$select=Id`, this.fetchImpl); }
         catch (lookupError) { if (lookupError.status === 404) missingContainer = true; else throw lookupError; }
         if (!missingContainer) throw error;
-        const title = storageDisplayTitle(this.prefix, container.key);
-        const result = await send(path.replace(original, `/_api/web/lists/getbytitle('${encodeURIComponent(title)}')`));
-        this._storageTitles.set(container.key, title);
-        return result;
+        // Support both previous display names and the common App - Content
+        // convention. Probe the container before replaying a request: an item
+        // 404 must never cause a write to fall through to another container.
+        const currentTitle = storageDisplayTitle(this.prefix, container.key);
+        const aliases = [currentTitle, currentTitle.replace(' - ', ' — ')];
+        for (const title of aliases) {
+          const api = `/_api/web/lists/getbytitle('${encodeURIComponent(title)}')`;
+          try { await spGet(this.webUrl, `${api}?$select=Id`, this.fetchImpl); }
+          catch (lookupError) { if (lookupError.status === 404) continue; throw lookupError; }
+          this._storageTitles.set(container.key, title);
+          return send(path.replace(original, api));
+        }
+        throw error;
       }
     }
     return send(resolved);
@@ -247,13 +256,21 @@ export class SharePointStore {
     }
     for (const container of inventory) {
       if (!/^[0-9a-f-]{36}$/i.test(container.Id || '')) throw new Error('SharePoint returned an invalid storage identifier. No replacement list will be created.');
+      if (container.Title === container.displayTitle && container.Hidden === false && container.OnQuickLaunch === false && container.Description === storageDescription(container)) continue;
       await this.post(`/_api/web/lists(guid'${container.Id}')`, {
         headers: { 'X-HTTP-Method': 'MERGE', 'IF-MATCH': '*' },
-        body: { Title: container.displayTitle, Description: storageDescription(container), Hidden: true, OnQuickLaunch: false },
+        body: { Title: container.displayTitle, Description: storageDescription(container), Hidden: false, OnQuickLaunch: false },
       });
       this._storageTitles.set(container.key, container.displayTitle);
     }
-    return this.storageInventory();
+    const verified = await this.storageInventory();
+    for (const container of verified) {
+      const before = inventory.find(row => row.key === container.key);
+      if (container.Id !== before.Id || container.Title !== container.displayTitle || container.Hidden !== false || container.OnQuickLaunch !== false) {
+        throw new Error(`Could not verify visible storage for ${container.displayTitle}. Reload and retry; existing data was not replaced.`);
+      }
+    }
+    return verified;
   }
 
   async getItems(path) {
@@ -369,15 +386,16 @@ export class SharePointStore {
       if (!exists) {
         await this.post('/_api/web/lists', {
           body: {
-            Title: title,
+            Title: storageDisplayTitle(this.prefix, container.key),
             Description: storageDescription(container),
-            Hidden: true,
+            Hidden: false,
             OnQuickLaunch: false,
             BaseTemplate: container.template,
             AllowContentTypes: false,
             ContentTypesEnabled: false,
           },
         });
+        this._storageTitles.set(container.key, storageDisplayTitle(this.prefix, container.key));
         steps.push({ container: title, action: 'created' });
       } else {
         steps.push({ container: title, action: 'already-present' });

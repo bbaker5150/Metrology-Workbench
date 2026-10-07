@@ -163,14 +163,14 @@ describe("provision", () => {
     allMissing();
     await store.provision();
     const create = http.find(/\/_api\/web\/lists$/)[0];
-    expect(JSON.parse(create.body)).toMatchObject({ Title: "UncertaintySessions", BaseTemplate: 101 });
+    expect(JSON.parse(create.body)).toMatchObject({ Title: "Uncertalytics - Sessions", BaseTemplate: 101, Hidden: false });
   });
 
   it("creates the record containers as generic lists", async () => {
     allMissing();
     await store.provision();
     const bodies = http.find(/\/_api\/web\/lists$/).map((c) => JSON.parse(c.body));
-    expect(bodies.find((b) => b.Title === "UncertaintyInstruments").BaseTemplate).toBe(100);
+    expect(bodies.find((b) => b.Title === "Uncertalytics - Instruments").BaseTemplate).toBe(100);
   });
 
   it("adds the schema's columns to a newly created container", async () => {
@@ -689,9 +689,9 @@ describe("user-scoped instrument records", () => {
 
 describe('organized application storage', () => {
   const ids = CONTAINERS.map((_, i) => `00000000-0000-4000-8000-00000000000${i}`);
-  const titles = ['Uncertalytics — Sessions', 'Uncertalytics — Instruments', 'Uncertalytics — Equations', 'Uncertalytics — Bug Reports'];
+  const titles = ['Uncertalytics - Sessions', 'Uncertalytics - Instruments', 'Uncertalytics - Equations', 'Uncertalytics - Bug Reports'];
   function setup() {
-    const rows = CONTAINERS.map((c,i) => ({Id:ids[i],Title:listTitle('Uncertainty',c.key),Hidden:false,OnQuickLaunch:true,ItemCount:7}));
+    const rows = CONTAINERS.map((c,i) => ({Id:ids[i],Title:listTitle('Uncertainty',c.key),Hidden:true,OnQuickLaunch:true,ItemCount:7}));
     http.on(/EffectiveBasePermissions/, {json:{Low:'2048',High:'0'}});
     http.on(/getbytitle/, ({url}) => {
       const title=decodeURIComponent(url.match(/getbytitle\('([^']+)'\)/)[1]);
@@ -705,12 +705,12 @@ describe('organized application storage', () => {
     });
     return rows;
   }
-  it('renames and hides existing storage in place without altering data or permissions', async()=>{
+  it('renames and reveals existing storage in place without altering data or permissions', async()=>{
     const rows=setup();
     const result=await store.organizeStorage();
     expect(result.map(r=>r.Title)).toEqual(titles);
     expect(rows.map(r=>r.Id)).toEqual(ids);
-    expect(rows.every(r=>r.ItemCount===7 && r.Hidden && !r.OnQuickLaunch)).toBe(true);
+    expect(rows.every(r=>r.ItemCount===7 && !r.Hidden && !r.OnQuickLaunch)).toBe(true);
     const writes=http.calls.filter(c=>c.method==='POST' && !c.url.includes('contextinfo'));
     expect(writes).toHaveLength(4);
     for(const write of writes) {
@@ -723,6 +723,28 @@ describe('organized application storage', () => {
     const reopened=new SharePointStore({webUrl:WEB,fetchImpl:http});
     expect(await reopened.listExists('UncertaintySessions')).toBe(true);
     expect((await reopened.storageInventory()).map(r=>r.Title)).toEqual(titles);
+  });
+  it('upgrades hidden em-dash names from the previous release without creating containers', async()=>{
+    const rows=setup(); rows.forEach((row,i)=>{row.Title=titles[i].replace(' - ',' — '); row.Hidden=true;});
+    expect((await store.organizeStorage()).map(r=>r.Title)).toEqual(titles);
+    expect(rows.every(r=>r.Hidden===false)).toBe(true);
+    expect(http.find(/\/_api\/web\/lists$/)).toHaveLength(0);
+  });
+  it('performs no metadata writes when organization is already correct', async()=>{
+    setup(); await store.organizeStorage();
+    const writes=http.find(/lists\(guid'/).length;
+    await store.organizeStorage();
+    expect(http.find(/lists\(guid'/)).toHaveLength(writes);
+  });
+  it('rejects unconfirmed visibility rather than reporting success', async()=>{
+    setup(); http.on(/lists\(guid'/,()=>({status:204}));
+    await expect(store.organizeStorage()).rejects.toThrow();
+  });
+  it('does not retry a missing item write in another renamed container', async()=>{
+    const rows=setup(); rows[1].Title=titles[1];
+    http.on(/items\(999\)/,{status:404});
+    await expect(store.post("/_api/web/lists/getbytitle('UncertaintyInstruments')/items(999)",{body:{Title:'test'}})).rejects.toThrow();
+    expect(http.calls.filter(c=>c.method==='POST' && c.url.includes('Uncertalytics'))).toHaveLength(1);
   });
   it('refuses collisions before modifying any container', async()=>{
     setup();

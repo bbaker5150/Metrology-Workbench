@@ -11,8 +11,8 @@ it('offers storage administration only to list managers', async () => {
 });
 it('shows grouped storage settings and upgrades in place', async () => {
   HTMLDialogElement.prototype.showModal=vi.fn(function(){this.setAttribute('open','');});
-  const records=['sessions','instruments','equations','bugReports'].map(key=>({key,Id:key,Title:'Old '+key,displayTitle:'Uncertalytics — '+key,description:'App data',Hidden:false}));
-  const store={webUrl:'https://example.test/sites/lab',prefix:'Uncertainty',canManageStorage:vi.fn().mockResolvedValue(true),storageInventory:vi.fn().mockResolvedValue(records),organizeStorage:vi.fn().mockResolvedValue(records.map(r=>({...r,Hidden:true,Title:r.displayTitle})))};
+  const records=['sessions','instruments','equations','bugReports'].map(key=>({key,Id:key,Title:'Old '+key,displayTitle:'Uncertalytics - '+key,description:'App data',Hidden:false}));
+  const store={webUrl:'https://example.test/sites/lab',prefix:'Uncertainty',canManageStorage:vi.fn().mockResolvedValue(true),storageInventory:vi.fn().mockResolvedValue(records),organizeStorage:vi.fn().mockResolvedValue(records.map(r=>({...r,Hidden:false,Title:r.displayTitle})))};
   render(<StorageAdministration store={store}/>);
   await act(async () => {});
   expect(screen.queryByRole('button',{name:'Storage administration'})).not.toBeInTheDocument();
@@ -24,6 +24,6 @@ it('shows grouped storage settings and upgrades in place', async () => {
   expect(screen.getAllByRole('link',{name:'Settings'})).toHaveLength(4);
   fireEvent.click(screen.getByRole('button',{name:'Organize storage'}));
   expect(await screen.findByText(/Storage organized/)).toBeInTheDocument();
-  expect(screen.getAllByText('Hidden')).toHaveLength(4);
+  expect(screen.getAllByText('Visible')).toHaveLength(4);
   expect(store.organizeStorage).toHaveBeenCalledOnce();
 });
