@@ -4,22 +4,12 @@ import React, { useEffect, useRef, useState } from 'react';
 
 export default function StorageAdministration({ store }) {
   const [allowed, setAllowed] = useState(false);
-  const [revealed, setRevealed] = useState(false);
   const [open, setOpen] = useState(false);
   const [records, setRecords] = useState([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const dialog = useRef(null);
   useEffect(() => { let active = true; store.canManageStorage?.().then(value => { if (active) setAllowed(value); }).catch(() => {}); return () => { active = false; }; }, [store]);
-  useEffect(() => {
-    const reveal = event => {
-      if (!allowed || event.repeat || !event.ctrlKey || !event.shiftKey || event.altKey || event.metaKey || event.key.toLowerCase() !== 't') return;
-      event.preventDefault();
-      setRevealed(true);
-    };
-    window.addEventListener('keydown', reveal);
-    return () => window.removeEventListener('keydown', reveal);
-  }, [allowed]);
   useEffect(() => {
     if (!open) return;
     const fit = () => {
@@ -40,7 +30,7 @@ export default function StorageAdministration({ store }) {
     catch (error) { setMessage(error.message); }
     finally { setBusy(false); }
   };
-  if (!allowed || !revealed) return null;
+  if (!allowed) return null;
   return <>
     <button type="button" className="app-chrome-meta-icon" title="Storage administration" aria-label="Storage administration" onClick={() => setOpen(true)}><FontAwesomeIcon icon={faDatabase} /></button>
     {open && <dialog ref={dialog} className="sp-storage-admin" aria-labelledby="sp-storage-heading" onClose={() => setOpen(false)} onCancel={event => { if (busy) event.preventDefault(); }}>

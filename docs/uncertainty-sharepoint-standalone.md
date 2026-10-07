@@ -397,7 +397,7 @@ Use the same `App - Content` display-name convention as Modernization Tracker:
 | Uncertalytics - Equations | List | UncertaintyEquations |
 | Uncertalytics - Bug Reports | List | UncertaintyBugReports |
 
-New containers are visible in Site contents. Existing deployments need one explicit organization pass: deploy the new single-file HTML, open the app as an owner, focus the app and press **Ctrl+Shift+T**, open **Storage administration**, then choose **Organize storage**. Check all four entries show Visible. Close/reload other app tabs after renaming. The list-manager keyboard shortcut may be intercepted by the browser when the app frame is not focused.
+New containers are visible in Site contents. Existing deployments need one explicit organization pass: deploy the new single-file HTML, open the app as an owner, click the **Storage administration** database icon in the app header, then choose **Organize storage**. The button appears automatically for users with Manage Lists permission; no keyboard shortcut is needed. Check all four entries show Visible. Close/reload other app tabs after renaming.
 
 Organization updates titles, descriptions, Hidden=false, and OnQuickLaunch=false using existing list IDs. Sidebar links are not added. It preserves records, attachments, permissions, internal URLs, and library contents. Original internal titles and previous `Uncertalytics — ...` display names remain readable; no data migration or replacement containers are needed. Destination collisions stop before metadata changes, interrupted updates can be retried, already-correct metadata is skipped, and the result is read back before success is reported. Visibility is not an access restriction.
 
