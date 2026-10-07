@@ -13938,7 +13938,7 @@ function DetailedView({
           }
         : tmde,
     );
-    onUpdateTestPoint({ tmdeTolerances: nextTolerances }, { recordUndo: false });
+    onUpdateTestPoint({ tmdeTolerances: nextTolerances });
   };
 
   const warnIfTmdeAccuracyIncomplete = (activeRange) => {
