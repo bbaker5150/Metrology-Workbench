@@ -8,6 +8,7 @@ import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import axios from "axios";
 import { UNCERTAINTY_API } from "../constants/constants";
 import { getDeviceKey } from "../utils/deviceKey";
+import { reconcileImportedInstruments } from "../utils/importedInstrumentLibrary";
 
 const MAX_UNDO_STEPS = 50;
 const UNDO_COALESCE_MS = 800;
@@ -512,13 +513,14 @@ const useSessionManager = () => {
 
   // --- 2.2 Delete Instrument ---
   const deleteInstrument = useCallback(async (instrumentId) => {
-    replaceInstruments((prev) => prev.filter((i) => i.id !== instrumentId));
     try {
       await axios.delete(`${UNCERTAINTY_API}/instruments/${instrumentId}/`, {
         params: { owner: getDeviceKey() },
       });
+      replaceInstruments((prev) => prev.filter((i) => i.id !== instrumentId));
     } catch (e) {
       console.error("Failed to delete instrument from backend", e);
+      throw e;
     }
   }, [replaceInstruments]);
 
@@ -851,10 +853,16 @@ const useSessionManager = () => {
       );
       if (currentSession) saves.push(persistSession(currentSession));
 
-      const importedSession = prepareImportedSession(
+      const prepared = prepareImportedSession(
         loadedSession,
         sessions,
       );
+      const liveLibrary = await axios.get(`${UNCERTAINTY_API}/instruments/`, { params: { owner: getDeviceKey() } });
+      const { session: importedSession, localInstruments } = reconcileImportedInstruments(prepared, Array.isArray(liveLibrary.data) ? liveLibrary.data : [], getDeviceKey());
+      for (const instrument of localInstruments) {
+        const saved = await axios.post(`${UNCERTAINTY_API}/instruments/`, instrument);
+        replaceInstruments(previous => [...previous, saved?.data?.id ? saved.data : instrument]);
+      }
       if (requireSaved && !(await persistSession(importedSession))) {
         throw new Error("The new budget could not be saved to the database. Your current session is unchanged.");
       }
@@ -878,6 +886,7 @@ const useSessionManager = () => {
       persistSession,
       recordWorkspaceUndoSnapshot,
       replaceSessions,
+      replaceInstruments,
       selectedSessionId,
       sessions,
     ]

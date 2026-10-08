@@ -125,6 +125,7 @@ export const resolveDynamicComponent = (component, definition, nominal, measurem
     // The authored error limit is valid before a distribution is selected.
     // Keep it visible while standard uncertainty still needs its divisor.
     base.dynamicSummary = `${definition.mode === "limits" ? "" : "± "}${summary} ${getUnitDisplayLabel(definition.outputUnit)}`;
+    base.toleranceLimit_native = magnitude;
     const divisor = definition.mode === "standard" ? 1 : Number(definition.distribution);
     if (!Number.isFinite(divisor) || divisor <= 0) throw Error("Choose an error-limit distribution.");
     const standard = magnitude / divisor;

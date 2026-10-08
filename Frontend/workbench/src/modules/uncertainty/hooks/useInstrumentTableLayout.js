@@ -160,6 +160,15 @@ export default function useInstrumentTableLayout(containerRef) {
           document.body.appendChild(probe);
           width = probe.offsetWidth;
           probe.remove();
+          // Header controls grow when either unit summary opens. Measure their
+          // intrinsic inline content, not the assigned table/column width.
+          const headings = [...lookup.querySelectorAll('.dynamic-column-heading')];
+          const headingWidth = Math.max(0, ...headings.map(heading => {
+            const cellStyle = getComputedStyle(heading.closest('th'));
+            return Math.max(heading.scrollWidth, heading.offsetWidth)
+              + (parseFloat(cellStyle.paddingLeft) || 0) + (parseFloat(cellStyle.paddingRight) || 0) + 2;
+          }));
+          width = Math.max(width, headingWidth * headings.length + 96);
           const toolbar = editor.querySelector('.instrument-tolerance-toolbar');
           if (toolbar) {
             const toolbarStyle = getComputedStyle(toolbar);

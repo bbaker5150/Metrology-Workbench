@@ -3,6 +3,7 @@ import { resolvePointBudgetComponents } from "./resolvePointBudgetComponents";
 import { computePointRiskMetrics } from "./riskCompute";
 import { applyItemRangePatch } from "../features/analysis/components/UncertaintyPanel";
 import { syncPointTolerances } from "./pointToleranceSync";
+import { resolveTmdeTransferComponent } from "./tmdeTransferComponent";
 
 const makeFixture = measurementType => {
   const master = {id:"meter",instrument:{functions:[{id:"voltage",name:"Voltage",unit:"V",ranges:[{
@@ -14,6 +15,21 @@ const makeFixture = measurementType => {
     components:["Accuracy","Resolution"].map(kind=>({id:kind,name:kind,type:"B",variableType:"Voltage",tmdeBudgetSourceId:"meter",tmdeBudgetRangeId:"range",tmdeBudgetComponentKind:kind}))};
   return {point,session:{tmdes:[master],uncReq:{uncertaintyConfidence:95,reliability:85,neededTUR:4,reqPFA:2,calInt:12}}};
 };
+
+it('refreshes a manual TMDE after switching to a table, including transfer budgets', () => {
+  const { point, session } = makeFixture('direct');
+  const range = session.tmdes[0].instrument.functions[0].ranges[0];
+  range.tolerances.tmdeUncertaintyDefinition = { id: 'table', kind: 'table', measurementUnit: 'V', outputUnit: 'V',
+    mode: 'tolerance', distribution: '2', columns: [{ id: 'u' }], rows: [{ point: 10, values: { u: { value: .4 } } }] };
+  const [row] = resolvePointBudgetComponents(point, session);
+  expect(row.pendingReason).toBeFalsy();
+  expect(row.value_native).toBeCloseTo(.2);
+  expect(row.toleranceLimit_native).toBe(.4);
+  const transfer = resolveTmdeTransferComponent({ tmdeTransferSources: [{ sourceId: 'meter', rangeId: 'range', functionId: 'voltage', nominal: { value: 10, unit: 'V' }, sensitivity: 2, role: 'reader', direction: 'forward' }] }, session, { value: 20, unit: 'A' });
+  expect(transfer.pendingReason).toBeFalsy();
+  expect(transfer.value_native).toBeCloseTo(.4);
+  expect(transfer.toleranceLimit_native).toBeCloseTo(.8);
+});
 
 it("refreshes secondary uncertainties by source id across renames, type changes and removal", () => {
   const { point, session } = makeFixture("derived");

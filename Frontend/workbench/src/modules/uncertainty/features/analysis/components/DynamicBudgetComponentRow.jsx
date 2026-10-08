@@ -195,7 +195,7 @@ export default function DynamicBudgetComponentRow({
           </button>
         ) : (
           <>
-          {onKindChange && <div className="budget-uncertainty-type-toolbar">{draft.kind === "table" && <span className="dynamic-symmetry-slot" ref={setDynamicModebarTarget} />}<UncertaintyTypeMenu value={draft.kind} onChange={kind => {
+          {onKindChange && <div className="budget-uncertainty-type-toolbar"><span className="dynamic-symmetry-slot" ref={setDynamicModebarTarget} /><UncertaintyTypeMenu value={draft.kind} onChange={kind => {
             clearEditorDraft(draftKey); dirty.current = false;
             onKindChange(kind, draftRef.current);
           }}/></div>}

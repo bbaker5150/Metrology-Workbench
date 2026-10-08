@@ -119,9 +119,8 @@ export default function DynamicUncertaintyFields({
   };
   const unitField = (key, label) => (
     <div className="dynamic-inline-field">
-      {draft.kind !== "table" && <span>{label}</span>}
-      {draft.kind === "table"
-        ? <CollapsibleUnitControl label={label} value={key === "measurementUnit" ? measurementUnit : draft[key]} onChange={value => {
+
+      {<CollapsibleUnitControl label={label} value={key === "measurementUnit" ? measurementUnit : draft[key]} onChange={value => {
           if (key !== 'measurementUnit') { change({ [key]: value }); return; }
           const rows = draftRef.current.rows.map(row => {
             if (row.point === '' || row.point == null) return row;
@@ -129,8 +128,7 @@ export default function DynamicUncertaintyFields({
             catch { return row; }
           });
           change({ measurementUnit: value, measurementUnitExplicit: true, rows });
-        }} UnitSelectComponent={UnitSelectComponent} />
-        : <UnitSelectComponent ariaLabel={label} value={draft[key]} onChange={value => change({ [key]: value })} compact width="max-content" />}
+        }} UnitSelectComponent={UnitSelectComponent} />}
     </div>
   );
   const symmetryControl = (<div className="dynamic-budget-modebar">
@@ -139,10 +137,25 @@ export default function DynamicUncertaintyFields({
                 <button type="button" title="Asymmetric tolerance" aria-pressed={draft.mode === "limits"} className={draft.mode === "limits" ? "is-active" : ""} onClick={() => changeSymmetry(true)}>+/−</button>
               </div>
             </div>);
+  const equationInputs = draft.kind === "equation" ? <div className="dynamic-equation-inputs">{(draft.mode === "limits" ? ["lowerEquation", "upperEquation"] : ["equation"]).map(key => <div className="dynamic-equation-entry" key={key}>
+                <span>{key === "equation" ? "±" : key === "lowerEquation" ? "Low" : "High"}</span>
+                <input aria-label={key === "equation" ? "Uncertainty equation" : key === "lowerEquation" ? "Low error limit equation" : "High error limit equation"} placeholder="a * x + b" value={draft[key] || ""}
+                  style={{ "--equation-input-width": `calc(${Math.max(12, String(draft[key] || "").length + 1)}ch + 12px)` }}
+                  aria-invalid={Boolean(draft[key] && validateBudgetEquation(draft[key]).status === "invalid")}
+                  onChange={event => updateEquation(event.target.value, key)}
+                  onKeyDown={event => {
+                    if (event.key !== "Enter" || validation?.status !== "ok") return;
+                    const next = Object.keys(draft.variables).find(symbol => symbol !== draft.pointVariable && draft.variables[symbol].value === "");
+                    if (next) {
+                      event.preventDefault(); event.stopPropagation();
+                      rowRef.current?.querySelector(`[data-dynamic-nominal="${next}"]`)?.focus();
+                    }
+                  }} />
+              </div>)}</div> : null;
   return (<div ref={rowRef} className="dynamic-budget-editor" data-dynamic-kind={draft.kind} data-budget-editor="limit" role="group" aria-label={`${kindLabel} uncertainty editor`}>
             <div className="dynamic-budget-header">
-            {draft.kind === "table" && modebarTarget ? createPortal(symmetryControl, modebarTarget) : symmetryControl}
-            <div className="dynamic-budget-options">{draft.kind !== "table" && unitField("outputUnit", "Uncertainty unit")}</div>
+            {modebarTarget ? createPortal(<>{symmetryControl}{equationInputs}</>, modebarTarget) : <>{symmetryControl}{equationInputs}</>}
+
             </div>
             {draft.kind === "table" ? <>
               <div className="dynamic-table-scroll"><table className="dynamic-input-table dynamic-lookup-table" style={{ "--dynamic-data-width": `max(${Math.max(11, ...cells.map(cell => ((cell.key === "point" ? "Point" : cell.key === "low" ? "Unc. (Low)" : cell.key === "high" ? "Unc. (High)" : "Uncertainty").length + getUnitDisplayLabel(cell.key === "point" ? measurementUnit : draft.outputUnit).length + 1) * 0.55 + 3))}rem, ${columnWidths.map(width => `calc(${width} + 20px)`).join(", ")})`, "--dynamic-table-width": `calc(var(--dynamic-data-width) * ${cells.length} + 48px)` }}>
@@ -183,23 +196,9 @@ export default function DynamicUncertaintyFields({
                 </tr>)}
               </tbody></table></div>
             </> : <>
-              {(draft.mode === "limits" ? ["lowerEquation", "upperEquation"] : ["equation"]).map(key => <div className="dynamic-equation-entry" key={key}>
-                <span>{key === "equation" ? "±" : key === "lowerEquation" ? "Low" : "High"}</span>
-                <input aria-label={key === "equation" ? "Uncertainty equation" : key === "lowerEquation" ? "Low error limit equation" : "High error limit equation"} placeholder="a * x + b" value={draft[key] || ""}
-                  style={{ "--equation-input-width": `calc(${Math.max(12, String(draft[key] || "").length + 1)}ch + 12px)` }}
-                  aria-invalid={Boolean(draft[key] && validateBudgetEquation(draft[key]).status === "invalid")}
-                  onChange={event => updateEquation(event.target.value, key)}
-                  onKeyDown={event => {
-                    if (event.key !== "Enter" || validation?.status !== "ok") return;
-                    const next = Object.keys(draft.variables).find(symbol => symbol !== draft.pointVariable && draft.variables[symbol].value === "");
-                    if (next) {
-                      event.preventDefault(); event.stopPropagation();
-                      rowRef.current?.querySelector(`[data-dynamic-nominal="${next}"]`)?.focus();
-                    }
-                  }} />
-              </div>)}
-              {Object.keys(draft.variables).length > 0 && <div className="dynamic-table-scroll"><table className="dynamic-input-table dynamic-variable-table">
-                <thead><tr><th>Variable</th><th>Description</th><th>Value</th></tr></thead>
+
+              {<div className="dynamic-table-scroll"><table className="dynamic-input-table dynamic-variable-table">
+                <thead><tr><th>Variable</th><th>Description</th><th><span className="dynamic-column-heading">Value {unitField("outputUnit", "Uncertainty unit")}</span></th></tr></thead>
                 <tbody>{Object.entries(draft.variables).map(([symbol, variable]) => <tr key={symbol}>
                   <td className="dynamic-variable-symbol">{symbol}</td>
                   <td><input aria-label={`${symbol} name`} placeholder="Description" value={variable.name}

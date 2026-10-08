@@ -2,7 +2,7 @@ import { getInstrumentRangeRows } from './instrumentFunctionSelection';
 import { getBudgetComponentsFromTolerance } from '../features/analysis/utils/budgetUtils';
 import { unresolvedComponent } from './incompleteBudget';
 import { formatRangeLabel } from './rangeFormatting';
-import { resolveErrorDistribution } from './uncertaintyMath';
+import { resolveErrorDistribution, unitSystem } from './uncertaintyMath';
 
 // A transfer measurement can use several physical ranges in one correlated
 // error contribution. Resolve the live range limits at each saved input value,
@@ -28,8 +28,10 @@ export function resolveTmdeTransferComponent(component, session, nominal) {
         const rawDivisor=Number(c.distributionDivisor);
         const divisor=c.isResolution && ["3.464","4.899"].includes(String(c.distributionDivisor)) ? rawDivisor / 2 : rawDivisor;
         divisors.add(divisor);
-        group.standard += Math.abs(sensitivity*c.value_native);
-        group.limit += Math.abs(sensitivity*(c.isResolution ? c.value_native*divisor : c.toleranceLimit_native));
+        const sourceScale = unitSystem.units[source.nominal.unit]?.to_si ?? 1;
+        const scale = (unitSystem.units[c.unit_native]?.to_si ?? 1) / sourceScale;
+        group.standard += Math.abs(sensitivity*c.value_native*scale);
+        group.limit += Math.abs(sensitivity*(c.isResolution ? c.value_native*divisor : c.toleranceLimit_native)*scale);
       }
       groups.set(groupKey,group);
       sourceDetails.push({instrument:master.name,range:formatRangeLabel(range,{preferBounds:true}),nominal:source.nominal,sensitivity});

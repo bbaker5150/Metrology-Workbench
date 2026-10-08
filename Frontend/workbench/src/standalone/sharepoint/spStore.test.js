@@ -269,9 +269,19 @@ describe("provision", () => {
 });
 
 describe("sessions", () => {
+  it("rejects foreign and ownerless results before caching session file paths", async () => {
+    http.on(/UncertaintySessions'\)\/items\?/, { json: { value: [
+      { AuthorId: 99, SessionId: 7, FileLeafRef: 'session-99-7.json' },
+      { SessionId: 8, FileLeafRef: 'session-8.json' },
+      { AuthorId: 41, SessionId: 9, FileLeafRef: 'session-41-9.json' },
+    ] } });
+    expect((await store.listSessions()).map(item => item.id)).toEqual([9]);
+    expect(await store.sessionFileName(7)).toBe('session-41-7.json');
+    expect(await store.sessionFileName(8)).toBe('session-41-8.json');
+  });
   it("lists sessions newest-first without reading payloads", async () => {
     http.on(/UncertaintySessions'\)\/items\?/, {
-      json: { value: [{ SessionId: 7, SessionName: "Shunt", Analyst: "BB", Modified: "2026-05-01" }] },
+      json: { value: [{ AuthorId: 41, SessionId: 7, SessionName: "Shunt", Analyst: "BB", Modified: "2026-05-01" }] },
     });
     const sessions = await store.listSessions();
     expect(sessions).toEqual([
@@ -282,12 +292,12 @@ describe("sessions", () => {
   });
 
   it("skips rows with no session id rather than emitting NaN", async () => {
-    http.on(/UncertaintySessions'\)\/items\?/, { json: { value: [{ SessionId: 1 }, { Title: "orphan" }] } });
+    http.on(/UncertaintySessions'\)\/items\?/, { json: { value: [{ AuthorId: 41, SessionId: 1 }, { Title: "orphan" }] } });
     expect(await store.listSessions()).toHaveLength(1);
   });
 
   it("names an untitled session readably", async () => {
-    http.on(/UncertaintySessions'\)\/items\?/, { json: { value: [{ SessionId: 1 }] } });
+    http.on(/UncertaintySessions'\)\/items\?/, { json: { value: [{ AuthorId: 41, SessionId: 1 }] } });
     expect((await store.listSessions())[0].name).toBe("Untitled session");
   });
 
@@ -301,7 +311,7 @@ describe("sessions", () => {
     http.on(/UncertaintySessions'\)\/items\?/, {
       json: {
         value: [
-          { SessionId: 42, SessionName: "Legacy", FileLeafRef: "session-42.json" },
+          { AuthorId: 41, SessionId: 42, SessionName: "Legacy", FileLeafRef: "session-42.json" },
         ],
       },
     });
@@ -317,8 +327,8 @@ describe("sessions", () => {
     http.on(/UncertaintySessions'\)\/items\?/, {
       json: {
         value: [
-          { SessionId: 7, SessionName: "Newest", FileLeafRef: "session-41-7.json" },
-          { SessionId: 7, SessionName: "Legacy", FileLeafRef: "session-7.json" },
+          { AuthorId: 41, SessionId: 7, SessionName: "Newest", FileLeafRef: "session-41-7.json" },
+          { AuthorId: 41, SessionId: 7, SessionName: "Legacy", FileLeafRef: "session-7.json" },
         ],
       },
     });
@@ -364,6 +374,7 @@ describe("sessions", () => {
       json: {
         value: [
           {
+            AuthorId: 41,
             SessionId: 9,
             SessionName: "Cal",
             Analyst: "BB",
@@ -390,7 +401,7 @@ describe("sessions", () => {
     http.on(/UncertaintySessions'\)\/items\?/, {
       json: {
         value: [
-          { SessionId: 9, SessionName: "Before", FileLeafRef: "session-41-9.json" },
+          { AuthorId: 41, SessionId: 9, SessionName: "Before", FileLeafRef: "session-41-9.json" },
         ],
       },
     });
@@ -515,7 +526,7 @@ describe("user-scoped instrument records", () => {
     expect(await store.listInstruments()).toEqual([
       { id: "shared", scope: "validated" },
       { id: "mine", scope: "local", owner: "sharepoint-user:41" },
-      { id: "legacy", model: "Legacy shared" },
+
     ]);
     expect(http.find(/UncertaintyInstruments/)[0].url).toContain("AuthorId");
   });

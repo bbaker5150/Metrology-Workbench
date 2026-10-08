@@ -104,6 +104,7 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
   const equation = builder.getByRole("textbox", { name: "Uncertainty equation", exact: true });
   await equation.fill("x/1000");
   check("builder equation uses the themed inline editor", await equation.evaluate(node => getComputedStyle(node).backgroundColor !== "rgb(255, 255, 255)" && getComputedStyle(node).borderRadius === "4px"));
+  await builder.getByRole('button', { name: 'Edit uncertainty unit', exact: true }).click();
   check("builder dynamic editor includes the shared unit selector", await builder.getByRole("button", { name: /base unit/i }).count() > 0);
   if (process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await page.screenshot({ path: `${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/tasking-builder.png` });
   await builder.locator(".budget-dynamic-row").last().hover();
@@ -191,6 +192,16 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
   check('tabular units start as a collapsed summary',await unitSummary.isVisible());
   await unitSummary.click();
   check('tabular unit summary opens both selectors',await instrumentCell.getByRole('button',{name:'Uncertainty unit base unit',exact:true}).isVisible() && await instrumentCell.getByRole('button',{name:'Uncertainty unit prefix',exact:true}).isVisible());
+  for (const zoom of [0.8, 1, 1.25]) {
+    await instrumentCell.evaluate((cell, zoom) => { cell.closest('table').style.zoom = zoom; window.dispatchEvent(new Event('resize')); }, zoom);
+    check(`expanded uncertainty units fit on one line at zoom ${zoom}`, await until(() => instrumentCell.evaluate(cell => {
+      const heading = cell.querySelectorAll('.dynamic-column-heading')[1];
+      const bounds = heading.getBoundingClientRect(), parent = heading.closest('th').getBoundingClientRect();
+      const unit = heading.querySelector('.dynamic-unit-control').getBoundingClientRect();
+      return bounds.left >= parent.left - 1 && bounds.right <= parent.right + 1 && unit.top >= bounds.top && unit.bottom <= bounds.bottom + 1 && getComputedStyle(heading).flexWrap === 'nowrap';
+    })));
+  }
+  await instrumentCell.evaluate(cell => { cell.closest('table').style.removeProperty('zoom'); window.dispatchEvent(new Event('resize')); });
   await instrumentCell.getByLabel('Measurement point row 1',{exact:true}).fill('0');
   check('tabular unit selectors collapse when editing a value',await unitSummary.isVisible());
   await instrumentCell.getByLabel('Uncertainty row 1',{exact:true}).fill('1');

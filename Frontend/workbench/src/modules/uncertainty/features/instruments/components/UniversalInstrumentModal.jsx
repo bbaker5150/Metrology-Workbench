@@ -209,11 +209,12 @@ const getInstrumentSourceStatus = (instrument = {}, linkedInstrument = null) => 
     const isShared =
         explicitScope === "validated" ||
         (!explicitScope && linkedScope === "validated") ||
-        (linkedScope === "validated" && instrumentsMatch(instrument, linkedInstrument));
+        (linkedScope === "validated" && !instrument.localOverride &&
+          diffFromSnapshot({ ...instrument, validatedSnapshot: buildValidatedSnapshot(linkedInstrument) }).length === 0);
 
     if (isShared) {
         return {
-            label: "Shared",
+            label: "Synced",
             tone: "shared",
             title: "Shared library instrument"
         };
@@ -225,15 +226,10 @@ const getInstrumentSourceStatus = (instrument = {}, linkedInstrument = null) => 
         Boolean(linkedInstrument?.sourceId) ||
         hasValidatedSnapshot(linkedInstrument || {});
 
-    // A linked instrument that still matches its captured validated snapshot is
-    // in sync with the shared library (green link) even if this record is
-    // scope:"local" — e.g. a synced instrument whose shared origin isn't in
-    // this list, or one demoted by a legacy save. Reflect the synced state
-    // instead of mislabeling it "Local". Requires a real snapshot to match, so
-    // a merely-linked (never-synced) copy still reads "Local".
+    // A historical snapshot alone cannot establish current library membership.
     const isSynced =
-        hasValidatedSnapshot(instrument) &&
-        diffFromSnapshot(instrument).length === 0;
+        linkedScope === "validated" && !instrument.localOverride &&
+        diffFromSnapshot({ ...instrument, validatedSnapshot: buildValidatedSnapshot(linkedInstrument) }).length === 0;
     if (isSynced) {
         return {
             label: "Synced",

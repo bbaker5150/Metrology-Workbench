@@ -1847,10 +1847,12 @@ const findRangeForFunction = (source = {}, functionKey = null) => {
   return ranges[0];
 };
 
-const formatRangeToleranceDetail = (range = null) => {
+export const formatRangeToleranceDetail = (range = null, referencePoint) => {
   if (!range) return "";
   const rangeLabel = formatRangeLabel(range, { preferBounds: true });
-  const specLabel = (getSpecRows(range)[0] || "").trim();
+  const specLabel = (getCollapsedSpecRows(range, referencePoint)[0] || "").trim();
+  const qualifierLabel = range.qualifier
+    ? `${range.qualifier.name || "Qualifier"}: ${formatRangeLabel(range.qualifier, { preferBounds: true })}` : "";
   const distributionLabel = getBandDistLabel(range);
   const isPlaceholder = (value) => {
     const normalized = String(value || "").trim();
@@ -1861,7 +1863,7 @@ const formatRangeToleranceDetail = (range = null) => {
       /not set/i.test(normalized)
     );
   };
-  return [rangeLabel, specLabel, distributionLabel]
+  return [rangeLabel, qualifierLabel, specLabel, distributionLabel]
     .filter((value) => !isPlaceholder(value))
     .join(" | ");
 };
@@ -3269,7 +3271,7 @@ const formatResolutionSummaryText = (value, unit, fallbackUnit) => {
     return "";
   }
   const unitLabel = getUnitDisplayLabel(unit || fallbackUnit || "");
-  return unitLabel ? `${value} ${unitLabel}` : String(value);
+  return unitLabel ? `${toPlainNumber(value)} ${unitLabel}` : toPlainNumber(value);
 };
 
 // Inline-editable Resolution cell, mirroring the Range / Tolerance columns:
@@ -4573,13 +4575,10 @@ export const InstrumentUncertaintyRow = ({ source, activeRange, referencePoint, 
   const label = kind === "table" ? "Table" : kind === "equation" ? "Equation" : "Manual";
   const tolerance = { ...(source.tolerance || {}),
     tmdeUncertaintyDefinition: kind === "parametric" ? null : source.dynamicDefinition };
-  const resolved = referencePoint && kind !== "parametric" && source.dynamicDefinition
-    ? resolveDynamicComponent({ dynamicOutputId: source.dynamicDefinition.columns?.[0]?.id }, source.dynamicDefinition, referencePoint) : null;
   const isConfigured = kind === "parametric" ? toleranceHasAnyValue(tolerance)
     : source.dynamicDefinition && !isEmptyDefinition(source.dynamicDefinition);
-  const summary = !isConfigured ? "Not Set" : !referencePoint ? label : kind === "parametric"
-    ? getCollapsedSpecRows(tolerance, referencePoint).join("; ") || "Not Set"
-    : resolved?.pendingReason ? "Not Set" : resolved?.dynamicSummary || "Not Set";
+  const summary = !isConfigured ? "Not Set" : !referencePoint ? label
+    : getCollapsedSpecRows(tolerance, referencePoint).join("; ") || "Not Set";
   const commitName = () => { if (name !== source.name) onChange({ ...source, name }); };
   return <tr {...rowProps} ref={sourceRowRef} className={`instrument-function-row inline-range-row instrument-uncertainty-row${selected ? " instrument-selected is-selected-range" : ""}`}
     data-range-id={uncertaintyRowId(source.id)} data-range-selected={selected}
@@ -4725,9 +4724,7 @@ export const InlineToleranceCell = ({
     updateSelectedSource({ tolerance: applyToleranceCaseChange(selectedTolerance, typeKey, component) });
   };
   const summaryRows = getCollapsedSpecRows({ ...activeRange, ...tolerance }, referencePoint);
-  const summary = summaryOverride ?? (tolerance.tmdeUncertaintyDefinition?.kind
-    ? isEmptyDefinition(tolerance.tmdeUncertaintyDefinition) ? "Not Set" : `${tolerance.tmdeUncertaintyDefinition.kind === "table" ? "Tabular" : "Algebraic"} TMDE uncertainty`
-    : summaryRows[0] || "");
+  const summary = summaryOverride ?? summaryRows[0] ?? "";
 
   // Read-only surfaces (no save handler) just render the clean summary.
   if (!editable) {
@@ -4816,7 +4813,7 @@ export const InlineToleranceCell = ({
       }}
     >
       <div className="instrument-tolerance-toolbar">
-      {selectedType === "table" && <><span className="dynamic-symmetry-slot" ref={setDynamicModebarTarget} /></>}
+      {selectedType !== "parametric" && <><span className="dynamic-symmetry-slot" ref={setDynamicModebarTarget} /></>}
       {selectedType === "parametric" && <>
       <div className="inline-tolerance-modebar" aria-label="Tolerance mode">
         <div className="inline-tolerance-mini-toggle" role="group" aria-label="Tolerance symmetry">
@@ -5650,7 +5647,16 @@ export const getUutSpecRows = (tolerance) => getSpecRows(tolerance);
 export const getCollapsedSpecRows = (tolerance = {}, referencePoint) => {
   // Describe the authored specification. Selecting the largest term belongs
   // to the point calculation, never to the instrument's read-view summary.
-  return getSpecRows({ ...tolerance, ...(tolerance.tolerance || tolerance.tolerances || {}) });
+  const spec = { ...tolerance, ...(tolerance.tolerance || tolerance.tolerances || {}) };
+  const definition = spec.tmdeUncertaintyDefinition;
+  if (definition && referencePoint?.value !== "" && referencePoint?.value != null) {
+    const resolved = resolveDynamicComponent({ dynamicOutputId: definition.columns?.[0]?.id }, definition, referencePoint);
+    if (definition.kind === "table") return [resolved.dynamicSummary
+      ? `Tabular – ${resolved.dynamicSummary}`
+      : /^No table entry/.test(resolved.pendingReason || "") ? "Tabular – No matching points" : "Not Set"];
+    return [resolved.dynamicSummary || "Not Set"];
+  }
+  return getSpecRows(spec);
 };
 
 const formatResolutionLabel = (range = {}) => {
@@ -5662,7 +5668,7 @@ const formatResolutionLabel = (range = {}) => {
   const unit =
     range?.resolutionUnit || range?.measuringResolutionUnit || range?.unit || "";
   const unitLabel = getUnitDisplayLabel(unit);
-  return `${resolution}${unitLabel ? ` ${unitLabel}` : ""}`;
+  return `${toPlainNumber(resolution)}${unitLabel ? ` ${unitLabel}` : ""}`;
 };
 
 // The measuring-resolution detail for a point's UUT tolerance, used to offer
@@ -14110,7 +14116,8 @@ function DetailedView({
 
   const getBudgetTmdeDetail = (tmde, requestedRange = null) => {
     if (!budgetTmdePicker) return "";
-    if (requestedRange) return formatRangeToleranceDetail(requestedRange);
+    const referencePoint = isDerived ? budgetTmdePicker.scope?.nominalPoint : uutNominal;
+    if (requestedRange) return formatRangeToleranceDetail(requestedRange, referencePoint);
     const rowKey = `${budgetTmdePicker.functionKey || "single"}::${tmde.id}`;
     const rangeNominal = isDerived
       ? budgetTmdePicker.scope?.nominalPoint || null
@@ -14130,7 +14137,7 @@ function DetailedView({
       resolution.ranges?.[activeIndex] ||
       resolution.activeRange ||
       findRangeForFunction(tmde, budgetTmdePicker.functionKey);
-    return formatRangeToleranceDetail(activeRange);
+    return formatRangeToleranceDetail(activeRange, referencePoint);
   };
 
   const budgetFunctionKey = useCallback(
@@ -14805,10 +14812,7 @@ function DetailedView({
                 const type = source.kind === "table" ? "Table" : source.kind === "equation" ? "Equation" : "Manual";
                 const tolerance = source.kind === "table" || source.kind === "equation"
                   ? { tmdeUncertaintyDefinition: source.dynamicDefinition } : source.tolerance || {};
-                const resolved = tolerance.tmdeUncertaintyDefinition && resolveDynamicComponent(
-                  { dynamicOutputId: source.dynamicDefinition.columns?.[0]?.id }, source.dynamicDefinition, nominalPoint || {});
-                const uncertainty = resolved ? resolved.dynamicSummary || "Not Set"
-                  : getCollapsedSpecRows(tolerance, nominalPoint).join("; ") || "Not Set";
+                const uncertainty = getCollapsedSpecRows(tolerance, nominalPoint).join("; ") || "Not Set";
                 const distribution = getBandDistLabel(tolerance);
                 const detail = `${source.name || "Uncertainty"} (${type}) | ${uncertainty} | ${distribution === "—" ? "Not Set" : distribution}`;
                 return <button key={source.id} type="button" className="budget-tmde-picker-range budget-tmde-picker-source"

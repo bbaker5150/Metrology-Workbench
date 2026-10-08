@@ -496,7 +496,7 @@ export class SharePointStore {
       '$select=FileLeafRef,AuthorId&' +
       `$filter=AuthorId eq ${user.id}&$top=5000`;
     const items = await this.getItems(`${listApi(this.prefix, 'sessions')}/items?${query}`);
-    return items.map((item) => item.FileLeafRef).filter(Boolean);
+    return items.filter(item => Number(item.AuthorId) === user.id).map((item) => item.FileLeafRef).filter(Boolean);
   }
 
   async listSessions() {
@@ -508,6 +508,7 @@ export class SharePointStore {
     const seen = new Set();
     return items
       .filter((item) => {
+        if (Number(item.AuthorId) !== user.id) return false;
         if (item.SessionId === null || item.SessionId === undefined) return false;
         const id = Number(item.SessionId);
         if (seen.has(id)) return false;
@@ -617,7 +618,7 @@ export class SharePointStore {
     const owner = sharePointInstrumentOwnerKey(user);
     const rows = await this.instrumentRows();
     return rows.flatMap(({ item, record }) => {
-      if (record.scope !== 'local') return [record];
+      if (['validated', 'shared'].includes(record.scope)) return [record];
       if (Number(item.AuthorId) !== user.id) return [];
       return [{ ...record, scope: 'local', owner }];
     });
@@ -636,8 +637,8 @@ export class SharePointStore {
     const rows = await this.instrumentRows(recordId);
     const existing = rows.find(({ item, record: candidate }) =>
       scope === 'local'
-        ? candidate.scope === 'local' && Number(item.AuthorId) === user.id
-        : candidate.scope !== 'local',
+        ? !['validated', 'shared'].includes(candidate.scope) && Number(item.AuthorId) === user.id
+        : ['validated', 'shared'].includes(candidate.scope),
     );
     const fields = {
       Title: String(canonical.name || canonical.description || canonical.model || recordId).slice(0, 255),
@@ -676,9 +677,9 @@ export class SharePointStore {
     const user = await this.currentUser();
     const rows = await this.instrumentRows(recordId);
     const ownLocal = rows.find(({ item, record }) =>
-      record.scope === 'local' && Number(item.AuthorId) === user.id,
+      !['validated', 'shared'].includes(record.scope) && Number(item.AuthorId) === user.id,
     );
-    const shared = rows.find(({ record }) => record.scope !== 'local');
+    const shared = rows.find(({ record }) => ['validated', 'shared'].includes(record.scope));
     const target = ownLocal || shared;
     // Another user's local row is intentionally indistinguishable from an
     // absent record and can never be deleted through the app.

@@ -22115,10 +22115,23 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
 /* Units belong to their data-column headers; the toolbar contains only actions. */
 :is(.instrument-tolerance-toolbar, .budget-uncertainty-type-toolbar):has(> .dynamic-symmetry-slot) { display: flex; align-items: center; justify-content: space-between; }
 :is(.instrument-tolerance-toolbar, .budget-uncertainty-type-toolbar) > .dynamic-symmetry-slot { margin-right: auto; }
-.dynamic-column-heading { display: inline-flex; align-items: center; justify-content: center; flex-wrap: wrap; gap: 3px; }
+.dynamic-column-heading { display: inline-flex; align-items: center; justify-content: center; flex-wrap: nowrap; gap: 3px; white-space: nowrap; }
 .dynamic-column-heading .dynamic-inline-field { display: inline-flex; margin: 0; }
 .dynamic-column-heading .dynamic-unit-summary { padding: 2px 3px; }
 .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-budget-header:has(> .dynamic-budget-modebar) { flex-direction: row; justify-content: flex-start; }
+
+/* Intrinsic header widths include expanded prefix/unit controls at any zoom. */
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-lookup-table.dynamic-input-table {
+  min-width: max-content;
+}
+.dynamic-column-heading .dynamic-unit-control { flex: none; color: var(--text-color, #222); }
+.dynamic-column-heading .inline-unit-select { flex-wrap: nowrap; }
+.dynamic-budget-editor[data-dynamic-kind="equation"] .dynamic-equation-entry { justify-content: center; }
+.dynamic-budget-editor[data-dynamic-kind="equation"] .dynamic-budget-header:empty { display: none; }
+.dynamic-variable-table { min-width: max-content; }
+.dynamic-symmetry-slot { display: flex; flex: 1; align-items: center; gap: 12px; }
+.dynamic-equation-inputs { display: flex; flex: 1; justify-content: center; gap: 8px; }
+.dynamic-budget-editor[data-dynamic-kind="equation"] .dynamic-budget-header { display: flex; align-items: center; gap: 12px; }
 
 /* Qualifier bands share the instrument range and keep independent error cells. */
 .range-qualifier-add { border: 0; background: transparent; color: var(--text-muted); font: inherit; font-size: 10px; padding: 2px 5px; white-space: nowrap; cursor: pointer; }

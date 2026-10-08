@@ -336,8 +336,8 @@ describe("UniversalInstrumentModal library synchronization", () => {
     const localRow = screen.getByText("DMM-LOCAL").closest("tr");
 
     expect(
-      within(sharedRow).getByLabelText("Instrument source: Shared"),
-    ).toHaveTextContent("Shared");
+      within(sharedRow).getByLabelText("Instrument source: Synced"),
+    ).toHaveTextContent("Synced");
     expect(
       within(localRow).getByLabelText("Instrument source: Local"),
     ).toHaveTextContent("Local");
