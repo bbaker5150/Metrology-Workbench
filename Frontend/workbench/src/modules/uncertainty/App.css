@@ -22129,7 +22129,8 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
 .dynamic-budget-editor[data-dynamic-kind="equation"] .dynamic-equation-entry { justify-content: center; }
 .dynamic-budget-editor[data-dynamic-kind="equation"] .dynamic-budget-header:empty { display: none; }
 .dynamic-variable-table { min-width: max-content; }
-.dynamic-symmetry-slot { display: flex; flex: 1; align-items: center; gap: 12px; }
+.dynamic-symmetry-slot { display: flex; flex: 0 0 auto; align-items: center; gap: 12px; }
+.dynamic-symmetry-slot:has(.dynamic-equation-inputs) { flex: 1; }
 .dynamic-equation-inputs { display: flex; flex: 1; justify-content: center; gap: 8px; }
 .dynamic-budget-editor[data-dynamic-kind="equation"] .dynamic-budget-header { display: flex; align-items: center; gap: 12px; }
 
