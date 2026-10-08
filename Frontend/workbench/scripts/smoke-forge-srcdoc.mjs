@@ -214,7 +214,7 @@ await page.route('**/_api/**', async (route) => {
     storageMetadata.set(Id,{...created,Id,ItemCount:0});
     return ok({Id:storageAdminSmoke ? Id : 'g'});
   }
-  if(storageAdminSmoke) url=url.replace(/Uncertalytics — (Sessions|Instruments|Equations|Bug Reports)/g,(_,kind)=>'Uncertainty'+kind.replaceAll(' ',''));
+  url=url.replace(/Uncertalytics (?:—|-) (Sessions|Instruments|Equations|Bug Reports)/g,(_,kind)=>'Uncertainty'+kind.replaceAll(' ',''));
   if (/createfieldasxml/.test(url)) return ok({ Id: 'f' });
   // What the live tenant answered: the Fields collection is polymorphic, so a
   // plain JSON body carries no way to tell what kind of column to create.
@@ -321,9 +321,9 @@ if (/not set up yet/i.test(frameText)) {
   const after = await frame.locator('body').innerText();
   check('app mounted after provisioning', !/not set up yet/i.test(after));
   if (storageAdminSmoke) {
-    check('storage setup uses grouped names and hides all four containers', [...storageMetadata.values()].every(record=>record.Title.startsWith('Uncertalytics — ') && record.Hidden && !record.OnQuickLaunch));
-    check('storage administration is hidden by default', await frame.getByRole('button',{name:'Storage administration',exact:true}).count() === 0);
-    await frame.locator('body').press('Control+Shift+T');
+    check('storage setup uses grouped names and reveals all four containers', [...storageMetadata.values()].every(record=>record.Title.startsWith('Uncertalytics - ') && record.Hidden === false && !record.OnQuickLaunch));
+    await frame.getByRole('button',{name:'Storage administration',exact:true}).waitFor();
+    check('storage administration is visible to a list manager without a shortcut', await frame.getByRole('button',{name:'Storage administration',exact:true}).isVisible());
     await frame.getByRole('button',{name:'Storage administration',exact:true}).click();
     await frame.getByRole('button',{name:'Organize storage',exact:true}).waitFor();
     check('storage administrator page lists all four settings links',await frame.locator('.sp-storage-admin').getByRole('link',{name:'Settings',exact:true}).count()===4);

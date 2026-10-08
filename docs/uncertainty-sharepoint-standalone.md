@@ -385,3 +385,52 @@ buttons. Neither is a form now: the buttons call their handler from `onClick`,
 and `utils/submitOnEnter.js` keeps Enter working from a single-line field —
 including the cases the browser also declined, so a textarea still takes
 newlines. Nothing depends on the form machinery Firepit blocks.
+
+## Visible storage names (October 2026)
+
+Use the same `App - Content` display-name convention as Modernization Tracker:
+
+| Display name | SharePoint type | Existing default internal name |
+| --- | --- | --- |
+| Uncertalytics - Sessions | Document library | UncertaintySessions |
+| Uncertalytics - Instruments | List | UncertaintyInstruments |
+| Uncertalytics - Equations | List | UncertaintyEquations |
+| Uncertalytics - Bug Reports | List | UncertaintyBugReports |
+
+New containers are visible in Site contents. Existing deployments need one explicit organization pass: deploy the new single-file HTML, open the app as an owner, click the **Storage administration** database icon in the app header, then choose **Organize storage**. The button appears automatically for users with Manage Lists permission; no keyboard shortcut is needed. Check all four entries show Visible. Close/reload other app tabs after renaming.
+
+Organization updates titles, descriptions, Hidden=false, and OnQuickLaunch=false using existing list IDs. Sidebar links are not added. It preserves records, attachments, permissions, internal URLs, and library contents. Original internal titles and previous `Uncertalytics — ...` display names remain readable; no data migration or replacement containers are needed. Destination collisions stop before metadata changes, interrupted updates can be retried, already-correct metadata is skipped, and the result is read back before success is reported. Visibility is not an access restriction.
+
+## Recommended permissions: trusted shared workspace
+
+The site owner confirmed that this app contains no sensitive information and that application-level session filtering is sufficient. Keep the existing shared-storage design; private per-user folders, a curator approval system, and extra role groups are unnecessary for this deployment.
+
+The single-file app uses the signed-in user's SharePoint identity and REST permissions, with no Django backend. Sessions are filtered by AuthorId; local instruments are filtered by their creator. These are convenience filters, not a promise that other records cannot be reached through SharePoint. The trusted collaboration model accepts that users with shared write access can access and edit underlying records directly. No groups or permissions are changed by the naming/visibility code update.
+
+### Minimal group model
+
+Use the existing **Metrology App Users** group for everyone allowed to work in Uncertalytics. Keep **Metrology Software Owners** for administration. A separate `Uncertalytics Users` group is only useful if some homepage users must not receive Uncertalytics write access. No separate Analyst, Curator, or Viewer group is required for the agreed shared-editing model.
+
+| Resource | Metrology App Users | Metrology Software Owners |
+| --- | --- | --- |
+| Homepage and approved Uncertalytics ASPX | Read | Full Control |
+| Corresponding Site Assets folders, HTML and dependencies | Read | Full Control |
+| Uncertalytics - Sessions (document library) | Contribute | Full Control |
+| Uncertalytics - Instruments | Contribute | Full Control |
+| Uncertalytics - Equations | Contribute | Full Control |
+| Uncertalytics - Bug Reports | Contribute | Full Control |
+
+Use standard Contribute on the four data containers rather than site-wide Edit. This supports session/notes autosave, image uploads, instruments, shared equations, and reports without granting schema or permissions administration. Keep app HTML Read-only so ordinary users cannot modify the deployed app. The app archives records through updates; standard Contribute also permits direct SharePoint deletion, so enable versioning and retain normal recovery practices for accidental changes. A custom no-delete level is optional, not required for this deployment.
+
+The current app does not implement a complete read-only viewer experience. Users with only Read can have saves rejected while editing controls remain visible; do not treat baseline homepage access alone as sufficient to work in Uncertalytics. Shared library passwords or client-side publish controls are not server-side role enforcement; no curator-only guarantee is intended here.
+
+### Setup and validation
+
+1. Deploy the new HTML and run Organize storage as described above. This changes names/visibility, not permissions, record IDs, or URLs.
+2. Confirm App Users has Read on the app ASPX and its Site Assets folder, with HTML and dependencies inheriting from the folder. Keep the homepage grants separate from data-container grants.
+3. For each of the four data containers, open Library/List settings → Permissions, stop inheriting if needed, retain Owners with Full Control, and grant App Users Contribute. Do not edit the built-in Read or Contribute permission levels.
+4. Check existing uniquely secured files/items separately; parent grants do not automatically override unique permissions. For this agreed shared model they can inherit their container if there is no intentional exception, but do not reset unrelated site content.
+5. Keep any SharePoint-generated Limited Access. Do not grant site-wide Edit or Manage Permissions just to make the app work. Only owners or designated list managers perform schema setup or storage organization.
+6. Test with two ordinary user accounts: each should see their own sessions in the app, save/reload budgets, upload images, create local instruments, update shared definitions/equations, submit reports, and archive records. Test version recovery too. Direct access to shared data is expected under this model, not a permissions failure.
+
+No Tracker-style role synchronization, group invitations, or permission-management workflow needs to be added to Uncertalytics for this plan. If the audience later needs meaningful read-only controls or private datasets, treat that as a separate app/permission design change.
