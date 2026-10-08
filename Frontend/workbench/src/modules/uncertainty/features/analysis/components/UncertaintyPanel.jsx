@@ -4699,10 +4699,10 @@ export const InlineToleranceCell = ({
   useLayoutEffect(() => {
     if (!isEditing || !containerRef.current) return;
     const firstControl = selectedType !== "parametric"
-      ? containerRef.current.querySelector('.dynamic-budget-editor input:not([disabled])')
+      ? containerRef.current.querySelector('.dynamic-equation-entry input, .dynamic-budget-editor input:not([disabled])')
       : containerRef.current.querySelector("button, input");
     firstControl?.focus();
-  }, [isEditing, selectedType]);
+  }, [isEditing, selectedType, dynamicModebarTarget]);
 
   const dismissToleranceEditor = useCallback(() => { setIsEditing(false); }, []);
   useInlineColumnDismiss({

@@ -104,14 +104,15 @@ it.each(["table", "equation"])("uses budget editor controls and only the adjacen
   fireEvent.click(within(container.querySelector(".cell-tolerance")).getByRole("button", { name: "Set tolerance" }));
   const editor = container.querySelector(".dynamic-budget-editor");
   expect(editor).toBeInTheDocument();
-  expect(within(kind === "table" ? container.querySelector(".dynamic-symmetry-slot") : editor).getByRole("group", { name: "Error limit symmetry" })).toBeInTheDocument();
+  expect(within(container.querySelector(".dynamic-symmetry-slot")).getByRole("group", { name: "Error limit symmetry" })).toBeInTheDocument();
   expect(within(editor).queryByRole("button", { name: /distribution|interpretation/i })).toBeNull();
   if (kind === "table") {
     fireEvent.change(within(editor).getByRole("textbox", { name: "Measurement point row 1" }), { target: { value: "5" } });
     fireEvent.change(within(editor).getByRole("textbox", { name: "Uncertainty row 1" }), { target: { value: "0.2" } });
     expect(editor.querySelector(".dynamic-input-table")).toBeInTheDocument();
   } else {
-    fireEvent.change(within(editor).getByRole("textbox", { name: "Uncertainty equation" }), { target: { value: "x / 25" } });
+    const equation = within(container.querySelector('.instrument-tolerance-toolbar')).getByRole("textbox", { name: "Uncertainty equation" });
+    fireEvent.change(equation, { target: { value: "x / 25" } });
     expect(editor.querySelector(".dynamic-variable-table")).toBeInTheDocument();
   }
   expect(editor).not.toHaveTextContent("This uncertainty column was removed");

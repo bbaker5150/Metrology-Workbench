@@ -24,6 +24,20 @@ it('recognizes an instrument synced after the session was exported', () => {
   expect(computeSyncState(result.session.uuts[0].instrument)).toBe('green');
 });
 
+it('preserves provenance through a local import and later export before syncing', () => {
+  const first = reconcileImportedInstruments(session, [], 'importer');
+  const next = reconcileImportedInstruments(first.session, [{ ...instrument, scope: 'validated' }], 'third-user');
+  expect(next.localInstruments).toHaveLength(0);
+  expect(computeSyncState(next.session.uuts[0].instrument)).toBe('green');
+});
+
+it('preserves independently edited definitions even when exported ids match', () => {
+  const result = reconcileImportedInstruments({ ...session, tmdes: [{ id: 'tmde', instrument: { ...instrument, model: 'Edited' } }] }, [], 'importer');
+  expect(result.localInstruments).toHaveLength(2);
+  expect(result.session.tmdes[0].instrument.model).toBe('Edited');
+  expect(result.session.uuts[0].instrument.model).toBe('20A');
+});
+
 it('does not trust exported sync metadata when the shared record is absent or changed', () => {
   const exported = { ...session, uuts: [{ id: 'uut', instrument: { ...instrument, scope: 'validated', sourceId: 'meter', validatedSnapshot: instrument } }] };
   for (const library of [[], [{ ...instrument, scope: 'validated', model: 'Different' }]]) {
