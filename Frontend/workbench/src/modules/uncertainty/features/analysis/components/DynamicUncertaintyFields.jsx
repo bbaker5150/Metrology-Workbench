@@ -13,23 +13,36 @@ import katex from "katex";
 function CompactEquationInput({ value, label, onChange, onAdvance }) {
   const [editing, setEditing] = useState(true);
   const inputRef = useRef(null);
+  const blurFrame = useRef(null);
+  const focusOnMount = useRef(false);
+  useEffect(() => () => cancelAnimationFrame(blurFrame.current), []);
   const markup = useMemo(() => {
     const validation = validateBudgetEquation(value);
     if (validation.status !== "ok") return null;
     try { return katex.renderToString(parse(validation.expression).toTex(equationTexOptions), { displayMode: false, throwOnError: false, strict: false, trust: false }); }
     catch { return null; }
   }, [value]);
-  return editing || !markup ? <input ref={inputRef} aria-label={label} placeholder="a * x + b" value={value}
+  return editing || !markup ? <input ref={node => {
+    inputRef.current = node;
+    if (node && focusOnMount.current) { focusOnMount.current = false; node.focus(); }
+  }} aria-label={label} placeholder="a * x + b" value={value}
     style={{ "--equation-input-width": `calc(${Math.max(12, value.length + 1)}ch + 12px)` }}
     aria-invalid={Boolean(value && !markup)} onChange={event => onChange(event.target.value)}
     // Let the clicked control receive its click before shrinking this input.
-    onBlur={() => { if (markup) requestAnimationFrame(() => setEditing(false)); }}
+    onBlur={() => { if (markup) blurFrame.current = requestAnimationFrame(() => setEditing(false)); }}
     onKeyDown={event => {
       if (event.key !== "Enter" || !markup) return;
       event.preventDefault(); event.stopPropagation();
       setEditing(false); onAdvance();
     }} /> : <button type="button" className="dynamic-equation-summary" aria-label={`Edit ${label.toLowerCase()}`}
-      onClick={() => { setEditing(true); requestAnimationFrame(() => inputRef.current?.focus()); }}
+      onPointerDown={event => event.stopPropagation()}
+      onMouseDown={event => event.stopPropagation()}
+      onClick={event => {
+        event.stopPropagation();
+        cancelAnimationFrame(blurFrame.current);
+        focusOnMount.current = true;
+        setEditing(true);
+      }}
       dangerouslySetInnerHTML={{ __html: markup }} />;
 }
 

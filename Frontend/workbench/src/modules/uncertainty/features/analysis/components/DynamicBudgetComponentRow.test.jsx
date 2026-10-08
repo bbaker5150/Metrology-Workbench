@@ -3,6 +3,7 @@ import { render, screen, fireEvent, waitFor, within } from "@testing-library/rea
 import { it, expect, vi } from "vitest";
 import DynamicBudgetComponentRow from "./DynamicBudgetComponentRow";
 import { createDynamicDefinition, createDynamicComponent } from "../../../utils/dynamicBudgetComponents";
+import { getBudgetComponentsFromTolerance } from '../utils/budgetUtils';
 const setup = (kind) => {
   const definition = createDynamicDefinition(kind,{unit:"V"});
   const onCommit=vi.fn();
@@ -12,6 +13,20 @@ const setup = (kind) => {
   fireEvent.change(screen.getByLabelText('Error limit distribution'), { target: { value: '1.000' } });
   return {onCommit,definition};
 };
+it.each(['table','equation'])('inherits numeric and imported distributions from a %s instrument source', kind => {
+  const definition = {...createDynamicDefinition(kind,{value:10,unit:'V'}), distribution:2.58,
+    equation:'x', variables:{x:{value:.1}}, pointVariable:''};
+  definition.rows[0].values = {[definition.columns[0].id]:{value:.1}};
+  const [component] = getBudgetComponentsFromTolerance({name:'Meter',tmdeUncertaintyDefinition:definition},{value:10,unit:'V'});
+  const onCommit=vi.fn();
+  render(<table><tbody><DynamicBudgetComponentRow component={component} referencePoint={{value:10,unit:'V'}} onCommit={onCommit}/></tbody></table>);
+  expect(component.distributionDivisor).toBe(2.58);
+  expect(component.value_native).toBeCloseTo(.1/2.58);
+  expect(screen.getByRole('button',{name:'Edit error limit distribution'})).toHaveTextContent('Normal (99%)');
+  fireEvent.click(screen.getByRole('button',{name:'Edit error limit distribution'}));
+  expect(screen.getByRole('combobox',{name:'Error limit distribution'})).toHaveValue('2.58');
+  expect(onCommit).not.toHaveBeenCalled();
+});
 it('shows the live instrument identity for a linked table even when its definition has no name', () => {
   const definition = createDynamicDefinition('table', {unit:'V'});
   const component = {...createDynamicComponent(definition), tmdeBudgetSourceId:'meter', name:'Fluke 5790B - TMDE Error'};
