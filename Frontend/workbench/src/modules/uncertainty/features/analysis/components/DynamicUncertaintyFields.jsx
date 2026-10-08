@@ -6,6 +6,32 @@ import { faPlus, faTimes, faLink } from "@fortawesome/free-solid-svg-icons";
 import GrowingNumericInput from "../../../components/common/GrowingNumericInput";
 import { getUnitDisplayLabel } from "../../../utils/uncertaintyMath";
 import { resolveDynamicComponent, validateBudgetEquation, dynamicMeasurementValue } from "../../../utils/dynamicBudgetComponents";
+import { parse } from "../../../utils/equationMath";
+import { equationTexOptions } from "../../../utils/equationPresentation";
+import katex from "katex";
+
+function CompactEquationInput({ value, label, onChange, onAdvance }) {
+  const [editing, setEditing] = useState(true);
+  const inputRef = useRef(null);
+  const markup = useMemo(() => {
+    const validation = validateBudgetEquation(value);
+    if (validation.status !== "ok") return null;
+    try { return katex.renderToString(parse(validation.expression).toTex(equationTexOptions), { displayMode: false, throwOnError: false, strict: false, trust: false }); }
+    catch { return null; }
+  }, [value]);
+  return editing || !markup ? <input ref={inputRef} aria-label={label} placeholder="a * x + b" value={value}
+    style={{ "--equation-input-width": `calc(${Math.max(12, value.length + 1)}ch + 12px)` }}
+    aria-invalid={Boolean(value && !markup)} onChange={event => onChange(event.target.value)}
+    // Let the clicked control receive its click before shrinking this input.
+    onBlur={() => { if (markup) requestAnimationFrame(() => setEditing(false)); }}
+    onKeyDown={event => {
+      if (event.key !== "Enter" || !markup) return;
+      event.preventDefault(); event.stopPropagation();
+      setEditing(false); onAdvance();
+    }} /> : <button type="button" className="dynamic-equation-summary" aria-label={`Edit ${label.toLowerCase()}`}
+      onClick={() => { setEditing(true); requestAnimationFrame(() => inputRef.current?.focus()); }}
+      dangerouslySetInnerHTML={{ __html: markup }} />;
+}
 
 const emptyRow = () => ({ id: uuid(), point: "", values: {} });
 
@@ -50,7 +76,6 @@ export default function DynamicUncertaintyFields({
     draftRef.current = { ...draftRef.current, ...patch };
     onChange(patch);
   };
-  const validation = useMemo(() => draft?.kind === "equation" ? validateBudgetEquation(draft.equation) : null, [draft?.kind, draft?.equation]);
   if (!draft) return null;
   const preview = resolveDynamicComponent({ ...component, dynamicOutputId: component.dynamicOutputId || draft.columns?.[0]?.id }, draft, referencePoint || {}, measurementPoint || {});
   let boundValue = "Not Set";
@@ -139,17 +164,11 @@ export default function DynamicUncertaintyFields({
             </div>);
   const equationInputs = draft.kind === "equation" ? <div className="dynamic-equation-inputs">{(draft.mode === "limits" ? ["lowerEquation", "upperEquation"] : ["equation"]).map(key => <div className="dynamic-equation-entry" key={key}>
                 <span>{key === "equation" ? "±" : key === "lowerEquation" ? "Low" : "High"}</span>
-                <input aria-label={key === "equation" ? "Uncertainty equation" : key === "lowerEquation" ? "Low error limit equation" : "High error limit equation"} placeholder="a * x + b" value={draft[key] || ""}
-                  style={{ "--equation-input-width": `calc(${Math.max(12, String(draft[key] || "").length + 1)}ch + 12px)` }}
-                  aria-invalid={Boolean(draft[key] && validateBudgetEquation(draft[key]).status === "invalid")}
-                  onChange={event => updateEquation(event.target.value, key)}
-                  onKeyDown={event => {
-                    if (event.key !== "Enter" || validation?.status !== "ok") return;
+                <CompactEquationInput label={key === "equation" ? "Uncertainty equation" : key === "lowerEquation" ? "Low error limit equation" : "High error limit equation"} value={draft[key] || ""}
+                  onChange={value => updateEquation(value, key)}
+                  onAdvance={() => {
                     const next = Object.keys(draft.variables).find(symbol => symbol !== draft.pointVariable && draft.variables[symbol].value === "");
-                    if (next) {
-                      event.preventDefault(); event.stopPropagation();
-                      rowRef.current?.querySelector(`[data-dynamic-nominal="${next}"]`)?.focus();
-                    }
+                    if (next) rowRef.current?.querySelector(`[data-dynamic-nominal="${next}"]`)?.focus();
                   }} />
               </div>)}</div> : null;
   return (<div ref={rowRef} className="dynamic-budget-editor" data-dynamic-kind={draft.kind} data-budget-editor="limit" role="group" aria-label={`${kindLabel} uncertainty editor`}>

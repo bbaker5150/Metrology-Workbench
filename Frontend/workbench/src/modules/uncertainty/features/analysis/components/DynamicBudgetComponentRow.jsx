@@ -131,6 +131,7 @@ export default function DynamicBudgetComponentRow({
   if (!draft) return null;
   const preview = resolveDynamicComponent(component, draft, referencePoint || {}, measurementPoint || {});
   const kindLabel = draft.kind === "table" ? "Tabular" : "Equation";
+  const sourceName = component.tmdeBudgetSourceId ? component.name : draft.name;
   const changeDistribution = distribution => {
     // Choosing an error-limit distribution also makes the interpretation
     // explicit; a standard-uncertainty entry must not silently divide by k.
@@ -184,7 +185,7 @@ export default function DynamicBudgetComponentRow({
             onBlur={() => editing ? setNaming(false) : finish()}
             onFocus={() => { if (!editing) setNaming(true); }}
             onChange={event => { if (!editing) setNaming(true); change({ name: event.target.value }); }} />
-        ) : <button type="button" className={`inline-tolerance-summary dynamic-source-label${draft.name ? "" : " is-empty"}`} aria-label="Edit error source name" onMouseDown={event => { event.preventDefault(); setNaming(true); }} onClick={() => setNaming(true)}>{draft.name || "Not Set"}</button>}
+        ) : <button type="button" className={`inline-tolerance-summary dynamic-source-label${sourceName ? "" : " is-empty"}`} aria-label="Edit error source name" onMouseDown={event => { event.preventDefault(); setNaming(true); }} onClick={() => setNaming(true)}>{sourceName || "Not Set"}</button>}
         </div>
       </td>
       <td className="dynamic-tolerance-cell">

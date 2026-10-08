@@ -8,6 +8,7 @@ import { getBudgetComponentsFromTolerance, getUutResolutionComponent, refreshLin
 import { normalizeInlineManualComponent, getInlineManualDraft } from "../features/analysis/utils/manualComponentUtils";
 import { reconcileTmdeInstances, refreshTmdeInstancesFromMasters } from "./tmdeReconcile";
 import { resolveTmdeTransferComponent } from './tmdeTransferComponent';
+import { formatErrorSourceDescription, formatErrorSourceKind } from './instrumentIdentity';
 
 // Resolve the same explicit budget sources for the open view, sidebar and exports.
 // A resolution row explicitly added to a budget stays included regardless of
@@ -170,7 +171,7 @@ export function resolvePointBudgetComponents(point, sessionData, instruments = [
           tmdeUncertaintySourceId: replacement.tmdeUncertaintySourceId || component.tmdeUncertaintySourceId,
           tmdeUncertaintyComponentKind: replacement.tmdeUncertaintyComponentKind || component.tmdeUncertaintyComponentKind,
           tmdeUncertaintySourceName: replacement.tmdeUncertaintySourceName,
-          ...(replacement.tmdeUncertaintySourceName ? { name: `${component.tmdeIdentity || String(component.name).split(" - ")[0]} - ${replacement.tmdeUncertaintySourceName}` } : {}),
+          name: `${formatErrorSourceDescription(master)} - ${formatErrorSourceKind(replacement.tmdeUncertaintySourceName || String(replacement.name).split(" - ").slice(1).join(" - ") || component.tmdeBudgetComponentKind)}`,
           pendingReason: replacement.pendingReason || null,
           authoredTolerance: replacement.authoredTolerance,
           toleranceLimit_native: replacement.toleranceLimit_native,

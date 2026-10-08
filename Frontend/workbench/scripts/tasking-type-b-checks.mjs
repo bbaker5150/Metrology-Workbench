@@ -174,8 +174,25 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
   if (process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await page.screenshot({ path: `${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/tasking-risk-breakdown.png` });
   await breakdown.locator(".modal-close-button").click();
   const instrumentCell = frame.locator('.instrument-equipment-table').nth(1).locator('tr.instrument-function-row .cell-tolerance').first();
-  await instrumentCell.locator('.inline-tolerance-summary').click();
-  await instrumentCell.getByRole('button', {name:'Change uncertainty type',exact:true}).click();
+    await instrumentCell.locator('.inline-tolerance-summary').click();
+    await instrumentCell.getByRole('button', {name:'Change uncertainty type',exact:true}).click();
+    await instrumentCell.getByRole('button', {name:'Equation',exact:true}).click();
+    const inlineEquation = instrumentCell.getByRole('textbox', {name:'Uncertainty equation',exact:true});
+    await inlineEquation.fill('a+b');
+    await inlineEquation.press('Enter');
+    check('committed uncertainty equation becomes a compact KaTeX preview', await instrumentCell.locator('.dynamic-equation-summary .katex').count() === 1);
+    check('equation editor fits its column and settles without resizing feedback', await instrumentCell.evaluate(async cell => {
+      const widths=[];
+      for(let i=0;i<40;i++) { await new Promise(requestAnimationFrame); if(i>15) widths.push(cell.getBoundingClientRect().width); }
+      const scroll=cell.querySelector('.dynamic-table-scroll');
+      const equation=cell.querySelector('.dynamic-equation-inputs').getBoundingClientRect();
+      const toolbar=cell.querySelector('.instrument-tolerance-toolbar').getBoundingClientRect();
+      const toggle=cell.querySelector('.dynamic-budget-modebar').getBoundingClientRect();
+      return Math.max(...widths)-Math.min(...widths)<1 && scroll.scrollWidth<=scroll.clientWidth+1
+        && Math.abs(equation.left+equation.width/2-toolbar.left-toolbar.width/2)<1
+        && Math.abs(equation.top+equation.height/2-toggle.top-toggle.height/2)<1;
+    }));
+    await instrumentCell.getByRole('button', {name:'Change uncertainty type',exact:true}).click();
   await instrumentCell.getByRole('button', {name:'Table',exact:true}).click();
   check('tabular auto width settles without growing on each frame', await instrumentCell.evaluate(async cell => {
     const table=cell.closest('.instrument-equipment-table');

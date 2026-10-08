@@ -10,6 +10,27 @@ const EDITORS = ".inline-desc-fields, .inline-range-editor.is-editing, .qualifie
 const HOVER_CLASSES = new Set(['row-hovered', 'col-hovered', 'hovered-spec-row']);
 const layoutClasses = value => (value || '').split(/\s+/).filter(name => name && !HOVER_CLASSES.has(name)).sort().join(' ');
 
+// Measure a detached copy at its intrinsic width. Never feed an editor's
+// allocated column width back into that column's next size requirement.
+const equationEditorWidth = editor => {
+  const host = document.createElement('div');
+  host.className = 'uncertainty-module';
+  host.style.cssText = 'position:fixed;left:-100000px;top:0;visibility:hidden;pointer-events:none;width:max-content;';
+  const context = document.createElement('div');
+  context.className = 'instrument-equipment-table';
+  const probe = editor.cloneNode(true);
+  probe.querySelectorAll('[id]').forEach(node => node.removeAttribute('id'));
+  probe.style.cssText = 'width:max-content;min-width:0;max-width:none;';
+  probe.querySelectorAll('.dynamic-table-scroll, .dynamic-variable-table').forEach(node => {
+    node.style.width = 'max-content'; node.style.minWidth = '0'; node.style.maxWidth = 'none';
+  });
+  probe.querySelectorAll('.dynamic-variable-table').forEach(node => { node.style.tableLayout = 'auto'; });
+  context.appendChild(probe); host.appendChild(context); document.body.appendChild(host);
+  const width = Math.max(probe.offsetWidth, probe.scrollWidth);
+  host.remove();
+  return width;
+};
+
 export const instrumentMutationAffectsLayout = record =>
   record.type !== 'attributes' || record.attributeName !== 'class' ||
   layoutClasses(record.oldValue) !== layoutClasses(record.target.getAttribute('class'));
@@ -145,6 +166,8 @@ export default function useInstrumentTableLayout(containerRef) {
         // scrollWidth/offsetWidth are layout pixels; client rects include CSS
         // zoom and cannot be mixed into colgroup widths.
         let width = Math.max(editor.scrollWidth, editor.offsetWidth);
+        const equation = editor.querySelector('.dynamic-budget-editor[data-dynamic-kind="equation"]');
+        if (equation) width = equationEditorWidth(editor);
         const lookup = editor.querySelector('.dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table');
         if (lookup) {
           // A full-width editor follows its assigned cell. Measuring that width
@@ -200,7 +223,7 @@ export default function useInstrumentTableLayout(containerRef) {
           // The range wrapper stretches to the cell. Measure intrinsic children,
           // never feed that already-expanded width back into its own requirement.
           const children = [...content.children].filter(node => node.getClientRects().length);
-          width = children.reduce((sum, node) => sum + (collapsedQualifier && node === editor ? width : Math.max(node.scrollWidth, node.offsetWidth)), 0)
+          width = children.reduce((sum, node) => sum + (node === editor && (collapsedQualifier || equation || lookup) ? width : Math.max(node.scrollWidth, node.offsetWidth)), 0)
             + Math.max(0, children.length - 1) * (parseFloat(getComputedStyle(content).columnGap) || 0);
         }
         if (editor.matches('.inline-desc-fields')) {

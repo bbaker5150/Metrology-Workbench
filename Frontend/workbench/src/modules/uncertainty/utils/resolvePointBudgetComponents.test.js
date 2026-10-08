@@ -22,6 +22,7 @@ it('refreshes a manual TMDE after switching to a table, including transfer budge
   range.tolerances.tmdeUncertaintyDefinition = { id: 'table', kind: 'table', measurementUnit: 'V', outputUnit: 'V',
     mode: 'tolerance', distribution: '2', columns: [{ id: 'u' }], rows: [{ point: 10, values: { u: { value: .4 } } }] };
   const [row] = resolvePointBudgetComponents(point, session);
+  expect(row.name).toBe('TMDE - TMDE Error');
   expect(row.pendingReason).toBeFalsy();
   expect(row.value_native).toBeCloseTo(.2);
   expect(row.toleranceLimit_native).toBe(.4);
@@ -29,6 +30,17 @@ it('refreshes a manual TMDE after switching to a table, including transfer budge
   expect(transfer.pendingReason).toBeFalsy();
   expect(transfer.value_native).toBeCloseTo(.4);
   expect(transfer.toleranceLimit_native).toBeCloseTo(.8);
+  point.components = [row];
+  range.tolerances.tmdeUncertaintyDefinition = { ...range.tolerances.tmdeUncertaintyDefinition, kind:'equation', equation:'a+b', variables:{a:{value:.1},b:{value:.5}}, pointVariable:'' };
+  const equation = resolvePointBudgetComponents(point,session)[0];
+  expect(equation.value_native).toBeCloseTo(.3);
+  expect(equation.name).toBe('TMDE - TMDE Error');
+  point.components = [equation];
+  delete range.tolerances.tmdeUncertaintyDefinition;
+  const manual = resolvePointBudgetComponents(point,session)[0];
+  expect(manual.dynamicDefinitionId).toBeUndefined();
+  expect(manual.value_native).toBeCloseTo(1/Math.sqrt(3));
+  expect(manual.name).toBe('TMDE - TMDE Error');
 });
 
 it("refreshes secondary uncertainties by source id across renames, type changes and removal", () => {

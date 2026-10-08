@@ -12,6 +12,15 @@ const setup = (kind) => {
   fireEvent.change(screen.getByLabelText('Error limit distribution'), { target: { value: '1.000' } });
   return {onCommit,definition};
 };
+it('shows the live instrument identity for a linked table even when its definition has no name', () => {
+  const definition = createDynamicDefinition('table', {unit:'V'});
+  const component = {...createDynamicComponent(definition), tmdeBudgetSourceId:'meter', name:'Fluke 5790B - TMDE Error'};
+  const view = row => <table><tbody><DynamicBudgetComponentRow component={row} referencePoint={{value:1,unit:'V'}} /></tbody></table>;
+  const {rerender} = render(view(component));
+  expect(screen.getByRole('button',{name:'Edit error source name'})).toHaveTextContent(component.name);
+  rerender(view({...component,name:'Renamed meter - Thermal'}));
+  expect(screen.getByRole('button',{name:'Edit error source name'})).toHaveTextContent('Renamed meter - Thermal');
+});
 it.each(['table', 'equation'])("keeps %s source-name editing single-line and commits with Enter", async kind => {
   const definition = createDynamicDefinition(kind, {unit:'V'});
   definition.name = 'Shared source';

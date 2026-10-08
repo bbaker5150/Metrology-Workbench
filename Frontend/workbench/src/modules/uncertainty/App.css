@@ -22133,6 +22133,20 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
 .dynamic-symmetry-slot:has(.dynamic-equation-inputs) { flex: 1; }
 .dynamic-equation-inputs { display: flex; flex: 1; justify-content: center; gap: 8px; }
 .dynamic-budget-editor[data-dynamic-kind="equation"] .dynamic-budget-header { display: flex; align-items: center; gap: 12px; }
+.dynamic-equation-entry { margin-bottom: 0; }
+.dynamic-equation-inputs { align-items: center; }
+.dynamic-equation-summary { border: 0; background: transparent; color: inherit; padding: 2px 4px; font-size: .85rem; cursor: text; white-space: nowrap; }
+.dynamic-equation-summary .katex { font-size: 1em; }
+.uncertainty-module :is(.instrument-tolerance-toolbar, .budget-uncertainty-type-toolbar):has(.dynamic-equation-inputs) { display: grid; grid-template-columns: minmax(58px, 1fr) max-content minmax(58px, 1fr); align-items: center; gap: 8px; }
+.dynamic-symmetry-slot:has(.dynamic-equation-inputs) { display: contents; }
+.dynamic-symmetry-slot > .dynamic-equation-inputs { grid-column: 2; grid-row: 1; }
+.dynamic-symmetry-slot:has(.dynamic-equation-inputs) > .dynamic-budget-modebar { grid-column: 1; grid-row: 1; justify-self: start; }
+.uncertainty-module :is(.instrument-tolerance-toolbar, .budget-uncertainty-type-toolbar):has(.dynamic-equation-inputs) > :is(.instrument-source-toolbar, .uncertainty-type-menu) { grid-column: 3; grid-row: 1; justify-self: end; margin: 0; }
+.dynamic-equation-inputs { min-width: max-content; }
+.uncertainty-module :is(.instrument-equipment-table, .uncertainty-budget-table) .dynamic-equation-entry input { flex: 0 0 auto; max-width: none; }
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-variable-table td:nth-child(2) input { width: auto; field-sizing: content; min-width: 130px; }
+.budget-decision-card dd { min-width: 0; display: flex; justify-content: center; align-items: center; }
+.budget-decision-readout { display: inline-block; flex: 0 0 auto; width: max-content; transform-origin: center; }
 
 /* Qualifier bands share the instrument range and keep independent error cells. */
 .range-qualifier-add { border: 0; background: transparent; color: var(--text-muted); font: inherit; font-size: 10px; padding: 2px 5px; white-space: nowrap; cursor: pointer; }
