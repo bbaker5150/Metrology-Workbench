@@ -7,6 +7,7 @@ export const assessRangeCompatibility = (
   range,
   measurementPoint,
   rangeLabel = "range",
+  { requirePointQualifier = true } = {},
 ) => {
   const pointValue = Number(measurementPoint?.value);
   const pointUnit = measurementPoint?.unit;
@@ -66,7 +67,7 @@ export const assessRangeCompatibility = (
   if (range.qualifier && (range.qualifierGroupId || measurementPoint?.qualifier)) {
     const qualifier = range.qualifier;
     const nominal = measurementPoint?.qualifier;
-    const result = assessQualifierCompatibility(qualifier, nominal);
+    const result = assessQualifierCompatibility(qualifier, nominal, { requirePointQualifier });
     if (!result.compatible) return result;
   }
   return { compatible: true, reason: "" };
@@ -76,12 +77,18 @@ export const assessTmdeCompatibility = (range, measurementPoint) =>
   assessRangeCompatibility(range, measurementPoint, "TMDE range");
 
 // Numeric qualifiers retain unit conversion; categorical qualifiers match their
-// literal label. Every nested dimension must match before selecting a leaf.
-export const assessQualifierCompatibility = (qualifier, nominal) => {
-  if (!hasValue(nominal?.value)) return { compatible: false, reason: `Define the measurement point qualifier (${qualifier.name || "Qualifier"}).` };
+// literal label. Automatic selection requires every dimension; an explicitly
+// selected budget leaf only needs to match qualifiers supplied on the point.
+export const assessQualifierCompatibility = (qualifier, nominal, { requirePointQualifier = true } = {}) => {
+  const assessChild = () => qualifier.qualifier
+    ? assessQualifierCompatibility(qualifier.qualifier, nominal?.qualifier, { requirePointQualifier })
+    : { compatible: true, reason: "" };
+  if (!hasValue(nominal?.value)) return requirePointQualifier
+    ? { compatible: false, reason: `Define the measurement point qualifier (${qualifier.name || "Qualifier"}).` }
+    : assessChild();
   if (qualifier.text != null) {
     if (String(nominal.value) !== String(qualifier.text)) return { compatible: false, reason: "The point does not match this qualifier." };
-    return qualifier.qualifier ? assessQualifierCompatibility(qualifier.qualifier, nominal.qualifier) : { compatible: true, reason: "" };
+    return assessChild();
   }
   const min = qualifier.min ?? qualifier.value ?? "";
   const max = qualifier.max ?? qualifier.value ?? "";
@@ -95,5 +102,5 @@ export const assessQualifierCompatibility = (qualifier, nominal) => {
   } else if (![min, max].filter(hasValue).map(String).includes(String(nominal.value))) {
     return { compatible: false, reason: "The point does not match this qualifier." };
   }
-  return qualifier.qualifier ? assessQualifierCompatibility(qualifier.qualifier, nominal.qualifier) : { compatible: true, reason: "" };
+  return assessChild();
 };

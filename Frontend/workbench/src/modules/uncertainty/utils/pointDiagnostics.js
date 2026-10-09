@@ -30,6 +30,9 @@ import {
 const filled = (v) => v !== "" && v != null && Number.isFinite(Number(v));
 const label = (nominal) =>
   `${nominal.value} ${getUnitDisplayLabel(nominal.unit)}`;
+// Budget sources already identify a specific qualifier leaf. Do not require the
+// user to duplicate its labels on the measurement point to keep that selection.
+const selectedBudgetRangeOptions = { requirePointQualifier: false };
 
 export function getBudgetRangeWarnings({
   components = [],
@@ -55,7 +58,7 @@ export function getBudgetRangeWarnings({
         const master=tmdes.find(t=>String(t.id)===String(input.sourceId));
         const range=master && getInstrumentRangeRows(master).find(r=>String(r.rangeId)===String(input.rangeId) && String(r.functionId)===String(input.functionId));
         const reason=!range ? 'The linked TMDE range is missing.'
-          : !assessRangeCompatibility(range,input.nominal,'transfer input').compatible
+          : !assessRangeCompatibility(range,input.nominal,'transfer input',selectedBudgetRangeOptions).compatible
             ? `Saved reader input ${label(input.nominal)} is outside ${formatRangeLabel(range,{preferBounds:true})}.` : null;
         if (reason && !(warnings.final || []).some(w=>w.componentId===component.id && w.reason===reason)) {
           (warnings.final ||= []).push({componentId:component.id,name:component.name,reason});
@@ -91,8 +94,9 @@ export function getBudgetRangeWarnings({
     };
     const compatibility = assessRangeCompatibility(
       range,
-      { ...nominal, qualifier },
+      { ...nominal, qualifier: nominal.qualifier ?? qualifier },
       "error source range",
+      selectedBudgetRangeOptions,
     );
     if (compatibility.compatible) continue;
     const subject =
@@ -102,7 +106,7 @@ export function getBudgetRangeWarnings({
     (warnings[key] ||= []).push({
       componentId: component.id || component.componentId,
       name: component.name || "TMDE component",
-      reason: range.qualifier && !assessRangeCompatibility(range, { ...nominal, qualifier }, "error source range").compatible ? compatibility.reason : `${subject} ${label(nominal)} does not fall within error source range: ${formatRangeLabel(range, { preferBounds: true })}. Choose a range that includes this value and has compatible units.`,
+      reason: range.qualifier ? compatibility.reason : `${subject} ${label(nominal)} does not fall within error source range: ${formatRangeLabel(range, { preferBounds: true })}. Choose a range that includes this value and has compatible units.`,
     });
   }
   return warnings;

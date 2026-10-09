@@ -232,6 +232,76 @@ it("clears a stale out-of-range warning when the linked instrument range changes
   expect(getBudgetRangeWarnings({ components: [component], directNominal: { value: 5, unit: "V" }, tmdes: [master] }).final).toHaveLength(1);
 });
 
+describe("explicitly selected qualified budget sources", () => {
+  const range = {
+    id: "r", min: 0, max: 3, unit: "gpm", qualifierGroupId: "flow",
+    qualifier: { name: "Frequency", text: "100 Hz", qualifier: { name: "Interval", text: "24 Month" } },
+  };
+  const component = { ...source, tmdeBudgetSourceId: "meter", tmdeBudgetRange: range };
+  const master = { id: "meter", instrument: { functions: [
+    { id: "flow", name: "Flow", unit: "gpm", ranges: [range] },
+  ] } };
+  const budget = { components: [component], directNominal: { value: 1, unit: "gpm" } };
+
+  it.each([undefined, {}, { value: "" }, { value: "100 Hz" }])(
+    "does not demand duplicate qualifiers for a selected leaf (%j)", (qualifier) => {
+      // Both saved snapshots and live instrument data follow the same rule.
+      for (const tmdes of [[], [master]]) {
+        expect(getBudgetRangeWarnings({ ...budget, qualifier, tmdes })).toEqual({});
+      }
+    },
+  );
+
+  it("keeps explicit parent and nested qualifier mismatches visible", () => {
+    for (const qualifier of [
+      { value: "1000 Hz" },
+      { value: "100 Hz", qualifier: { value: "60 Month" } },
+    ]) {
+      expect(getBudgetRangeWarnings({ ...budget, qualifier }).final[0].reason)
+        .toBe("The point does not match this qualifier.");
+    }
+    expect(getBudgetRangeWarnings({ ...budget,
+      qualifier: { value: "100 Hz", qualifier: { value: "24 Month" } },
+    })).toEqual({});
+  });
+
+  it("still warns about bounds and units when the point has no qualifier", () => {
+    expect(getBudgetRangeWarnings({ ...budget, directNominal: { value: 4, unit: "gpm" } })
+      .final[0].reason).toContain("exceeds");
+    expect(getBudgetRangeWarnings({ ...budget, directNominal: { value: 1, unit: "V" } })
+      .final[0].reason).toContain("not compatible");
+  });
+
+  it("checks a derived input's own qualifier", () => {
+    const derived = { ...budget, measurementType: "derived",
+      components: [{ ...component, variableType: "Flow" }],
+      groups: [{ kind: "input", variableType: "Flow",
+        nominalPoint: { value: 1, unit: "gpm", qualifier: { value: "1000 Hz" } },
+      }],
+    };
+    expect(getBudgetRangeWarnings(derived).Flow[0].reason)
+      .toBe("The point does not match this qualifier.");
+  });
+
+  it("also accepts an explicitly selected transfer input without duplicate qualifiers", () => {
+    const transfer = { ...component, tmdeTransferSources: [
+      { sourceId: "meter", functionId: "flow", rangeId: "r", nominal: budget.directNominal },
+    ] };
+    expect(getBudgetRangeWarnings({ components: [transfer], tmdes: [master] })).toEqual({});
+    transfer.tmdeTransferSources[0].nominal = { value: 4, unit: "gpm" };
+    expect(getBudgetRangeWarnings({ components: [transfer], tmdes: [master] }).final)
+      .toHaveLength(1);
+  });
+
+  it("clears the same warning from point diagnostics", () => {
+    const diagnostics = getPointDiagnostics({ ...point,
+      testPointInfo: { parameter: budget.directNominal },
+      components: [component],
+    }, session);
+    expect(diagnostics.some(message => message.includes("Define the measurement point qualifier"))).toBe(false);
+  });
+});
+
 
 it("refreshes equation mismatch diagnostics after temperature input units change", () => {
   const derived = {
