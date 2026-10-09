@@ -82,11 +82,11 @@ const InstrumentRow = ({
 
   const syncIcon = () => {
     const state = item.syncState || "none";
-    if (state === "none") return null;
+    const color = state === "none" ? "red" : state;
     return (
       <button
-        className={`inline-sync-btn ${state === "green" ? "inline-sync-green" : "inline-sync-red"}`}
-        title={state === "green" ? "Synced with shared library" : "Sync local changes to shared library"}
+        className={`inline-sync-btn ${`inline-sync-${color}`}`}
+        title={state === "green" ? "Synced with shared library" : state === "yellow" ? "Saved locally - sync to shared library" : "Not synced - save or sync instrument"}
         onClick={() => onSyncClick?.(item)}
       >
         <FontAwesomeIcon icon={state === "green" ? faLink : faLinkSlash} />

@@ -1,4 +1,4 @@
-import { editQualifierRange, hasQualifierRanges, qualifierGroupKey, qualifierRowSpan } from "../../../utils/qualifierRanges";
+import { editQualifierRange, instrumentQualifierDepth, qualifierAt, qualifierGroupKey, qualifierRowSpan } from "../../../utils/qualifierRanges";
 import { measurementPreview } from '../../../utils/measurementPreview';
 import { newMeasurementAreaColor } from "../../../utils/measurementAreaGrouping";
 import MeasurementAreaEmptyHint from "../../../components/common/MeasurementAreaEmptyHint";
@@ -1888,39 +1888,12 @@ const applyBandDistribution = (tolerance = {}, value) => {
   return next;
 };
 
-// Green/red/none sync indicator for a UUT/TMDE row, from its validated-library
-// linkage (feature/inline-instrument-tables). Nested under .instrument when the
-// row carries a full instrument definition.
 const SyncBadge = ({ item, onSync }) => {
-  // Two states only: green (in sync with the shared library) or red (out of
-  // sync — a local-only / diverged instrument that can be synced).
   const state = computeSyncState(item?.instrument || item || {});
-  const green = state === "green";
-  return (
-    <button
-      type="button"
-      className={`inline-sync-badge ${
-        green ? "inline-sync-badge--green" : "inline-sync-badge--red"
-      }`}
-      onClick={(event) => {
-        event.stopPropagation();
-        onSync?.();
-      }}
-      disabled={!onSync}
-      title={
-        green
-          ? "In sync with shared library"
-          : "Sync local changes to shared library"
-      }
-      aria-label={
-        green
-          ? "In sync with shared library"
-          : "Out of sync (local) - sync to the shared library"
-      }
-    >
-      <FontAwesomeIcon icon={green ? faLink : faLinkSlash} />
-    </button>
-  );
+  const label = state === "green" ? "In sync with shared library" : state === "yellow" ? "Saved locally - sync to shared library" : "Not synced - save or sync instrument";
+  return <button type="button" className={`inline-sync-badge inline-sync-badge--${state}`} onClick={event => { event.stopPropagation(); onSync?.(); }} disabled={!onSync} title={label} aria-label={label}>
+    <FontAwesomeIcon icon={state === "green" ? faLink : faLinkSlash} />
+  </button>;
 };
 
 const syncDiffSummary = (diffs = []) => {
@@ -2555,11 +2528,11 @@ const INSTRUMENT_COLUMN_LABELS = {
 
 export const getInstrumentColumnOrder = (kind, customColumns = [], qualifierEnabled = false) => {
   const order = [...(INSTRUMENT_STANDARD_COLUMNS[kind] || [])];
-  if (qualifierEnabled) order.splice(order.indexOf("range") + 1, 0, "qualifier");
+  if (qualifierEnabled) order.splice(order.indexOf("range") + 1, 0, ...Array.from({ length: Number(qualifierEnabled) }, (_, i) => i ? `qualifier${i + 1}` : "qualifier"));
   let legacyAnchor = "resolution";
   customColumns.forEach((column) => {
     const key = instrumentColumnKey(column);
-    const requestedAnchor = qualifierEnabled && column.insertAfter === "range" ? "qualifier" : column.insertAfter || legacyAnchor;
+    const requestedAnchor = qualifierEnabled && column.insertAfter === "range" ? (Number(qualifierEnabled) > 1 ? `qualifier${qualifierEnabled}` : "qualifier") : column.insertAfter || legacyAnchor;
     const syncIndex = order.indexOf("sync");
     const anchorIndex = order.indexOf(requestedAnchor);
     const insertionIndex =
@@ -2840,6 +2813,8 @@ const InstrumentTableHeader = ({
   customColumns,
   columns,
   renderCustomColumnHeader,
+  qualifierNames = [],
+  onRenameQualifier,
   onInsertAfter,
 }) => {
   const customByKey = new Map(
@@ -2850,6 +2825,7 @@ const InstrumentTableHeader = ({
     const custom = customByKey.get(columnKey);
     if (custom) return custom.label || "Name";
     if (kind === "tmde" && columnKey === "tolerance") return "Uncertainty";
+    if (columnKey.startsWith("qualifier")) return qualifierNames[Number(columnKey.slice(9) || 1) - 1] ?? "Qualifier";
     return INSTRUMENT_COLUMN_LABELS[columnKey] || columnKey;
   };
   return (
@@ -2882,7 +2858,7 @@ const InstrumentTableHeader = ({
                         <span>Range</span>
                       </span>
                     )
-                  : label}
+                  : columnKey.startsWith("qualifier") ? <input aria-label={`Qualifier ${Number(columnKey.slice(9) || 1)} column name`} className="qualifier-column-name" value={label} onChange={event => onRenameQualifier?.(Number(columnKey.slice(9) || 1) - 1, event.target.value)} onMouseDown={event => event.stopPropagation()} /> : label}
             </ResizableInstrumentHeader>
           );
         })}
@@ -4584,7 +4560,7 @@ export const InstrumentUncertaintyRow = ({ source, activeRange, referencePoint, 
     data-range-id={uncertaintyRowId(source.id)} data-range-selected={selected}
     data-uncertainty-source-id={source.id} style={{ ...style, "--uncertainty-source-count": sourceCount }}>
     {renderCustomAfter("description")}
-    <td colSpan={qualifierEnabled ? 2 : 1} className="cell-range instrument-uncertainty-name-cell" data-range-cell>
+    <td colSpan={1 + Number(qualifierEnabled)} className="cell-range instrument-uncertainty-name-cell" data-range-cell>
       {sourceIndex === 0 && <span className="instrument-uncertainty-rail" aria-label="Additional uncertainty"><span>ADD’L UNCERTAINTY</span></span>}
       <div className="range-row-cell">
       <div className="instrument-source-row-name">
@@ -5033,12 +5009,15 @@ export const RangeCell = ({
   onEditingChange,
   actionsVisible = false,
   onAddRange,
+  textMode = false,
+  closeKey,
 }) => {
   const [isEditing, setIsEditing] = useState(false);
   const containerRef = useRef(null);
   const onEditingChangeRef = useRef(onEditingChange);
   const openAfterInitialRangeRef = useRef(false);
   const showEditor = isEditing;
+  useEffect(() => { setIsEditing(false); }, [closeKey]);
 
   useEffect(() => {
     onEditingChangeRef.current = onEditingChange;
@@ -5104,7 +5083,7 @@ export const RangeCell = ({
   // Keep read/edit DOM separate: a summary press can open the editor before
   // mouseup, and must never turn into a click on a newly mounted input.
   if (!showEditor) {
-    const rangeSummary = formatRangeSummary(activeRange);
+    const rangeSummary = textMode ? [activeRange.min ?? activeRange.value, activeRange.max && activeRange.max !== activeRange.min ? `– ${activeRange.max}` : "", activeRange.unit].filter(Boolean).join(" ") : formatRangeSummary(activeRange);
     // Use the same blank-cell affordance as an unentered range in the expanded
     // editor. `rangeSummary` remains the source of truth for expand-vs-edit.
     // An empty range is a valid all-values specification, not required data
@@ -5171,7 +5150,7 @@ export const RangeCell = ({
     const minimum = containerRef.current?.querySelector('[placeholder="min"]')?.value ?? activeRange.min ?? "";
     const maximum = containerRef.current?.querySelector('[placeholder="max"]')?.value ?? activeRange.max ?? "";
     if (minimum === "" && maximum === "" && rangeIsBlank(activeRange)) return;
-    const patch = normalizeRangeBounds(minimum, maximum);
+    const patch = textMode ? { min: minimum, max: maximum, value: minimum, isSingleValue: !maximum || minimum === maximum } : normalizeRangeBounds(minimum, maximum);
     if (["min", "max", "value", "isSingleValue"].every(key => String(patch[key] ?? "") === String(activeRange[key] ?? ""))) return;
     if (onPatchRange) onPatchRange(patch);
     else if (raw !== String(toPlainNumber(activeRange[field]))) onEditBound?.(field, raw);
@@ -5210,8 +5189,8 @@ export const RangeCell = ({
             <GrowingNumericInput
               key={`min-${rangeIdOf(activeRange) || "new"}`}
               type="text"
-              inputMode="decimal"
-              defaultValue={toPlainNumber(activeRange.min ?? (activeRange.isSingleValue ? activeRange.value : ""))}
+              inputMode={textMode ? "text" : "decimal"}
+              defaultValue={textMode ? activeRange.min ?? activeRange.value ?? "" : toPlainNumber(activeRange.min ?? (activeRange.isSingleValue ? activeRange.value : ""))}
               placeholder="min"
               onBlur={(e) => commitBounds("min", e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
@@ -5221,8 +5200,8 @@ export const RangeCell = ({
             <GrowingNumericInput
               key={`max-${rangeIdOf(activeRange) || "new"}`}
               type="text"
-              inputMode="decimal"
-              defaultValue={activeRange.isSingleValue || (activeRange.min !== "" && activeRange.min != null && activeRange.max !== "" && activeRange.max != null && Number(activeRange.min) === Number(activeRange.max)) ? "" : toPlainNumber(activeRange.max ?? "")}
+              inputMode={textMode ? "text" : "decimal"}
+              defaultValue={textMode ? activeRange.max ?? "" : activeRange.isSingleValue || (activeRange.min !== "" && activeRange.min != null && activeRange.max !== "" && activeRange.max != null && Number(activeRange.min) === Number(activeRange.max)) ? "" : toPlainNumber(activeRange.max ?? "")}
               placeholder="max"
               onBlur={(e) => commitBounds("max", e.target.value)}
               onKeyDown={(e) => {
@@ -5230,14 +5209,14 @@ export const RangeCell = ({
               }}
               className="inline-tolerance-input inline-range-bound-input"
             />
-        <UnitSelect
+        {textMode ? <input aria-label="Qualifier unit (optional)" placeholder="unit" className="inline-tolerance-input" defaultValue={unit} key={`unit-${rangeIdOf(activeRange)}`} onBlur={event => onEditUnit(event.target.value)} /> : <UnitSelect
           value={unit}
           ariaLabel="Range unit"
           onChange={(value) => onEditUnit(value)}
           onTab={openToleranceFromUnit}
           width="72px"
           compact
-        />
+        />}
       </div>
     </div>
   );
@@ -6765,12 +6744,12 @@ const SummaryDashboard = ({
   const uutTableColumns = useInstrumentColumnWidths(
     "uut",
     customColumnsFor("uut"),
-    hasQualifierRanges(sessionData.uuts),
+    instrumentQualifierDepth(sessionData.uuts),
   );
   const tmdeTableColumns = useInstrumentColumnWidths(
     "tmde",
     customColumnsFor("tmde"),
-    hasQualifierRanges(sessionData.tmdes),
+    instrumentQualifierDepth(sessionData.tmdes),
   );
   const uutTableHeight = useInstrumentTableHeight(
     "overview",
@@ -6933,6 +6912,18 @@ const SummaryDashboard = ({
 
     setNotification({
       title: linked ? "Re-sync Instrument" : "Sync Instrument",
+      ...(state === "red" && onSaveInstrument ? {
+        secondaryText: "Save locally",
+        onSecondary: async () => {
+          try {
+            await onSaveInstrument({ ...instrument, scope: "local" });
+            persistInlineItem(kind, { ...item, instrument: { ...item.instrument, scope: "local" } });
+            setNotification(null);
+          } catch {
+            setNotification({ title: "Save failed", message: "Could not save the instrument locally. Please try again." });
+          }
+        },
+      } : {}),
       message: `${syncDiffSummary(getDiff(instrument))} Enter the shared-library password to sync ${label}.`,
       inputLabel: "Shared library password",
       inputPlaceholder: "Password",
@@ -8157,19 +8148,20 @@ const SummaryDashboard = ({
 
     const qualifierEnabled = (kind === "uut" ? uutTableColumns : tmdeTableColumns).qualifierEnabled;
     const span = qualifierRowSpan(getInstrumentRangeRows(item), range);
-    const updateQualifier = (action, patch) => {
+    const updateQualifier = (action, patch, depth = 1) => {
       const current = (latestSessionDataRef.current[kind === "uut" ? "uuts" : "tmdes"] || []).find(entry => sameId(entry.id, item.id)) || item;
-      const result = action === "enable"
-        ? { item: applyItemRangePatch(current, rangeKey, { qualifierGroupId: uuidv4(), qualifier: { name: "Frequency", min: "", max: "", unit: "Hz" } }), newRangeId: rangeKey }
-        : editQualifierRange(current, rangeKey, action, patch);
+      const exists = getInstrumentRangeRows(current).some(row => sameId(rangeIdOf(row), rangeKey));
+      const materialized = exists ? current : applyItemRangePatch(current, rangeKey, {});
+      const targetId = exists ? rangeKey : rangeIdOf(getInstrumentRangeRows(materialized).at(-1));
+      const result = editQualifierRange(materialized, targetId, action, patch, depth);
       persistInlineItem(kind, result.item);
-      if (action === "enable" || action === "add") setPendingQualifierEditKey(`${kind}:${item.id}:${result.newRangeId}`);
+      if (action === "enable" || action === "add") setPendingQualifierEditKey(`${kind}:${item.id}:${result.newRangeId}:${depth}`);
     };
     return (
       <>
         {span > 0 && <td
           rowSpan={span}
-          colSpan={qualifierEnabled && !range.qualifier ? 2 : 1}
+          colSpan={range.qualifier ? 1 : 1 + Number(qualifierEnabled)}
           data-range-cell="true"
           className={`cell-value ${hoveredCell.tableId === tableId && hoveredCell.colIndex === 1 ? "col-hovered" : ""}`}
           onMouseEnter={() => setHoveredCell({ tableId, colIndex: 1 })}
@@ -8182,6 +8174,7 @@ const SummaryDashboard = ({
           >
             <RangeCell
               ranges={[range]}
+              closeKey={Boolean(range.qualifier)}
               activeIndex={0}
               activeRange={range}
               editable
@@ -8248,21 +8241,30 @@ const SummaryDashboard = ({
             </span>}
           </div>
         </td>}
-        {qualifierEnabled && range.qualifier && <td data-range-cell="true" data-qualifier-cell="true" className="cell-value qualifier-range-cell">
-          <div className="range-row-cell">
-          <RangeCell ranges={[{ ...range.qualifier, min: range.qualifier.min ?? range.qualifier.value ?? "", max: range.qualifier.max ?? range.qualifier.value ?? "" }]} activeIndex={0} activeRange={{ ...range.qualifier, id: `${rangeKey}:qualifier`, min: range.qualifier.min ?? range.qualifier.value ?? "", max: range.qualifier.max ?? range.qualifier.value ?? "" }} editable
-            onEditBound={(field, value) => updateQualifier("patch", { [field]: value })}
-            onEditUnit={unit => updateQualifier("patch", { unit })}
-            onPatchRange={patch => updateQualifier("patch", patch)}
-            openRequested={pendingQualifierEditKey === `${kind}:${item.id}:${rangeKey}`}
-            onOpenRequestHandled={() => setPendingQualifierEditKey(null)}
-            onAdvanceRange={() => updateQualifier("add")} />
-          <span className="range-row-controls">
-            <button type="button" className="range-row-add" title="Add qualifier range" aria-label="Add qualifier range" onClick={event => { event.stopPropagation(); updateQualifier("add"); }}><FontAwesomeIcon icon={faPlus} /></button>
-            <button type="button" className="range-row-delete" title="Delete qualifier range" aria-label="Delete qualifier range" onClick={event => { event.stopPropagation(); updateQualifier("remove"); }}>×</button>
-          </span>
-          </div>
-        </td>}
+        {Array.from({ length: Number(qualifierEnabled) }, (_, index) => {
+          const depth = index + 1;
+          const qualifier = qualifierAt(range, depth);
+          if (!qualifier) return null;
+          const rowSpan = qualifierRowSpan(getInstrumentRangeRows(item), range, depth);
+          if (!rowSpan) return null;
+          return <td key={depth} rowSpan={rowSpan} colSpan={qualifier.qualifier ? 1 : Number(qualifierEnabled) - depth + 1} data-range-cell="true" data-qualifier-cell={depth} className="cell-value qualifier-range-cell">
+            <div className="range-row-cell">
+              <RangeCell ranges={[qualifier]} activeIndex={0} activeRange={{ ...qualifier, id: `${rangeKey}:qualifier:${depth}` }} editable textMode
+                closeKey={Boolean(qualifier.qualifier)}
+                onEditBound={(field, value) => updateQualifier("patch", { [field]: value }, depth)}
+                onEditUnit={unit => updateQualifier("patch", { unit }, depth)}
+                onPatchRange={patch => updateQualifier("patch", patch, depth)}
+                openRequested={pendingQualifierEditKey === `${kind}:${item.id}:${rangeKey}:${depth}`}
+                onOpenRequestHandled={() => setPendingQualifierEditKey(null)}
+                onAdvanceRange={() => updateQualifier("add", {}, depth)} />
+              <span className="range-row-controls">
+                {!qualifier.qualifier && <button type="button" className="range-qualifier-add" aria-label="Add nested qualifier" title="Add qualifier" onMouseDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); updateQualifier("enable", {}, depth + 1); }}>+ Qual</button>}
+                <button type="button" className="range-row-add" title="Add qualifier range" aria-label="Add qualifier range" onClick={event => { event.stopPropagation(); updateQualifier("add", {}, depth); }}><FontAwesomeIcon icon={faPlus} /></button>
+                <button type="button" className="range-row-delete" title="Delete qualifier range" aria-label="Delete qualifier range" onClick={event => { event.stopPropagation(); updateQualifier("remove", {}, depth); }}>×</button>
+              </span>
+            </div>
+          </td>;
+        })}
         {renderCustomAfter("range")}
 
         <td
@@ -9135,6 +9137,8 @@ const SummaryDashboard = ({
             />
             <InstrumentTableHeader
               kind="uut"
+              qualifierNames={sessionData.qualifierColumnNames?.uut || []}
+              onRenameQualifier={(index, name) => { const names = [...(sessionData.qualifierColumnNames?.uut || [])]; names[index] = name; onSessionSave({ ...sessionData, qualifierColumnNames: { ...sessionData.qualifierColumnNames, uut: names } }); }}
               customColumns={customColumnsFor("uut")}
               columns={uutTableColumns}
               renderCustomColumnHeader={renderCustomColumnHeader}
@@ -9666,6 +9670,8 @@ const SummaryDashboard = ({
             />
             <InstrumentTableHeader
               kind="tmde"
+              qualifierNames={sessionData.qualifierColumnNames?.tmde || []}
+              onRenameQualifier={(index, name) => { const names = [...(sessionData.qualifierColumnNames?.tmde || [])]; names[index] = name; onSessionSave({ ...sessionData, qualifierColumnNames: { ...sessionData.qualifierColumnNames, tmde: names } }); }}
               customColumns={customColumnsFor("tmde")}
               columns={tmdeTableColumns}
               renderCustomColumnHeader={renderCustomColumnHeader}
@@ -10439,12 +10445,12 @@ function DetailedView({
   const uutTableColumns = useInstrumentColumnWidths(
     "uut",
     customColumnsFor("uut"),
-    hasQualifierRanges(sessionData.uuts),
+    instrumentQualifierDepth(sessionData.uuts),
   );
   const tmdeTableColumns = useInstrumentColumnWidths(
     "tmde",
     customColumnsFor("tmde"),
-    hasQualifierRanges(sessionData.tmdes),
+    instrumentQualifierDepth(sessionData.tmdes),
   );
   const uutTableHeight = useInstrumentTableHeight(
     "detail",
@@ -11159,6 +11165,18 @@ function DetailedView({
 
     setNotification({
       title: linked ? "Re-sync Instrument" : "Sync Instrument",
+      ...(state === "red" && onSaveInstrument ? {
+        secondaryText: "Save locally",
+        onSecondary: async () => {
+          try {
+            await onSaveInstrument({ ...instrument, scope: "local" });
+            persistInlineItem(kind, { ...item, instrument: { ...item.instrument, scope: "local" } });
+            setNotification(null);
+          } catch {
+            setNotification({ title: "Save failed", message: "Could not save the instrument locally. Please try again." });
+          }
+        },
+      } : {}),
       message: `${syncDiffSummary(getDiff(instrument))} Enter the shared-library password to sync ${label}.`,
       inputLabel: "Shared library password",
       inputPlaceholder: "Password",
@@ -11869,19 +11887,20 @@ function DetailedView({
 
     const qualifierEnabled = (kind === "uut" ? uutTableColumns : tmdeTableColumns).qualifierEnabled;
     const span = qualifierRowSpan(getInstrumentRangeRows(item), range);
-    const updateQualifier = (action, patch) => {
+    const updateQualifier = (action, patch, depth = 1) => {
       const current = (latestSessionDataRef.current[kind === "uut" ? "uuts" : "tmdes"] || []).find(entry => sameId(entry.id, item.id)) || item;
-      const result = action === "enable"
-        ? { item: applyItemRangePatch(current, rangeKey, { qualifierGroupId: uuidv4(), qualifier: { name: "Frequency", min: "", max: "", unit: "Hz" } }), newRangeId: rangeKey }
-        : editQualifierRange(current, rangeKey, action, patch);
+      const exists = getInstrumentRangeRows(current).some(row => sameId(rangeIdOf(row), rangeKey));
+      const materialized = exists ? current : applyItemRangePatch(current, rangeKey, {});
+      const targetId = exists ? rangeKey : rangeIdOf(getInstrumentRangeRows(materialized).at(-1));
+      const result = editQualifierRange(materialized, targetId, action, patch, depth);
       persistInlineItemDetail(kind, result.item);
-      if (action === "enable" || action === "add") setPendingQualifierEditKey(`${kind}:${item.id}:${result.newRangeId}`);
+      if (action === "enable" || action === "add") setPendingQualifierEditKey(`${kind}:${item.id}:${result.newRangeId}:${depth}`);
     };
     return (
       <>
         {span > 0 && <td
           rowSpan={span}
-          colSpan={qualifierEnabled && !range.qualifier ? 2 : 1}
+          colSpan={range.qualifier ? 1 : 1 + Number(qualifierEnabled)}
           data-range-cell="true"
           className={`cell-value ${hoveredCell.tableId === tableId && hoveredCell.colIndex === cols.range ? "col-hovered" : ""}`}
           onMouseEnter={() => setHoveredCell({ tableId, colIndex: cols.range })}
@@ -11894,6 +11913,7 @@ function DetailedView({
           >
             <RangeCell
               ranges={[range]}
+              closeKey={Boolean(range.qualifier)}
               activeIndex={0}
               activeRange={range}
               editable
@@ -11960,21 +11980,30 @@ function DetailedView({
             </span>}
           </div>
         </td>}
-        {qualifierEnabled && range.qualifier && <td data-range-cell="true" data-qualifier-cell="true" className="cell-value qualifier-range-cell">
-          <div className="range-row-cell">
-          <RangeCell ranges={[{ ...range.qualifier, min: range.qualifier.min ?? range.qualifier.value ?? "", max: range.qualifier.max ?? range.qualifier.value ?? "" }]} activeIndex={0} activeRange={{ ...range.qualifier, id: `${rangeKey}:qualifier`, min: range.qualifier.min ?? range.qualifier.value ?? "", max: range.qualifier.max ?? range.qualifier.value ?? "" }} editable
-            onEditBound={(field, value) => updateQualifier("patch", { [field]: value })}
-            onEditUnit={unit => updateQualifier("patch", { unit })}
-            onPatchRange={patch => updateQualifier("patch", patch)}
-            openRequested={pendingQualifierEditKey === `${kind}:${item.id}:${rangeKey}`}
-            onOpenRequestHandled={() => setPendingQualifierEditKey(null)}
-            onAdvanceRange={() => updateQualifier("add")} />
-          <span className="range-row-controls">
-            <button type="button" className="range-row-add" title="Add qualifier range" aria-label="Add qualifier range" onClick={event => { event.stopPropagation(); updateQualifier("add"); }}><FontAwesomeIcon icon={faPlus} /></button>
-            <button type="button" className="range-row-delete" title="Delete qualifier range" aria-label="Delete qualifier range" onClick={event => { event.stopPropagation(); updateQualifier("remove"); }}>×</button>
-          </span>
-          </div>
-        </td>}
+        {Array.from({ length: Number(qualifierEnabled) }, (_, index) => {
+          const depth = index + 1;
+          const qualifier = qualifierAt(range, depth);
+          if (!qualifier) return null;
+          const rowSpan = qualifierRowSpan(getInstrumentRangeRows(item), range, depth);
+          if (!rowSpan) return null;
+          return <td key={depth} rowSpan={rowSpan} colSpan={qualifier.qualifier ? 1 : Number(qualifierEnabled) - depth + 1} data-range-cell="true" data-qualifier-cell={depth} className="cell-value qualifier-range-cell">
+            <div className="range-row-cell">
+              <RangeCell ranges={[qualifier]} activeIndex={0} activeRange={{ ...qualifier, id: `${rangeKey}:qualifier:${depth}` }} editable textMode
+                closeKey={Boolean(qualifier.qualifier)}
+                onEditBound={(field, value) => updateQualifier("patch", { [field]: value }, depth)}
+                onEditUnit={unit => updateQualifier("patch", { unit }, depth)}
+                onPatchRange={patch => updateQualifier("patch", patch, depth)}
+                openRequested={pendingQualifierEditKey === `${kind}:${item.id}:${rangeKey}:${depth}`}
+                onOpenRequestHandled={() => setPendingQualifierEditKey(null)}
+                onAdvanceRange={() => updateQualifier("add", {}, depth)} />
+              <span className="range-row-controls">
+                {!qualifier.qualifier && <button type="button" className="range-qualifier-add" aria-label="Add nested qualifier" title="Add qualifier" onMouseDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); updateQualifier("enable", {}, depth + 1); }}>+ Qual</button>}
+                <button type="button" className="range-row-add" title="Add qualifier range" aria-label="Add qualifier range" onClick={event => { event.stopPropagation(); updateQualifier("add", {}, depth); }}><FontAwesomeIcon icon={faPlus} /></button>
+                <button type="button" className="range-row-delete" title="Delete qualifier range" aria-label="Delete qualifier range" onClick={event => { event.stopPropagation(); updateQualifier("remove", {}, depth); }}>×</button>
+              </span>
+            </div>
+          </td>;
+        })}
         {renderCustomAfter("range")}
 
         <td
@@ -15387,6 +15416,8 @@ function DetailedView({
             />
             <InstrumentTableHeader
               kind="uut"
+              qualifierNames={sessionData.qualifierColumnNames?.uut || []}
+              onRenameQualifier={(index, name) => { const names = [...(sessionData.qualifierColumnNames?.uut || [])]; names[index] = name; onSessionSave({ ...sessionData, qualifierColumnNames: { ...sessionData.qualifierColumnNames, uut: names } }); }}
               customColumns={customColumnsFor("uut")}
               columns={uutTableColumns}
               renderCustomColumnHeader={renderCustomColumnHeader}
@@ -16177,7 +16208,9 @@ function DetailedView({
               />
               <InstrumentTableHeader
                 kind="tmde"
-                customColumns={customColumnsFor("tmde")}
+                qualifierNames={sessionData.qualifierColumnNames?.tmde || []}
+              onRenameQualifier={(index, name) => { const names = [...(sessionData.qualifierColumnNames?.tmde || [])]; names[index] = name; onSessionSave({ ...sessionData, qualifierColumnNames: { ...sessionData.qualifierColumnNames, tmde: names } }); }}
+              customColumns={customColumnsFor("tmde")}
                 columns={tmdeTableColumns}
                 renderCustomColumnHeader={renderCustomColumnHeader}
                 onInsertAfter={(columnKey) => requestCustomColumn("tmde", columnKey)}

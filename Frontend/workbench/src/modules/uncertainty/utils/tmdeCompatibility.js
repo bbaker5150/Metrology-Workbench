@@ -66,8 +66,7 @@ export const assessRangeCompatibility = (
   if (range.qualifier && (range.qualifierGroupId || measurementPoint?.qualifier)) {
     const qualifier = range.qualifier;
     const nominal = measurementPoint?.qualifier;
-    if (!hasValue(nominal?.value) || !nominal?.unit) return { compatible: false, reason: `Define the measurement point qualifier (${qualifier.unit || 'unit not set'}) for this ${rangeLabel}.` };
-    const result = assessRangeCompatibility({ ...qualifier, min: qualifier.min ?? qualifier.value, max: qualifier.max ?? qualifier.value }, nominal, "qualifier range");
+    const result = assessQualifierCompatibility(qualifier, nominal);
     if (!result.compatible) return result;
   }
   return { compatible: true, reason: "" };
@@ -75,3 +74,22 @@ export const assessRangeCompatibility = (
 
 export const assessTmdeCompatibility = (range, measurementPoint) =>
   assessRangeCompatibility(range, measurementPoint, "TMDE range");
+
+// Numeric qualifiers retain unit conversion; categorical qualifiers match their
+// literal label. Every nested dimension must match before selecting a leaf.
+export const assessQualifierCompatibility = (qualifier, nominal) => {
+  if (!hasValue(nominal?.value)) return { compatible: false, reason: `Define the measurement point qualifier (${qualifier.name || "Qualifier"}).` };
+  const min = qualifier.min ?? qualifier.value ?? "";
+  const max = qualifier.max ?? qualifier.value ?? "";
+  const numeric = [min, max].filter(hasValue).every(value => Number.isFinite(Number(value))) && Number.isFinite(Number(nominal.value));
+  if (numeric && qualifier.unit) {
+    const { qualifier: child, ...bounds } = qualifier;
+    const result = assessRangeCompatibility({ ...bounds, min, max }, nominal, "qualifier range");
+    if (!result.compatible) return result;
+  } else if (numeric) {
+    if ((hasValue(min) && Number(nominal.value) < Number(min)) || (hasValue(max) && Number(nominal.value) > Number(max))) return { compatible: false, reason: "The point is outside this qualifier range." };
+  } else if (![min, max].filter(hasValue).map(String).includes(String(nominal.value))) {
+    return { compatible: false, reason: "The point does not match this qualifier." };
+  }
+  return qualifier.qualifier ? assessQualifierCompatibility(qualifier.qualifier, nominal.qualifier) : { compatible: true, reason: "" };
+};

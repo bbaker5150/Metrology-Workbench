@@ -4550,17 +4550,10 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
 
   const handleDeleteTmdeDefinition = (idOrIds) => {
     const ids = Array.isArray(idOrIds) ? idOrIds : [idOrIds];
-    const localIds = [...new Set((currentSessionData?.tmdes || [])
-      .filter(item => ids.map(String).includes(String(item.id)))
-      .map(item => instruments.find(record => record.scope === "local" &&
-        [item.libraryInstrumentId, item.instrument?.id].some(id => id != null && String(id) === String(record.id))))
-      .filter(Boolean).map(record => record.id))];
     const notification = {
       title: ids.length > 1 ? "Delete Instruments" : "Delete Instrument",
-      message: localIds.length
-        ? "Remove from this session and keep the local library copy, or also delete the local library copy. Other sessions keep their existing specifications."
-        : "Remove the selected instruments from this session? The shared library is unchanged.",
-      confirmText: "Remove from session",
+      message: "Remove the selected instrument(s) from this session?",
+      confirmText: "Delete",
       onConfirm: () => {
         // The TMDE tables (summary + detailed) list the session-level master
         // TMDEs (currentSessionData.tmdes). Deleting must remove the master
@@ -4595,33 +4588,15 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
         setAppNotification(null);
       },
     };
-    if (localIds.length) {
-      notification.secondaryText = "Also delete from local library";
-      notification.onSecondary = async () => {
-        try {
-          await Promise.all(localIds.map(deleteInstrument));
-          notification.onConfirm();
-        } catch {
-          setAppNotification({ title: "Could not delete local instrument", message: "The local library could not be updated. Please try again." });
-        }
-      };
-    }
     setAppNotification(notification);
   };
 
   const handleDeleteUut = (idOrIds) => {
     const ids = Array.isArray(idOrIds) ? idOrIds : [idOrIds];
-    const localIds = [...new Set((currentSessionData?.uuts || [])
-      .filter(item => ids.map(String).includes(String(item.id)))
-      .map(item => instruments.find(record => record.scope === "local" &&
-        [item.libraryInstrumentId, item.instrument?.id].some(id => id != null && String(id) === String(record.id))))
-      .filter(Boolean).map(record => record.id))];
     const notification = {
       title: ids.length > 1 ? "Delete Instruments" : "Delete Instrument",
-      message: localIds.length
-        ? "Remove from this session and keep the local library copy, or also delete the local library copy. Other sessions keep their existing specifications."
-        : "Remove the selected instruments from this session? The shared library is unchanged.",
-      confirmText: "Remove from session",
+      message: "Remove the selected instrument(s) from this session?",
+      confirmText: "Delete",
       onConfirm: () => {
         if (currentSessionData) {
           const idsSet = new Set(ids.map((id) => String(id)));
@@ -4661,17 +4636,6 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
         setAppNotification(null);
       },
     };
-    if (localIds.length) {
-      notification.secondaryText = "Also delete from local library";
-      notification.onSecondary = async () => {
-        try {
-          await Promise.all(localIds.map(deleteInstrument));
-          notification.onConfirm();
-        } catch {
-          setAppNotification({ title: "Could not delete local instrument", message: "The local library could not be updated. Please try again." });
-        }
-      };
-    }
     setAppNotification(notification);
   };
 

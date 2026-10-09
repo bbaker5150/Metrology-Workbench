@@ -3,6 +3,7 @@ import {
   SYNC_NONE,
   SYNC_GREEN,
   SYNC_RED,
+  SYNC_YELLOW,
   buildValidatedSnapshot,
   isValidatedLinked,
   diffFromSnapshot,
@@ -27,10 +28,11 @@ const validated = (overrides = {}) => ({
 });
 
 describe("instrumentSync", () => {
-  it("a local-only instrument is unlinked and reads as out of sync (red)", () => {
+  it("shows unsaved session instruments as red", () => { expect(computeSyncState({ id: "draft" })).toBe(SYNC_RED); });
+  it("a local-only instrument is unlinked and yellow", () => {
     const local = { id: "l1", manufacturer: "Keysight", model: "34470A", scope: "local" };
     expect(isValidatedLinked(local)).toBe(false);
-    expect(computeSyncState(local)).toBe(SYNC_RED);
+    expect(computeSyncState(local)).toBe(SYNC_YELLOW);
   });
 
   it("an explicit localOverride forces red even when the snapshot matches", () => {
@@ -99,7 +101,7 @@ describe("instrumentSync", () => {
       },
     };
     expect(isValidatedLinked(loaded)).toBe(true);
-    expect(computeSyncState(loaded)).toBe(SYNC_RED);
+    expect(computeSyncState(loaded)).toBe(SYNC_YELLOW);
   });
 
   it("buildValidatedSnapshot captures only the defining fields", () => {

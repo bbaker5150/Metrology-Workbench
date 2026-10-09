@@ -17,7 +17,7 @@ it.each(['session','point'])('adds and merges qualifier sub-ranges in %s view',a
  fireEvent.click(within(row).getByRole('button',{name:'Add qualifier',exact:true}));
  row=document.querySelector('tr[data-range-group="uut:u1"]');
  const table=row.closest('table');
- expect(within(table).getByText('Qualifier',{exact:true})).toBeInTheDocument();
+ expect(within(table).getByRole('textbox',{name:'Qualifier 1 column name'})).toBeInTheDocument();
  expect(document.querySelector('tr[data-range-group="uut:u2"] [data-range-cell]')).toHaveAttribute('colspan','2');
  const qualifier=row.querySelector('[data-qualifier-cell]');
  expect(within(qualifier).getByPlaceholderText('min')).toHaveFocus();
@@ -46,4 +46,36 @@ it.each(['session','point'])('adds and merges qualifier sub-ranges in %s view',a
  expect(state.uuts[0].instrument.functions[0].ranges).toHaveLength(2);
  fireEvent.click(within(rows[1]).getByRole('button',{name:'Delete qualifier range'}));
  expect(document.querySelectorAll('tr[data-range-group="uut:u1"]')).toHaveLength(1);
+});
+
+it.each(['session','point'])('nests text qualifiers and collapses parents in %s view', viewMode => {
+ render(<Harness viewMode={viewMode}/>);
+ let row=document.querySelector('tr[data-range-group="uut:u1"]');
+ const base=row.querySelector('[data-range-cell]');
+ fireEvent.mouseDown(base);
+ fireEvent.click(base.querySelector('.inline-tolerance-summary'));
+ fireEvent.click(within(row).getByRole('button',{name:'Add qualifier',exact:true}));
+ expect(within(base).queryByPlaceholderText('min')).not.toBeInTheDocument();
+ let first=row.querySelector('[data-qualifier-cell="1"]');
+ fireEvent.change(within(first).getByPlaceholderText('min'),{target:{value:'DC mode'}});
+ fireEvent.blur(within(first).getByPlaceholderText('min'));
+ fireEvent.click(first.querySelector('.inline-tolerance-summary'));
+ fireEvent.click(within(first).getByRole('button',{name:'Add nested qualifier'}));
+ expect(within(first).queryByPlaceholderText('min')).not.toBeInTheDocument();
+ const child=row.querySelector('[data-qualifier-cell="2"]');
+ expect(within(child).getByPlaceholderText('min')).toHaveFocus();
+ fireEvent.change(within(child).getByPlaceholderText('min'),{target:{value:'90 days'}});
+ fireEvent.blur(within(child).getByPlaceholderText('min'));
+ fireEvent.change(within(row.closest('table')).getByRole('textbox',{name:'Qualifier 2 column name'}),{target:{value:'Calibration interval'}});
+ fireEvent.click(within(child).getByRole('button',{name:'Add qualifier range',exact:true}));
+ const rows=[...document.querySelectorAll('tr[data-range-group="uut:u1"]')];
+ expect(rows).toHaveLength(2);
+ expect(rows[0].querySelector('[data-qualifier-cell="1"]')).toHaveAttribute('rowspan','2');
+ expect(rows[1].querySelector('[data-qualifier-cell="1"]')).toBeNull();
+ const state=JSON.parse(screen.getByTestId('state').textContent);
+ expect(state.qualifierColumnNames.uut[1]).toBe('Calibration interval');
+ const ranges=state.uuts[0].instrument.functions[0].ranges;
+ expect(ranges[0].qualifier.min).toBe('DC mode');
+ expect(ranges[0].qualifier.qualifier.min).toBe('90 days');
+ expect(ranges[1].tolerances).toEqual({});
 });

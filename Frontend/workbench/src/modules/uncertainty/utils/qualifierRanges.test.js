@@ -32,3 +32,27 @@ describe('qualifier ranges',()=>{
   expect(assessRangeCompatibility(rows(item)[1],{value:50,unit:'A'}).reason).toMatch(/qualifier/);
  });
 });
+
+it('edits ancestors, adds sibling branches and removes only the selected subtree',()=>{
+ let item=editQualifierRange(instrument(),'r','enable',{min:'AC'}).item;
+ item=editQualifierRange(item,'r','enable',{min:'90 days'},2).item;
+ const child=editQualifierRange(item,'r','add',{},2); item=child.item;
+ item=editQualifierRange(item,'r','patch',{min:'DC'}).item;
+ expect(rows(item).map(r=>r.qualifier.min)).toEqual(['DC','DC']);
+ expect(qualifierRowSpan(rows(item),rows(item)[0],1)).toBe(2);
+ const sibling=editQualifierRange(item,'r','add'); item=sibling.item;
+ expect(rows(item)).toHaveLength(3);
+ expect(rows(item)[2].qualifier.qualifier).toBeUndefined();
+ item=editQualifierRange(item,'r','remove').item;
+ expect(rows(item)).toHaveLength(1);
+ expect(rows(item)[0].id).toBe(sibling.newRangeId);
+});
+
+it('requires each nested categorical qualifier when selecting uncertainty',()=>{
+ let item=editQualifierRange(instrument(),'r','enable',{min:100,max:1000}).item;
+ item=editQualifierRange(item,'r','enable',{min:'90 days'},2).item;
+ const nominal={value:50,unit:'A',qualifier:{value:200,unit:'Hz',qualifier:{value:'90 days'}}};
+ expect(assessRangeCompatibility(rows(item)[0],nominal).compatible).toBe(true);
+ expect(assessRangeCompatibility(rows(item)[0],{...nominal,qualifier:{value:200,unit:'Hz'}}).compatible).toBe(false);
+ expect(assessRangeCompatibility(rows(item)[0],{...nominal,qualifier:{...nominal.qualifier,qualifier:{value:'1 year'}}}).compatible).toBe(false);
+});

@@ -18,6 +18,7 @@ export async function checkQualifierRanges({frame, page, saved, until, check}) {
         return Math.max(...widths.slice(-10))-Math.min(...widths.slice(-10))<1;
       }));
       await first.getByRole('button',{name:'Add qualifier',exact:true}).click();
+      check(`${view} ${kind} parent range collapses`, await baseRange.locator('input[placeholder="min"]').count() === 0);
       check(`${view} ${kind} adds Qualifier header`,await table.locator('thead [data-instrument-column="qualifier"]').count()===1);
       const qualifier=first.locator('[data-qualifier-cell]');
       await qualifier.getByPlaceholder('min',{exact:true}).press('Control+z');
@@ -81,8 +82,24 @@ export async function checkQualifierRanges({frame, page, saved, until, check}) {
       }
       await rows.nth(1).locator('[data-qualifier-cell]').hover();
       await rows.nth(1).getByRole('button',{name:'Delete qualifier range'}).click();
-      await first.locator('[data-qualifier-cell]').hover();
-      await first.getByRole('button',{name:'Delete qualifier range'}).click();
+      const parent = first.locator('[data-qualifier-cell="1"]');
+      await parent.locator('.inline-tolerance-summary').click();
+      await parent.getByRole('button', {name:'Add nested qualifier'}).click();
+      const child = first.locator('[data-qualifier-cell="2"]');
+      check(`${view} ${kind} parent qualifier collapses`, await parent.locator('input[placeholder="min"]').count() === 0);
+      check(`${view} ${kind} nested qualifier opens focused`, await child.getByPlaceholder('min',{exact:true}).evaluate(node=>node===document.activeElement));
+      await child.getByPlaceholder('min',{exact:true}).fill('90 days');
+      await child.getByPlaceholder('min',{exact:true}).press('Enter');
+      await table.getByRole('textbox',{name:'Qualifier 2 column name'}).fill('Calibration interval');
+      await child.getByRole('button',{name:'Add qualifier range',exact:true}).click();
+      check(`${view} ${kind} nested intervals merge their parent`, await parent.getAttribute('rowspan') === '2');
+      check(`${view} ${kind} saves text interval and column name`, await until(()=>{
+        const item=saved()[kind==='uut'?'uuts':'tmdes'].find(item=>`${kind}:${item.id}`===group);
+        const ranges=item?.ranges || item?.instrument?.functions?.flatMap(fn=>fn.ranges||[]) || item?.instrument?.ranges || [];
+        return ranges.some(r=>r.qualifier?.qualifier?.min==='90 days') && saved().qualifierColumnNames?.[kind]?.[1]==='Calibration interval';
+      }));
+      await parent.hover();
+      await parent.getByRole('button',{name:'Delete qualifier range',exact:true}).click();
       check(`${view} ${kind} removes the unused qualifier column`,await table.locator('thead [data-instrument-column="qualifier"]').count()===0);
     }
   }
