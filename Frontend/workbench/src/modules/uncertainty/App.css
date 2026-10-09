@@ -20921,7 +20921,7 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
   font: 500 12px/1.4 Inter, sans-serif;
 }
 .instrument-selection-outline {
-  position: absolute; pointer-events: none; overflow: visible; z-index: 2;
+  position: absolute; pointer-events: none; overflow: visible; z-index: 4;
   fill: none; stroke-width: 1.5; stroke-linecap: square;
 }
 .instrument-selection-outline path {
@@ -21816,8 +21816,18 @@ body.light-mode .uncertainty-module .instrument-equipment-table {
 }
 
 /* Keep column boundaries and the workspace divider discoverable at rest. */
+.uncertainty-module .instrument-equipment-table {
+  --instrument-grid-divider-color: color-mix(in srgb, var(--text-color-muted) 32%, var(--table-divider-color));
+  --instrument-header-divider-color: color-mix(in srgb, var(--text-color-muted) 48%, var(--table-divider-color));
+}
 .uncertainty-module .instrument-equipment-table > tbody > tr > td:not(:last-child) {
-  border-right-color: color-mix(in srgb, var(--text-color-muted) 32%, var(--table-divider-color));
+  border-right-color: var(--instrument-grid-divider-color);
+}
+.uncertainty-module .instrument-equipment-table > tbody > tr.instrument-function-row > td {
+  border-block-color: var(--instrument-grid-divider-color);
+}
+.uncertainty-module .instrument-equipment-table > tbody > tr > td.cell-sync {
+  border-left-color: var(--instrument-grid-divider-color);
 }
 .uncertainty-module .results-workflow-container:where(:not(.workspace-pane-points, .workspace-pane-tables)) > .sidebar-resizer {
   background: color-mix(in srgb, var(--primary-color) 6%, var(--component-bg));
@@ -21850,11 +21860,15 @@ body.light-mode .uncertainty-module .instrument-equipment-table {
 
 /* Paint dividers with each sticky header, like its bottom rule. Collapsed
    table borders can disappear when inserting or focusing adjacent columns. */
+.uncertainty-module .instrument-equipment-table > thead > tr > th {
+  border-block-color: var(--instrument-header-divider-color);
+  box-shadow: inset 0 -1px 0 var(--instrument-header-divider-color);
+}
 .uncertainty-module .instrument-equipment-table > thead > tr > th:not(:last-child) {
   border-right: 1px solid transparent !important;
   box-shadow:
-    inset -1px 0 0 var(--instrument-header-divider-color, color-mix(in srgb, var(--text-color-muted) 48%, var(--table-divider-color))),
-    inset 0 -1px 0 var(--table-divider-color);
+    inset -1px 0 0 var(--instrument-header-divider-color),
+    inset 0 -1px 0 var(--instrument-header-divider-color);
 }
 
 /* Empty measurement areas share the point-list hint's arrow scale. */

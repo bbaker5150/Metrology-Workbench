@@ -48,9 +48,17 @@ export function createInstrumentSelectionOutline(container, table) {
     sync() {
       const bounds = table.getBoundingClientRect();
       const containerBounds = container.getBoundingClientRect();
-      const scale = containerBounds.width / container.offsetWidth || 1;
+      const scale = container.offsetWidth ? containerBounds.width / container.offsetWidth || 1 : 1;
       const groups = new Map();
       const selectedCells = [...table.querySelectorAll(SELECTED_CELLS)];
+      const pinnedSyncCells = [...table.querySelectorAll('td.cell-sync')]
+        .filter(cell => getComputedStyle(cell).position === 'sticky')
+        .map(cell => ({ cell, rect: cell.getBoundingClientRect() }));
+      // Pinned Sync covers the scrolling columns. Trace only their visible
+      // portion so its left edge cancels against an adjacent selected cell.
+      const visibleRight = (cell, rect) => pinnedSyncCells.reduce((right, pinned) =>
+        pinned.cell !== cell && pinned.rect.top < rect.bottom && pinned.rect.bottom > rect.top
+          ? Math.min(right, pinned.rect.left) : right, rect.right);
       const sourceKeys = new Set(selectedCells.filter(cell => cell.classList.contains('instrument-uncertainty-name-cell'))
         .map(cell => cell.parentElement.dataset.selectionKey));
       const sharedRails = table.dataset.selectionMode === 'instrument'
@@ -63,10 +71,13 @@ export function createInstrumentSelectionOutline(container, table) {
         // The shared label rail belongs to the group, outside an individual range selection.
         const inset = (table.dataset.selectionMode === 'range' || sharedKeys.has(cell.parentElement.dataset.selectionKey)) && cell.classList.contains('instrument-uncertainty-name-cell')
           ? parseFloat(style.getPropertyValue('--instrument-uncertainty-rail-width')) || 0 : 0;
+        const left = (rect.left - bounds.left) / scale + inset;
+        const right = (visibleRight(cell, rect) - bounds.left) / scale;
+        if (right <= left) return;
         const color = style.getPropertyValue('--instrument-function-color').trim() || 'var(--primary-color)';
         if (!groups.has(color)) groups.set(color, []);
         groups.get(color).push({
-          left: (rect.left - bounds.left) / scale + inset, right: (rect.right - bounds.left) / scale,
+          left, right,
           top: (rect.top - bounds.top) / scale, bottom: (rect.bottom - bounds.top) / scale,
         });
       });
@@ -80,7 +91,9 @@ export function createInstrumentSelectionOutline(container, table) {
         const width = parseFloat(style.getPropertyValue('--instrument-uncertainty-rail-width')) || 0;
         if (!width || !groups.has(color)) return;
         const left = (rect.left - bounds.left) / scale, top = (rect.top - bounds.top) / scale;
-        groups.get(color).push({ left, top, right: left + width,
+        const right = Math.min(left + width, (visibleRight(cell, rect) - bounds.left) / scale);
+        if (right <= left) return;
+        groups.get(color).push({ left, top, right,
           bottom: top + rail.getBoundingClientRect().height / scale });
       });
       const paths = [...groups].map(([color, rectangles]) => ({ color,
