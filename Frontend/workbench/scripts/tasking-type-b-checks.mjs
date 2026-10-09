@@ -181,7 +181,14 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
     const inlineEquation = instrumentCell.getByRole('textbox', {name:'Uncertainty equation',exact:true});
     await inlineEquation.fill('a+b');
     await inlineEquation.press('Enter');
-    check('committed uncertainty equation becomes a compact KaTeX preview', await instrumentCell.locator('.dynamic-equation-summary .katex').count() === 1);
+    check('Enter commits the uncertainty equation and collapses its tolerance editor', await until(async () =>
+      await instrumentCell.locator('.inline-tolerance-summary').count() === 1 && await inlineEquation.count() === 0));
+    await instrumentCell.locator('.inline-tolerance-summary').click();
+    check('committed uncertainty equation becomes a compact KaTeX preview', await until(async () => await instrumentCell.locator('.dynamic-equation-summary .katex').count() === 1));
+    await instrumentCell.getByRole('button', {name:'Edit uncertainty equation',exact:true}).click();
+    check('reopening the tolerance editor preserves the committed equation', await inlineEquation.inputValue() === 'a+b');
+    await inlineEquation.press('Tab');
+    check('leaving the equation restores its compact KaTeX preview', await until(async () => await instrumentCell.locator('.dynamic-equation-summary .katex').count() === 1));
     check('equation editor fits its column and settles without resizing feedback', await instrumentCell.evaluate(async cell => {
       const widths=[];
       for(let i=0;i<40;i++) { await new Promise(requestAnimationFrame); if(i>15) widths.push(cell.getBoundingClientRect().width); }

@@ -9,6 +9,10 @@ export async function checkQualifierRanges({frame, page, saved, until, check}) {
       const baseRange=first.locator('[data-range-cell]').first();
       await baseRange.click({position:{x:4,y:4}});
       await baseRange.locator('.inline-tolerance-summary').click();
+      // Opening the editor can toggle an already selected range off. Actions
+      // intentionally require selection, so select it before exercising them.
+      if (await first.getByRole('button',{name:'Add qualifier',exact:true}).count() === 0)
+        await baseRange.click({position:{x:4,y:4}});
       check(`${view} ${kind} range width settles with qualifier controls`, await table.evaluate(async table => {
         const widths=[];
         for(let i=0;i<30;i++) {
@@ -17,13 +21,15 @@ export async function checkQualifierRanges({frame, page, saved, until, check}) {
         }
         return Math.max(...widths.slice(-10))-Math.min(...widths.slice(-10))<1;
       }));
+      await baseRange.locator('.range-row-cell').hover();
       await first.getByRole('button',{name:'Add qualifier',exact:true}).click();
       check(`${view} ${kind} parent range collapses`, await baseRange.locator('input[placeholder="min"]').count() === 0);
       check(`${view} ${kind} adds Qualifier header`,await table.locator('thead [data-instrument-column="qualifier"]').count()===1);
       const qualifier=first.locator('[data-qualifier-cell]');
       await qualifier.getByRole('textbox',{name:'Qualifier value'}).press('Control+z');
       check(`${view} ${kind} Ctrl+Z undoes qualifier creation while its empty editor is focused`,await until(async()=>await table.locator('thead [data-instrument-column="qualifier"]').count()===0));
-      await baseRange.click({position:{x:4,y:4}});
+      if (await first.getByRole('button',{name:'Add qualifier',exact:true}).count() === 0)
+        await baseRange.click({position:{x:4,y:4}});
       await baseRange.locator('.range-row-cell').hover();
       await first.getByRole('button',{name:'Add qualifier',exact:true}).click();
       check(`${view} ${kind} new qualifier opens focused`, await qualifier.getByRole('textbox',{name:'Qualifier value'}).evaluate(node=>node===document.activeElement));
@@ -40,6 +46,9 @@ export async function checkQualifierRanges({frame, page, saved, until, check}) {
       await second.getByRole('textbox',{name:'Qualifier value'}).fill('1 – 10 kHz');
       await second.getByRole('textbox',{name:'Qualifier value'}).press('Enter');
       await table.locator('thead').click();
+      if (await second.getAttribute('data-actions-selected') !== 'true')
+        await second.click({position:{x:5,y:5}});
+      await second.hover();
       check(`${view} ${kind} qualifier controls align beside inputs`,await second.evaluate(cell=>{
         const editor=cell.querySelector('.inline-range-editor').getBoundingClientRect();
         const add=cell.querySelector('.range-row-add').getBoundingClientRect();
@@ -76,6 +85,10 @@ export async function checkQualifierRanges({frame, page, saved, until, check}) {
       for (const theme of ['light','dark']) {
         await frame.evaluate(theme=>{document.body.classList.toggle('light-mode',theme==='light');document.body.classList.toggle('dark-mode',theme==='dark');},theme);
         await page.keyboard.press('Escape');
+        if (await second.getAttribute('data-actions-selected') === 'true') {
+          await second.click({position:{x:5,y:5}});
+          check(`${view} ${kind} clicking the selected qualifier deselects it in ${theme}`, await second.getAttribute('data-actions-selected') !== 'true');
+        }
         await second.click({position:{x:5,y:5}});
         check(`${view} ${kind} qualifier row selection in ${theme}`,await until(async()=>await table.getAttribute('data-selection-mode')==='instrument' && await rows.nth(1).getAttribute('data-range-selected')==='true'));
         check(`${view} ${kind} shared cells highlight in ${theme}`,await until(async()=>await first.locator('.cell-description').getAttribute('data-cell-selected')!==null && await baseRange.getAttribute('data-cell-selected')!==null));
@@ -89,6 +102,8 @@ export async function checkQualifierRanges({frame, page, saved, until, check}) {
       await rows.nth(1).getByRole('button',{name:'Delete qualifier range'}).click();
       const parent = first.locator('[data-qualifier-cell="1"]');
       await parent.locator('.inline-tolerance-summary').click();
+      if (await parent.getAttribute('data-actions-selected') !== 'true')
+        await parent.click({position:{x:5,y:5}});
       await parent.getByRole('button', {name:'Add nested qualifier'}).click();
       const child = first.locator('[data-qualifier-cell="2"]');
       check(`${view} ${kind} parent qualifier collapses`, await parent.getByRole('textbox',{name:'Qualifier value'}).count() === 0);
@@ -109,6 +124,8 @@ export async function checkQualifierRanges({frame, page, saved, until, check}) {
       check(`${view} ${kind} renamed qualifier collapses to a header label`, await table.locator('[data-instrument-column="qualifier2"] .instrument-custom-column-label').textContent()==='Calibration interval');
       check(`${view} ${kind} area rows span every qualifier column`,await table.evaluate(table=>[...table.querySelectorAll('.instrument-area-section-row > td')].every(cell=>cell.colSpan===table.tHead.rows[0].cells.length)));
 
+      if (await child.getAttribute('data-actions-selected') !== 'true')
+        await child.click({position:{x:5,y:5}});
       await child.hover();
       await child.getByRole('button',{name:'Add qualifier range',exact:true}).click();
       check(`${view} ${kind} nested intervals merge their parent`, await parent.getAttribute('rowspan') === '2');
