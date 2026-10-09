@@ -48,15 +48,22 @@ export async function checkQualifierRanges({frame, page, saved, until, check}) {
       }));
       check(`${view} ${kind} instrument delete remains visible during scroll`, await table.evaluate(async table=>{
         await new Promise(requestAnimationFrame);
-        const container=table.parentElement, cell=table.querySelector('td.cell-sync');
+        const container=table.parentElement, viewport=table.closest('.instrument-table-viewport');
+        const row=table.querySelector('tr[data-selection-key][data-range-id]');
+        const action=[...viewport.querySelectorAll('.instrument-row-action')].find(action=>
+          action.dataset.instrumentId===row.dataset.instrumentId && action.dataset.measurementArea===row.dataset.measurementArea);
+        const remove=action?.querySelector('.instrument-row-delete');
+        if (!remove || remove.closest('table')) return false;
         const previous=container.scrollLeft;
-        let visible=true;
+        let visible=true, right=null;
         for (const position of [0,container.scrollWidth-container.clientWidth]) {
           container.scrollLeft=position;
           await new Promise(requestAnimationFrame);
           await new Promise(requestAnimationFrame);
-          const button=cell.querySelector('.instrument-row-delete').getBoundingClientRect(), box=container.getBoundingClientRect();
-          visible &&= button.left>=box.left && button.right<=box.right+1;
+          const button=remove.getBoundingClientRect(), box=viewport.getBoundingClientRect();
+          visible &&= !action.hidden && button.width>0 && button.left>=box.left && button.right<=box.right+1
+            && (right===null || Math.abs(button.right-right)<1);
+          right=button.right;
         }
         container.scrollLeft=previous;
         return visible;

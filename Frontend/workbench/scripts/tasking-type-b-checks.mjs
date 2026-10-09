@@ -245,7 +245,7 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
         const range=document.createRange(); range.selectNodeContents(cell);
         const text=range.getBoundingClientRect(), box=cell.getBoundingClientRect();
         return text.left-box.left>=12 && box.right-text.right>=12 && Math.abs((text.left-box.left)-(box.right-text.right))<2;
-      }) && getComputedStyle(table).borderCollapse==='collapse' && [...table.tBodies[0].rows].every(row=>{
+      }) && getComputedStyle(table).borderCollapse==='separate' && getComputedStyle(table).borderSpacing==='0px' && [...table.tBodies[0].rows].every(row=>{
         const cells=[row.cells[0],row.cells[1]], bounds=cells.map(cell=>cell.getBoundingClientRect());
         return Math.abs(bounds[0].width-bounds[1].width)<1 && Math.abs(bounds[0].right-header.right)<1 && cells.every(cell=>{
           const box=cell.getBoundingClientRect(), input=cell.querySelector('input').getBoundingClientRect(), style=getComputedStyle(cell);
