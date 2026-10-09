@@ -7,7 +7,7 @@ export async function checkQualifierRanges({frame, page, saved, until, check}) {
       const first=table.locator('tr[data-selection-key][data-range-id]').first();
       const group=await first.getAttribute('data-selection-key');
       const baseRange=first.locator('[data-range-cell]').first();
-      await baseRange.click();
+      await baseRange.click({position:{x:4,y:4}});
       await baseRange.locator('.inline-tolerance-summary').click();
       check(`${view} ${kind} range width settles with qualifier controls`, await table.evaluate(async table => {
         const widths=[];
@@ -23,8 +23,8 @@ export async function checkQualifierRanges({frame, page, saved, until, check}) {
       const qualifier=first.locator('[data-qualifier-cell]');
       await qualifier.getByRole('textbox',{name:'Qualifier value'}).press('Control+z');
       check(`${view} ${kind} Ctrl+Z undoes qualifier creation while its empty editor is focused`,await until(async()=>await table.locator('thead [data-instrument-column="qualifier"]').count()===0));
-      await baseRange.click();
-      if (await first.getByRole('button',{name:'Add qualifier',exact:true}).count()===0) await baseRange.locator('.inline-tolerance-summary').click();
+      await baseRange.click({position:{x:4,y:4}});
+      await baseRange.locator('.range-row-cell').hover();
       await first.getByRole('button',{name:'Add qualifier',exact:true}).click();
       check(`${view} ${kind} new qualifier opens focused`, await qualifier.getByRole('textbox',{name:'Qualifier value'}).evaluate(node=>node===document.activeElement));
       check(`${view} ${kind} qualifier is one text input`, await qualifier.locator('input').count()===1);
