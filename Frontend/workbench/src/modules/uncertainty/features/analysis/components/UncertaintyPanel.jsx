@@ -1887,10 +1887,10 @@ const applyBandDistribution = (tolerance = {}, value) => {
   return next;
 };
 
-const SyncBadge = ({ item, onSync }) => {
+export const SyncBadge = ({ item, onSync, onDemote }) => {
   const state = computeSyncState(item?.instrument || item || {});
-  const label = state === "green" ? "In sync with shared library" : state === "yellow" ? "Saved locally - sync to shared library" : "Not synced - save or sync instrument";
-  return <button type="button" className={`inline-sync-badge inline-sync-badge--${state}`} onClick={event => { event.stopPropagation(); onSync?.(); }} disabled={!onSync} title={label} aria-label={label}>
+  const label = state === "green" ? "Shared library — right-click to make local" : state === "yellow" ? "Local library — click to share; right-click for session only" : "Session only — click to save locally";
+  return <button type="button" className={`inline-sync-badge inline-sync-badge--${state}`} onClick={event => { event.stopPropagation(); onSync?.(); }} onContextMenu={event => { event.preventDefault(); event.stopPropagation(); if (state !== "red") onDemote?.(); }} disabled={!onSync && !onDemote} title={label} aria-label={label}>
     <FontAwesomeIcon icon={state === "green" ? faLink : faLinkSlash} />
   </button>;
 };
@@ -6103,6 +6103,7 @@ const replaceSessionDefinitionIdentity = (item, definition) => {
 // remains available for diffing and an explicit future Sync action.
 export const localizeSharedInstrumentEdit = (item = {}, library = []) => {
   const definition = item?.instrument || {};
+  if (definition.scope === "session") return item;
   if (definition.scope !== "validated") return definition.id && definition.scope === "local" ? item : {
     ...item, instrument: { ...definition, id: definition.id || item.libraryInstrumentId || item.id || uuidv4(), scope: "local" },
   };
@@ -6146,7 +6147,7 @@ export const synchronizeLocalInstrumentDefinitions = (session = {}, updatedItem 
   let nextItem = updatedItem;
   if (definition.scope !== "validated" && sharedWithAnotherRow) {
     const id = uuidv4();
-    nextItem = replaceSessionDefinitionIdentity(updatedItem, { ...definition, id, libraryInstrumentId: id, scope: "local" });
+    nextItem = replaceSessionDefinitionIdentity(updatedItem, { ...definition, id, libraryInstrumentId: id, scope: definition.scope === "session" ? "session" : "local" });
   }
   return Object.fromEntries(["uut", "tmde"].map(kind => {
     const list = kind === "uut" ? "uuts" : "tmdes";
@@ -6874,7 +6875,7 @@ const SummaryDashboard = ({
       functions: inst.functions || [],
       measurementArea: areaName,
       measurementAreaColor: areaColor,
-      scope: inst.scope || "local",
+      scope: inst.scope || "session",
     };
   };
 
@@ -6902,6 +6903,42 @@ const SummaryDashboard = ({
     });
   };
 
+  const syncScopeChanges = useRef(new Set());
+  const changeItemSyncScope = async (kind, item, scope) => {
+    const key = `${kind}:${item.id}`;
+    if (syncScopeChanges.current.has(key)) return;
+    syncScopeChanges.current.add(key);
+    try {
+      const current = (latestSessionDataRef.current[kind === "uut" ? "uuts" : "tmdes"] || []).find(row => sameId(row.id, item.id));
+      if (!current) return;
+      const definition = itemInstrumentForLibrary(kind, current);
+      // A demotion detaches this session's definition, preserving saved library
+      // records and other sessions. Subsequent edits retain the chosen scope.
+      const id = scope === "session" || definition.scope === "validated" ? uuidv4() : definition.id;
+      const nextDefinition = { ...definition, id, libraryInstrumentId: id, scope, localOverride: true,
+        sourceId: definition.sourceId || (definition.scope === "validated" ? definition.id : undefined),
+        validatedSnapshot: definition.validatedSnapshot || (definition.scope === "validated" ? buildValidatedSnapshot(definition) : null) };
+      if (scope === "local") {
+        if (!onSaveInstrument) return;
+        await onSaveInstrument(nextDefinition);
+      }
+      const latest = (latestSessionDataRef.current[kind === "uut" ? "uuts" : "tmdes"] || []).find(row => sameId(row.id, item.id));
+      if (!latest) return;
+      persistInlineItem(kind, replaceSessionDefinitionIdentity(latest, { ...latest.instrument,
+        id, libraryInstrumentId: id, scope, localOverride: true,
+        sourceId: nextDefinition.sourceId, validatedSnapshot: nextDefinition.validatedSnapshot }), { skipLibrarySave: true });
+      setLocalLibraryChoices(previous => ({ ...previous, [key]: scope }));
+    } catch {
+      setNotification?.({ title: "Could not change sync state", message: "Please try again." });
+    } finally {
+      syncScopeChanges.current.delete(key);
+    }
+  };
+  const handleDemoteItem = (kind, item) => {
+    const state = computeSyncState(item.instrument || {});
+    if (state !== "red") changeItemSyncScope(kind, item, state === "green" ? "local" : "session");
+  };
+
   const handleSyncItem = (kind, item) => {
     if (!setNotification || !item) return;
     const instrument = itemInstrumentForLibrary(kind, item);
@@ -6909,28 +6946,11 @@ const SummaryDashboard = ({
     const linked = Boolean(instrument.sourceId) || instrument.scope === "validated";
     const label = libraryLabel(instrument);
 
-    if (state === "green") {
-      setNotification({
-        title: "Already Synced",
-        message: `${label} already matches the shared library snapshot.`,
-      });
-      return;
-    }
+    if (state === "red") { changeItemSyncScope(kind, item, "local"); return; }
+    if (state === "green") return;
 
     setNotification({
       title: linked ? "Re-sync Instrument" : "Sync Instrument",
-      ...(state === "red" && onSaveInstrument ? {
-        secondaryText: "Save locally",
-        onSecondary: async () => {
-          try {
-            await onSaveInstrument({ ...instrument, scope: "local" });
-            persistInlineItem(kind, { ...item, instrument: { ...item.instrument, scope: "local" } });
-            setNotification(null);
-          } catch {
-            setNotification({ title: "Save failed", message: "Could not save the instrument locally. Please try again." });
-          }
-        },
-      } : {}),
       message: `${syncDiffSummary(getDiff(instrument))} Enter the shared-library password to sync ${label}.`,
       inputLabel: "Shared library password",
       inputPlaceholder: "Password",
@@ -6959,7 +6979,7 @@ const SummaryDashboard = ({
   };
 
   const saveItemInstrumentToLocalLibrary = (kind, item) => {
-    if (!onSaveInstrument || !item) return;
+    if (!onSaveInstrument || !item || item.instrument?.scope === "session") return;
     const instrument = itemInstrumentForLibrary(kind, item);
     // Never demote an in-sync shared instrument back to a local copy. If the
     // row is linked to the shared library and still matches its validated
@@ -6987,7 +7007,7 @@ const SummaryDashboard = ({
   // (they stay local / out-of-sync until the user explicitly syncs them to the
   // shared library). The old "Save Local vs Session Only" prompt was removed.
   const promptLocalLibrarySave = (kind, item) => {
-    if (!onSaveInstrument || !item?.instrument) return;
+    if (!onSaveInstrument || !item?.instrument || item.instrument.scope === "session") return;
     const key = `${kind}:${item.id}`;
     setLocalLibraryChoices((prev) =>
       prev[key] === "local" ? prev : { ...prev, [key]: "local" },
@@ -7056,7 +7076,7 @@ const SummaryDashboard = ({
     });
   };
 
-  const persistInlineItem = (kind, updatedItem, { maybePromptLocal = false } = {}) => {
+  const persistInlineItem = (kind, updatedItem, { maybePromptLocal = false, skipLibrarySave = false } = {}) => {
     const currentSession = latestSessionDataRef.current;
     const localizedItem = localizeSharedInstrumentEdit(updatedItem, instruments);
     const synchronized = synchronizeLocalInstrumentDefinitions(
@@ -7100,13 +7120,13 @@ const SummaryDashboard = ({
     latestSessionDataRef.current = nextSession;
     onSessionSave(nextSession);
     if (
-      onSaveInstrument &&
+      !skipLibrarySave && onSaveInstrument && synchronizedItem.instrument?.scope !== "session" &&
       (synchronizedItem.instrument?.sourceId ||
         synchronizedItem.instrument?.scope === "local" ||
         localLibraryChoices[`${kind}:${localizedItem.id}`] === "local")
     ) {
       saveItemInstrumentToLocalLibrary(kind, synchronizedItem);
-    } else if (maybePromptLocal) {
+    } else if (maybePromptLocal && !skipLibrarySave && synchronizedItem.instrument?.scope !== "session") {
       promptLocalLibrarySave(kind, synchronizedItem);
     }
   };
@@ -9325,7 +9345,7 @@ const SummaryDashboard = ({
                                   style={{ textAlign: "center" }}
                                 >
                                   <div className="instrument-row-tools">
-                                    <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} />
+                                    <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} onDemote={() => handleDemoteItem("uut", uut)} />
                                     {renderInstrumentDeleteButton("uut", uut)}
                                   </div>
                                 </td>
@@ -9597,7 +9617,7 @@ const SummaryDashboard = ({
                           style={{ textAlign: "center" }}
                         >
                           <div className="instrument-row-tools">
-                            <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} />
+                            <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} onDemote={() => handleDemoteItem("uut", uut)} />
                             {renderInstrumentDeleteButton("uut", uut)}
                           </div>
                         </td>
@@ -9819,7 +9839,7 @@ const SummaryDashboard = ({
                                   style={{ textAlign: "center" }}
                                 >
                                   <div className="instrument-row-tools">
-                                    <SyncBadge item={tmde} onSync={() => handleSyncItem("tmde", tmde)} />
+                                    <SyncBadge item={tmde} onSync={() => handleSyncItem("tmde", tmde)} onDemote={() => handleDemoteItem("tmde", tmde)} />
                                     {renderInstrumentDeleteButton("tmde", tmde)}
                                   </div>
                                 </td>
@@ -10143,7 +10163,7 @@ const SummaryDashboard = ({
                           style={{ textAlign: "center" }}
                         >
                           <div className="instrument-row-tools">
-                            <SyncBadge item={tmde} onSync={() => handleSyncItem("tmde", tmde)} />
+                            <SyncBadge item={tmde} onSync={() => handleSyncItem("tmde", tmde)} onDemote={() => handleDemoteItem("tmde", tmde)} />
                             {renderInstrumentDeleteButton("tmde", tmde)}
                           </div>
                         </td>
@@ -11127,7 +11147,7 @@ function DetailedView({
       functions: inst.functions || [],
       measurementArea: areaName,
       measurementAreaColor: areaColor,
-      scope: inst.scope || "local",
+      scope: inst.scope || "session",
     };
   };
 
@@ -11155,6 +11175,42 @@ function DetailedView({
     });
   };
 
+  const syncScopeChanges = useRef(new Set());
+  const changeItemSyncScope = async (kind, item, scope) => {
+    const key = `${kind}:${item.id}`;
+    if (syncScopeChanges.current.has(key)) return;
+    syncScopeChanges.current.add(key);
+    try {
+      const current = (latestSessionDataRef.current[kind === "uut" ? "uuts" : "tmdes"] || []).find(row => sameId(row.id, item.id));
+      if (!current) return;
+      const definition = itemInstrumentForLibrary(kind, current);
+      // A demotion detaches this session's definition, preserving saved library
+      // records and other sessions. Subsequent edits retain the chosen scope.
+      const id = scope === "session" || definition.scope === "validated" ? uuidv4() : definition.id;
+      const nextDefinition = { ...definition, id, libraryInstrumentId: id, scope, localOverride: true,
+        sourceId: definition.sourceId || (definition.scope === "validated" ? definition.id : undefined),
+        validatedSnapshot: definition.validatedSnapshot || (definition.scope === "validated" ? buildValidatedSnapshot(definition) : null) };
+      if (scope === "local") {
+        if (!onSaveInstrument) return;
+        await onSaveInstrument(nextDefinition);
+      }
+      const latest = (latestSessionDataRef.current[kind === "uut" ? "uuts" : "tmdes"] || []).find(row => sameId(row.id, item.id));
+      if (!latest) return;
+      persistInlineItemDetail(kind, replaceSessionDefinitionIdentity(latest, { ...latest.instrument,
+        id, libraryInstrumentId: id, scope, localOverride: true,
+        sourceId: nextDefinition.sourceId, validatedSnapshot: nextDefinition.validatedSnapshot }), { skipLibrarySave: true });
+      setLocalLibraryChoices(previous => ({ ...previous, [key]: scope }));
+    } catch {
+      setNotification?.({ title: "Could not change sync state", message: "Please try again." });
+    } finally {
+      syncScopeChanges.current.delete(key);
+    }
+  };
+  const handleDemoteItem = (kind, item) => {
+    const state = computeSyncState(item.instrument || {});
+    if (state !== "red") changeItemSyncScope(kind, item, state === "green" ? "local" : "session");
+  };
+
   const handleSyncItem = (kind, item) => {
     if (!setNotification || !item) return;
     const instrument = itemInstrumentForLibrary(kind, item);
@@ -11162,28 +11218,11 @@ function DetailedView({
     const linked = Boolean(instrument.sourceId) || instrument.scope === "validated";
     const label = libraryLabel(instrument);
 
-    if (state === "green") {
-      setNotification({
-        title: "Already Synced",
-        message: `${label} already matches the shared library snapshot.`,
-      });
-      return;
-    }
+    if (state === "red") { changeItemSyncScope(kind, item, "local"); return; }
+    if (state === "green") return;
 
     setNotification({
       title: linked ? "Re-sync Instrument" : "Sync Instrument",
-      ...(state === "red" && onSaveInstrument ? {
-        secondaryText: "Save locally",
-        onSecondary: async () => {
-          try {
-            await onSaveInstrument({ ...instrument, scope: "local" });
-            persistInlineItem(kind, { ...item, instrument: { ...item.instrument, scope: "local" } });
-            setNotification(null);
-          } catch {
-            setNotification({ title: "Save failed", message: "Could not save the instrument locally. Please try again." });
-          }
-        },
-      } : {}),
       message: `${syncDiffSummary(getDiff(instrument))} Enter the shared-library password to sync ${label}.`,
       inputLabel: "Shared library password",
       inputPlaceholder: "Password",
@@ -11211,7 +11250,7 @@ function DetailedView({
     });
   };
   const saveItemInstrumentToLocalLibrary = (kind, item) => {
-    if (!onSaveInstrument || !item) return;
+    if (!onSaveInstrument || !item || item.instrument?.scope === "session") return;
     const instrument = itemInstrumentForLibrary(kind, item);
     // Never demote an in-sync shared instrument back to a local copy. If the
     // row is linked to the shared library and still matches its validated
@@ -11238,7 +11277,7 @@ function DetailedView({
   // automatically — they stay local / out-of-sync until the user explicitly
   // syncs them to the shared library. No "Save Local vs Session Only" prompt.
   const promptLocalLibrarySave = (kind, item) => {
-    if (!onSaveInstrument || !item?.instrument) return;
+    if (!onSaveInstrument || !item?.instrument || item.instrument.scope === "session") return;
     const key = `${kind}:${item.id}`;
     setLocalLibraryChoices((prev) =>
       prev[key] === "local" ? prev : { ...prev, [key]: "local" },
@@ -11305,7 +11344,7 @@ function DetailedView({
   const persistInlineItemDetail = (
     kind,
     updatedItem,
-    { maybePromptLocal = false } = {},
+    { maybePromptLocal = false, skipLibrarySave = false } = {},
   ) => {
     if (!onSessionSave) return;
     const currentSession = latestSessionDataRef.current;
@@ -11339,13 +11378,13 @@ function DetailedView({
     latestSessionDataRef.current = nextSession;
     onSessionSave(nextSession);
     if (
-      onSaveInstrument &&
+      !skipLibrarySave && onSaveInstrument && synchronizedItem.instrument?.scope !== "session" &&
       (synchronizedItem.instrument?.sourceId ||
         synchronizedItem.instrument?.scope === "local" ||
         localLibraryChoices[`${kind}:${localizedItem.id}`] === "local")
     ) {
       saveItemInstrumentToLocalLibrary(kind, synchronizedItem);
-    } else if (maybePromptLocal) {
+    } else if (maybePromptLocal && !skipLibrarySave && synchronizedItem.instrument?.scope !== "session") {
       promptLocalLibrarySave(kind, synchronizedItem);
     }
     synchronized.tmdes.forEach((nextItem) => {
@@ -15584,7 +15623,7 @@ function DetailedView({
                                   style={{ textAlign: "center" }}
                                 >
                                   <div className="instrument-row-tools">
-                                    <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} />
+                                    <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} onDemote={() => handleDemoteItem("uut", uut)} />
                                     {renderInstrumentDeleteButton("uut", uut)}
                                   </div>
                                 </td>
@@ -15876,7 +15915,7 @@ function DetailedView({
                           style={{ textAlign: "center" }}
                         >
                           <div className="instrument-row-tools">
-                            <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} />
+                            <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} onDemote={() => handleDemoteItem("uut", uut)} />
                             {renderInstrumentDeleteButton("uut", uut)}
                           </div>
                         </td>
@@ -16419,7 +16458,7 @@ function DetailedView({
                                       <div className="instrument-row-tools">
                                         <SyncBadge
                                           item={masterTmde}
-                                          onSync={() => handleSyncItem("tmde", masterTmde)}
+                                          onSync={() => handleSyncItem("tmde", masterTmde)} onDemote={() => handleDemoteItem("tmde", masterTmde)}
                                         />
                                         {renderInstrumentDeleteButton("tmde", masterTmde)}
                                       </div>
@@ -16855,7 +16894,7 @@ function DetailedView({
                               style={{ textAlign: "center" }}
                             >
                               <div className="instrument-row-tools">
-                                <SyncBadge item={masterTmde} onSync={() => handleSyncItem("tmde", masterTmde)} />
+                                <SyncBadge item={masterTmde} onSync={() => handleSyncItem("tmde", masterTmde)} onDemote={() => handleDemoteItem("tmde", masterTmde)} />
                                 {renderInstrumentDeleteButton("tmde", masterTmde)}
                               </div>
                             </td>

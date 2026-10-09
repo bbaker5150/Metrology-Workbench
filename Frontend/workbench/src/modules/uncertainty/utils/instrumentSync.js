@@ -75,6 +75,7 @@ export const diffFromSnapshot = (instrument = {}) => {
 };
 
 export const computeSyncState = (instrument = {}) => {
+  if (instrument.scope === "session") return SYNC_RED;
   const local = instrument.scope === "local" ? SYNC_YELLOW : SYNC_RED;
   if (instrument.localOverride || !isValidatedLinked(instrument)) return local;
   if (!instrument.validatedSnapshot) return SYNC_GREEN;
