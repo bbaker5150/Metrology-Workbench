@@ -2532,7 +2532,7 @@ export const getInstrumentColumnOrder = (kind, customColumns = [], qualifierEnab
   let legacyAnchor = "resolution";
   customColumns.forEach((column) => {
     const key = instrumentColumnKey(column);
-    const requestedAnchor = qualifierEnabled && column.insertAfter === "range" ? (Number(qualifierEnabled) > 1 ? `qualifier${qualifierEnabled}` : "qualifier") : column.insertAfter || legacyAnchor;
+    const requestedAnchor = column.insertAfter || legacyAnchor;
     const syncIndex = order.indexOf("sync");
     const anchorIndex = order.indexOf(requestedAnchor);
     const insertionIndex =
@@ -2543,8 +2543,8 @@ export const getInstrumentColumnOrder = (kind, customColumns = [], qualifierEnab
   return order;
 };
 
-const customColumnsAfter = (kind, customColumns, anchorKey) => {
-  const order = getInstrumentColumnOrder(kind, customColumns);
+const customColumnsAfter = (kind, customColumns, anchorKey, qualifierEnabled = false) => {
+  const order = getInstrumentColumnOrder(kind, customColumns, qualifierEnabled);
   const byKey = new Map(
     customColumns.map((column) => [instrumentColumnKey(column), column]),
   );
@@ -4563,7 +4563,7 @@ export const InstrumentUncertaintyRow = ({ source, activeRange, referencePoint, 
     data-range-id={uncertaintyRowId(source.id)} data-range-selected={selected}
     data-uncertainty-source-id={source.id} style={{ ...style, "--uncertainty-source-count": sourceCount }}>
     {renderCustomAfter("description")}
-    <td colSpan={1 + Number(qualifierEnabled)} className="cell-range instrument-uncertainty-name-cell" data-range-cell>
+    <td className="cell-range instrument-uncertainty-name-cell" data-range-cell>
       {sourceIndex === 0 && <span className="instrument-uncertainty-rail" aria-label="Additional uncertainty"><span>ADD’L UNCERTAINTY</span></span>}
       <div className="range-row-cell">
       <div className="instrument-source-row-name">
@@ -4581,6 +4581,7 @@ export const InstrumentUncertaintyRow = ({ source, activeRange, referencePoint, 
       </div>
     </td>
     {renderCustomAfter("range")}
+    {Array.from({ length: Number(qualifierEnabled) }, (_, index) => <React.Fragment key={index}><td />{renderCustomAfter(index ? `qualifier${index + 1}` : "qualifier")}</React.Fragment>)}
     <td className="cell-tolerance" onMouseDownCapture={event => {
       // Keep the name field mounted until the summary receives its click.
       // Blurring it on pointer-down can resize the row and move the target.
@@ -6836,7 +6837,7 @@ const SummaryDashboard = ({
     });
   };
   const renderCustomCellsAfter = (kind, item, anchorKey, rowSpan = 1, rows = null, index = 0) =>
-    customColumnsAfter(kind, customColumnsFor(kind), anchorKey).map((column) => {
+    customColumnsAfter(kind, customColumnsFor(kind), anchorKey, (kind === "uut" ? uutTableColumns : tmdeTableColumns).qualifierEnabled).map((column) => {
       const group = instrumentCustomFieldGroup(item, column.key, rows, index);
       if (!group) return null;
       return <td key={column.key} data-custom-column={`custom:${column.key}`} rowSpan={rows ? group.rangeIds.length : rowSpan} className="instrument-custom-field-cell">
@@ -8178,6 +8179,7 @@ const SummaryDashboard = ({
     const showRangeActions = lastSelectionTarget === "range" && (selectedRangeIds[itemStateKey(kind, item.id)] || []).some(id => sameId(id, rangeKey));
 
     const qualifierEnabled = (kind === "uut" ? uutTableColumns : tmdeTableColumns).qualifierEnabled;
+    const splitQualifierCells = customColumnsFor(kind).some(column => column.insertAfter === "range" || column.insertAfter?.startsWith("qualifier"));
     const span = qualifierRowSpan(getInstrumentRangeRows(item), range);
     const updateQualifier = (action, patch, depth = 1) => {
       const current = (latestSessionDataRef.current[kind === "uut" ? "uuts" : "tmdes"] || []).find(entry => sameId(entry.id, item.id)) || item;
@@ -8192,7 +8194,7 @@ const SummaryDashboard = ({
       <>
         {span > 0 && <td
           rowSpan={span}
-          colSpan={range.qualifier ? 1 : 1 + Number(qualifierEnabled)}
+          colSpan={range.qualifier || splitQualifierCells ? 1 : 1 + Number(qualifierEnabled)}
           data-range-cell="true"
           className={`cell-value ${hoveredCell.tableId === tableId && hoveredCell.colIndex === 1 ? "col-hovered" : ""}`}
           onMouseEnter={() => setHoveredCell({ tableId, colIndex: 1 })}
@@ -8272,13 +8274,16 @@ const SummaryDashboard = ({
             </span>}
           </div>
         </td>}
+        {renderCustomAfter("range")}
         {Array.from({ length: Number(qualifierEnabled) }, (_, index) => {
           const depth = index + 1;
           const qualifier = qualifierAt(range, depth);
-          if (!qualifier) return null;
+          const columnKey = depth === 1 ? "qualifier" : `qualifier${depth}`;
+          const custom = renderCustomAfter(columnKey);
+          if (!qualifier) return splitQualifierCells ? <React.Fragment key={depth}><td data-qualifier-empty={depth} />{custom}</React.Fragment> : null;
           const rowSpan = qualifierRowSpan(getInstrumentRangeRows(item), range, depth);
-          if (!rowSpan) return null;
-          return <td key={depth} rowSpan={rowSpan} colSpan={qualifier.qualifier ? 1 : Number(qualifierEnabled) - depth + 1} data-range-cell="true" data-qualifier-cell={depth} className="cell-value qualifier-range-cell">
+          if (!rowSpan) return <React.Fragment key={depth}>{custom}</React.Fragment>;
+          return <React.Fragment key={depth}><td rowSpan={rowSpan} colSpan={qualifier.qualifier || splitQualifierCells ? 1 : Number(qualifierEnabled) - depth + 1} data-range-cell="true" data-qualifier-cell={depth} className="cell-value qualifier-range-cell">
             <div className="range-row-cell">
               <RangeCell ranges={[qualifier]} activeIndex={0} activeRange={{ ...qualifier, id: `${rangeKey}:qualifier:${depth}` }} editable textMode
                 closeKey={Boolean(qualifier.qualifier)}
@@ -8291,12 +8296,11 @@ const SummaryDashboard = ({
               <span className="range-row-controls">
                 {!qualifier.qualifier && <button type="button" className="range-qualifier-add" aria-label="Add nested qualifier" title="Add qualifier" onMouseDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); updateQualifier("enable", {}, depth + 1); }}>+ Qual</button>}
                 <button type="button" className="range-row-add" title="Add qualifier range" aria-label="Add qualifier range" onClick={event => { event.stopPropagation(); updateQualifier("add", {}, depth); }}><FontAwesomeIcon icon={faPlus} /></button>
-                <button type="button" className="range-row-delete" title="Delete qualifier range" aria-label="Delete qualifier range" onClick={event => { event.stopPropagation(); updateQualifier("remove", {}, depth); }}>×</button>
+                <button type="button" className="range-row-delete" title="Delete qualifier range" aria-label="Delete qualifier range" onClick={event => { event.stopPropagation(); updateQualifier("remove", {}, depth); }}><FontAwesomeIcon icon={faTimes} /></button>
               </span>
             </div>
-          </td>;
+          </td>{custom}</React.Fragment>;
         })}
-        {renderCustomAfter("range")}
 
         <td
           data-range-tolerance-key={`${itemStateKey(kind, item.id)}:${rangeKey}`}
@@ -9868,7 +9872,7 @@ const SummaryDashboard = ({
 
                             onChange={updated => saveInstrumentSources(tmde, values => values.map(value => value.id === source.id ? updated : value))}
                             onRemove={() => saveInstrumentSources(tmde, values => values.filter(value => value.id !== source.id))}
-                            renderCustomAfter={anchor => customColumnsAfter("tmde", customColumnsFor("tmde"), anchor).map(column => <td key={column.key} data-custom-column={`custom:${column.key}`} />)}
+                            renderCustomAfter={anchor => customColumnsAfter("tmde", customColumnsFor("tmde"), anchor, tmdeTableColumns.qualifierEnabled).map(column => <td key={column.key} data-custom-column={`custom:${column.key}`} />)}
                           />)}
                       </React.Fragment>
                     );
@@ -10556,7 +10560,7 @@ function DetailedView({
     });
   };
   const renderCustomCellsAfter = (kind, item, anchorKey, rowSpan = 1, rows = null, index = 0) =>
-    customColumnsAfter(kind, customColumnsFor(kind), anchorKey).map((column) => {
+    customColumnsAfter(kind, customColumnsFor(kind), anchorKey, (kind === "uut" ? uutTableColumns : tmdeTableColumns).qualifierEnabled).map((column) => {
       const group = instrumentCustomFieldGroup(item, column.key, rows, index);
       if (!group) return null;
       return <td key={column.key} data-custom-column={`custom:${column.key}`} rowSpan={rows ? group.rangeIds.length : rowSpan} className="instrument-custom-field-cell">
@@ -11936,6 +11940,7 @@ function DetailedView({
     const showRangeActions = lastSelectionTarget === "range" && (selectedRangeIds[itemStateKey(kind, item.id)] || []).some(id => sameId(id, rangeKey));
 
     const qualifierEnabled = (kind === "uut" ? uutTableColumns : tmdeTableColumns).qualifierEnabled;
+    const splitQualifierCells = customColumnsFor(kind).some(column => column.insertAfter === "range" || column.insertAfter?.startsWith("qualifier"));
     const span = qualifierRowSpan(getInstrumentRangeRows(item), range);
     const updateQualifier = (action, patch, depth = 1) => {
       const current = (latestSessionDataRef.current[kind === "uut" ? "uuts" : "tmdes"] || []).find(entry => sameId(entry.id, item.id)) || item;
@@ -11950,7 +11955,7 @@ function DetailedView({
       <>
         {span > 0 && <td
           rowSpan={span}
-          colSpan={range.qualifier ? 1 : 1 + Number(qualifierEnabled)}
+          colSpan={range.qualifier || splitQualifierCells ? 1 : 1 + Number(qualifierEnabled)}
           data-range-cell="true"
           className={`cell-value ${hoveredCell.tableId === tableId && hoveredCell.colIndex === cols.range ? "col-hovered" : ""}`}
           onMouseEnter={() => setHoveredCell({ tableId, colIndex: cols.range })}
@@ -12030,13 +12035,16 @@ function DetailedView({
             </span>}
           </div>
         </td>}
+        {renderCustomAfter("range")}
         {Array.from({ length: Number(qualifierEnabled) }, (_, index) => {
           const depth = index + 1;
           const qualifier = qualifierAt(range, depth);
-          if (!qualifier) return null;
+          const columnKey = depth === 1 ? "qualifier" : `qualifier${depth}`;
+          const custom = renderCustomAfter(columnKey);
+          if (!qualifier) return splitQualifierCells ? <React.Fragment key={depth}><td data-qualifier-empty={depth} />{custom}</React.Fragment> : null;
           const rowSpan = qualifierRowSpan(getInstrumentRangeRows(item), range, depth);
-          if (!rowSpan) return null;
-          return <td key={depth} rowSpan={rowSpan} colSpan={qualifier.qualifier ? 1 : Number(qualifierEnabled) - depth + 1} data-range-cell="true" data-qualifier-cell={depth} className="cell-value qualifier-range-cell">
+          if (!rowSpan) return <React.Fragment key={depth}>{custom}</React.Fragment>;
+          return <React.Fragment key={depth}><td rowSpan={rowSpan} colSpan={qualifier.qualifier || splitQualifierCells ? 1 : Number(qualifierEnabled) - depth + 1} data-range-cell="true" data-qualifier-cell={depth} className="cell-value qualifier-range-cell">
             <div className="range-row-cell">
               <RangeCell ranges={[qualifier]} activeIndex={0} activeRange={{ ...qualifier, id: `${rangeKey}:qualifier:${depth}` }} editable textMode
                 closeKey={Boolean(qualifier.qualifier)}
@@ -12049,12 +12057,11 @@ function DetailedView({
               <span className="range-row-controls">
                 {!qualifier.qualifier && <button type="button" className="range-qualifier-add" aria-label="Add nested qualifier" title="Add qualifier" onMouseDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); updateQualifier("enable", {}, depth + 1); }}>+ Qual</button>}
                 <button type="button" className="range-row-add" title="Add qualifier range" aria-label="Add qualifier range" onClick={event => { event.stopPropagation(); updateQualifier("add", {}, depth); }}><FontAwesomeIcon icon={faPlus} /></button>
-                <button type="button" className="range-row-delete" title="Delete qualifier range" aria-label="Delete qualifier range" onClick={event => { event.stopPropagation(); updateQualifier("remove", {}, depth); }}>×</button>
+                <button type="button" className="range-row-delete" title="Delete qualifier range" aria-label="Delete qualifier range" onClick={event => { event.stopPropagation(); updateQualifier("remove", {}, depth); }}><FontAwesomeIcon icon={faTimes} /></button>
               </span>
             </div>
-          </td>;
+          </td>{custom}</React.Fragment>;
         })}
-        {renderCustomAfter("range")}
 
         <td
           data-range-tolerance-key={`${itemStateKey(kind, item.id)}:${rangeKey}`}
@@ -16488,7 +16495,7 @@ function DetailedView({
                             referencePoint={getInstrumentToleranceNominal("tmde", masterTmde, activeRange)}
                             onChange={updated => saveInstrumentSources(masterTmde, values => values.map(value => value.id === source.id ? updated : value))}
                             onRemove={() => saveInstrumentSources(masterTmde, values => values.filter(value => value.id !== source.id))}
-                            renderCustomAfter={anchor => customColumnsAfter("tmde", customColumnsFor("tmde"), anchor).map(column => <td key={column.key} data-custom-column={`custom:${column.key}`} />)}
+                            renderCustomAfter={anchor => customColumnsAfter("tmde", customColumnsFor("tmde"), anchor, tmdeTableColumns.qualifierEnabled).map(column => <td key={column.key} data-custom-column={`custom:${column.key}`} />)}
                           />)}
                       </React.Fragment>
                         );

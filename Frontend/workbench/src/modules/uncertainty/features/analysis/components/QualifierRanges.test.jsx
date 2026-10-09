@@ -88,3 +88,25 @@ it.each(['session','point'])('nests text qualifiers and collapses parents in %s 
  expect(ranges[0].qualifier.qualifier.text).toBe('90 days');
  expect(ranges[1].tolerances).toEqual({});
 });
+
+it.each(['session','point'])('keeps custom columns as Name fields at their selected position beside nested qualifiers in %s',viewMode=>{
+ render(<Harness viewMode={viewMode}/>);
+ const row=document.querySelector('tr[data-range-group="uut:u1"]');
+ fireEvent.mouseDown(row.querySelector('[data-range-cell]'));
+ fireEvent.click(within(row).getByRole('button',{name:'Add qualifier',exact:true}));
+ fireEvent.click(within(row).getByRole('button',{name:'Add nested qualifier'}));
+ const table=row.closest('table');
+ for(const [anchor,name] of [['range','Asset note'],['qualifier','Frequency note'],['qualifier2','Interval note']]) {
+  const header=table.querySelector(`[data-instrument-column="${anchor}"]`);
+  fireEvent.click(header.querySelector('.instrument-column-insert-button'));
+  const input=within(table).getByRole('textbox',{name:'Column name',exact:true});
+  expect(input).toHaveValue('Name');
+  fireEvent.change(input,{target:{value:name}});fireEvent.blur(input);
+  const headers=[...table.tHead.rows[0].cells];
+  const index=headers.findIndex(cell=>within(cell).queryByRole('button',{name,exact:true}));
+  expect(index).toBe(headers.indexOf(header)+1);
+  expect(row.cells[index]).toHaveAttribute('data-custom-column',headers[index].dataset.instrumentColumn);
+  expect(row.cells[index].querySelector('[placeholder="Qualifier"]')).toBeNull();
+ }
+ expect(row.querySelectorAll('[data-qualifier-cell]')).toHaveLength(2);
+});

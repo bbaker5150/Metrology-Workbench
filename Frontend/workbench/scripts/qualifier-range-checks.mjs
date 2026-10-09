@@ -86,6 +86,14 @@ export async function checkQualifierRanges({frame, page, saved, until, check}) {
       const child = first.locator('[data-qualifier-cell="2"]');
       check(`${view} ${kind} parent qualifier collapses`, await parent.getByRole('textbox',{name:'Qualifier value'}).count() === 0);
       check(`${view} ${kind} nested qualifier opens focused`, await child.getByRole('textbox',{name:'Qualifier value'}).evaluate(node=>node===document.activeElement));
+      check(`${view} ${kind} blank nested qualifier reserves the complete action buttons`, await until(()=>child.evaluate(cell=>{
+        const edge=cell.getBoundingClientRect().right;
+        const add=cell.querySelector('.range-row-add').getBoundingClientRect();
+        const remove=cell.querySelector('.range-row-delete').getBoundingClientRect();
+        return [...cell.querySelectorAll('input, .range-row-controls button')].every(node=>node.getBoundingClientRect().right<=edge-1)
+          && Math.abs(add.width-remove.width)<.5 && Math.abs(add.height-remove.height)<.5;
+      })));
+
       await child.getByRole('textbox',{name:'Qualifier value'}).fill('90 days');
       await child.getByRole('textbox',{name:'Qualifier value'}).press('Enter');
       await table.locator('[data-instrument-column="qualifier2"] .instrument-custom-column-label').click();

@@ -22185,3 +22185,7 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
 }
 
 .inline-sync-badge--yellow { color: #b8860b; }
+
+/* Qualifier row actions use the same icon box and glyph scale. */
+.qualifier-range-cell .range-row-controls :is(.range-row-add, .range-row-delete) { font-size: 12px; }
+.qualifier-range-cell .range-row-controls :is(.range-row-add, .range-row-delete) svg { width: 12px; height: 12px; }

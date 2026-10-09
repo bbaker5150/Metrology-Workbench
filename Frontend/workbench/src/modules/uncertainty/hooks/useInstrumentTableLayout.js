@@ -227,7 +227,17 @@ export default function useInstrumentTableLayout(containerRef) {
         }
 
         const qualifier = cell.hasAttribute('data-qualifier-cell');
-        if (qualifier && editor.classList.contains('is-editing')) width = equationEditorWidth(editor);
+        if (qualifier && editor.classList.contains('is-editing')) {
+          // Measure the live input, whose intrinsic size includes its placeholder
+          // and inherited font. A detached editor can inherit a smaller font.
+          const input = editor.querySelector('input');
+          const main = editor.querySelector('.inline-range-main');
+          const paddingWidth = node => {
+            const computed = getComputedStyle(node);
+            return ['paddingLeft', 'paddingRight', 'borderLeftWidth', 'borderRightWidth'].reduce((sum, key) => sum + (parseFloat(computed[key]) || 0), 0);
+          };
+          width = Math.ceil(input.offsetWidth + paddingWidth(main) + paddingWidth(editor)) + 2;
+        }
         const collapsedQualifier = qualifier && !editor.classList.contains('is-editing');
         if (collapsedQualifier) {
           // Summaries must reserve room for their adjacent actions too. Measure
