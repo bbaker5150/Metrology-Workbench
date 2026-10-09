@@ -62,3 +62,15 @@ it('matches a literal free-text qualifier without treating its digits as bounds'
  expect(assessRangeCompatibility(rows(item)[0],{value:50,unit:'A',qualifier:{value:'90 days'}}).compatible).toBe(true);
  expect(assessRangeCompatibility(rows(item)[0],{value:50,unit:'A',qualifier:{value:'180 days'}}).compatible).toBe(false);
 });
+
+it('groups adjacent equal qualifier values and edits the shared value without changing uncertainty',()=>{
+ const ranges=['Test','Test','Test','Other','Test',''].map((text,index)=>({id:`r${index}`,min:index,max:index+1,unit:'A',qualifierGroupId:`g${index}`,qualifier:{id:`q${index}`,text},tolerances:{reading:{value:index+1,unit:'%'}}}));
+ expect(ranges.map(range=>qualifierRowSpan(ranges,range,1))).toEqual([3,0,0,1,1,1]);
+ const item=editQualifierRange({instrument:{ranges}},'r0','patch',{text:'Shared'}).item;
+ expect(item.instrument.ranges.map(range=>range.qualifier.text)).toEqual(['Shared','Shared','Shared','Other','Test','']);
+ expect(item.instrument.ranges.map(range=>range.tolerances.reading.value)).toEqual([1,2,3,4,5,6]);
+});
+it('groups nested qualifiers by value while leaving separate blank inputs editable',()=>{
+ const ranges=['Test','Test','Test','',''].map((text,index)=>({id:`r${index}`,qualifierGroupId:'g',qualifier:{id:`parent${index}`,text:`Frequency ${index}`,qualifier:{id:`q${index}`,text}}}));
+ expect(ranges.map(range=>qualifierRowSpan(ranges,range,2))).toEqual([3,0,0,1,1]);
+});

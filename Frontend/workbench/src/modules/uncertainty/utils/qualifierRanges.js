@@ -1,3 +1,4 @@
+import { consecutiveCellGroup } from "./consecutiveCellGroup";
 import { v4 as uuid } from "uuid";
 import { getInstrumentRangeRows } from "./instrumentFunctionSelection";
 
@@ -42,15 +43,33 @@ const branchKey = (range, depth) => {
   }
   return JSON.stringify(path);
 };
-export function qualifierRowSpan(rows, range, depth = 0) {
+const qualifierCellKey = (range, depth) => {
+  if (depth === 0) return branchKey(range, 0);
+  const node = qualifierAt(range, depth);
+  if (!node) return null;
+  const value = formatQualifierValue(node);
+  // An unset ancestor already shared by child rows keeps its structural span.
+  // Separate blank qualifier inputs must not merge before users fill them.
+  if (!value) return node.qualifier ? branchKey(range, depth) : null;
+  return JSON.stringify([range.functionId || range.functionName || "", value, Boolean(node.qualifier)]);
+};
+export function qualifierCellGroup(rows, range, depth = 0) {
   const index = rows.findIndex(row => idOf(row) === idOf(range));
-  const key = branchKey(range, depth);
-  if (!key || index < 0) return 1;
-  if (index > 0 && branchKey(rows[index - 1], depth) === key) return 0;
-  let end = index + 1;
-  while (end < rows.length && branchKey(rows[end], depth) === key) end++;
-  return end - index;
+  if (index < 0) return null;
+  return consecutiveCellGroup(rows, index, i => qualifierCellKey(rows[i], depth));
 }
+export function qualifierRowSpan(rows, range, depth = 0) {
+  const group = qualifierCellGroup(rows, range, depth);
+  return group ? group.rows.length : 0;
+}
+// Resolve all rows covered by the existing shared cell, even when the edit
+// originates from a continuation row (e.g. finishing a newly added input).
+const qualifierGroupRows = (rows, range, depth) => {
+  let index = rows.findIndex(row => idOf(row) === idOf(range));
+  const key = qualifierCellKey(range, depth);
+  while (key != null && index > 0 && qualifierCellKey(rows[index - 1], depth) === key) index--;
+  return consecutiveCellGroup(rows, index, i => qualifierCellKey(rows[i], depth))?.rows || [range];
+};
 const replaceAt = (range, depth, transform) => depth === 0 ? transform(range) : { ...range, qualifier: replaceAt(range.qualifier, depth - 1, transform) };
 const blankQualifier = (source = {}) => ({ id: uuid(), name: source.name || "Qualifier", min: "", max: "", unit: source.unit || "" });
 
@@ -65,18 +84,22 @@ export function editQualifierRange(item, rangeId, action, patch = {}, depth = 1)
     const node = qualifierAt(range, depth);
     const key = branchKey(range, depth);
     const parentKey = branchKey(range, depth - 1);
-    if (action === "patch") return ranges.map(row => branchKey(row, depth) === key ? replaceAt(row, depth, current => ({ ...current, ...patch })) : row);
+    if (action === "patch") {
+      const covered = new Set(qualifierGroupRows(ranges, range, depth).map(idOf));
+      return ranges.map(row => covered.has(idOf(row)) ? replaceAt(row, depth, current => ({ ...current, ...patch })) : row);
+    }
     if (action === "enable") {
       newRangeId = idOf(range);
-      return ranges.map((row, i) => (depth === 1 ? i === index : branchKey(row, depth - 1) === parentKey)
+      const covered = new Set(depth === 1 ? [idOf(range)] : qualifierGroupRows(ranges, range, depth - 1).map(idOf));
+      return ranges.map(row => covered.has(idOf(row))
         ? replaceAt(row, depth - 1, parent => ({ ...parent, qualifierGroupId: parent.qualifierGroupId || uuid(), qualifier: { ...blankQualifier(depth === 1 ? { name: "Frequency", unit: "Hz" } : {}), ...patch } })) : row);
     }
     if (action === "add") {
       newRangeId = uuid();
       const copy = Object.fromEntries(Object.entries(range).filter(([field]) => ['min','max','value','isSingleValue','unit','unitless','functionId','functionName','functionUnit','resolution','resolutionUnit','resolutionDistribution','measuringResolution','measuringResolutionUnit','measuringResolutionDistribution','qualifier','qualifierGroupId'].includes(field)));
       const added = replaceAt({ ...copy, id: newRangeId, ...(range.rangeId ? { rangeId: newRangeId } : {}), tolerances: {} }, depth, () => blankQualifier(node));
-      let end = index + 1;
-      while (end < ranges.length && branchKey(ranges[end], depth) === key) end++;
+      const covered = qualifierGroupRows(ranges, range, depth);
+      let end = ranges.findIndex(row => idOf(row) === idOf(covered.at(-1))) + 1;
       return [...ranges.slice(0, end), added, ...ranges.slice(end)];
     }
     if (action === "remove") {

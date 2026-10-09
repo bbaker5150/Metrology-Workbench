@@ -1,3 +1,4 @@
+import { consecutiveCellGroup } from "../../../utils/consecutiveCellGroup";
 import { formatQualifierValue, formatQualifierPath, editQualifierRange, instrumentQualifierDepth, qualifierAt, qualifierGroupKey, qualifierRowSpan } from "../../../utils/qualifierRanges";
 import { measurementPreview } from '../../../utils/measurementPreview';
 import { newMeasurementAreaColor } from "../../../utils/measurementAreaGrouping";
@@ -2394,11 +2395,8 @@ const EditableCustomFieldCell = ({ value = "", onCommit, ariaLabel, editLabel, e
 export const instrumentCustomFieldGroup = (item, key, rows, index = 0) => {
   const valueAt = i => item.rangeCustomFields?.[rangeIdOf(rows[i].range)]?.[key] ?? item.customFields?.[key] ?? "";
   if (!rows) return { value: item.customFields?.[key] || "", rangeIds: [] };
-  const value = valueAt(index);
-  if (value !== "" && index > 0 && valueAt(index - 1) === value) return null;
-  let end = index + 1;
-  while (value !== "" && end < rows.length && valueAt(end) === value) end++;
-  return { value, rangeIds: rows.slice(index, end).map(({ range }) => rangeIdOf(range)) };
+  const group = consecutiveCellGroup(rows, index, valueAt);
+  return group ? { value: group.value, rangeIds: group.rows.map(({ range }) => rangeIdOf(range)) } : null;
 };
 
 export const removeInstrumentCustomColumn = (sessionData = {}, kind, key) => {

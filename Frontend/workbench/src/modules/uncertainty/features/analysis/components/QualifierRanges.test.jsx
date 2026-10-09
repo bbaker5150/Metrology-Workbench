@@ -4,8 +4,8 @@ import {it, expect, vi} from 'vitest';
 import UncertaintyPanel from './UncertaintyPanel';
 vi.mock('plotly.js-dist',()=>({default:{}}));
 const makeItem=id=>({id,description:id,instrument:{functions:[{id:id+'f',name:'Current',unit:'A',ranges:[{id:id+'r',min:10,max:100,unit:'A',tolerances:{reading:{value:1,unit:'%'}}}]}]}});
-function Harness({viewMode}) {
- const [session,save]=useState({id:'s',name:'Test',uuts:[makeItem('u1'),makeItem('u2')],tmdes:[makeItem('t1')],testPoints:[],uncReq:{}});
+function Harness({viewMode,grouped=false}) {
+ const [session,save]=useState({id:'s',name:'Test',uuts:[grouped ? {...makeItem('u1'),instrument:{functions:[{id:'u1f',name:'Current',unit:'A',ranges:[0,1,2].map(index=>({id:`g${index}`,min:index*10,max:(index+1)*10,unit:'A',qualifierGroupId:`parent${index}`,qualifier:{id:`q${index}`,text:'Test',qualifier:{id:`nested${index}`,text:'Interval'}},tolerances:{reading:{value:index+1,unit:'%'}}}))}]}} : makeItem('u1'),makeItem('u2')],tmdes:[makeItem('t1')],testPoints:[],uncReq:{}});
  const point={id:'p',viewMode,testPointInfo:{parameter:{name:'Current',value:50,unit:'A'},qualifier:{value:200,unit:'Hz'}},associatedUutIds:['u1'],components:[],tmdeTolerances:[],specifications:{}};
  return <><UncertaintyPanel testPointData={point} sessionData={session} onSessionSave={save} uutNominal={point.testPointInfo.parameter} tmdeTolerancesData={[]} setNotification={()=>{}} onInstrumentSynced={()=>{}}/><output data-testid="state">{JSON.stringify(session)}</output></>;
 }
@@ -109,4 +109,30 @@ it.each(['session','point'])('keeps custom columns as Name fields at their selec
   expect(row.cells[index].querySelector('[placeholder="Qualifier"]')).toBeNull();
  }
  expect(row.querySelectorAll('[data-qualifier-cell]')).toHaveLength(2);
+});
+
+it.each(['session','point'])('uses existing shared-cell selection and highlighting for equal qualifiers in %s',async viewMode=>{
+ render(<Harness viewMode={viewMode} grouped/>);
+ const first=document.querySelector('tr[data-range-group="uut:u1"]');
+ const expand=within(first).queryByRole('button',{name:'Edit ranges'});
+ if(expand) fireEvent.click(expand);
+ const rows=[...document.querySelectorAll('tr[data-range-group="uut:u1"]')];
+ expect(rows).toHaveLength(3);
+ const shared=rows[0].querySelector('[data-qualifier-cell="1"]');
+ const nested=rows[0].querySelector('[data-qualifier-cell="2"]');
+ expect(shared).toHaveAttribute('rowspan','3');expect(nested).toHaveAttribute('rowspan','3');
+ expect(rows[1].querySelector('[data-qualifier-cell]')).toBeNull();
+ expect(rows[2].querySelector('[data-qualifier-cell]')).toBeNull();
+ fireEvent.mouseDown(shared);
+ expect(rows.every(row=>row.dataset.rangeSelected==='true')).toBe(true);
+ fireEvent.mouseDown(rows[1].querySelector('.cell-tolerance'));
+ fireEvent.pointerMove(rows[1].querySelector('.cell-tolerance'));
+ await waitFor(()=>expect(shared).toHaveAttribute('data-cell-selected'));
+ expect(nested).toHaveAttribute('data-cell-selected');
+ fireEvent.click(shared.querySelector('.inline-tolerance-summary'));
+ const input=within(shared).getByRole('textbox',{name:'Qualifier value'});
+ fireEvent.change(input,{target:{value:'Updated'}});fireEvent.blur(input);
+ const ranges=JSON.parse(screen.getByTestId('state').textContent).uuts[0].instrument.functions[0].ranges;
+ expect(ranges.map(range=>range.qualifier.text)).toEqual(['Updated','Updated','Updated']);
+ expect(ranges.map(range=>range.tolerances.reading.value)).toEqual([1,2,3]);
 });
