@@ -164,6 +164,7 @@ describe("UniversalInstrumentModal library synchronization", () => {
     expect(
       screen.getByRole("alertdialog", { name: "Delete Instrument" }),
     ).toBeInTheDocument();
+    expect(screen.getByRole('alertdialog', {name:'Delete Instrument'})).toHaveTextContent('DMM-1');
     expect(onDelete).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Delete" }));

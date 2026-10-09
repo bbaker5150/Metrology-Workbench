@@ -24,3 +24,7 @@ export const formatErrorSourceDescription = (source = {}, fallback = "TMDE") =>
 export const formatErrorSourceKind = kind => String(kind || "TMDE Error")
   .replace(/^(Accuracy|Tolerance|Error Limit|dB.*)$/i, "TMDE Error")
   .replace(/^Set tolerance$/i, "Set error limit");
+
+export const instrumentDeleteTarget = (ids, instruments = []) => ids.length > 1
+  ? `${ids.length} selected instruments`
+  : `“${formatInstrumentIdentity(instruments.find(item => String(item.id) === String(ids[0])) || {})}”`;

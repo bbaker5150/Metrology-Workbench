@@ -31,7 +31,7 @@ import { useWorkbenchIssues } from "../../shared/WorkbenchIssuesContext";
 /**
  * src/App.jsx
  */
-import { formatInstrumentIdentity } from "./utils/instrumentIdentity";
+import { formatInstrumentIdentity, instrumentDeleteTarget } from "./utils/instrumentIdentity";
 import React, {
   useState,
   useMemo,
@@ -4507,7 +4507,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
     const ids = Array.isArray(idOrIds) ? idOrIds : [idOrIds];
     const notification = {
       title: ids.length > 1 ? "Delete Instruments" : "Delete Instrument",
-      message: "Remove the selected instrument(s) from this session?",
+      message: `Remove ${instrumentDeleteTarget(ids, currentSessionData?.tmdes)} from this session?`,
       confirmText: "Delete",
       onConfirm: () => {
         // The TMDE tables (summary + detailed) list the session-level master
@@ -4550,7 +4550,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
     const ids = Array.isArray(idOrIds) ? idOrIds : [idOrIds];
     const notification = {
       title: ids.length > 1 ? "Delete Instruments" : "Delete Instrument",
-      message: "Remove the selected instrument(s) from this session?",
+      message: `Remove ${instrumentDeleteTarget(ids, currentSessionData?.uuts)} from this session?`,
       confirmText: "Delete",
       onConfirm: () => {
         if (currentSessionData) {

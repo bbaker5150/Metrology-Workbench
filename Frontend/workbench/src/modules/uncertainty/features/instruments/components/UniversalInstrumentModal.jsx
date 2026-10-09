@@ -1,3 +1,4 @@
+import { instrumentDeleteTarget } from "../../../utils/instrumentIdentity";
 import { normalizeInstrumentTypeBComponents } from "../../../utils/instrumentBudgetComponents";
 import { withInstrumentEditorDrafts } from "../../../utils/instrumentBudgetComponents";
 import { readEditorDraft, saveEditorDraft, clearEditorDraft } from "../../../utils/editorRecovery";
@@ -1680,9 +1681,7 @@ const UniversalInstrumentModal = ({
                         : "Delete Instrument"
                 }
                 message={
-                    pendingDelete && pendingDelete.ids.length > 1
-                        ? `Are you sure you want to delete these ${pendingDelete.ids.length} instruments from the library? This affects all sessions.`
-                        : "Are you sure you want to delete this instrument from the library? This affects all sessions."
+                    `Delete ${instrumentDeleteTarget(pendingDelete?.ids || [], instruments)} from the library? This affects all sessions.`
                 }
                 confirmText="Delete"
                 isIconConfirm={true}

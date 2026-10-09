@@ -46,7 +46,11 @@ export function syncInstrumentActions(container, table, layer, pointer = null) {
     const paint = copyRules(band, style, style, cell.tagName === 'TH', collapsedTop(cell, style));
     paint.style.backgroundColor = band.style.backgroundColor;
     paint.style.backgroundImage = style.backgroundImage;
-    paint.style.boxShadow = style.boxShadow;
+    // A header extension carries horizontal rules only. A copied side
+    // shadow would create a divider inside the independent action strip.
+    paint.style.boxShadow = cell.tagName === 'TH'
+      ? `inset 0 -1px 0 ${style.getPropertyValue('--instrument-header-divider-color') || style.borderBottomColor}`
+      : style.boxShadow;
     paint.style.position = style.position;
     paint.style.willChange = style.willChange;
   };

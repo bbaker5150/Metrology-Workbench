@@ -20689,10 +20689,10 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
   outline: none !important;
 }
 
-/* Budgets fit content by default; manually sized panels follow the column sum. */
+/* Budget cards fill their grid track beside the results card. */
 .budget-stack-section {
   min-width: 0;
-  width: min(100%, var(--budget-panel-width, 100%));
+  width: 100%;
   box-sizing: border-box;
 }
 .uncertainty-module .budget-resizable-table {
@@ -21032,7 +21032,7 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
 
 /* Explicit widths preserve intermediate columns; only the final column fills spare space. */
 .uncertainty-module .budget-resizable-table { overflow: visible; }
-.uncertainty-module .budget-resizable-table.has-custom-widths { min-width: 0; }
+.uncertainty-module .budget-resizable-table.has-custom-widths { min-width: var(--budget-table-min-width, 100%); }
 .uncertainty-module .instrument-equipment-table > tbody > tr.instrument-function-row > td,
 .uncertainty-module .budget-resizable-table.has-custom-widths > tbody > tr > td {
   overflow: hidden; white-space: normal; overflow-wrap: anywhere; text-overflow: clip;
@@ -22230,4 +22230,13 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
   background: color-mix(in srgb, var(--function-input-accent, var(--primary-color)) 10%, transparent);
   box-shadow: inset 0 0 0 1px var(--function-input-accent, var(--primary-color));
   outline: none;
+}
+
+/* The detached action strip continues the last header, not a new column. */
+.uncertainty-module .instrument-equipment-table > thead > tr > th:last-child {
+  border-right: 0 !important;
+}
+.instrument-action-header .instrument-action-paint,
+.instrument-action-header .instrument-action-paint :is(thead, tr, th) {
+  border-inline: 0 !important;
 }

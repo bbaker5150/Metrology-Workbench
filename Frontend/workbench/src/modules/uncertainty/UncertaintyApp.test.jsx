@@ -1007,7 +1007,11 @@ describe("UncertaintyApp", () => {
     expect(
       within(instrumentMenu).getByText("Delete Instrument"),
     ).toBeInTheDocument();
-    fireEvent.pointerDown(document.body);
+    fireEvent.click(within(instrumentMenu).getByText("Delete Instrument"));
+    const deleteDialog = screen.getByRole("alertdialog", { name: "Delete Instrument" });
+    expect(deleteDialog).toHaveTextContent('Layout UUT');
+    expect(deleteDialog).not.toHaveTextContent('instrument(s)');
+    fireEvent.click(within(deleteDialog).getByRole("button", { name: "Close" }));
 
     const heightHandle = within(uutTable.closest(".panel-card")).getByRole(
       "button",

@@ -30,29 +30,18 @@ export default function ResizableBudgetTable({ scope, columns, children }) {
   const widths = saved.key === storageKey ? saved.widths : readWidths(storageKey);
   const fixed = Boolean(widths && columns.every(({ key }) => Number.isFinite(widths[key])));
   const [editorMinimums, setEditorMinimums] = useState({});
-  // Authoring a width freezes every peer. Temporary editor expansion is local
-  // to that editor's column; spare workspace is never redistributed to a peer.
+  // Preserve authored column widths in storage. The table may stretch to fill
+  // its card; temporary editor minimums never overwrite the saved widths.
   const liveWidths = fixed ? Object.fromEntries(columns.map(({ key }) => [key, Math.max(widths[key], editorMinimums[key] || 0)])) : null;
 
   useLayoutEffect(() => {
     const table = tableRef.current;
     if (!table) return;
     const releaseTextSelection = preserveTableTextSelection(table);
-    const panel = table.closest(".budget-stack-section");
     const measure = () => {
       const viewport = table.parentElement;
       if (viewport?.clientWidth) {
         const zoom = parseFloat(getComputedStyle(table).zoom) || 1;
-        // Match the card (including its title) to the authored table width.
-        // CSS caps it at the available grid track; wider tables still scroll.
-        if (panel) {
-          if (table.classList.contains("has-custom-widths")) {
-            const style = getComputedStyle(panel);
-            const edges = (parseFloat(style.borderLeftWidth) || 0) + (parseFloat(style.borderRightWidth) || 0);
-            const width = `${parseFloat(table.style.width) * zoom + edges}px`;
-            if (panel.style.getPropertyValue("--budget-panel-width") !== width) panel.style.setProperty("--budget-panel-width", width);
-          } else panel.style.removeProperty("--budget-panel-width");
-        }
         const minimum = `${viewport.clientWidth / zoom}px`;
         if (table.style.getPropertyValue("--budget-table-min-width") !== minimum) table.style.setProperty("--budget-table-min-width", minimum);
         const editorWidth = `${Math.max(320, Math.min(640, viewport.clientWidth / zoom - 28))}px`;
@@ -86,7 +75,7 @@ export default function ResizableBudgetTable({ scope, columns, children }) {
     const zoomMutation = new MutationObserver(measure);
     zoomMutation.observe(table, { attributes: true, attributeFilter: ["style"] });
     window.addEventListener("resize", measure);
-    return () => { releaseTextSelection(); panel?.style.removeProperty("--budget-panel-width"); cancelAnimationFrame(frame); resize?.disconnect(); mutation.disconnect(); zoomMutation.disconnect(); window.removeEventListener("resize", measure); };
+    return () => { releaseTextSelection(); cancelAnimationFrame(frame); resize?.disconnect(); mutation.disconnect(); zoomMutation.disconnect(); window.removeEventListener("resize", measure); };
   }, []);
 
 

@@ -1,3 +1,4 @@
+import { instrumentDeleteTarget } from "../../../utils/instrumentIdentity";
 import GrowingNumericInput from "../../../components/common/GrowingNumericInput";
 import { useConfirmRecordDeletes } from "../../../contexts/RecordDeletePolicy";
 import { instrumentMatchesSearch } from "../../../utils/functionGrouping";
@@ -241,7 +242,7 @@ const InstrumentBuilderModal = ({ isOpen, onClose, onSave, onDelete, initialData
     setDeleteConfirmation({
       id,
       title: "Delete Instrument",
-      message: "Are you sure you want to delete this instrument? This cannot be undone."
+      message: `Delete ${instrumentDeleteTarget([id], instruments)}? This cannot be undone.`
     });
   };
 
