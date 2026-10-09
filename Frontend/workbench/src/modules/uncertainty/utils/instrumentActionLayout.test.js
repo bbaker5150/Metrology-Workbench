@@ -1,0 +1,71 @@
+import { expect, it, vi } from 'vitest';
+import { syncInstrumentActions, updateInstrumentActionHover } from './instrumentActionLayout';
+
+function setup(scale = 1) {
+  const wrapper = document.createElement('div');
+  wrapper.innerHTML = `<div><table><thead><tr><th>Header</th></tr></thead><tbody>
+    <tr data-instrument-id="a" data-measurement-area="one"><td>Range 1</td></tr>
+    <tr data-instrument-id="a" data-measurement-area="one"><td>Range 2</td></tr>
+    <tr data-instrument-id="a" data-measurement-area="two"><td>Other area</td></tr>
+    </tbody></table></div><div><span data-instrument-id="a" data-measurement-area="one"><button>Delete</button></span></div>`;
+  const [container, layer] = wrapper.children, table = container.firstChild, action = layer.firstChild;
+  const bounds = (left, top, right, bottom) => ({ left:left*scale, top:top*scale,
+    right:right*scale, bottom:bottom*scale, width:(right-left)*scale, height:(bottom-top)*scale });
+  Object.defineProperties(container, { offsetWidth:{value:100}, clientHeight:{value:140} });
+  Object.defineProperty(layer, 'offsetWidth', {value:28});
+  container.getBoundingClientRect = () => bounds(0,0,100,150);
+  layer.getBoundingClientRect = () => bounds(100,0,128,150);
+  table.tHead.rows[0].cells[0].getBoundingClientRect = () => bounds(0,0,100,20);
+  const rows = [...table.tBodies[0].rows];
+  rows[0].getBoundingClientRect = () => bounds(0,20,400,50);
+  rows[1].getBoundingClientRect = () => bounds(0,50,400,100);
+  rows[2].getBoundingClientRect = () => bounds(0,100,400,140);
+  return {container, table, layer, action, rows, bounds};
+}
+
+it.each([0.8, 1, 1.25])('centers the correct instrument/area group independently of column geometry at scale %s', scale => {
+  const {container,table,layer,action,rows,bounds} = setup(scale);
+  syncInstrumentActions(container,table,layer,{x:110*scale,y:70*scale});
+  expect(action.hidden).toBe(false);
+  expect(parseFloat(action.style.top)).toBeCloseTo(60);
+  expect(action).toHaveAttribute('data-active');
+  // Changing horizontal bounds and scroll does not move the action.
+  rows[0].getBoundingClientRect = () => bounds(-200,20,800,50);
+  container.scrollLeft = 200;
+  syncInstrumentActions(container,table,layer);
+  expect(parseFloat(action.style.top)).toBeCloseTo(60);
+  expect(action).not.toHaveAttribute('data-active');
+  // Expanded/reordered rows update the vertical group center.
+  rows[0].getBoundingClientRect = () => bounds(0,60,800,90);
+  rows[1].getBoundingClientRect = () => bounds(0,90,800,140);
+  rows[1].dataset.rangeSelected = 'true';
+  syncInstrumentActions(container,table,layer);
+  expect(parseFloat(action.style.top)).toBeCloseTo(100);
+  expect(action).toHaveAttribute('data-active');
+});
+
+it('keeps tall groups reachable and hides actions outside the visible rows or after removal', () => {
+  const {container,table,layer,action,rows,bounds} = setup();
+  rows[0].getBoundingClientRect = () => bounds(0,-100,400,50);
+  rows[1].getBoundingClientRect = () => bounds(0,50,400,500);
+  syncInstrumentActions(container,table,layer);
+  expect(action.style.top).toBe('80px'); // between sticky header and scrollbar
+  rows[0].getBoundingClientRect = () => bounds(0,-100,400,-50);
+  rows[1].getBoundingClientRect = () => bounds(0,-50,400,10);
+  syncInstrumentActions(container,table,layer);
+  expect(action.hidden).toBe(true);
+  rows[0].remove(); rows[1].remove();
+  syncInstrumentActions(container,table,layer);
+  expect(action.hidden).toBe(true);
+});
+
+it('reveals actions on hover without measuring rows again', () => {
+  const {container,table,layer,action,rows} = setup();
+  syncInstrumentActions(container,table,layer);
+  const measure = vi.spyOn(rows[0], 'getBoundingClientRect');
+  updateInstrumentActionHover(layer,{x:110,y:60});
+  expect(action).toHaveAttribute('data-active');
+  updateInstrumentActionHover(layer);
+  expect(action).not.toHaveAttribute('data-active');
+  expect(measure).not.toHaveBeenCalled();
+});

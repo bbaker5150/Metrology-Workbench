@@ -953,10 +953,11 @@ describe("UncertaintyApp", () => {
     fireEvent.mouseDown(uutRow.querySelector(".cell-description"));
     expect(uutRow).toHaveClass("instrument-selected");
     expect(
-      within(uutRow).getByRole("button", {
-        name: "Delete Instrument",
+      within(uutTable.closest('.instrument-table-viewport').querySelector('.instrument-action-layer')).getByRole("button", {
+        name: "Delete Instrument", hidden: true,
       }),
     ).toHaveClass("instrument-row-delete");
+    expect(uutTable.querySelector('.instrument-row-delete')).toBeNull();
     expect(
       within(cardHeader).queryByRole("button", {
         name: "Delete Instrument",

@@ -87,37 +87,4 @@ describe('selection perimeter', () => {
     expect(container.querySelector('svg')).toBeNull();
   });
 
-  it.each([0.8, 1, 1.25])('joins a pinned Sync cell to the visible selection at scale %s', scale => {
-    const container = document.createElement('div');
-    container.innerHTML = `<table><tbody>
-      <tr><td data-cell-selected>Visible</td><td data-cell-selected>Covered</td>
-        <td data-cell-selected rowspan="2" class="cell-sync" style="position:sticky">Sync</td></tr>
-      <tr><td>Unselected</td><td>Covered</td></tr>
-    </tbody></table>`;
-    const table = container.querySelector('table');
-    const bounds = (left, top, right, bottom) => ({ left:left*scale, top:top*scale,
-      right:right*scale, bottom:bottom*scale, width:(right-left)*scale, height:(bottom-top)*scale });
-    Object.defineProperty(container, 'offsetWidth', { value:80 });
-    container.getBoundingClientRect = () => bounds(0,0,80,20);
-    table.getBoundingClientRect = () => bounds(0,0,120,20);
-    const [visible, covered, sync] = table.rows[0].cells;
-    visible.getBoundingClientRect = () => bounds(0,0,80,10);
-    covered.getBoundingClientRect = () => bounds(80,0,100,10);
-    sync.getBoundingClientRect = () => bounds(60,0,80,20);
-    const outline = createInstrumentSelectionOutline(container, table);
-    const segments = () => [...container.querySelector('path').getAttribute('d')
-      .matchAll(/M([\d.-]+),([\d.-]+)L([\d.-]+),([\d.-]+)/g)].map(m=>m.slice(1).map(Number));
-    outline.sync();
-    expect(sorted(segments())).toEqual(sorted([
-      [0,0,80,0], [0,10,60,10], [60,20,80,20],
-      [0,0,0,10], [60,10,60,20], [80,0,80,20],
-    ]));
-    // An unselected pinned cell still hides the underlying selected columns.
-    sync.removeAttribute('data-cell-selected');
-    outline.sync();
-    expect(sorted(segments())).toEqual(sorted([
-      [0,0,60,0], [0,10,60,10], [0,0,0,10], [60,0,60,10],
-    ]));
-    outline.destroy();
-  });
 });

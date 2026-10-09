@@ -1,3 +1,4 @@
+import { InstrumentTableViewport, InstrumentDeleteAction } from "./InstrumentTableActions";
 import { consecutiveCellGroup } from "../../../utils/consecutiveCellGroup";
 import { formatQualifierValue, formatQualifierPath, editQualifierRange, instrumentQualifierDepth, qualifierAt, qualifierGroupKey, qualifierRowSpan } from "../../../utils/qualifierRanges";
 import { measurementPreview } from '../../../utils/measurementPreview';
@@ -7802,23 +7803,25 @@ const SummaryDashboard = ({
     );
   };
 
-  const renderInstrumentDeleteButton = (kind, item) => {
+  const renderInstrumentDeleteButton = (kind, item, measurementArea) => {
     if (!onSessionSave) return null;
     const label = "Delete Instrument";
     return (
-      <button
-        type="button"
-        className="range-header-action-btn range-header-action-btn--delete instrument-row-delete"
-        title={label}
-        aria-label={label}
-        onClick={(event) => {
-          event.stopPropagation();
-          if (kind === "uut") onDeleteUut?.([item.id]);
-          else onDeleteTmdeDefinition?.([item.id]);
-        }}
-      >
-        <FontAwesomeIcon icon={faTimes} />
-      </button>
+      <InstrumentDeleteAction instrumentId={item.id} measurementArea={measurementArea}>
+        <button
+          type="button"
+          className="range-header-action-btn range-header-action-btn--delete instrument-row-delete"
+          title={label}
+          aria-label={label}
+          onClick={(event) => {
+            event.stopPropagation();
+            if (kind === "uut") onDeleteUut?.([item.id]);
+            else onDeleteTmdeDefinition?.([item.id]);
+          }}
+        >
+          <FontAwesomeIcon icon={faTimes} />
+        </button>
+      </InstrumentDeleteAction>
     );
   };
 
@@ -9143,6 +9146,7 @@ const SummaryDashboard = ({
             <MeasurementAreaEntry kind="uut" onAdd={handleAddFunction} />
           </div>
         </div>
+        <InstrumentTableViewport enabled={Boolean(onSessionSave)}>
         <div
           ref={uutTableHeight.containerRef}
           className="panel-table-container instrument-panel-table-container"
@@ -9272,6 +9276,7 @@ const SummaryDashboard = ({
                     const activeRangeIndex = localRangeIndices[uutRowKey] ?? activeIndex;
                     return (
                       <React.Fragment key={uutRowKey}>
+                        {renderInstrumentDeleteButton("uut", uut, uutFnKey)}
                         {visibleRangeRows.map(({ range, index, key }, i) => {
                           const isActiveRange = isSelected && index === activeRangeIndex;
                           return (
@@ -9352,7 +9357,6 @@ const SummaryDashboard = ({
                                 >
                                   <div className="instrument-row-tools">
                                     <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} onDemote={() => handleDemoteItem("uut", uut)} />
-                                    {renderInstrumentDeleteButton("uut", uut)}
                                   </div>
                                 </td>
                               )}
@@ -9365,6 +9369,7 @@ const SummaryDashboard = ({
 
                   return (
                     <React.Fragment key={uutRowKey}>
+                      {renderInstrumentDeleteButton("uut", uut, uutFnKey)}
                       <tr
                         className={`instrument-function-row ${isSelected ? "selected-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
                         onClickCapture={e => { if (isModifiedInstrumentSelection(e)) { handleUutClick(e, uut.id); e.preventDefault(); e.stopPropagation(); } }}
@@ -9624,7 +9629,6 @@ const SummaryDashboard = ({
                         >
                           <div className="instrument-row-tools">
                             <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} onDemote={() => handleDemoteItem("uut", uut)} />
-                            {renderInstrumentDeleteButton("uut", uut)}
                           </div>
                         </td>
                       </tr>
@@ -9662,6 +9666,7 @@ const SummaryDashboard = ({
             </tbody>
           </table>
         </div>
+        </InstrumentTableViewport>
         <InstrumentTableHeightHandle kind="uut" sizing={uutTableHeight} />
       </div>
 
@@ -9676,6 +9681,7 @@ const SummaryDashboard = ({
             <MeasurementAreaEntry kind="tmde" onAdd={handleAddFunction} />
           </div>
         </div>
+        <InstrumentTableViewport enabled={Boolean(onSessionSave)}>
         <div
           ref={tmdeTableHeight.containerRef}
           className="panel-table-container instrument-panel-table-container"
@@ -9766,6 +9772,7 @@ const SummaryDashboard = ({
                     const activeRangeIndex = tmdeRangeIndices[tmdeRowKey] ?? activeIndex;
                     return (
                       <React.Fragment key={tmdeRowKey || idx}>
+                        {renderInstrumentDeleteButton("tmde", tmde, tmdeFnKey)}
                         {visibleRangeRows.map(({ range, index, key }, i) => {
                           const isActiveRange = isSelected && index === activeRangeIndex;
                           return (
@@ -9846,7 +9853,6 @@ const SummaryDashboard = ({
                                 >
                                   <div className="instrument-row-tools">
                                     <SyncBadge item={tmde} onSync={() => handleSyncItem("tmde", tmde)} onDemote={() => handleDemoteItem("tmde", tmde)} />
-                                    {renderInstrumentDeleteButton("tmde", tmde)}
                                   </div>
                                 </td>
                               )}
@@ -9878,6 +9884,7 @@ const SummaryDashboard = ({
 
                   return (
                     <React.Fragment key={tmdeRowKey || idx}>
+                      {renderInstrumentDeleteButton("tmde", tmde, tmdeFnKey)}
                       <tr
                         className={`instrument-function-row ${isSelected ? "selected-row" : ""} ${hoveredRowId === tmde.id ? "row-hovered" : ""}`}
                         onClickCapture={e => { if (isModifiedInstrumentSelection(e)) { handleTmdeClick(e, tmde.id); e.preventDefault(); e.stopPropagation(); } }}
@@ -10170,7 +10177,6 @@ const SummaryDashboard = ({
                         >
                           <div className="instrument-row-tools">
                             <SyncBadge item={tmde} onSync={() => handleSyncItem("tmde", tmde)} onDemote={() => handleDemoteItem("tmde", tmde)} />
-                            {renderInstrumentDeleteButton("tmde", tmde)}
                           </div>
                         </td>
                       </tr>
@@ -10208,6 +10214,7 @@ const SummaryDashboard = ({
             </tbody>
           </table>
         </div>
+        </InstrumentTableViewport>
         <InstrumentTableHeightHandle kind="tmde" sizing={tmdeTableHeight} />
       </div>
 
@@ -12722,23 +12729,25 @@ function DetailedView({
       </button>
     ) : null;
 
-  const renderInstrumentDeleteButton = (kind, item) => {
+  const renderInstrumentDeleteButton = (kind, item, measurementArea) => {
     if (!onSessionSave) return null;
     const label = "Delete Instrument";
     return (
-      <button
-        type="button"
-        className="range-header-action-btn range-header-action-btn--delete instrument-row-delete"
-        title={label}
-        aria-label={label}
-        onClick={(event) => {
-          event.stopPropagation();
-          if (kind === "uut") onDeleteUut?.([item.id]);
-          else onDeleteTmdeDefinition?.([item.id]);
-        }}
-      >
-        <FontAwesomeIcon icon={faTimes} />
-      </button>
+      <InstrumentDeleteAction instrumentId={item.id} measurementArea={measurementArea}>
+        <button
+          type="button"
+          className="range-header-action-btn range-header-action-btn--delete instrument-row-delete"
+          title={label}
+          aria-label={label}
+          onClick={(event) => {
+            event.stopPropagation();
+            if (kind === "uut") onDeleteUut?.([item.id]);
+            else onDeleteTmdeDefinition?.([item.id]);
+          }}
+        >
+          <FontAwesomeIcon icon={faTimes} />
+        </button>
+      </InstrumentDeleteAction>
     );
   };
 
@@ -15444,6 +15453,7 @@ function DetailedView({
             {showIrrelevantUutFunctions && (<MeasurementAreaEntry kind="uut" onAdd={handleAddFunction} />)}
           </div>
         </div>
+        <InstrumentTableViewport enabled={Boolean(onSessionSave)}>
         <div
           ref={uutTableHeight.containerRef}
           className="panel-table-container instrument-panel-table-container"
@@ -15527,6 +15537,7 @@ function DetailedView({
                     const activeRangeIndex = localRangeIndices[uutRowKey] ?? activeIndex;
                     return (
                       <React.Fragment key={uutRowKey}>
+                        {renderInstrumentDeleteButton("uut", uut, uutFnKey)}
                         {visibleRangeRows.map(({ range, index, key }, i) => {
                           const isActiveRange = isSelected && index === activeRangeIndex;
                           return (
@@ -15633,7 +15644,6 @@ function DetailedView({
                                 >
                                   <div className="instrument-row-tools">
                                     <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} onDemote={() => handleDemoteItem("uut", uut)} />
-                                    {renderInstrumentDeleteButton("uut", uut)}
                                   </div>
                                 </td>
                               )}
@@ -15646,6 +15656,7 @@ function DetailedView({
 
                   return (
                     <React.Fragment key={uutRowKey}>
+                      {renderInstrumentDeleteButton("uut", uut, uutFnKey)}
                       <tr
                         className={`instrument-function-row ${isSelected ? `selected-row selected-instrument-start ${specRows.length <= 1 ? "selected-instrument-end" : ""}` : ""} ${isActivePointUut ? "active-point-uut-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
                         onMouseEnter={() => setHoveredRowId(uut.id)}
@@ -15925,7 +15936,6 @@ function DetailedView({
                         >
                           <div className="instrument-row-tools">
                             <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} onDemote={() => handleDemoteItem("uut", uut)} />
-                            {renderInstrumentDeleteButton("uut", uut)}
                           </div>
                         </td>
                       </tr>
@@ -15969,6 +15979,7 @@ function DetailedView({
             </tbody>
           </table>
         </div>
+        </InstrumentTableViewport>
         <InstrumentTableHeightHandle kind="uut" sizing={uutTableHeight} />
         </div>
 
@@ -16236,6 +16247,7 @@ function DetailedView({
             </div>
           </div>
 
+          <InstrumentTableViewport enabled={Boolean(onSessionSave)}>
           <div
             ref={tmdeTableHeight.containerRef}
             className="panel-table-container instrument-panel-table-container"
@@ -16359,6 +16371,7 @@ function DetailedView({
                           tmdeRangeIndices[rangeStateKey] ?? activeIndex;
                         return (
                           <React.Fragment key={`${tmdeRowKey}-${idx}`}>
+                            {renderInstrumentDeleteButton("tmde", masterTmde, tmdeFnKey)}
                             {visibleRangeRows.map(({ range, index, key }, i) => {
                               const isActiveRange = isSelectedRow && index === activeRangeIndex;
                               return (
@@ -16469,7 +16482,6 @@ function DetailedView({
                                           item={masterTmde}
                                           onSync={() => handleSyncItem("tmde", masterTmde)} onDemote={() => handleDemoteItem("tmde", masterTmde)}
                                         />
-                                        {renderInstrumentDeleteButton("tmde", masterTmde)}
                                       </div>
                                     </td>
                                   )}
@@ -16501,6 +16513,7 @@ function DetailedView({
 
                       return (
                         <React.Fragment key={`${tmdeRowKey}-${idx}`}>
+                          {renderInstrumentDeleteButton("tmde", masterTmde, tmdeFnKey)}
                           <tr
                             className={`instrument-function-row tmde-row ${isSelectedRow ? `selected-row selected-instrument-start ${specRows.length <= 1 ? "selected-instrument-end" : ""}` : ""} ${hoveredRowId === masterTmde.id ? "row-hovered" : ""}`}
                             onMouseEnter={() => setHoveredRowId(masterTmde.id)}
@@ -16904,7 +16917,6 @@ function DetailedView({
                             >
                               <div className="instrument-row-tools">
                                 <SyncBadge item={masterTmde} onSync={() => handleSyncItem("tmde", masterTmde)} onDemote={() => handleDemoteItem("tmde", masterTmde)} />
-                                {renderInstrumentDeleteButton("tmde", masterTmde)}
                               </div>
                             </td>
                           </tr>
@@ -16943,6 +16955,7 @@ function DetailedView({
               </tbody>
             </table>
           </div>
+          </InstrumentTableViewport>
           <InstrumentTableHeightHandle kind="tmde" sizing={tmdeTableHeight} />
         </div>
       </div>

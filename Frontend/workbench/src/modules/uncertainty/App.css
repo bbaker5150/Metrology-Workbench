@@ -13279,14 +13279,6 @@ input.inline-function-input:focus {
   transition: opacity 120ms ease, color 120ms ease, background-color 120ms ease;
 }
 
-.instrument-function-row:hover .instrument-row-delete,
-.instrument-function-row:focus-within .instrument-row-delete,
-.instrument-function-row.selected-row .instrument-row-delete,
-.instrument-function-row.instrument-selected .instrument-row-delete {
-  opacity: 1;
-  pointer-events: auto;
-}
-
 .instrument-order-controls {
   display: inline-flex;
   gap: 1px;
@@ -20607,7 +20599,7 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
 
 /* Resized cards follow their columns rather than stretching a trailing column.
    Wide content keeps its authored widths and scrolls within the workspace. */
-.uncertainty-module .panel-card:has(> .instrument-panel-table-container) {
+.uncertainty-module .panel-card:has(> .instrument-table-viewport) {
   width: min(100%, var(--instrument-panel-width, 100%));
   box-sizing: border-box;
   align-self: flex-start;
@@ -20875,7 +20867,7 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
 }
 .uncertainty-module .budget-range-selector .inline-menu-select-trigger > span { max-width: none; overflow: visible; }
 .budget-section-row > .budget-decision-results { grid-column: 1; justify-self: center; }
-.uncertainty-module .panel-card:has(> .instrument-panel-table-container) { max-width: none; min-width: 0; }
+.uncertainty-module .panel-card:has(> .instrument-table-viewport) { max-width: none; min-width: 0; }
 .budget-tmde-picker-instrument-name:not(:disabled):is(:hover, :focus-visible),
 .budget-tmde-picker-range:is(:hover, :focus-visible) {
   background: color-mix(in srgb, var(--primary-color) 10%, var(--content-background)) !important;
@@ -22197,10 +22189,14 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
 .uncertainty-module .instrument-source-row-name .instrument-source-name-input {
   min-width: 0; max-width: 100%; box-sizing: border-box; field-sizing: content;
 }
-/* Keep instrument actions reachable at either horizontal scroll position. */
-.uncertainty-module .instrument-equipment-table > tbody > tr > td.cell-sync {
-  position: sticky; right: 0; z-index: 3;
-}
+/* Instrument actions are outside the scrolling table and its selection grid. */
+.instrument-table-viewport { position: relative; min-width: 0; }
+.instrument-table-viewport.has-instrument-actions { padding-right: 28px; }
+.instrument-action-layer { position: absolute; inset: 0 0 0 auto; width: 28px; overflow: hidden; pointer-events: none; z-index: 5; }
+.instrument-row-action { position: absolute; right: 4px; width: 20px; height: 20px; transform: translateY(-50%); }
+.instrument-row-action[hidden] { display: none; }
+.instrument-row-action[data-active] .instrument-row-delete,
+.instrument-row-action:focus-within .instrument-row-delete { opacity: 1; pointer-events: auto; }
 
 .inline-sync-badge--yellow { color: #b8860b; }
 

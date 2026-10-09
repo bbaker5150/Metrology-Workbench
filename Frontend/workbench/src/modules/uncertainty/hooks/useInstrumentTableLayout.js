@@ -5,6 +5,7 @@ import { attachInstrumentPointerDrag } from "../utils/instrumentPointerDrag";
 import { useCallback, useLayoutEffect, useState } from "react";
 import { preserveTableTextSelection } from "../utils/tableTextSelection";
 import { createInstrumentSelectionOutline } from "../utils/instrumentSelectionOutline";
+import { syncInstrumentActions, updateInstrumentActionHover } from "../utils/instrumentActionLayout";
 
 const EDITORS = ".inline-desc-fields, .inline-range-editor.is-editing, .qualifier-range-cell .inline-range-editor, .inline-tolerance-editor, .inline-resolution-editor, .inline-distribution-editor, .instrument-custom-field-input";
 export const qualifierColumnKey = cell => {
@@ -67,6 +68,17 @@ export default function useInstrumentTableLayout(containerRef) {
     // A sibling overlay stays outside the table observer and cannot trigger
     // another layout pass when its perimeter changes.
     const selectionOutline = createInstrumentSelectionOutline(container, table);
+    const viewport = container.closest('.instrument-table-viewport');
+    let actionPointer = null;
+    const actionLayer = () => viewport?.querySelector(':scope > .instrument-action-layer');
+    const syncActions = () => syncInstrumentActions(container, table, actionLayer(), actionPointer);
+    const moveActions = event => { actionPointer = { x:event.clientX, y:event.clientY }; updateInstrumentActionHover(actionLayer(), actionPointer); };
+    const leaveActions = () => { actionPointer = null; updateInstrumentActionHover(actionLayer()); };
+    viewport?.addEventListener('pointermove', moveActions);
+    viewport?.addEventListener('pointerleave', leaveActions);
+    viewport?.addEventListener('focusin', syncActions);
+    viewport?.addEventListener('focusout', syncActions);
+    viewport?.addEventListener('instrument-actions-change', syncActions);
     let hoveredRow = null;
     let hoveredCell = null;
     const hover = event => {
@@ -289,6 +301,7 @@ export default function useInstrumentTableLayout(containerRef) {
       syncHeaderOffset();
       updateInstrumentCellHighlights(table, hoveredRow, hoveredCell);
       selectionOutline.sync();
+      syncActions();
     };
     const schedule = () => {
       if (frame !== null) return;
@@ -316,7 +329,7 @@ export default function useInstrumentTableLayout(containerRef) {
     const onScroll = event => {
       if (event.target !== document && event.target !== container && !scrollAncestors.includes(event.target)) return;
       alignEmptyHintArrows(table);
-      syncHeaderOffset(); selectionOutline.sync();
+      syncHeaderOffset(); selectionOutline.sync(); syncActions();
     };
     const refreshColumnControls = event => {
       if (event.target.closest?.('th.instrument-resizable-header')) syncHeaderOffset();
@@ -334,6 +347,11 @@ export default function useInstrumentTableLayout(containerRef) {
       releaseTextSelection();
       releasePointerDrag();
       selectionOutline.destroy();
+      viewport?.removeEventListener('pointermove', moveActions);
+      viewport?.removeEventListener('pointerleave', leaveActions);
+      viewport?.removeEventListener('focusin', syncActions);
+      viewport?.removeEventListener('focusout', syncActions);
+      viewport?.removeEventListener('instrument-actions-change', syncActions);
       cancelAnimationFrame(frame);
       card?.style.removeProperty("--instrument-panel-width");
       mutation.disconnect();

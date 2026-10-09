@@ -51,14 +51,6 @@ export function createInstrumentSelectionOutline(container, table) {
       const scale = container.offsetWidth ? containerBounds.width / container.offsetWidth || 1 : 1;
       const groups = new Map();
       const selectedCells = [...table.querySelectorAll(SELECTED_CELLS)];
-      const pinnedSyncCells = [...table.querySelectorAll('td.cell-sync')]
-        .filter(cell => getComputedStyle(cell).position === 'sticky')
-        .map(cell => ({ cell, rect: cell.getBoundingClientRect() }));
-      // Pinned Sync covers the scrolling columns. Trace only their visible
-      // portion so its left edge cancels against an adjacent selected cell.
-      const visibleRight = (cell, rect) => pinnedSyncCells.reduce((right, pinned) =>
-        pinned.cell !== cell && pinned.rect.top < rect.bottom && pinned.rect.bottom > rect.top
-          ? Math.min(right, pinned.rect.left) : right, rect.right);
       const sourceKeys = new Set(selectedCells.filter(cell => cell.classList.contains('instrument-uncertainty-name-cell'))
         .map(cell => cell.parentElement.dataset.selectionKey));
       const sharedRails = table.dataset.selectionMode === 'instrument'
@@ -72,7 +64,7 @@ export function createInstrumentSelectionOutline(container, table) {
         const inset = (table.dataset.selectionMode === 'range' || sharedKeys.has(cell.parentElement.dataset.selectionKey)) && cell.classList.contains('instrument-uncertainty-name-cell')
           ? parseFloat(style.getPropertyValue('--instrument-uncertainty-rail-width')) || 0 : 0;
         const left = (rect.left - bounds.left) / scale + inset;
-        const right = (visibleRight(cell, rect) - bounds.left) / scale;
+        const right = (rect.right - bounds.left) / scale;
         if (right <= left) return;
         const color = style.getPropertyValue('--instrument-function-color').trim() || 'var(--primary-color)';
         if (!groups.has(color)) groups.set(color, []);
@@ -91,7 +83,7 @@ export function createInstrumentSelectionOutline(container, table) {
         const width = parseFloat(style.getPropertyValue('--instrument-uncertainty-rail-width')) || 0;
         if (!width || !groups.has(color)) return;
         const left = (rect.left - bounds.left) / scale, top = (rect.top - bounds.top) / scale;
-        const right = Math.min(left + width, (visibleRight(cell, rect) - bounds.left) / scale);
+        const right = Math.min(left + width, (rect.right - bounds.left) / scale);
         if (right <= left) return;
         groups.get(color).push({ left, top, right,
           bottom: top + rail.getBoundingClientRect().height / scale });
