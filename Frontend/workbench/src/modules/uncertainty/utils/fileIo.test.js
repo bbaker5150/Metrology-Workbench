@@ -6,6 +6,7 @@ describe("session PDF round trip", () => {
     const session = {
       id: "session-1",
       name: "Round Trip Session",
+      qualifierColumnNames: {uut:['Frequency','Calibration interval'],tmde:['Operating mode']},
       analyst: "Test Analyst",
       measurementAreas: [{ id: "area-1", name: "Area One" }],
       uuts: [],

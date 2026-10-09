@@ -56,6 +56,7 @@ class Session(models.Model):
     # session scope so switching to Notes, reopening the session, or restarting
     # the app does not reset their layout.
     detail_collapsed_sections = models.JSONField(default=list, blank=True)
+    qualifier_column_names = models.JSONField(default=dict, blank=True)
 
     # uncReq — risk/uncertainty requirements (small fixed shape -> columns).
     uncertainty_confidence = models.FloatField(default=95)
@@ -278,6 +279,7 @@ class Instrument(models.Model):
     owner = models.CharField(max_length=128, blank=True, default="")
     source_id = models.CharField(max_length=64, blank=True, default="")
     validated_snapshot = models.JSONField(default=dict, blank=True, null=True)
+    local_override = models.BooleanField(default=False)
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)

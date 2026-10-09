@@ -39,6 +39,16 @@ beforeEach(() => {
 });
 
 describe("prepareImportedSession", () => {
+  it('does not claim a local-library save succeeded when the API rejects it', async () => {
+    const {result}=renderHook(()=>useSessionManager());
+    await waitFor(()=>expect(result.current.currentSessionData?.name).toBe('Original'));
+    axios.post.mockRejectedValue(new Error('Offline'));
+    const log=vi.spyOn(console,'error').mockImplementation(()=>{});
+    try {
+      await act(async()=>{await expect(result.current.saveInstrument({id:'draft',scope:'local'},{requireSaved:true})).rejects.toThrow('Offline');});
+      expect(result.current.instruments).not.toEqual(expect.arrayContaining([expect.objectContaining({id:'draft'})]));
+    } finally { log.mockRestore(); }
+  });
   it("keeps the current workspace when a required import save fails", async () => {
     const { result } = renderHook(() => useSessionManager());
     await waitFor(() => expect(result.current.currentSessionData?.name).toBe("Original"));

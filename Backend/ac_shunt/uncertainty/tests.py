@@ -24,6 +24,7 @@ SAMPLE_SESSION = {
     "uutTolerance": {"reading": {"high": "0.05", "unit": "%"}},
     "detailSectionOrder": ["budget", "instruments", "equation"],
     "detailCollapsedSections": ["equation", "budget"],
+    "qualifierColumnNames": {"uut": ["Frequency", "Calibration interval"], "tmde": ["Mode"]},
     "uncReq": {
         "uncertaintyConfidence": 95, "reliability": 90, "calInt": 6,
         "measRelCalcAssumed": 85, "neededTUR": 4, "reqPFA": 2,
@@ -158,6 +159,7 @@ class WholeSessionRoundTripTests(APITestCase):
             ["budget", "instruments", "equation"],
         )
         self.assertEqual(data["detailCollapsedSections"], ["equation", "budget"])
+        self.assertEqual(data["qualifierColumnNames"], SAMPLE_SESSION["qualifierColumnNames"])
         self.assertEqual(data["uncReq"]["reliability"], 90)
         self.assertEqual(data["measurementAreas"][0]["id"], "area-uuid-1")
         self.assertEqual(data["uuts"][0]["instrument"], {"model": "8588A"})
@@ -413,6 +415,26 @@ class InstrumentLibraryScopeTests(APITestCase):
     """Local/validated scoping + the shared-library password gate."""
 
     databases = {"default", "uncertainty"}
+
+    def test_demoted_local_copy_preserves_override_and_snapshot_after_reload(self):
+        snapshot = {"model": "Meter", "functions": []}
+        shared = {"id": "shared", "scope": "validated", "model": "Meter",
+                  "owner": "userA", "validatedSnapshot": snapshot,
+                  "localOverride": False, "password": "calibrate"}
+        self.client.post("/api/uncertainty/instruments/", shared, format="json")
+        local = {**shared, "id": "local-copy", "scope": "local",
+                 "sourceId": "shared", "localOverride": True}
+        self.client.post("/api/uncertainty/instruments/", local, format="json")
+        records = {record["id"]: record for record in self.client.get(
+            "/api/uncertainty/instruments/", {"owner": "userA"}).data}
+        self.assertTrue(records["local-copy"]["localOverride"])
+        self.assertEqual(records["local-copy"]["validatedSnapshot"], snapshot)
+        self.assertEqual(records["shared"]["scope"], "validated")
+        self.assertFalse(records["shared"]["localOverride"])
+        promoted = self.client.post("/api/uncertainty/instruments/",
+            {**shared, "sourceId": "shared"}, format="json")
+        self.assertFalse(promoted.data["localOverride"])
+        self.assertFalse(models.Instrument.objects.filter(id="local-copy").exists())
 
     def test_new_instrument_without_scope_defaults_to_local(self):
         post = self.client.post(

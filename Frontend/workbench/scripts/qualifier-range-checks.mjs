@@ -75,9 +75,9 @@ export async function checkQualifierRanges({frame, page, saved, until, check}) {
       }));
       for (const theme of ['light','dark']) {
         await frame.evaluate(theme=>{document.body.classList.toggle('light-mode',theme==='light');document.body.classList.toggle('dark-mode',theme==='dark');},theme);
+        await page.keyboard.press('Escape');
         await second.click({position:{x:5,y:5}});
-        check(`${view} ${kind} qualifier-only selection in ${theme}`,await until(async()=>await table.getAttribute('data-selection-mode')==='range' && await rows.nth(1).getAttribute('data-range-selected')==='true'));
-        await rows.nth(1).locator('.cell-tolerance').click({position:{x:4,y:4}});
+        check(`${view} ${kind} qualifier row selection in ${theme}`,await until(async()=>await table.getAttribute('data-selection-mode')==='instrument' && await rows.nth(1).getAttribute('data-range-selected')==='true'));
         check(`${view} ${kind} shared cells highlight in ${theme}`,await until(async()=>await first.locator('.cell-description').getAttribute('data-cell-selected')!==null && await baseRange.getAttribute('data-cell-selected')!==null));
         check(`${view} ${kind} qualifier columns align in ${theme}`,await table.evaluate(table=>{
           const header=table.querySelector('[data-instrument-column="qualifier"]').getBoundingClientRect();

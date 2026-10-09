@@ -1934,6 +1934,8 @@ const confirmViaNotification = (
 const INLINE_EDITOR_PORTAL_SELECTOR =
   ".inline-unit-menu, .inline-tolerance-shape-menu, .inline-tolerance-shape-backdrop, .inline-desc-search";
 
+const isInstrumentScrollTarget = target => target?.matches?.(".instrument-panel-table-container, .dynamic-table-scroll");
+
 const useInlineColumnDismiss = ({
   expanded,
   rootRef,
@@ -1945,9 +1947,11 @@ const useInlineColumnDismiss = ({
     if (!expanded) return undefined;
 
     let dismissOnRelease = false;
+    let scrolling = false;
     const handlePointerDown = (event) => {
       const isPress = event.type === "pointerdown" || event.type === "mousedown";
-      if (isPress) dismissOnRelease = false;
+      if (isPress) { dismissOnRelease = false; scrolling = isInstrumentScrollTarget(event.target); }
+      if (scrolling || isInstrumentScrollTarget(event.target)) return;
       const target = event.target;
       if (!(target instanceof Node)) return;
       if (rootRef.current?.contains(target)) return;
@@ -6918,13 +6922,14 @@ const SummaryDashboard = ({
       const definition = itemInstrumentForLibrary(kind, current);
       // A demotion detaches this session's definition, preserving saved library
       // records and other sessions. Subsequent edits retain the chosen scope.
-      const id = scope === "session" || definition.scope === "validated" ? uuidv4() : definition.id;
+      let id = scope === "session" || definition.scope === "validated" ? uuidv4() : definition.id;
       const nextDefinition = { ...definition, id, libraryInstrumentId: id, scope, localOverride: true,
         sourceId: definition.sourceId || (definition.scope === "validated" ? definition.id : undefined),
         validatedSnapshot: definition.validatedSnapshot || (definition.scope === "validated" ? buildValidatedSnapshot(definition) : null) };
       if (scope === "local") {
         if (!onSaveInstrument) return;
-        await onSaveInstrument(nextDefinition);
+        const saved = await onSaveInstrument(nextDefinition, { requireSaved: true });
+        id = saved?.id || id;
       }
       const latest = (latestSessionDataRef.current[kind === "uut" ? "uuts" : "tmdes"] || []).find(row => sameId(row.id, item.id));
       if (!latest) return;
@@ -7992,10 +7997,11 @@ const SummaryDashboard = ({
   useEffect(() => {
     if (expandedRangeKeys.size === 0) return undefined;
     const onMouseDownCapture = (e) => {
-      rangeClickGroupRef.current = getRangeColumnClickContext(e.target);
+      rangeClickGroupRef.current = isInstrumentScrollTarget(e.target) ? { scrolling: true } : getRangeColumnClickContext(e.target);
     };
     const onDown = (e) => {
       // Resizing is a layout action, not a click-away from the active editor.
+      if (isInstrumentScrollTarget(e.target) || rangeClickGroupRef.current?.scrolling) return;
       if (e.target?.closest?.(".instrument-size-control, .instrument-column-insert-button")) return;
       // UnitSelect renders its options in a body-level portal. Selecting an
       // option is still an interaction with this range group, not a click-away
@@ -8116,7 +8122,7 @@ const SummaryDashboard = ({
   const selectRangeRow = (event, kind, item, index, rangeId, stateItemId = item.id) => {
     if (event.button !== undefined && event.button !== 0) return;
     setSelectedInstrumentArea(null);
-    if (event.target.closest('input, select, textarea, .range-row-add, .range-row-delete, .instrument-row-tools button, .instrument-order-controls')) return;
+    if (event.target.closest('input, select, textarea, .range-row-add, .range-row-delete, .range-qualifier-add, .instrument-row-tools button, .instrument-order-controls')) return;
     pasteDestinationRef.current = { kind, areaKey: pasteAreaFromEvent(event, item), targetId: item.id };
     selectedInstrumentAreasRef.current[`${kind}:${item.id}`] = pasteAreaFromEvent(event, item);
     const next = instrumentRowSelectionFromEvent(event, selectedRangeIds, lastSelectionTarget === "range" ? "range" : "instrument", rangeSelectionAnchorRef.current);
@@ -8284,7 +8290,9 @@ const SummaryDashboard = ({
           if (!qualifier) return splitQualifierCells ? <React.Fragment key={depth}><td data-qualifier-empty={depth} />{custom}</React.Fragment> : null;
           const rowSpan = qualifierRowSpan(getInstrumentRangeRows(item), range, depth);
           if (!rowSpan) return <React.Fragment key={depth}>{custom}</React.Fragment>;
-          return <React.Fragment key={depth}><td rowSpan={rowSpan} colSpan={qualifier.qualifier || splitQualifierCells ? 1 : Number(qualifierEnabled) - depth + 1} data-range-cell="true" data-qualifier-cell={depth} className="cell-value qualifier-range-cell">
+          const actionsSelected = getInstrumentRangeRows(item).slice(rangeIndex, rangeIndex + rowSpan)
+            .some(row => (selectedRangeIds[itemStateKey(kind, item.id)] || []).some(id => sameId(id, rangeIdOf(row))));
+          return <React.Fragment key={depth}><td rowSpan={rowSpan} colSpan={qualifier.qualifier || splitQualifierCells ? 1 : Number(qualifierEnabled) - depth + 1} data-range-cell="true" data-qualifier-cell={depth} data-actions-selected={actionsSelected || undefined} className="cell-value qualifier-range-cell">
             <div className="range-row-cell">
               <RangeCell ranges={[qualifier]} activeIndex={0} activeRange={{ ...qualifier, id: `${rangeKey}:qualifier:${depth}` }} editable textMode
                 closeKey={Boolean(qualifier.qualifier)}
@@ -11199,13 +11207,14 @@ function DetailedView({
       const definition = itemInstrumentForLibrary(kind, current);
       // A demotion detaches this session's definition, preserving saved library
       // records and other sessions. Subsequent edits retain the chosen scope.
-      const id = scope === "session" || definition.scope === "validated" ? uuidv4() : definition.id;
+      let id = scope === "session" || definition.scope === "validated" ? uuidv4() : definition.id;
       const nextDefinition = { ...definition, id, libraryInstrumentId: id, scope, localOverride: true,
         sourceId: definition.sourceId || (definition.scope === "validated" ? definition.id : undefined),
         validatedSnapshot: definition.validatedSnapshot || (definition.scope === "validated" ? buildValidatedSnapshot(definition) : null) };
       if (scope === "local") {
         if (!onSaveInstrument) return;
-        await onSaveInstrument(nextDefinition);
+        const saved = await onSaveInstrument(nextDefinition, { requireSaved: true });
+        id = saved?.id || id;
       }
       const latest = (latestSessionDataRef.current[kind === "uut" ? "uuts" : "tmdes"] || []).find(row => sameId(row.id, item.id));
       if (!latest) return;
@@ -11761,10 +11770,11 @@ function DetailedView({
   useEffect(() => {
     if (expandedRangeKeys.size === 0) return undefined;
     const onMouseDownCapture = (e) => {
-      rangeClickGroupRef.current = getRangeColumnClickContext(e.target);
+      rangeClickGroupRef.current = isInstrumentScrollTarget(e.target) ? { scrolling: true } : getRangeColumnClickContext(e.target);
     };
     const onDown = (e) => {
       // Resizing is a layout action, not a click-away from the active editor.
+      if (isInstrumentScrollTarget(e.target) || rangeClickGroupRef.current?.scrolling) return;
       if (e.target?.closest?.(".instrument-size-control, .instrument-column-insert-button")) return;
       // UnitSelect renders its options in a body-level portal. Selecting an
       // option is still an interaction with this range group, not a click-away
@@ -11887,7 +11897,7 @@ function DetailedView({
   const selectRangeRowDetail = (event, kind, item, index, rangeId, stateItemId = item.id) => {
     if (event.button !== undefined && event.button !== 0) return;
     setSelectedInstrumentArea(null);
-    if (event.target.closest('input, select, textarea, .range-row-add, .range-row-delete, .instrument-row-tools button, .instrument-order-controls')) return;
+    if (event.target.closest('input, select, textarea, .range-row-add, .range-row-delete, .range-qualifier-add, .instrument-row-tools button, .instrument-order-controls')) return;
     pasteDestinationRef.current = { kind, areaKey: pasteAreaFromEvent(event, item), targetId: item.id };
     selectedInstrumentAreasRef.current[`${kind}:${item.id}`] = pasteAreaFromEvent(event, item);
     const next = instrumentRowSelectionFromEvent(event, selectedRangeIds, lastSelectionTarget === "range" ? "range" : "instrument", rangeSelectionAnchorRef.current);
@@ -12049,7 +12059,9 @@ function DetailedView({
           if (!qualifier) return splitQualifierCells ? <React.Fragment key={depth}><td data-qualifier-empty={depth} />{custom}</React.Fragment> : null;
           const rowSpan = qualifierRowSpan(getInstrumentRangeRows(item), range, depth);
           if (!rowSpan) return <React.Fragment key={depth}>{custom}</React.Fragment>;
-          return <React.Fragment key={depth}><td rowSpan={rowSpan} colSpan={qualifier.qualifier || splitQualifierCells ? 1 : Number(qualifierEnabled) - depth + 1} data-range-cell="true" data-qualifier-cell={depth} className="cell-value qualifier-range-cell">
+          const actionsSelected = getInstrumentRangeRows(item).slice(rangeIndex, rangeIndex + rowSpan)
+            .some(row => (selectedRangeIds[itemStateKey(kind, item.id)] || []).some(id => sameId(id, rangeIdOf(row))));
+          return <React.Fragment key={depth}><td rowSpan={rowSpan} colSpan={qualifier.qualifier || splitQualifierCells ? 1 : Number(qualifierEnabled) - depth + 1} data-range-cell="true" data-qualifier-cell={depth} data-actions-selected={actionsSelected || undefined} className="cell-value qualifier-range-cell">
             <div className="range-row-cell">
               <RangeCell ranges={[qualifier]} activeIndex={0} activeRange={{ ...qualifier, id: `${rangeKey}:qualifier:${depth}` }} editable textMode
                 closeKey={Boolean(qualifier.qualifier)}

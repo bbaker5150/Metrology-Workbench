@@ -1,5 +1,5 @@
 import { useState } from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import {
   EditableDescriptionCell,
@@ -8,6 +8,20 @@ import {
 } from "./UncertaintyPanel";
 
 describe("inline instrument column navigation", () => {
+  it('keeps the tolerance editor open through a scrollbar drag but dismisses on a later outside click', async () => {
+    const {container} = render(<><div className="instrument-panel-table-container">
+      <InlineToleranceCell tolerance={{}} activeRange={{id:'r',unit:'V',max:10}} editable onCommit={vi.fn()} />
+    </div><button>Outside table</button></>);
+    fireEvent.click(screen.getByRole('button',{name:'Set tolerance'}));
+    const scroller=container.querySelector('.instrument-panel-table-container');
+    fireEvent.pointerDown(scroller); fireEvent.mouseDown(scroller);
+    fireEvent.scroll(scroller,{target:{scrollLeft:200}});
+    fireEvent.pointerUp(document.body); fireEvent.mouseUp(document.body); fireEvent.click(scroller);
+    await act(async()=>{await new Promise(resolve=>setTimeout(resolve,10));});
+    expect(screen.getByTitle('Asymmetric tolerance')).toBeInTheDocument();
+    fireEvent.mouseDown(screen.getByText('Outside table')); fireEvent.mouseUp(screen.getByText('Outside table')); fireEvent.click(screen.getByText('Outside table'));
+    await waitFor(()=>expect(screen.queryByTitle('Asymmetric tolerance')).not.toBeInTheDocument());
+  });
   it("keeps tolerance editing stable across parent rerenders and mode changes", async () => {
     const editingChanges = vi.fn();
     const Harness = () => {

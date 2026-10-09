@@ -173,6 +173,7 @@ def session_to_dict(s):
         "instrumentOnboarding": s.instrument_onboarding or {},
         "detailSectionOrder": s.detail_section_order or [],
         "detailCollapsedSections": s.detail_collapsed_sections or [],
+        "qualifierColumnNames": s.qualifier_column_names or {},
         "uncReq": {
             "uncertaintyConfidence": s.uncertainty_confidence,
             "reliability": s.reliability,
@@ -208,6 +209,7 @@ def instrument_to_dict(i):
         "owner": i.owner,
         "sourceId": i.source_id,
         "validatedSnapshot": i.validated_snapshot or None,
+        "localOverride": i.local_override,
     }
 
 
@@ -275,6 +277,7 @@ def save_session(data):
         "instrument_onboarding": data.get("instrumentOnboarding") or {},
         "detail_section_order": data.get("detailSectionOrder") or [],
         "detail_collapsed_sections": data.get("detailCollapsedSections") or [],
+        "qualifier_column_names": data.get("qualifierColumnNames") or {},
         "uncertainty_confidence": _num(unc.get("uncertaintyConfidence"), 95),
         "reliability": _num(unc.get("reliability"), 85),
         "cal_int": _num(unc.get("calInt"), 12),
@@ -456,6 +459,8 @@ def save_instrument(data):
     # (e.g. on a sync), so ordinary edits don't wipe the divergence baseline.
     if "validatedSnapshot" in data:
         defaults["validated_snapshot"] = data.get("validatedSnapshot")
+    if "localOverride" in data:
+        defaults["local_override"] = bool(data["localOverride"])
 
     obj, _ = models.Instrument.objects.update_or_create(id=pk, defaults=defaults)
     if scope == models.Instrument.SCOPE_VALIDATED:

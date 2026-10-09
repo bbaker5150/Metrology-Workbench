@@ -26,6 +26,16 @@ const Harness = ({ viewMode, onDeleteUut, onDeleteTmdeDefinition, multiRange = f
 };
 
 describe.each(["session", "point"])("instrument selection in %s view", viewMode => {
+  it('toggles repeated range clicks without changing other ranges', () => {
+    render(<Harness viewMode={viewMode} multiRange />);
+    const rows=[...document.querySelectorAll('tr[data-range-group="uut:u1"]')];
+    const range=rows[1].querySelector('[data-range-cell]');
+    fireEvent.mouseDown(range);
+    expect(rows[1]).toHaveAttribute('data-range-selected','true');
+    expect(rows[0]).toHaveAttribute('data-range-selected','false');
+    fireEvent.mouseDown(range);
+    expect(rows.every(row=>row.dataset.rangeSelected==='false')).toBe(true);
+  });
   it("selects compact ranges directly and shares keyboard/context clipboard actions", () => {
     render(<Harness viewMode={viewMode} multiRange />);
     const rows = document.querySelectorAll('tr[data-range-group="uut:u1"]');
@@ -115,6 +125,8 @@ describe.each(["session", "point"])("instrument selection in %s view", viewMode 
     expect(tmde).not.toHaveClass("instrument-selected");
     expect(uut).toHaveClass("instrument-selected");
     fireEvent.mouseDown(uut.querySelector(".cell-description"));
+    expect(uut).not.toHaveClass("instrument-selected");
+    fireEvent.mouseDown(uut.querySelector(".cell-description"));
     expect(uut).toHaveClass("instrument-selected");
     fireEvent.keyDown(window, { key: "Escape" });
     expect(uut).not.toHaveClass("instrument-selected");
@@ -142,7 +154,6 @@ describe.each(["session", "point"])("clipboard feedback in %s view", viewMode =>
     fireEvent.contextMenu(rangeCell());
     fireEvent.click(screen.getByText("Copy Range"));
     expect(showToast).toHaveBeenLastCalledWith("1 Range copied to clipboard");
-    fireEvent.mouseDown(rangeCell());
     fireEvent.keyDown(window, { key: "x", ctrlKey: true });
     expect(showToast).toHaveBeenLastCalledWith("1 Range cut to clipboard");
     fireEvent.contextMenu(screen.getByText("First TMDE").closest("tr"));

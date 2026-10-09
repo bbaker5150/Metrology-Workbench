@@ -9,6 +9,7 @@ import {
 } from "./spStore";
 
 import { resetWebUrlCache } from "./spContext";
+import { computeSyncState, buildValidatedSnapshot } from '../../modules/uncertainty/utils/instrumentSync';
 
 const WEB = "https://t.example/sites/ISEA";
 const FOLDER = "/sites/ISEA/UncertaintySessions";
@@ -357,6 +358,21 @@ describe("sessions", () => {
     expect(JSON.parse(upload.body)).toEqual({ id: 9, name: "Cal" });
   });
 
+  it('restores qualifier names and all three sync scopes from the saved session file', async () => {
+    const base={id:'shared',model:'Meter',scope:'validated'};
+    const shared={...base,validatedSnapshot:buildValidatedSnapshot(base),localOverride:false};
+    const local={...shared,id:'local',scope:'local',sourceId:'shared',localOverride:true};
+    const sessionOnly={...local,id:'draft',scope:'session'};
+    const doc={id:9,name:'Qualifiers',qualifierColumnNames:{uut:['Frequency','Interval'],tmde:['Mode']},
+      uuts:[shared,local,sessionOnly].map((instrument,index)=>({id:index,instrument}))};
+    await store.saveSession(doc);
+    const upload=http.find(/files\/add/)[0];
+    http.on(/\$value/,{text:upload.body});
+    const restored=await store.getSession(9);
+    expect(restored.qualifierColumnNames).toEqual(doc.qualifierColumnNames);
+    expect(restored.uuts.map(row=>computeSyncState(row.instrument))).toEqual(['green','yellow','red']);
+  });
+
   it("promotes picker columns with a regular form-update POST", async () => {
     await store.saveSession({ id: 9, name: "Cal", analyst: "BB", organization: "NPSL" });
     const update = http.find(/UncertaintySessions'\)\/items\(91\)\/ValidateUpdateListItem/)[0];
@@ -507,6 +523,15 @@ describe("record lists", () => {
 });
 
 describe("user-scoped instrument records", () => {
+  it('keeps a deliberately demoted instrument yellow after library reload', async () => {
+    const base={id:'shared',scope:'validated',model:'Meter'};
+    const local={...base,id:'copy',scope:'local',sourceId:'shared',localOverride:true,validatedSnapshot:buildValidatedSnapshot(base)};
+    await store.saveInstrument(local);
+    const write=http.calls.filter(call=>/items$/.test(call.url)).at(-1);
+    const payload=JSON.parse(write.body).PayloadJson;
+    http.on(/UncertaintyInstruments'\)\/items\?\$select/,{json:{value:[{Id:1,AuthorId:41,PayloadJson:payload}]}});
+    expect(computeSyncState((await store.listInstruments())[0])).toBe('yellow');
+  });
   it("uses a stable SharePoint user owner key", () => {
     expect(sharePointInstrumentOwnerKey({ id: 41 })).toBe("sharepoint-user:41");
   });

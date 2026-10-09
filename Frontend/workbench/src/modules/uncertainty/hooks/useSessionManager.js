@@ -455,14 +455,14 @@ const useSessionManager = () => {
   // Stamp the owner key and default new instruments to the local library.
   // A validated save (scope === "validated") must additionally carry a
   // `password`; that flow is driven by the caller (sync action), not here.
-  const saveInstrument = useCallback(async (instrument) => {
+  const saveInstrument = useCallback(async (instrument, { requireSaved = false } = {}) => {
     let payload = {
       ...instrument,
       owner: instrument.owner || getDeviceKey(),
       scope: instrument.scope || "local",
     };
 
-    replaceInstruments(prev => prev.some(item => String(item.id) === String(payload.id))
+    if (!requireSaved) replaceInstruments(prev => prev.some(item => String(item.id) === String(payload.id))
       ? prev.map(item => String(item.id) === String(payload.id) ? payload : item)
       : [...prev, payload]);
 
@@ -475,6 +475,7 @@ const useSessionManager = () => {
       console.warn(
         "Skipping validated-library save without a password; use the shared-library sync flow instead.",
       );
+      if (requireSaved) throw new Error("Shared-library password required");
       return;
     }
 
@@ -482,12 +483,14 @@ const useSessionManager = () => {
       const res = await axios.post(`${UNCERTAINTY_API}/instruments/`, payload);
       // Reconcile with the server's canonical record (scope/snapshot resolution).
       if (res?.data?.id) {
-        replaceInstruments((prev) =>
-          prev.map((i) => (i.id === res.data.id ? res.data : i)),
-        );
+        replaceInstruments((prev) => prev.some(i => String(i.id) === String(res.data.id))
+          ? prev.map(i => String(i.id) === String(res.data.id) ? res.data : i)
+          : [...prev, res.data]);
       }
+      return res?.data?.id ? res.data : payload;
     } catch (e) {
       console.error("Failed to save instrument to backend", e);
+      if (requireSaved) throw e;
     }
   }, [replaceInstruments]);
 

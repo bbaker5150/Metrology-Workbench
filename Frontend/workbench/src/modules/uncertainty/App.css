@@ -22217,3 +22217,9 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
 /* Qualifier row actions use the same icon box and glyph scale. */
 .qualifier-range-cell .range-row-controls :is(.range-row-add, .range-row-delete) { font-size: 12px; }
 .qualifier-range-cell .range-row-controls :is(.range-row-add, .range-row-delete) svg { width: 12px; height: 12px; }
+
+/* Qualifier actions share Range visibility without changing intrinsic width. */
+.qualifier-range-cell:not([data-actions-selected]) .range-row-controls { visibility: hidden; }
+.uncertainty-module .instrument-equipment-table tr.inline-range-row .range-qualifier-add { opacity: 0; pointer-events: none; }
+.uncertainty-module .instrument-equipment-table tr.inline-range-row :is(.range-row-cell, .range-stack-row):is(:hover, :focus-within) .range-qualifier-add,
+.uncertainty-module .instrument-equipment-table tr.inline-range-row .range-qualifier-add:focus-visible { opacity: 1; pointer-events: auto; }

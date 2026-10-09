@@ -4,6 +4,10 @@ export function nextInstrumentCellSelection({ rows, clickedIndex, span = 1, rang
   const start = shift && Number.isInteger(anchor) ? Math.min(anchor, clickedIndex) : clickedIndex;
   const end = shift && Number.isInteger(anchor) ? Math.max(anchor, clickedIndex + span - 1) : clickedIndex + span - 1;
   const selected = rows.slice(start, end + 1);
+  const repeated = !additive && !shift && mode === previousMode &&
+    Object.values(previous).reduce((count, ids) => count + ids.length, 0) === selected.length &&
+    selected.every(row => previous[row.key]?.includes(row.rangeId));
+  if (repeated) return { ranges: {}, mode, anchor: clickedIndex };
   const next = additive ? Object.fromEntries(Object.entries(previous).map(([key, ids]) => [key, [...ids]])) : {};
   const remove = additive && !shift && selected.every(row => next[row.key]?.includes(row.rangeId));
   for (const row of selected) {
@@ -18,7 +22,7 @@ export function instrumentRowSelectionFromEvent(event, previous, previousMode, a
   const elements = [...table.querySelectorAll("tr[data-selection-key][data-range-id]")];
   const rows = elements.map(node => ({ key: node.dataset.selectionKey, rangeId: node.dataset.rangeId }));
   return nextInstrumentCellSelection({ rows, clickedIndex: elements.indexOf(row), span: event.target.closest("td")?.rowSpan || 1,
-    rangeTarget: Boolean(event.target.closest("[data-range-cell]")), previous, previousMode,
+    rangeTarget: Boolean(event.target.closest("[data-range-cell]:not([data-qualifier-cell])")), previous, previousMode,
     anchor: anchor?.table === table ? anchor.index : null, shift: event.shiftKey, additive: event.ctrlKey || event.metaKey });
 }
 // Logical columns cannot use cellIndex: row-spanned Description/Sync/custom
