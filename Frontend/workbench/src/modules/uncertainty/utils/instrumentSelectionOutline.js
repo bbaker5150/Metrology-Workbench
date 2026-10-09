@@ -39,18 +39,46 @@ export function selectionPerimeter(rectangles) {
 }
 
 export function createInstrumentSelectionOutline(container, table) {
+  const viewport = container.closest('.instrument-table-viewport');
+  const actionLayer = viewport?.querySelector('.instrument-action-layer');
+  const host = actionLayer ? viewport : container;
   const overlay = document.createElementNS(SVG_NS, 'svg');
   overlay.classList.add('instrument-selection-outline');
+  if (actionLayer) overlay.classList.add('instrument-selection-outline--integrated');
   overlay.setAttribute('aria-hidden', 'true');
-  container.appendChild(overlay);
+  host.appendChild(overlay);
   let previous = '';
   return {
     sync() {
-      const bounds = table.getBoundingClientRect();
-      const containerBounds = container.getBoundingClientRect();
-      const scale = container.offsetWidth ? containerBounds.width / container.offsetWidth || 1 : 1;
+      const bounds = (actionLayer ? host : table).getBoundingClientRect();
+      const containerBounds = host.getBoundingClientRect();
+      const scale = host.offsetWidth ? containerBounds.width / host.offsetWidth || 1 : 1;
+      const scrollBounds = container.getBoundingClientRect();
+      const scrollScale = container.offsetWidth ? scrollBounds.width / container.offsetWidth || 1 : 1;
+      const clipTop = Math.max(scrollBounds.top, ...[...(table.tHead?.rows[0]?.cells || [])].map(cell => cell.getBoundingClientRect().bottom));
+      const clipBottom = scrollBounds.top + (container.clientTop + container.clientHeight) * scrollScale;
+      const clipLeft = scrollBounds.left + container.clientLeft * scrollScale;
+      const clipRight = actionLayer?.getBoundingClientRect().left;
       const groups = new Map();
-      const selectedCells = [...table.querySelectorAll(SELECTED_CELLS)];
+      const selectedCells = [...table.querySelectorAll(SELECTED_CELLS),
+        ...(actionLayer?.querySelectorAll('.instrument-action-band[data-cell-selected]') || [])];
+      const addRectangle = (color, rectangle, inActions = false) => {
+        if (actionLayer) {
+          rectangle.left = Math.max(rectangle.left, (clipLeft - bounds.left) / scale);
+          if (!inActions) {
+            const seam = (clipRight - bounds.left) / scale;
+            // scrollWidth is integral while zoomed cells are fractional. At
+            // the scroll limit, join their subpixel remainder to the gutter.
+            rectangle.right = Math.abs(rectangle.right - seam) <= 1 / scale
+              ? seam : Math.min(rectangle.right, seam);
+          }
+          rectangle.top = Math.max(rectangle.top, (clipTop - bounds.top) / scale);
+          rectangle.bottom = Math.min(rectangle.bottom, (clipBottom - bounds.top) / scale);
+        }
+        if (rectangle.right <= rectangle.left || rectangle.bottom <= rectangle.top) return;
+        if (!groups.has(color)) groups.set(color, []);
+        groups.get(color).push(rectangle);
+      };
       const sourceKeys = new Set(selectedCells.filter(cell => cell.classList.contains('instrument-uncertainty-name-cell'))
         .map(cell => cell.parentElement.dataset.selectionKey));
       const sharedRails = table.dataset.selectionMode === 'instrument'
@@ -67,11 +95,10 @@ export function createInstrumentSelectionOutline(container, table) {
         const right = (rect.right - bounds.left) / scale;
         if (right <= left) return;
         const color = style.getPropertyValue('--instrument-function-color').trim() || 'var(--primary-color)';
-        if (!groups.has(color)) groups.set(color, []);
-        groups.get(color).push({
+        addRectangle(color, {
           left, right,
           top: (rect.top - bounds.top) / scale, bottom: (rect.bottom - bounds.top) / scale,
-        });
+        }, cell.classList.contains('instrument-action-band'));
       });
       // A label spans the whole source group, like the shared Description cell.
       // Add it once, without overlapping the inset source rectangles, so no
@@ -81,17 +108,17 @@ export function createInstrumentSelectionOutline(container, table) {
         const rect = cell.getBoundingClientRect(), style = getComputedStyle(cell);
         const color = style.getPropertyValue('--instrument-function-color').trim() || 'var(--primary-color)';
         const width = parseFloat(style.getPropertyValue('--instrument-uncertainty-rail-width')) || 0;
-        if (!width || !groups.has(color)) return;
+        if (!width) return;
         const left = (rect.left - bounds.left) / scale, top = (rect.top - bounds.top) / scale;
         const right = Math.min(left + width, (rect.right - bounds.left) / scale);
         if (right <= left) return;
-        groups.get(color).push({ left, top, right,
+        addRectangle(color, { left, top, right,
           bottom: top + rail.getBoundingClientRect().height / scale });
       });
       const paths = [...groups].map(([color, rectangles]) => ({ color,
         d: selectionPerimeter(rectangles).map(([x1, y1, x2, y2]) => `M${x1},${y1}L${x2},${y2}`).join(' '),
       }));
-      const geometry = {
+      const geometry = actionLayer ? { left:0, top:0, width:bounds.width / scale, height:bounds.height / scale } : {
         left: (bounds.left - containerBounds.left) / scale + container.scrollLeft - container.clientLeft,
         top: (bounds.top - containerBounds.top) / scale + container.scrollTop - container.clientTop,
         width: bounds.width / scale, height: bounds.height / scale,

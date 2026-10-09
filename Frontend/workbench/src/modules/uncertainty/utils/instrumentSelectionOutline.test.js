@@ -87,4 +87,38 @@ describe('selection perimeter', () => {
     expect(container.querySelector('svg')).toBeNull();
   });
 
+  it.each([0.8, 1, 1.25])('wraps the independent action surface without an internal seam at scale %s', scale => {
+    const viewport = document.createElement('div');
+    viewport.className = 'instrument-table-viewport';
+    viewport.innerHTML = `<div><table><thead><tr><th>Header</th></tr></thead><tbody>
+      <tr><td data-cell-selected>Selected</td></tr><tr><td>Unselected</td></tr>
+      </tbody></table></div><div class="instrument-action-layer"><div class="instrument-action-band" data-cell-selected></div></div>`;
+    const [container,layer] = viewport.children, table = container.firstChild;
+    const bounds = (left,top,right,bottom) => ({left:left*scale,top:top*scale,right:right*scale,bottom:bottom*scale,width:(right-left)*scale,height:(bottom-top)*scale});
+    Object.defineProperty(viewport,'offsetWidth',{value:128});
+    Object.defineProperties(container,{offsetWidth:{value:100},clientHeight:{value:70,writable:true}});
+    viewport.getBoundingClientRect = () => bounds(0,0,128,70);
+    container.getBoundingClientRect = () => bounds(0,0,100,70);
+    layer.getBoundingClientRect = () => bounds(100,0,128,70);
+    table.tHead.rows[0].cells[0].getBoundingClientRect = () => bounds(0,0,120,20);
+    const [first,second] = table.querySelectorAll('td');
+    first.getBoundingClientRect = () => bounds(-20,20,120,40);
+    second.getBoundingClientRect = () => bounds(-20,40,120,60);
+    layer.firstChild.getBoundingClientRect = () => bounds(100,20,128,60);
+    const outline = createInstrumentSelectionOutline(container,table);
+    const segments = () => [...viewport.querySelector('path').getAttribute('d').matchAll(/M([\d.-]+),([\d.-]+)L([\d.-]+),([\d.-]+)/g)].map(m=>m.slice(1).map(Number));
+    outline.sync();
+    expect(sorted(segments())).toEqual(sorted([
+      [0,20,128,20],[0,40,100,40],[100,60,128,60],[0,20,0,40],[100,40,100,60],[128,20,128,60],
+    ]));
+    second.setAttribute('data-cell-selected','');
+    first.getBoundingClientRect = () => bounds(-20,20,99.6,40);
+    second.getBoundingClientRect = () => bounds(-20,40,99.6,60);
+    container.clientHeight = 50;
+    outline.sync();
+    expect(sorted(segments())).toEqual(sorted([[0,20,128,20],[0,50,128,50],[0,20,0,50],[128,20,128,50]]));
+    expect(container.querySelector('svg')).toBeNull();
+    outline.destroy();
+  });
+
 });

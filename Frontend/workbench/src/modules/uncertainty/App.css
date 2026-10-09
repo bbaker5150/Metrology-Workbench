@@ -20878,11 +20878,11 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
 /* Important rules in this layer supersede the older unlayered table tints.
    Each real range row is independent; only row-spanned cells share its cue. */
 @layer instrument-highlights {
-  .uncertainty-module .instrument-equipment-table {
+  .uncertainty-module :is(.instrument-equipment-table, .instrument-table-viewport) {
     --instrument-base-tint: 12%; --instrument-column-tint: 16%;
     --instrument-hover-tint: 20%; --instrument-selected-tint: 26%;
   }
-  body.dark-mode .uncertainty-module .instrument-equipment-table {
+  body.dark-mode .uncertainty-module :is(.instrument-equipment-table, .instrument-table-viewport) {
     --instrument-base-tint: 20%; --instrument-column-tint: 24%;
     --instrument-hover-tint: 30%; --instrument-selected-tint: 36%;
   }
@@ -21549,7 +21549,7 @@ body.light-mode .uncertainty-module :is(.content-area, .results-content, .result
 /* Insertion buttons sit across the top rule and light headers retain columns. */
 .uncertainty-module .instrument-column-insert-button { top: -16px; right: -8px; }
 .uncertainty-module .instrument-panel-table-container { padding-top: 0; }
-body.light-mode .uncertainty-module .instrument-equipment-table {
+body.light-mode .uncertainty-module :is(.instrument-equipment-table, .instrument-table-viewport) {
   --instrument-header-divider-color: #dbe3ee;
 }
 .uncertainty-module .instrument-equipment-table thead { position: static; }
@@ -21808,7 +21808,7 @@ body.light-mode .uncertainty-module .instrument-equipment-table {
 }
 
 /* Keep column boundaries and the workspace divider discoverable at rest. */
-.uncertainty-module .instrument-equipment-table {
+.uncertainty-module :is(.instrument-equipment-table, .instrument-table-viewport) {
   --instrument-grid-divider-color: color-mix(in srgb, var(--text-color-muted) 32%, var(--table-divider-color));
   --instrument-header-divider-color: color-mix(in srgb, var(--text-color-muted) 48%, var(--table-divider-color));
 }
@@ -22189,10 +22189,24 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
 .uncertainty-module .instrument-source-row-name .instrument-source-name-input {
   min-width: 0; max-width: 100%; box-sizing: border-box; field-sizing: content;
 }
-/* Instrument actions are outside the scrolling table and its selection grid. */
+/* Actions remain outside column layout while their surface joins the table. */
 .instrument-table-viewport { position: relative; min-width: 0; }
 .instrument-table-viewport.has-instrument-actions { padding-right: 28px; }
 .instrument-action-layer { position: absolute; inset: 0 0 0 auto; width: 28px; overflow: hidden; pointer-events: none; z-index: 5; }
+.instrument-action-surfaces { position: absolute; inset: 0; pointer-events: none; }
+.instrument-action-surfaces > div { position: absolute; left: 0; right: 0; box-sizing: border-box; }
+.instrument-action-surfaces > div::before,
+.instrument-action-surfaces > div::after { content: ""; position: absolute; left: 0; right: 0; pointer-events: none; }
+.instrument-action-surfaces > div::before { top: 0; border-top: var(--action-top-rule); transform: translateY(-50%); }
+.instrument-action-surfaces > div::after { bottom: 0; border-bottom: var(--action-bottom-rule); transform: translateY(50%); }
+.instrument-action-header { z-index: 1; box-shadow: inset 0 -1px 0 var(--instrument-header-divider-color); }
+.instrument-action-band {
+  --instrument-cell-tint: var(--instrument-base-tint);
+  background-color: color-mix(in srgb, var(--instrument-function-color) var(--instrument-cell-tint), var(--content-background));
+}
+.instrument-action-band[data-cell-hovered] { --instrument-cell-tint: var(--instrument-hover-tint); }
+.instrument-action-band[data-cell-selected] { --instrument-cell-tint: var(--instrument-selected-tint); }
+.instrument-selection-outline--integrated { z-index: 6; }
 .instrument-row-action { position: absolute; right: 4px; width: 20px; height: 20px; transform: translateY(-50%); }
 .instrument-row-action[hidden] { display: none; }
 .instrument-row-action[data-active] .instrument-row-delete,

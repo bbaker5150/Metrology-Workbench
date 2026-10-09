@@ -8,7 +8,9 @@ export function InstrumentTableViewport({ children, enabled }) {
   return <ActionLayerContext.Provider value={layer}>
     <div className={`instrument-table-viewport${enabled ? ' has-instrument-actions' : ''}`}>
       {children}
-      {enabled && <div ref={setLayer} className="instrument-action-layer" />}
+      {enabled && <div ref={setLayer} className="instrument-action-layer">
+        <div className="instrument-action-surfaces" aria-hidden="true" />
+      </div>}
     </div>
   </ActionLayerContext.Provider>;
 }

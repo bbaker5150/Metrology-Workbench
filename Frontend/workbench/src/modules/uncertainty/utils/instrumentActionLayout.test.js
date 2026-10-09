@@ -4,11 +4,11 @@ import { syncInstrumentActions, updateInstrumentActionHover } from './instrument
 function setup(scale = 1) {
   const wrapper = document.createElement('div');
   wrapper.innerHTML = `<div><table><thead><tr><th>Header</th></tr></thead><tbody>
-    <tr data-instrument-id="a" data-measurement-area="one"><td>Range 1</td></tr>
-    <tr data-instrument-id="a" data-measurement-area="one"><td>Range 2</td></tr>
+    <tr data-instrument-id="a" data-measurement-area="one" style="--instrument-function-color:#abcd00"><td>Range 1</td></tr>
+    <tr data-instrument-id="a" data-measurement-area="one" style="--instrument-function-color:#abcd00"><td>Range 2</td></tr>
     <tr data-instrument-id="a" data-measurement-area="two"><td>Other area</td></tr>
-    </tbody></table></div><div><span data-instrument-id="a" data-measurement-area="one"><button>Delete</button></span></div>`;
-  const [container, layer] = wrapper.children, table = container.firstChild, action = layer.firstChild;
+    </tbody></table></div><div><div class="instrument-action-surfaces"></div><span class="instrument-row-action" data-instrument-id="a" data-measurement-area="one"><button>Delete</button></span></div>`;
+  const [container, layer] = wrapper.children, table = container.firstChild, action = layer.lastChild;
   const bounds = (left, top, right, bottom) => ({ left:left*scale, top:top*scale,
     right:right*scale, bottom:bottom*scale, width:(right-left)*scale, height:(bottom-top)*scale });
   Object.defineProperties(container, { offsetWidth:{value:100}, clientHeight:{value:140} });
@@ -42,6 +42,11 @@ it.each([0.8, 1, 1.25])('centers the correct instrument/area group independently
   syncInstrumentActions(container,table,layer);
   expect(parseFloat(action.style.top)).toBeCloseTo(100);
   expect(action).toHaveAttribute('data-active');
+  const band = layer.querySelector('.instrument-action-band');
+  expect(band).toHaveAttribute('data-cell-selected');
+  expect(band.style.getPropertyValue('--instrument-function-color')).toBe('#abcd00');
+  expect(parseFloat(band.style.top)).toBeCloseTo(60);
+  expect(parseFloat(band.style.height)).toBeCloseTo(80);
 });
 
 it('keeps tall groups reachable and hides actions outside the visible rows or after removal', () => {

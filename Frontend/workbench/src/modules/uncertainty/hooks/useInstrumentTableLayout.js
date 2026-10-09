@@ -71,7 +71,10 @@ export default function useInstrumentTableLayout(containerRef) {
     const viewport = container.closest('.instrument-table-viewport');
     let actionPointer = null;
     const actionLayer = () => viewport?.querySelector(':scope > .instrument-action-layer');
-    const syncActions = () => syncInstrumentActions(container, table, actionLayer(), actionPointer);
+    const syncActions = () => {
+      syncInstrumentActions(container, table, actionLayer(), actionPointer);
+      selectionOutline.sync();
+    };
     const moveActions = event => { actionPointer = { x:event.clientX, y:event.clientY }; updateInstrumentActionHover(actionLayer(), actionPointer); };
     const leaveActions = () => { actionPointer = null; updateInstrumentActionHover(actionLayer()); };
     viewport?.addEventListener('pointermove', moveActions);
@@ -300,7 +303,6 @@ export default function useInstrumentTableLayout(containerRef) {
       alignEmptyHintArrows(table);
       syncHeaderOffset();
       updateInstrumentCellHighlights(table, hoveredRow, hoveredCell);
-      selectionOutline.sync();
       syncActions();
     };
     const schedule = () => {
@@ -319,6 +321,8 @@ export default function useInstrumentTableLayout(containerRef) {
       if (!records || records.some(instrumentMutationAffectsLayout)) schedule();
     });
     mutation.observe(table, { childList: true, subtree: true, attributes: true, attributeOldValue: true, attributeFilter: ["class", "style", "rowspan", "colspan", "data-range-selected", "data-selection-mode"] });
+    const theme = new MutationObserver(schedule);
+    theme.observe(document.body, { attributes:true, attributeFilter:['class'] });
     const resize = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(schedule);
     resize?.observe(container);
     resize?.observe(table);
@@ -329,7 +333,7 @@ export default function useInstrumentTableLayout(containerRef) {
     const onScroll = event => {
       if (event.target !== document && event.target !== container && !scrollAncestors.includes(event.target)) return;
       alignEmptyHintArrows(table);
-      syncHeaderOffset(); selectionOutline.sync(); syncActions();
+      syncHeaderOffset(); syncActions();
     };
     const refreshColumnControls = event => {
       if (event.target.closest?.('th.instrument-resizable-header')) syncHeaderOffset();
@@ -355,6 +359,7 @@ export default function useInstrumentTableLayout(containerRef) {
       cancelAnimationFrame(frame);
       card?.style.removeProperty("--instrument-panel-width");
       mutation.disconnect();
+      theme.disconnect();
       resize?.disconnect();
       container.removeEventListener("focusin", schedule);
       container.removeEventListener("input", schedule);
