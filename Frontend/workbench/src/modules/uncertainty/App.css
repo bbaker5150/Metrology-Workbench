@@ -21557,8 +21557,8 @@ body.light-mode .uncertainty-module :is(.content-area, .results-content, .result
 /* Insertion buttons sit across the top rule and light headers retain columns. */
 .uncertainty-module .instrument-column-insert-button { top: -16px; right: -8px; }
 .uncertainty-module .instrument-panel-table-container { padding-top: 0; }
-body.light-mode .uncertainty-module .instrument-equipment-table thead th:not(:last-child) {
-  border-right: 1px solid #dbe3ee !important;
+body.light-mode .uncertainty-module .instrument-equipment-table {
+  --instrument-header-divider-color: #dbe3ee;
 }
 .uncertainty-module .instrument-equipment-table thead { position: static; }
 .uncertainty-module .instrument-equipment-table thead::before { display: none; }
@@ -21848,9 +21848,13 @@ body.light-mode .uncertainty-module .instrument-equipment-table thead th:not(:la
 .uncertainty-module .budget-component-type { vertical-align: middle; }
 .uncertainty-module .repeatability-fixed-distribution { font-weight: 400; }
 
-/* Header boundaries remain visible against the dark instrument table surface. */
-body:not(.light-mode) .uncertainty-module .instrument-equipment-table > thead > tr > th:not(:last-child) {
-  border-right: 1px solid color-mix(in srgb, var(--text-color-muted) 48%, var(--table-divider-color));
+/* Paint dividers with each sticky header, like its bottom rule. Collapsed
+   table borders can disappear when inserting or focusing adjacent columns. */
+.uncertainty-module .instrument-equipment-table > thead > tr > th:not(:last-child) {
+  border-right: 1px solid transparent !important;
+  box-shadow:
+    inset -1px 0 0 var(--instrument-header-divider-color, color-mix(in srgb, var(--text-color-muted) 48%, var(--table-divider-color))),
+    inset 0 -1px 0 var(--table-divider-color);
 }
 
 /* Empty measurement areas share the point-list hint's arrow scale. */
