@@ -2427,6 +2427,7 @@ const EditableCustomColumnHeader = ({
   onCommit,
   onEdit,
   onDelete,
+  inputLabel = "Column name",
 }) => {
   const [draft, setDraft] = useState(column.label || "Name");
   useEffect(() => setDraft(column.label || "Name"), [column.label]);
@@ -2445,7 +2446,7 @@ const EditableCustomColumnHeader = ({
         >
           {column.label || "Name"}
         </button>
-        <button
+        {onDelete && <button
           type="button"
           className="instrument-custom-column-delete"
           title={`Delete ${column.label || "custom"} column`}
@@ -2456,7 +2457,7 @@ const EditableCustomColumnHeader = ({
           }}
         >
           ×
-        </button>
+        </button>}
       </span>
     );
   }
@@ -2465,7 +2466,7 @@ const EditableCustomColumnHeader = ({
       autoFocus
       className="instrument-custom-column-name-input"
       value={draft}
-      aria-label="Column name"
+      aria-label={inputLabel}
       onChange={(event) => setDraft(event.target.value)}
       onFocus={(event) => event.currentTarget.select()}
       onBlur={finish}
@@ -2816,6 +2817,7 @@ const InstrumentTableHeader = ({
   onRenameQualifier,
   onInsertAfter,
 }) => {
+  const [editingQualifier, setEditingQualifier] = useState(null);
   const customByKey = new Map(
     customColumns.map((column) => [instrumentColumnKey(column), column]),
   );
@@ -2857,7 +2859,9 @@ const InstrumentTableHeader = ({
                         <span>Range</span>
                       </span>
                     )
-                  : columnKey.startsWith("qualifier") ? <input aria-label={`Qualifier ${Number(columnKey.slice(9) || 1)} column name`} className="qualifier-column-name" value={label} onChange={event => onRenameQualifier?.(Number(columnKey.slice(9) || 1) - 1, event.target.value)} onMouseDown={event => event.stopPropagation()} /> : label}
+                  : columnKey.startsWith("qualifier") ? <EditableCustomColumnHeader column={{ key: columnKey, label }} editing={editingQualifier === columnKey} onEdit={setEditingQualifier}
+                      inputLabel={`Qualifier ${Number(columnKey.slice(9) || 1)} column name`}
+                      onCommit={name => { onRenameQualifier?.(Number(columnKey.slice(9) || 1) - 1, name); setEditingQualifier(null); }} /> : label}
             </ResizableInstrumentHeader>
           );
         })}
@@ -9174,7 +9178,7 @@ const SummaryDashboard = ({
             <tbody>
               {groupedUutRows.length === 0 ? (
                 <tr className="panel-empty-row">
-                  <td colSpan={5 + Number(uutTableColumns.qualifierEnabled) + customColumnsFor("uut").length}>
+                  <td colSpan={getInstrumentColumnOrder("uut", customColumnsFor("uut"), uutTableColumns.qualifierEnabled).length}>
                     <MeasurementAreaEmptyHint />
                   </td>
                 </tr>
@@ -9184,7 +9188,7 @@ const SummaryDashboard = ({
                     return renderFunctionHeaderRow(
                       "uut",
                       row.fn,
-                      6 + customColumnsFor("uut").length,
+                      getInstrumentColumnOrder("uut", customColumnsFor("uut"), uutTableColumns.qualifierEnabled).length,
                     );
                   }
 
@@ -9707,7 +9711,7 @@ const SummaryDashboard = ({
             <tbody>
               {groupedTmdeRows.length === 0 ? (
                 <tr className="panel-empty-row">
-                  <td colSpan={6 + Number(tmdeTableColumns.qualifierEnabled) + customColumnsFor("tmde").length}>
+                  <td colSpan={getInstrumentColumnOrder("tmde", customColumnsFor("tmde"), tmdeTableColumns.qualifierEnabled).length}>
                     <MeasurementAreaEmptyHint />
                   </td>
                 </tr>
@@ -9717,7 +9721,7 @@ const SummaryDashboard = ({
                     return renderFunctionHeaderRow(
                       "tmde",
                       row.fn,
-                      7 + customColumnsFor("tmde").length,
+                      getInstrumentColumnOrder("tmde", customColumnsFor("tmde"), tmdeTableColumns.qualifierEnabled).length,
                     );
                   }
 
@@ -15472,7 +15476,7 @@ function DetailedView({
             <tbody>
               {visibleDetailUutRows.length === 0 ? (
                 <tr className="panel-empty-row">
-                  <td colSpan={5 + Number(uutTableColumns.qualifierEnabled) + customColumnsFor("uut").length}>
+                  <td colSpan={getInstrumentColumnOrder("uut", customColumnsFor("uut"), uutTableColumns.qualifierEnabled).length}>
                     <MeasurementAreaEmptyHint />
                   </td>
                 </tr>
@@ -15482,7 +15486,7 @@ function DetailedView({
                     return renderFunctionHeaderRow(
                       "uut",
                       row.fn,
-                      6 + customColumnsFor("uut").length,
+                      getInstrumentColumnOrder("uut", customColumnsFor("uut"), uutTableColumns.qualifierEnabled).length,
                     );
                   }
                   const uut = row.item;
@@ -16264,7 +16268,7 @@ function DetailedView({
               <tbody>
                 {visibleDetailTmdeRows.length === 0 ? (
                   <tr className="panel-empty-row">
-                    <td colSpan={6 + Number(tmdeTableColumns.qualifierEnabled) + customColumnsFor("tmde").length}>
+                    <td colSpan={getInstrumentColumnOrder("tmde", customColumnsFor("tmde"), tmdeTableColumns.qualifierEnabled).length}>
                       <MeasurementAreaEmptyHint />
                     </td>
                   </tr>
@@ -16274,7 +16278,7 @@ function DetailedView({
                       return renderFunctionHeaderRow(
                         "tmde",
                         row.fn,
-                      7 + customColumnsFor("tmde").length,
+                      getInstrumentColumnOrder("tmde", customColumnsFor("tmde"), tmdeTableColumns.qualifierEnabled).length,
                       );
                     }
                     const masterTmde = row.item;

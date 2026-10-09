@@ -7,6 +7,10 @@ import { preserveTableTextSelection } from "../utils/tableTextSelection";
 import { createInstrumentSelectionOutline } from "../utils/instrumentSelectionOutline";
 
 const EDITORS = ".inline-desc-fields, .inline-range-editor.is-editing, .qualifier-range-cell .inline-range-editor, .inline-tolerance-editor, .inline-resolution-editor, .inline-distribution-editor, .instrument-custom-field-input";
+export const qualifierColumnKey = cell => {
+  const depth = Number(cell.getAttribute('data-qualifier-cell')) || 1;
+  return depth > 1 ? `qualifier${depth}` : 'qualifier';
+};
 const HOVER_CLASSES = new Set(['row-hovered', 'col-hovered', 'hovered-spec-row']);
 const layoutClasses = value => (value || '').split(/\s+/).filter(name => name && !HOVER_CLASSES.has(name)).sort().join(' ');
 
@@ -147,6 +151,23 @@ export default function useInstrumentTableLayout(containerRef) {
       // Editor requirements grow only their own columns. The panel fills the
       // workspace and scrolls when authored/editor widths exceed the viewport.
       const requirements = [];
+      // Header rename inputs use the same intrinsic text measurement as their
+      // collapsed labels; allocated column widths must not feed back into it.
+      [...(table.tHead?.rows[0]?.cells || [])].forEach((header, index) => {
+        if (!header.dataset.instrumentColumn?.startsWith('qualifier')) return;
+        const label = header.querySelector('.instrument-custom-column-label, .instrument-custom-column-name-input');
+        if (!label) return;
+        const style = getComputedStyle(label);
+        const probe = document.createElement('span');
+        probe.style.cssText = 'position:fixed;left:-100000px;width:max-content;white-space:nowrap;visibility:hidden;';
+        probe.style.font = style.font;
+        probe.style.textTransform = style.textTransform;
+        probe.style.letterSpacing = style.letterSpacing;
+        probe.textContent = label.value ?? label.textContent;
+        document.body.appendChild(probe);
+        requirements[index] = probe.offsetWidth + 32;
+        probe.remove();
+      });
       if (!absolute) {
         // Preserve wrapping in descriptions, but reserve space for their badges.
         table.querySelectorAll('.uut-description-content').forEach(wrapper => {
@@ -205,7 +226,9 @@ export default function useInstrumentTableLayout(containerRef) {
           width += (parseFloat(editorStyle.paddingLeft) || 0) + (parseFloat(editorStyle.paddingRight) || 0);
         }
 
-        const collapsedQualifier = cell.hasAttribute('data-qualifier-cell') && !editor.classList.contains('is-editing');
+        const qualifier = cell.hasAttribute('data-qualifier-cell');
+        if (qualifier && editor.classList.contains('is-editing')) width = equationEditorWidth(editor);
+        const collapsedQualifier = qualifier && !editor.classList.contains('is-editing');
         if (collapsedQualifier) {
           // Summaries must reserve room for their adjacent actions too. Measure
           // text independently: the editor's assigned width would feed back.
@@ -223,7 +246,7 @@ export default function useInstrumentTableLayout(containerRef) {
           // The range wrapper stretches to the cell. Measure intrinsic children,
           // never feed that already-expanded width back into its own requirement.
           const children = [...content.children].filter(node => node.getClientRects().length);
-          width = children.reduce((sum, node) => sum + (node === editor && (collapsedQualifier || equation || lookup) ? width : Math.max(node.scrollWidth, node.offsetWidth)), 0)
+          width = children.reduce((sum, node) => sum + (node === editor && (qualifier || equation || lookup) ? width : Math.max(node.scrollWidth, node.offsetWidth)), 0)
             + Math.max(0, children.length - 1) * (parseFloat(getComputedStyle(content).columnGap) || 0);
         }
         if (editor.matches('.inline-desc-fields')) {
@@ -235,7 +258,7 @@ export default function useInstrumentTableLayout(containerRef) {
         // Later range rows omit row-spanned description cells, so cellIndex
         // is not their logical column index. Resolve via the actual header.
         const key = editor.matches('.inline-desc-fields') ? 'description'
-          : editor.matches('.inline-range-editor') ? (cell.hasAttribute('data-qualifier-cell') ? 'qualifier' : 'range')
+          : editor.matches('.inline-range-editor') ? (cell.hasAttribute('data-qualifier-cell') ? qualifierColumnKey(cell) : 'range')
           : editor.matches('.inline-tolerance-editor') ? 'tolerance'
           : editor.matches('.inline-resolution-editor') ? 'resolution' : editor.matches('.instrument-custom-field-input') ? cell.dataset.customColumn : 'distribution';
         const index = [...(table.tHead?.rows[0]?.cells || [])].findIndex(header => header.dataset.instrumentColumn === key);
@@ -277,6 +300,7 @@ export default function useInstrumentTableLayout(containerRef) {
     resize?.observe(container);
     resize?.observe(table);
     container.addEventListener("focusin", schedule);
+    container.addEventListener("input", schedule);
     // Scroll only changes the sticky offset, not column widths. Update it in
     // the scroll event instead of deferring an entire table measurement a frame.
     const onScroll = event => {
@@ -305,6 +329,7 @@ export default function useInstrumentTableLayout(containerRef) {
       mutation.disconnect();
       resize?.disconnect();
       container.removeEventListener("focusin", schedule);
+      container.removeEventListener("input", schedule);
       window.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("resize", schedule);
     };

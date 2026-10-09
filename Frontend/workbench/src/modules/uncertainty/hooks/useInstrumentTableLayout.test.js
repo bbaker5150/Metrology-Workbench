@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { expandedInstrumentWidths } from "./useInstrumentTableLayout";
+import { expandedInstrumentWidths, qualifierColumnKey } from "./useInstrumentTableLayout";
 import { resizeTableColumn } from "../utils/fillTrailingColumn";
 
 describe("temporary instrument column widths", () => {
@@ -30,4 +30,11 @@ it("can reverse repeated drags without saving an expanded neighbor's editor widt
 
 it("can fill the neighbour when the last column is autofitted", () => {
   expect(expandedInstrumentWidths([60, 200, 180], 1200, [], true, 1)).toEqual([60, 960, 180]);
+});
+
+it('assigns nested qualifier sizing to its own header', () => {
+ const cell=document.createElement('td');
+ cell.setAttribute('data-qualifier-cell','1'); expect(qualifierColumnKey(cell)).toBe('qualifier');
+ cell.setAttribute('data-qualifier-cell','2'); expect(qualifierColumnKey(cell)).toBe('qualifier2');
+ cell.setAttribute('data-qualifier-cell','3'); expect(qualifierColumnKey(cell)).toBe('qualifier3');
 });

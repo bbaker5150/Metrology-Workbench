@@ -22185,5 +22185,3 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
 }
 
 .inline-sync-badge--yellow { color: #b8860b; }
-.qualifier-column-name { width: 100%; min-width: 70px; border: 0; background: transparent; color: inherit; font: inherit; }
-.qualifier-column-name:focus { outline: 1px solid var(--accent-color, #448aff); }

@@ -17,7 +17,7 @@ it.each(['session','point'])('adds and merges qualifier sub-ranges in %s view',a
  fireEvent.click(within(row).getByRole('button',{name:'Add qualifier',exact:true}));
  row=document.querySelector('tr[data-range-group="uut:u1"]');
  const table=row.closest('table');
- expect(within(table).getByRole('textbox',{name:'Qualifier 1 column name'})).toBeInTheDocument();
+ expect(within(table).getByRole('button',{name:'Qualifier',exact:true})).toBeInTheDocument();
  expect(document.querySelector('tr[data-range-group="uut:u2"] [data-range-cell]')).toHaveAttribute('colspan','2');
  const qualifier=row.querySelector('[data-qualifier-cell]');
  expect(within(qualifier).getByRole('textbox',{name:'Qualifier value'})).toHaveFocus();
@@ -66,7 +66,16 @@ it.each(['session','point'])('nests text qualifiers and collapses parents in %s 
  expect(within(child).getByRole('textbox',{name:'Qualifier value'})).toHaveFocus();
  fireEvent.change(within(child).getByRole('textbox',{name:'Qualifier value'}),{target:{value:'90 days'}});
  fireEvent.blur(within(child).getByRole('textbox',{name:'Qualifier value'}));
- fireEvent.change(within(row.closest('table')).getByRole('textbox',{name:'Qualifier 2 column name'}),{target:{value:'Calibration interval'}});
+ const table=row.closest('table');
+ const header=table.querySelector('[data-instrument-column="qualifier2"]');
+ fireEvent.click(within(header).getByRole('button',{name:'Qualifier',exact:true}));
+ const name=within(header).getByRole('textbox',{name:'Qualifier 2 column name'});
+ fireEvent.change(name,{target:{value:'Calibration interval'}});
+ fireEvent.blur(name);
+ expect(within(header).queryByRole('textbox')).toBeNull();
+ expect(within(header).getByRole('button',{name:'Calibration interval'})).toHaveClass('instrument-custom-column-label');
+ for(const area of table.querySelectorAll('.instrument-area-section-row > td')) expect(area.colSpan).toBe(table.tHead.rows[0].cells.length);
+
  fireEvent.click(within(child).getByRole('button',{name:'Add qualifier range',exact:true}));
  const rows=[...document.querySelectorAll('tr[data-range-group="uut:u1"]')];
  expect(rows).toHaveLength(2);
