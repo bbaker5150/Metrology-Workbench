@@ -47,14 +47,22 @@ export async function checkSeptember22Followup({ frame, page, saved, until, chec
   const sourceBias = tmdeTable.getByRole('textbox', { name: 'Range source bias', exact: true });
   await sourceBias.fill('0.125'); await sourceBias.press('Enter');
   check('instrument bias edits immediately update the TMDE Bias column', await until(async () => (await point.locator('[data-sidebar-column="tmdeBias"]').innerText()).includes('0.125 V')));
+  check('Enter collapses the instrument bias editor', await sourceBias.count() === 0);
+  await tmdeTable.locator('.cell-tolerance .inline-tolerance-summary').first().click();
+  if (await sourceBias.count() === 0)
+    await tmdeTable.getByRole('button', { name: 'Bias', exact: true }).click();
+  check('reopening the bias editor preserves the committed value', await sourceBias.inputValue() === '0.125');
   await sourceBias.fill(''); await sourceBias.press('Enter');
+  check('clearing instrument bias updates the TMDE Bias column', await until(async () => !(await point.locator('[data-sidebar-column="tmdeBias"]').innerText()).includes('0.125 V')));
   await frame.locator('.analysis-tabs').click({ position: { x: 5, y: 5 } });
 
   const table = frame.locator('.instrument-equipment-table').first();
   const row = table.locator('tr[data-selection-key="uut:uut"]').first();
   const range = row.locator('[data-range-cell]').first();
-  await range.click({ position: { x: 3, y: 3 } });
+  // One click selects the range and opens it; a preliminary selection click
+  // would make the second click toggle the range back off.
   await range.locator('.inline-tolerance-summary').click();
+  await range.locator('.range-row-cell').hover();
   const widths = await table.evaluate(async node => {
     const values = [];
     for (let i = 0; i < 30; i++) {
