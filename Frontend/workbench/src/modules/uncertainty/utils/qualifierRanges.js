@@ -1,6 +1,26 @@
 import { v4 as uuid } from "uuid";
 import { getInstrumentRangeRows } from "./instrumentFunctionSelection";
 
+export const formatQualifierValue = (qualifier = {}) => {
+  if (qualifier.text != null) return String(qualifier.text);
+  const min = qualifier.min ?? qualifier.value ?? "";
+  const max = qualifier.max ?? "";
+  if (min === "" && max === "") return "";
+  return [min, max !== "" && String(max) !== String(min) ? `${min === "" ? "" : "– "}${max}` : "", qualifier.unit].filter(value => value !== "" && value != null).join(" ");
+};
+export const formatQualifierPath = (range, names = []) => {
+  const labels = [];
+  let qualifier = range?.qualifier;
+  let depth = 0;
+  while (qualifier) {
+    const value = formatQualifierValue(qualifier);
+    if (value) labels.push(`${names[depth] || qualifier.name || "Qualifier"}: ${value}`);
+    qualifier = qualifier.qualifier;
+    depth++;
+  }
+  return labels.join(" | ");
+};
+
 const idOf = range => String(range?.rangeId ?? range?.id ?? "");
 export const qualifierGroupKey = range => range?.qualifier ? String(range.qualifierGroupId || JSON.stringify([range.functionId || range.functionName, range.min, range.max, range.unit])) : null;
 export const qualifierAt = (range, depth = 0) => {
@@ -18,7 +38,7 @@ const branchKey = (range, depth) => {
   for (let i = 1; i <= depth; i++) {
     const node = qualifierAt(range, i);
     if (!node) return null;
-    path.push(node.id || JSON.stringify([node.name, node.min, node.max, node.value, node.unit]));
+    path.push(node.id || JSON.stringify([node.name, node.text, node.min, node.max, node.value, node.unit]));
   }
   return JSON.stringify(path);
 };

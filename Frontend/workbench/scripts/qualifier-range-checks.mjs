@@ -21,26 +21,24 @@ export async function checkQualifierRanges({frame, page, saved, until, check}) {
       check(`${view} ${kind} parent range collapses`, await baseRange.locator('input[placeholder="min"]').count() === 0);
       check(`${view} ${kind} adds Qualifier header`,await table.locator('thead [data-instrument-column="qualifier"]').count()===1);
       const qualifier=first.locator('[data-qualifier-cell]');
-      await qualifier.getByPlaceholder('min',{exact:true}).press('Control+z');
+      await qualifier.getByRole('textbox',{name:'Qualifier value'}).press('Control+z');
       check(`${view} ${kind} Ctrl+Z undoes qualifier creation while its empty editor is focused`,await until(async()=>await table.locator('thead [data-instrument-column="qualifier"]').count()===0));
       await baseRange.click();
       if (await first.getByRole('button',{name:'Add qualifier',exact:true}).count()===0) await baseRange.locator('.inline-tolerance-summary').click();
       await first.getByRole('button',{name:'Add qualifier',exact:true}).click();
-      check(`${view} ${kind} new qualifier opens focused`, await qualifier.getByPlaceholder('min',{exact:true}).evaluate(node=>node===document.activeElement));
-      await qualifier.getByPlaceholder('min',{exact:true}).fill('100');
-      await qualifier.getByPlaceholder('min',{exact:true}).press('Tab');
-      check(`${view} ${kind} qualifier Tab preserves focus`, await qualifier.getByPlaceholder('max',{exact:true}).evaluate(node=>node===document.activeElement));
-      await qualifier.getByPlaceholder('max',{exact:true}).fill('1000');
-      await qualifier.getByPlaceholder('max',{exact:true}).press('Enter');
+      check(`${view} ${kind} new qualifier opens focused`, await qualifier.getByRole('textbox',{name:'Qualifier value'}).evaluate(node=>node===document.activeElement));
+      check(`${view} ${kind} qualifier is one text input`, await qualifier.locator('input').count()===1);
+      await qualifier.getByRole('textbox',{name:'Qualifier value'}).fill('100 – 1000 Hz');
+      await qualifier.getByRole('textbox',{name:'Qualifier value'}).press('Tab');
+      check(`${view} ${kind} Tab advances to qualifier actions`, await qualifier.getByRole('button',{name:'Add nested qualifier'}).evaluate(node=>node===document.activeElement));
       await qualifier.hover();
       await first.getByRole('button',{name:'Add qualifier range',exact:true}).click();
       const rows=table.locator(`tr[data-selection-key="${group}"]:has([data-qualifier-cell])`);
       check(`${view} ${kind} shares the parent range`,await rows.count()===2 && await baseRange.getAttribute('rowspan')==='2');
       const second=rows.nth(1).locator('[data-qualifier-cell]');
-      check(`${view} ${kind} added qualifier opens focused`, await second.getByPlaceholder('min',{exact:true}).evaluate(node=>node===document.activeElement));
-      await second.getByPlaceholder('min',{exact:true}).fill('1000');
-      await second.getByPlaceholder('max',{exact:true}).fill('10000');
-      await second.getByPlaceholder('max',{exact:true}).press('Enter');
+      check(`${view} ${kind} added qualifier opens focused`, await second.getByRole('textbox',{name:'Qualifier value'}).evaluate(node=>node===document.activeElement));
+      await second.getByRole('textbox',{name:'Qualifier value'}).fill('1 – 10 kHz');
+      await second.getByRole('textbox',{name:'Qualifier value'}).press('Enter');
       await table.locator('thead').click();
       check(`${view} ${kind} qualifier controls align beside inputs`,await second.evaluate(cell=>{
         const editor=cell.querySelector('.inline-range-editor').getBoundingClientRect();
@@ -66,7 +64,7 @@ export async function checkQualifierRanges({frame, page, saved, until, check}) {
       check(`${view} ${kind} saves independent qualifier bounds`,await until(()=>{
         const item=saved()[kind==='uut'?'uuts':'tmdes'].find(item=>`${kind}:${item.id}`===group);
         const ranges=item?.ranges || item?.instrument?.functions?.flatMap(fn=>fn.ranges||[]) || item?.instrument?.ranges || [];
-        return ranges.some(r=>Number(r.qualifier?.min)===100 && Number(r.qualifier?.max)===1000) && ranges.some(r=>Number(r.qualifier?.min)===1000 && Number(r.qualifier?.max)===10000);
+        return ranges.some(r=>r.qualifier?.text==='100 – 1000 Hz') && ranges.some(r=>r.qualifier?.text==='1 – 10 kHz');
       }));
       for (const theme of ['light','dark']) {
         await frame.evaluate(theme=>{document.body.classList.toggle('light-mode',theme==='light');document.body.classList.toggle('dark-mode',theme==='dark');},theme);
@@ -86,17 +84,17 @@ export async function checkQualifierRanges({frame, page, saved, until, check}) {
       await parent.locator('.inline-tolerance-summary').click();
       await parent.getByRole('button', {name:'Add nested qualifier'}).click();
       const child = first.locator('[data-qualifier-cell="2"]');
-      check(`${view} ${kind} parent qualifier collapses`, await parent.locator('input[placeholder="min"]').count() === 0);
-      check(`${view} ${kind} nested qualifier opens focused`, await child.getByPlaceholder('min',{exact:true}).evaluate(node=>node===document.activeElement));
-      await child.getByPlaceholder('min',{exact:true}).fill('90 days');
-      await child.getByPlaceholder('min',{exact:true}).press('Enter');
+      check(`${view} ${kind} parent qualifier collapses`, await parent.getByRole('textbox',{name:'Qualifier value'}).count() === 0);
+      check(`${view} ${kind} nested qualifier opens focused`, await child.getByRole('textbox',{name:'Qualifier value'}).evaluate(node=>node===document.activeElement));
+      await child.getByRole('textbox',{name:'Qualifier value'}).fill('90 days');
+      await child.getByRole('textbox',{name:'Qualifier value'}).press('Enter');
       await table.getByRole('textbox',{name:'Qualifier 2 column name'}).fill('Calibration interval');
       await child.getByRole('button',{name:'Add qualifier range',exact:true}).click();
       check(`${view} ${kind} nested intervals merge their parent`, await parent.getAttribute('rowspan') === '2');
       check(`${view} ${kind} saves text interval and column name`, await until(()=>{
         const item=saved()[kind==='uut'?'uuts':'tmdes'].find(item=>`${kind}:${item.id}`===group);
         const ranges=item?.ranges || item?.instrument?.functions?.flatMap(fn=>fn.ranges||[]) || item?.instrument?.ranges || [];
-        return ranges.some(r=>r.qualifier?.qualifier?.min==='90 days') && saved().qualifierColumnNames?.[kind]?.[1]==='Calibration interval';
+        return ranges.some(r=>r.qualifier?.qualifier?.text==='90 days') && saved().qualifierColumnNames?.[kind]?.[1]==='Calibration interval';
       }));
       await parent.hover();
       await parent.getByRole('button',{name:'Delete qualifier range',exact:true}).click();

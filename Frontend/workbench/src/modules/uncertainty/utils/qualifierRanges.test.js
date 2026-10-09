@@ -56,3 +56,9 @@ it('requires each nested categorical qualifier when selecting uncertainty',()=>{
  expect(assessRangeCompatibility(rows(item)[0],{...nominal,qualifier:{value:200,unit:'Hz'}}).compatible).toBe(false);
  expect(assessRangeCompatibility(rows(item)[0],{...nominal,qualifier:{...nominal.qualifier,qualifier:{value:'1 year'}}}).compatible).toBe(false);
 });
+
+it('matches a literal free-text qualifier without treating its digits as bounds',()=>{
+ const item=editQualifierRange(instrument(),'r','enable',{text:'90 days'}).item;
+ expect(assessRangeCompatibility(rows(item)[0],{value:50,unit:'A',qualifier:{value:'90 days'}}).compatible).toBe(true);
+ expect(assessRangeCompatibility(rows(item)[0],{value:50,unit:'A',qualifier:{value:'180 days'}}).compatible).toBe(false);
+});

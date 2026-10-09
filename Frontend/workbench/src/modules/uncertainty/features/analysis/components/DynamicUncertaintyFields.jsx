@@ -29,7 +29,13 @@ function CompactEquationInput({ value, label, onChange, onAdvance }) {
     style={{ "--equation-input-width": `calc(${Math.max(12, value.length + 1)}ch + 12px)` }}
     aria-invalid={Boolean(value && !markup)} onChange={event => onChange(event.target.value)}
     // Let the clicked control receive its click before shrinking this input.
-    onBlur={() => { if (markup) blurFrame.current = requestAnimationFrame(() => setEditing(false)); }}
+    onFocus={() => cancelAnimationFrame(blurFrame.current)}
+    onBlur={() => {
+      cancelAnimationFrame(blurFrame.current);
+      if (markup) blurFrame.current = requestAnimationFrame(() => {
+        if (document.activeElement !== inputRef.current) setEditing(false);
+      });
+    }}
     onKeyDown={event => {
       if (event.key !== "Enter" || !markup) return;
       event.preventDefault(); event.stopPropagation();

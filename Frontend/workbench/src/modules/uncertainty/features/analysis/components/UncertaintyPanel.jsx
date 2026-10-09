@@ -1,4 +1,4 @@
-import { editQualifierRange, instrumentQualifierDepth, qualifierAt, qualifierGroupKey, qualifierRowSpan } from "../../../utils/qualifierRanges";
+import { formatQualifierValue, formatQualifierPath, editQualifierRange, instrumentQualifierDepth, qualifierAt, qualifierGroupKey, qualifierRowSpan } from "../../../utils/qualifierRanges";
 import { measurementPreview } from '../../../utils/measurementPreview';
 import { newMeasurementAreaColor } from "../../../utils/measurementAreaGrouping";
 import MeasurementAreaEmptyHint from "../../../components/common/MeasurementAreaEmptyHint";
@@ -1847,12 +1847,11 @@ const findRangeForFunction = (source = {}, functionKey = null) => {
   return ranges[0];
 };
 
-export const formatRangeToleranceDetail = (range = null, referencePoint) => {
+export const formatRangeToleranceDetail = (range = null, referencePoint, qualifierNames = []) => {
   if (!range) return "";
   const rangeLabel = formatRangeLabel(range, { preferBounds: true });
   const specLabel = (getCollapsedSpecRows(range, referencePoint)[0] || "").trim();
-  const qualifierLabel = range.qualifier
-    ? `${range.qualifier.name || "Qualifier"}: ${formatRangeLabel(range.qualifier, { preferBounds: true })}` : "";
+  const qualifierLabel = formatQualifierPath(range, qualifierNames);
   const distributionLabel = getBandDistLabel(range);
   const isPlaceholder = (value) => {
     const normalized = String(value || "").trim();
@@ -5083,7 +5082,7 @@ export const RangeCell = ({
   // Keep read/edit DOM separate: a summary press can open the editor before
   // mouseup, and must never turn into a click on a newly mounted input.
   if (!showEditor) {
-    const rangeSummary = textMode ? [activeRange.min ?? activeRange.value, activeRange.max && activeRange.max !== activeRange.min ? `– ${activeRange.max}` : "", activeRange.unit].filter(Boolean).join(" ") : formatRangeSummary(activeRange);
+    const rangeSummary = textMode ? formatQualifierValue(activeRange) : formatRangeSummary(activeRange);
     // Use the same blank-cell affordance as an unentered range in the expanded
     // editor. `rangeSummary` remains the source of truth for expand-vs-edit.
     // An empty range is a valid all-values specification, not required data
@@ -5150,7 +5149,7 @@ export const RangeCell = ({
     const minimum = containerRef.current?.querySelector('[placeholder="min"]')?.value ?? activeRange.min ?? "";
     const maximum = containerRef.current?.querySelector('[placeholder="max"]')?.value ?? activeRange.max ?? "";
     if (minimum === "" && maximum === "" && rangeIsBlank(activeRange)) return;
-    const patch = textMode ? { min: minimum, max: maximum, value: minimum, isSingleValue: !maximum || minimum === maximum } : normalizeRangeBounds(minimum, maximum);
+    const patch = normalizeRangeBounds(minimum, maximum);
     if (["min", "max", "value", "isSingleValue"].every(key => String(patch[key] ?? "") === String(activeRange[key] ?? ""))) return;
     if (onPatchRange) onPatchRange(patch);
     else if (raw !== String(toPlainNumber(activeRange[field]))) onEditBound?.(field, raw);
@@ -5186,11 +5185,18 @@ export const RangeCell = ({
       }}
     >
       <div className="inline-range-main">
+        {textMode ? <GrowingNumericInput key={`qualifier-${rangeIdOf(activeRange)}`} type="text" aria-label="Qualifier value" placeholder="Qualifier" defaultValue={formatQualifierValue(activeRange)} className="inline-tolerance-input inline-qualifier-input"
+          onBlur={event => {
+            const text = event.target.value;
+            if (text !== formatQualifierValue(activeRange)) onPatchRange?.({ text, min: "", max: "", value: "", unit: "", isSingleValue: false });
+          }}
+          onKeyDown={event => { if (event.key === "Enter" && !event.ctrlKey && !event.metaKey) event.currentTarget.blur(); }} /> : <>
+
             <GrowingNumericInput
               key={`min-${rangeIdOf(activeRange) || "new"}`}
               type="text"
-              inputMode={textMode ? "text" : "decimal"}
-              defaultValue={textMode ? activeRange.min ?? activeRange.value ?? "" : toPlainNumber(activeRange.min ?? (activeRange.isSingleValue ? activeRange.value : ""))}
+              inputMode="decimal"
+              defaultValue={toPlainNumber(activeRange.min ?? (activeRange.isSingleValue ? activeRange.value : ""))}
               placeholder="min"
               onBlur={(e) => commitBounds("min", e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
@@ -5200,8 +5206,8 @@ export const RangeCell = ({
             <GrowingNumericInput
               key={`max-${rangeIdOf(activeRange) || "new"}`}
               type="text"
-              inputMode={textMode ? "text" : "decimal"}
-              defaultValue={textMode ? activeRange.max ?? "" : activeRange.isSingleValue || (activeRange.min !== "" && activeRange.min != null && activeRange.max !== "" && activeRange.max != null && Number(activeRange.min) === Number(activeRange.max)) ? "" : toPlainNumber(activeRange.max ?? "")}
+              inputMode="decimal"
+              defaultValue={activeRange.isSingleValue || (activeRange.min !== "" && activeRange.min != null && activeRange.max !== "" && activeRange.max != null && Number(activeRange.min) === Number(activeRange.max)) ? "" : toPlainNumber(activeRange.max ?? "")}
               placeholder="max"
               onBlur={(e) => commitBounds("max", e.target.value)}
               onKeyDown={(e) => {
@@ -5209,14 +5215,15 @@ export const RangeCell = ({
               }}
               className="inline-tolerance-input inline-range-bound-input"
             />
-        {textMode ? <input aria-label="Qualifier unit (optional)" placeholder="unit" className="inline-tolerance-input" defaultValue={unit} key={`unit-${rangeIdOf(activeRange)}`} onBlur={event => onEditUnit(event.target.value)} /> : <UnitSelect
+        <UnitSelect
           value={unit}
           ariaLabel="Range unit"
           onChange={(value) => onEditUnit(value)}
           onTab={openToleranceFromUnit}
           width="72px"
           compact
-        />}
+        />
+        </>}
       </div>
     </div>
   );
@@ -14146,7 +14153,7 @@ function DetailedView({
   const getBudgetTmdeDetail = (tmde, requestedRange = null) => {
     if (!budgetTmdePicker) return "";
     const referencePoint = isDerived ? budgetTmdePicker.scope?.nominalPoint : uutNominal;
-    if (requestedRange) return formatRangeToleranceDetail(requestedRange, referencePoint);
+    if (requestedRange) return formatRangeToleranceDetail(requestedRange, referencePoint, sessionData.qualifierColumnNames?.tmde);
     const rowKey = `${budgetTmdePicker.functionKey || "single"}::${tmde.id}`;
     const rangeNominal = isDerived
       ? budgetTmdePicker.scope?.nominalPoint || null
@@ -14166,7 +14173,7 @@ function DetailedView({
       resolution.ranges?.[activeIndex] ||
       resolution.activeRange ||
       findRangeForFunction(tmde, budgetTmdePicker.functionKey);
-    return formatRangeToleranceDetail(activeRange, referencePoint);
+    return formatRangeToleranceDetail(activeRange, referencePoint, sessionData.qualifierColumnNames?.tmde);
   };
 
   const budgetFunctionKey = useCallback(

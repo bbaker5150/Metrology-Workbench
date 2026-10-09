@@ -79,6 +79,10 @@ export const assessTmdeCompatibility = (range, measurementPoint) =>
 // literal label. Every nested dimension must match before selecting a leaf.
 export const assessQualifierCompatibility = (qualifier, nominal) => {
   if (!hasValue(nominal?.value)) return { compatible: false, reason: `Define the measurement point qualifier (${qualifier.name || "Qualifier"}).` };
+  if (qualifier.text != null) {
+    if (String(nominal.value) !== String(qualifier.text)) return { compatible: false, reason: "The point does not match this qualifier." };
+    return qualifier.qualifier ? assessQualifierCompatibility(qualifier.qualifier, nominal.qualifier) : { compatible: true, reason: "" };
+  }
   const min = qualifier.min ?? qualifier.value ?? "";
   const max = qualifier.max ?? qualifier.value ?? "";
   const numeric = [min, max].filter(hasValue).every(value => Number.isFinite(Number(value))) && Number.isFinite(Number(nominal.value));

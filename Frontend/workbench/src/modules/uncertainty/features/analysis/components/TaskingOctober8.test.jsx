@@ -20,3 +20,11 @@ it('renders imported numeric resolutions in decimal form before the first edit',
   render(<ResolutionCellInput value={1e-7} unit="V" />);
   expect(screen.getByRole('button')).toHaveTextContent('0.0000001 V');
 });
+
+it('includes the entire free-text qualifier path with renamed columns in budget menu details', () => {
+ const qualified = {...range, qualifier: {text:'100 Hz – 1 kHz', qualifier:{text:'90 days'}}};
+ const detail = formatRangeToleranceDetail(qualified, {value:20,unit:'A'}, ['Frequency band','Calibration interval']);
+ expect(detail).toContain('Frequency band: 100 Hz – 1 kHz');
+ expect(detail).toContain('Calibration interval: 90 days');
+ expect(detail).toContain('Tabular – ± 0.005 A');
+});

@@ -22135,8 +22135,9 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
 .dynamic-budget-editor[data-dynamic-kind="equation"] .dynamic-budget-header { display: flex; align-items: center; gap: 12px; }
 .dynamic-equation-entry { margin-bottom: 0; }
 .dynamic-equation-inputs { align-items: center; }
-.dynamic-equation-summary { display: inline-flex; flex: 0 0 auto; width: max-content; min-width: 0; border: 0; background: transparent; color: inherit; padding: 0; font-size: .85rem; white-space: nowrap; pointer-events: none; }
-.dynamic-equation-summary .katex { font-size: 1em; pointer-events: auto; cursor: text; }
+.dynamic-equation-summary { display: inline-flex; flex: 0 0 auto; width: max-content; min-width: 0; border: 0; background: transparent; color: inherit; padding: 0; font-size: .85rem; white-space: nowrap; pointer-events: auto; cursor: text; }
+.dynamic-equation-summary .katex { font-size: 1em; }
+.dynamic-equation-summary * { pointer-events: none; }
 .uncertainty-module :is(.instrument-tolerance-toolbar, .budget-uncertainty-type-toolbar):has(.dynamic-equation-inputs) { display: grid; grid-template-columns: minmax(58px, 1fr) max-content minmax(58px, 1fr); align-items: center; gap: 8px; }
 .dynamic-symmetry-slot:has(.dynamic-equation-inputs) { display: contents; }
 .dynamic-symmetry-slot > .dynamic-equation-inputs { grid-column: 2; grid-row: 1; }
@@ -22182,4 +22183,3 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
 .inline-sync-badge--yellow { color: #b8860b; }
 .qualifier-column-name { width: 100%; min-width: 70px; border: 0; background: transparent; color: inherit; font: inherit; }
 .qualifier-column-name:focus { outline: 1px solid var(--accent-color, #448aff); }
-.qualifier-range-cell input[aria-label="Qualifier unit (optional)"] { width: 60px; }

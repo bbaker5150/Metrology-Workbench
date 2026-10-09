@@ -71,3 +71,17 @@ it.each([["direct", 1], ["direct", 2], ["derived", 1], ["derived", 2]])("groups 
   expect(rows).toHaveLength(1);
   expect(rows[0].value_native).toBeCloseTo(1 / Math.sqrt(3), 8);
 });
+
+it.each(['direct','derived'])('shows nested free-text qualifiers on error source choices in the %s budget menu', measurementType => {
+ const tmde={id:'qualified',name:'Qualified reference',instrument:{functions:[{name:'Voltage',unit:'V',ranges:[{id:'r',min:0,max:10,unit:'V',qualifier:{text:'DC mode',qualifier:{text:'90 days'}},tolerances:{floor:{high:1,low:-1,unit:'V',distribution:'1.732'}}}]}]}};
+ render(<UncertaintyPanel
+  testPointData={{id:'p',measurementType,equationString:'x',variableMappings:{x:'Voltage'},variableNominals:{x:{value:5,unit:'V'}},testPointInfo:{parameter:{name:'Voltage',value:5,unit:'V'}},components:[]}}
+  sessionData={{id:'s',uuts:[],tmdes:[tmde],testPoints:[],measurementAreas:[],uncReq:{},qualifierColumnNames:{tmde:['Operating mode','Calibration interval']}}}
+  uutNominal={{name:'Voltage',value:5,unit:'V'}} tmdeTolerancesData={[]}
+  calcResults={{combined_uncertainty:0,expanded_uncertainty:0,k_value:2,effective_dof:Infinity,...(measurementType==='derived'?{calculatedBudgetGroups:[{id:'Voltage',kind:'input',variableType:'Voltage',label:'Voltage',nominalPoint:{value:5,unit:'V'},components:[]}]}:{})}}
+ />);
+ fireEvent.click(screen.getAllByRole('button',{name:'Add component to budget'})[0]);
+ const menu=document.querySelector('.budget-tmde-picker-menu');
+ expect(menu).toHaveTextContent('Operating mode: DC mode');
+ expect(menu).toHaveTextContent('Calibration interval: 90 days');
+});

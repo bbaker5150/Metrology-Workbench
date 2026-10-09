@@ -37,3 +37,12 @@ it('opens and focuses from a KaTeX glyph without bubbling into the surrounding e
   expect(screen.getByRole('textbox',{name:'Uncertainty equation'})).toHaveFocus();
   expect(parentClick).not.toHaveBeenCalled(); expect(parentPress).not.toHaveBeenCalled();
 });
+
+it('does not collapse a refocused equation when a queued blur finishes', async()=>{
+ render(<Harness/>);
+ const input=screen.getByRole('textbox',{name:'Uncertainty equation'});
+ fireEvent.change(input,{target:{value:'a+b'}});
+ input.focus(); fireEvent.blur(input); fireEvent.focus(input);
+ await new Promise(resolve=>requestAnimationFrame(resolve));
+ expect(screen.getByRole('textbox',{name:'Uncertainty equation'})).toHaveValue('a+b');
+});
