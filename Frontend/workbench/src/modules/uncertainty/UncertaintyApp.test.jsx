@@ -94,6 +94,34 @@ beforeEach(() => {
 });
 
 describe("UncertaintyApp", () => {
+  test.each([
+    ['first visit', null, ['voltage','current']],
+    ['collapsed list', {isGlobalExpanded:false,expandedFunctions:[],expandedUuts:[]}, []],
+    ['partially collapsed list', {expandedFunctions:['voltage']}, ['voltage']],
+  ])('restores measurement point expansion for %s', async (_, preferences, visible) => {
+    apiMock.state.sessions = [{id:701,name:'Point expansion',uuts:[],tmdes:[],uncReq:{},
+      testPoints:['Voltage','Current'].map((name,index)=>({id:`exp-${name.toLowerCase()}`,testPointInfo:{parameter:{name,value:index+1,unit:index?'A':'V'}},components:[],tmdeTolerances:[],specifications:{}}))}];
+    if (preferences) window.localStorage.setItem('uncertalytics.uiPreferences.v1:701',JSON.stringify(preferences));
+    const app = <ThemeProvider><NotificationProvider><MemoryRouter><UncertaintyApp /></MemoryRouter></NotificationProvider></ThemeProvider>;
+    let rendered=render(app);
+    await screen.findByRole('combobox',{name:'Analysis Session'});
+    await waitFor(()=>{
+      for(const name of ['voltage','current']) expect(Boolean(document.querySelector(`[data-point-id="exp-${name}"]`))).toBe(visible.includes(name));
+      expect(document.querySelectorAll('.measurement-group-container')).toHaveLength(2);
+    });
+    if (!preferences) {
+      fireEvent.click(screen.getByTitle('Collapse All'));
+      await waitFor(()=>expect(JSON.parse(window.localStorage.getItem('uncertalytics.uiPreferences.v1:701')).expandedFunctions).toEqual([]));
+      rendered.unmount();
+      rendered=render(app);
+      await screen.findByRole('combobox',{name:'Analysis Session'});
+      await waitFor(()=>expect(document.querySelectorAll('.measurement-group-container')).toHaveLength(2));
+      expect(document.querySelector('[data-point-id="exp-voltage"]')).toBeNull();
+      expect(document.querySelector('[data-point-id="exp-current"]')).toBeNull();
+      expect(screen.getByTitle('Expand All')).toBeInTheDocument();
+    }
+  });
+
   test("starts the guided walkthrough without rendering an empty session dropdown", async () => {
     render(
       <ThemeProvider>
@@ -1078,7 +1106,6 @@ describe("UncertaintyApp", () => {
     userEvent.click(
       within(collapsedUutRow).getByRole("button", { name: "0 to 10 V" }),
     );
-    userEvent.click(uutTable.querySelector("tr.inline-range-row .range-row-cell"));
     await waitFor(() => {
       expect(uutTable.querySelector(".range-row-add")).toBeInTheDocument();
       expect(uutTable.querySelector(".range-row-delete")).toBeInTheDocument();

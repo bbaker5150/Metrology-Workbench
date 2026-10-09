@@ -8,6 +8,20 @@ import {
 } from "./UncertaintyPanel";
 
 describe("inline instrument column navigation", () => {
+  it.each(['uut', 'tmde', 'source'])('commits and collapses %s tolerance on Enter', biasRole => {
+    const onCommit = vi.fn();
+    const {container} = render(<InlineToleranceCell tolerance={{reading:{value:'1',unit:'%'}}}
+      activeRange={{id:'enter-range',unit:'V',max:10}} biasRole={biasRole} editable onCommit={onCommit} />);
+    fireEvent.click(container.querySelector('.inline-tolerance-summary'));
+    const input = container.querySelector('input.inline-tolerance-input');
+    input.focus();
+    fireEvent.change(input,{target:{value:'2.5'}});
+    fireEvent.keyDown(input,{key:'Enter'});
+    expect(onCommit).toHaveBeenCalledWith('reading',expect.objectContaining({value:'2.5',high:'2.5',low:'-2.5'}));
+    expect(container.querySelector('.inline-tolerance-editor')).toBeNull();
+    expect(container.querySelector('.inline-tolerance-summary')).not.toBeNull();
+  });
+
   it('keeps the tolerance editor open through a scrollbar drag but dismisses on a later outside click', async () => {
     const {container} = render(<><div className="instrument-panel-table-container">
       <InlineToleranceCell tolerance={{}} activeRange={{id:'r',unit:'V',max:10}} editable onCommit={vi.fn()} />

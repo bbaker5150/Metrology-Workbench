@@ -4771,10 +4771,10 @@ export const InlineToleranceCell = ({
       ref={containerRef}
       className="inline-tolerance-editor inline-tolerance-editor--all"
       onKeyDownCapture={(event) => {
-        if (event.key === "Escape" || (biasRole === "source" && event.key === "Enter" && event.target.matches("input, textarea"))) {
+        if (event.key === "Escape" || (event.key === "Enter" && !event.nativeEvent.isComposing && event.target.matches("input, textarea"))) {
           event.preventDefault();
           event.stopPropagation();
-          if (biasRole === "source") event.target.blur?.();
+          event.target.blur?.();
           dismissToleranceEditor();
           return;
         }

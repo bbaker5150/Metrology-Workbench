@@ -2740,51 +2740,6 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
   const [currentUutSelection, setCurrentUutSelection] = useState([]);
 
   useEffect(() => {
-    if (!selectedSessionId) {
-      setLoadedPreferencesSessionId(null);
-      return;
-    }
-
-    const preferences = readUiPreferences(selectedSessionId);
-    const sizingPreferences = readUiSizingPreferences();
-    setSidebarColumns({
-      ...DEFAULT_SIDEBAR_COLUMNS,
-      ...readPointColumnDefaults().columns,
-      ...(preferences.sidebarColumns || {}),
-    });
-    setSidebarColumnOrder(
-      normalizeSidebarColumnOrder(preferences.sidebarColumnOrder || readPointColumnDefaults().order),
-    );
-    setSidebarWidth(
-      Number.isFinite(sizingPreferences.sidebarWidth)
-        ? sizingPreferences.sidebarWidth
-        : Number.isFinite(preferences.sidebarWidth)
-          ? preferences.sidebarWidth
-          : 550,
-    );
-    setIsSessionInfoOpen(preferences.isSessionInfoOpen ?? true);
-    setIsRequirementsOpen(preferences.isRequirementsOpen ??
-      ((preferences.isRiskInputsOpen ?? true) || (preferences.isMitigationInputsOpen ?? true)));
-    setIsGlobalExpanded(preferences.isGlobalExpanded ?? false);
-    setExpandedFunctions(new Set(preferences.expandedFunctions || []));
-    setExpandedUuts(new Set(preferences.expandedUuts || []));
-    setCollapsedOverviewInstrumentFunctionKeys(
-      new Set(preferences.collapsedOverviewInstrumentFunctionKeys || []),
-    );
-    setCollapsedDetailInstrumentFunctionKeys(
-      new Set(preferences.collapsedDetailInstrumentFunctionKeys || []),
-    );
-    setActiveRangeIndices(preferences.activeRangeIndices || {});
-    setAnalysisMode(preferences.analysisMode || "overview");
-    setShowContribution(preferences.showContribution ?? true);
-    setScopedZoomLevels(
-      sizingPreferences.scopedZoomLevels || normalizeSizingPreferences(preferences).scopedZoomLevels || {},
-    );
-    setSidebarColumnWidths(sizingPreferences.sidebarColumnWidths || {});
-    setLoadedPreferencesSessionId(selectedSessionId);
-  }, [selectedSessionId]);
-
-  useEffect(() => {
     if (
       !selectedSessionId ||
       loadedPreferencesSessionId !== selectedSessionId
@@ -4790,6 +4745,59 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
 
     return result;
   }, [currentSessionData, currentTestPoints]);
+
+  useEffect(() => {
+    if (!selectedSessionId) {
+      setLoadedPreferencesSessionId(null);
+      return;
+    }
+
+    if (loadedPreferencesSessionId === selectedSessionId ||
+        String(currentSessionData?.id) !== String(selectedSessionId)) return;
+    const preferences = readUiPreferences(selectedSessionId);
+    const sizingPreferences = readUiSizingPreferences();
+    setSidebarColumns({
+      ...DEFAULT_SIDEBAR_COLUMNS,
+      ...readPointColumnDefaults().columns,
+      ...(preferences.sidebarColumns || {}),
+    });
+    setSidebarColumnOrder(
+      normalizeSidebarColumnOrder(preferences.sidebarColumnOrder || readPointColumnDefaults().order),
+    );
+    setSidebarWidth(
+      Number.isFinite(sizingPreferences.sidebarWidth)
+        ? sizingPreferences.sidebarWidth
+        : Number.isFinite(preferences.sidebarWidth)
+          ? preferences.sidebarWidth
+          : 550,
+    );
+    setIsSessionInfoOpen(preferences.isSessionInfoOpen ?? true);
+    setIsRequirementsOpen(preferences.isRequirementsOpen ??
+      ((preferences.isRiskInputsOpen ?? true) || (preferences.isMitigationInputsOpen ?? true)));
+    // Missing preferences mean a first visit. Explicit empty arrays preserve
+    // a user's collapsed groups, including a partially expanded point list.
+    const expandByDefault = preferences.isGlobalExpanded !== false;
+    const functionKeys = preferences.expandedFunctions ?? (expandByDefault ? sidebarData.map(fn => fn.id) : []);
+    const uutKeys = preferences.expandedUuts ?? (expandByDefault
+      ? sidebarData.flatMap(fn => fn.uutGroups.map(group => `${fn.id}::${group.id}`)) : []);
+    setIsGlobalExpanded(preferences.isGlobalExpanded ?? sidebarData.every(fn => functionKeys.includes(fn.id)));
+    setExpandedFunctions(new Set(functionKeys));
+    setExpandedUuts(new Set(uutKeys));
+    setCollapsedOverviewInstrumentFunctionKeys(
+      new Set(preferences.collapsedOverviewInstrumentFunctionKeys || []),
+    );
+    setCollapsedDetailInstrumentFunctionKeys(
+      new Set(preferences.collapsedDetailInstrumentFunctionKeys || []),
+    );
+    setActiveRangeIndices(preferences.activeRangeIndices || {});
+    setAnalysisMode(preferences.analysisMode || "overview");
+    setShowContribution(preferences.showContribution ?? true);
+    setScopedZoomLevels(
+      sizingPreferences.scopedZoomLevels || normalizeSizingPreferences(preferences).scopedZoomLevels || {},
+    );
+    setSidebarColumnWidths(sizingPreferences.sidebarColumnWidths || {});
+    setLoadedPreferencesSessionId(selectedSessionId);
+  }, [selectedSessionId, currentSessionData?.id, loadedPreferencesSessionId, sidebarData]);
 
   useLayoutEffect(() => {
     if (!sidebarAutoFit) return undefined;
