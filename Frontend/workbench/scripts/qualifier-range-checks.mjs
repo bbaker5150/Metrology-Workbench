@@ -109,6 +109,7 @@ export async function checkQualifierRanges({frame, page, saved, until, check}) {
       check(`${view} ${kind} renamed qualifier collapses to a header label`, await table.locator('[data-instrument-column="qualifier2"] .instrument-custom-column-label').textContent()==='Calibration interval');
       check(`${view} ${kind} area rows span every qualifier column`,await table.evaluate(table=>[...table.querySelectorAll('.instrument-area-section-row > td')].every(cell=>cell.colSpan===table.tHead.rows[0].cells.length)));
 
+      await child.hover();
       await child.getByRole('button',{name:'Add qualifier range',exact:true}).click();
       check(`${view} ${kind} nested intervals merge their parent`, await parent.getAttribute('rowspan') === '2');
       check(`${view} ${kind} saves text interval and column name`, await until(()=>{
