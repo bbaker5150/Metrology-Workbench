@@ -99,3 +99,23 @@ it('extends header shading and the winning measurement-area border into the acti
   // Decorative cells remain outside the instrument table and its column model.
   expect(table.querySelector('.instrument-action-paint')).toBeNull();
 });
+
+it('carries column hover tint into the action strip without moving or revealing its button', () => {
+  const {container,table,layer,action,rows} = setup();
+  const edge=rows[0].cells[0]; edge.className='cell-sync';
+  edge.setAttribute('data-column-hovered','');
+  syncInstrumentActions(container,table,layer);
+  const band=layer.querySelector('.instrument-action-band');
+  expect(band).toHaveAttribute('data-column-hovered');
+  expect(action).not.toHaveAttribute('data-active');
+  const top=action.style.top;
+  const measure=vi.spyOn(rows[0],'getBoundingClientRect');
+  edge.removeAttribute('data-column-hovered');
+  updateInstrumentActionHover(layer);
+  expect(band).not.toHaveAttribute('data-column-hovered');
+  edge.setAttribute('data-column-hovered','');
+  updateInstrumentActionHover(layer);
+  expect(band).toHaveAttribute('data-column-hovered');
+  expect(action.style.top).toBe(top);
+  expect(measure).not.toHaveBeenCalled();
+});

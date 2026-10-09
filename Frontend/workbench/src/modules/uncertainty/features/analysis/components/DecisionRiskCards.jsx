@@ -1,4 +1,4 @@
-import React, { useLayoutEffect, useRef } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { decisionRiskLimit, decisionRiskStatus } from "../../../utils/decisionRiskStatus";
 
 const names = { pfa: "Probability of false acceptance", pfr: "Probability of false rejection" };
@@ -23,12 +23,30 @@ function FittedRiskValue({ children, label }) {
 }
 
 export default function DecisionRiskCards({ results, requiredPfa, formatValue, onShowBreakdown }) {
+  const [modifierHeld, setModifierHeld] = useState(false);
+  const updateModifier = event => setModifierHeld(Boolean(event.ctrlKey || event.metaKey));
+  useEffect(() => {
+    const update = event => setModifierHeld(Boolean(event.ctrlKey || event.metaKey));
+    const reset = () => setModifierHeld(false);
+    window.addEventListener('keydown', update);
+    window.addEventListener('keyup', update);
+    window.addEventListener('blur', reset);
+    document.addEventListener('visibilitychange', reset);
+    return () => {
+      window.removeEventListener('keydown', update);
+      window.removeEventListener('keyup', update);
+      window.removeEventListener('blur', reset);
+      document.removeEventListener('visibilitychange', reset);
+    };
+  }, []);
   const boundary = results?.riskMethod === "risk8-pfa-boundary";
   // Keep the final result slots visible even before inputs are complete. A dash
   // denotes unavailable data; zero remains a valid, color-coded probability.
   const metrics = ["pfa", "pfr"];
   return (
-    <dl className="budget-decision-results" aria-label="Final decision risk">
+    <dl className="budget-decision-results" aria-label="Final decision risk"
+      data-breakdown-enabled={Boolean(onShowBreakdown && modifierHeld) || undefined}
+      onPointerEnter={updateModifier} onPointerMove={updateModifier}>
       {metrics.map(metric => {
         const value = boundary ? null : results?.[metric];
         const status = decisionRiskStatus(value, requiredPfa, metric);

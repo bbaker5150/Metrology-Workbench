@@ -42,3 +42,17 @@ it("opens the appropriate breakdown only on modified click or keyboard activatio
   fireEvent.keyDown(pfa, { key: "Enter" }); expect(show).toHaveBeenLastCalledWith("pfa");
   expect(container.querySelector(".budget-decision-caption")).toBeNull();
 });
+
+it('enables the click cursor only while Ctrl/Cmd is held, including stationary hover and window blur', () => {
+  const {container}=render(<DecisionRiskCards results={{pfa:1,pfr:3}} formatValue={formatValue} onShowBreakdown={vi.fn()} />);
+  const cards=container.querySelector('.budget-decision-results');
+  expect(cards).not.toHaveAttribute('data-breakdown-enabled');
+  fireEvent.keyDown(window,{key:'Control',ctrlKey:true});
+  expect(cards).toHaveAttribute('data-breakdown-enabled');
+  fireEvent.keyUp(window,{key:'Control',ctrlKey:false});
+  expect(cards).not.toHaveAttribute('data-breakdown-enabled');
+  fireEvent.keyDown(window,{key:'Meta',metaKey:true});
+  expect(cards).toHaveAttribute('data-breakdown-enabled');
+  fireEvent.blur(window);
+  expect(cards).not.toHaveAttribute('data-breakdown-enabled');
+});

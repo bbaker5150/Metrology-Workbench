@@ -2,10 +2,11 @@ const actionPositions = new WeakMap();
 
 // Pointer movement only changes visibility; it must not remeasure every row.
 export function updateInstrumentActionHover(layer, pointer = null) {
-  for (const {action, band, selected, left, right, top, bottom} of actionPositions.get(layer) || []) {
+  for (const {action, band, edgeCells, selected, left, right, top, bottom} of actionPositions.get(layer) || []) {
     const hovered = pointer && pointer.x >= left && pointer.x <= right && pointer.y >= top && pointer.y < bottom;
     action.toggleAttribute('data-active', Boolean(hovered || selected));
     band?.toggleAttribute('data-cell-hovered', Boolean(hovered));
+    band?.toggleAttribute('data-column-hovered', edgeCells.some(cell => cell.hasAttribute('data-column-hovered')));
   }
 }
 
@@ -116,7 +117,10 @@ export function syncInstrumentActions(container, table, layer, pointer = null) {
     action.style.top = `${((top + bottom) / 2 - bounds.top) / scale}px`;
     const selected = group.some(row => row.dataset.rangeSelected === 'true' ||
       row.matches('.selected-row, .selected-spec-row, .instrument-selected, :focus-within'));
-    positions.push({ action, band, selected, left:viewport.left, right:bounds.right, top, bottom });
+    // Follow the adjoining column's tint only; placement and action visibility
+    // remain derived from the instrument/area bounds, independent of its cells.
+    const edgeCells = group.flatMap(row => [...row.cells].filter(cell => cell.classList.contains('cell-sync')));
+    positions.push({ action, band, edgeCells, selected, left:viewport.left, right:bounds.right, top, bottom });
   }
   surfaces?.replaceChildren(...bands);
   actionPositions.set(layer, positions);
