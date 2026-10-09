@@ -22195,13 +22195,13 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
 .instrument-action-layer { position: absolute; inset: 0 0 0 auto; width: 28px; overflow: hidden; pointer-events: none; z-index: 5; }
 .instrument-action-surfaces { position: absolute; inset: 0; pointer-events: none; }
 .instrument-action-surfaces > div { position: absolute; left: 0; right: 0; box-sizing: border-box; }
-.instrument-action-surfaces > div::before,
-.instrument-action-surfaces > div::after { content: ""; position: absolute; left: 0; right: 0; pointer-events: none; }
-.instrument-action-surfaces > div::before { top: 0; border-top: var(--action-top-rule); transform: translateY(-50%); }
-.instrument-action-surfaces > div::after { bottom: 0; border-bottom: var(--action-bottom-rule); transform: translateY(50%); }
-.instrument-action-header { z-index: 1; box-shadow: inset 0 -1px 0 var(--instrument-header-divider-color); }
+.instrument-action-paint { position: absolute; left: 0; table-layout: fixed; border-collapse: collapse; border-spacing: 0; margin: 0; min-width: 0; max-width: none; }
+.instrument-action-paint :is(th, td) { position: static; padding: 0; border-left: 0; border-right: 0; }
+.instrument-action-header { z-index: 1; }
 .instrument-action-band {
   --instrument-cell-tint: var(--instrument-base-tint);
+}
+.instrument-action-band, .instrument-action-band td {
   background-color: color-mix(in srgb, var(--instrument-function-color) var(--instrument-cell-tint), var(--content-background));
 }
 .instrument-action-band[data-cell-hovered] { --instrument-cell-tint: var(--instrument-hover-tint); }

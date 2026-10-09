@@ -74,3 +74,27 @@ it('reveals actions on hover without measuring rows again', () => {
   expect(action).not.toHaveAttribute('data-active');
   expect(measure).not.toHaveBeenCalled();
 });
+
+it('extends header shading and the winning measurement-area border into the action gutter', () => {
+  const {container,table,layer,rows,bounds} = setup();
+  const header = table.tHead.rows[0].cells[0];
+  header.style.cssText = 'background-color:rgb(20, 30, 40);background-image:linear-gradient(red, blue);border-bottom:1px solid rgb(90, 100, 110);position:sticky;will-change:transform';
+  const area = table.tBodies[0].insertRow(0);
+  const cell = area.insertCell();
+  cell.style.cssText = 'background-color:rgb(30, 70, 60);border-bottom:1px solid rgb(40, 50, 60);box-shadow:inset 0 1px rgb(60, 120, 100)';
+  area.getBoundingClientRect = () => bounds(0,20,400,30);
+  rows[0].getBoundingClientRect = () => bounds(0,30,400,50);
+  rows[0].cells[0].style.borderTop = '1px solid rgb(90, 100, 110)';
+  syncInstrumentActions(container,table,layer);
+  const headerPaint = layer.querySelector('.instrument-action-header th');
+  expect(headerPaint.style.backgroundImage).toBe(header.style.backgroundImage);
+  expect(headerPaint.style.borderBottom).toBe(header.style.borderBottom);
+  expect(headerPaint.style.position).toBe('sticky');
+  expect(headerPaint.style.willChange).toBe('transform');
+  const areaPaint = layer.querySelector('.instrument-action-area td');
+  expect(areaPaint.style.backgroundColor).toBe(cell.style.backgroundColor);
+  expect(areaPaint.style.boxShadow).toBe(cell.style.boxShadow);
+  expect(layer.querySelector('.instrument-action-band td').style.borderTop).toBe(cell.style.borderBottom);
+  // Decorative cells remain outside the instrument table and its column model.
+  expect(table.querySelector('.instrument-action-paint')).toBeNull();
+});

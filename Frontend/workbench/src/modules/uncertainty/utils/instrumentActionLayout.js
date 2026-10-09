@@ -26,8 +26,7 @@ export function syncInstrumentActions(container, table, layer, pointer = null) {
   const visibleBottom = viewport.top + (container.clientTop + container.clientHeight) * containerScale;
   const rows = [...table.querySelectorAll(':scope > tbody > tr[data-instrument-id]')];
   const groups = new Map(), positions = [];
-  const tableBounds = table.getBoundingClientRect();
-  const tableScale = table.offsetWidth ? tableBounds.width / table.offsetWidth || 1 : scale;
+  const tableScale = containerScale * (parseFloat(getComputedStyle(table).zoom) || 1);
   const surfaces = layer.querySelector('.instrument-action-surfaces');
   const bands = [];
   const surface = (className, top, bottom) => {
@@ -44,16 +43,39 @@ export function syncInstrumentActions(container, table, layer, pointer = null) {
     if (!band || !cell) return;
     const style = getComputedStyle(cell), rowStyle = getComputedStyle(cell.parentElement);
     band.style.backgroundColor = ['transparent', 'rgba(0, 0, 0, 0)'].includes(style.backgroundColor) ? rowStyle.backgroundColor : style.backgroundColor;
-    band.style.backgroundImage = style.backgroundImage;
-    copyRules(band, style, style);
+    const paint = copyRules(band, style, style, cell.tagName === 'TH', collapsedTop(cell, style));
+    paint.style.backgroundColor = band.style.backgroundColor;
+    paint.style.backgroundImage = style.backgroundImage;
+    paint.style.boxShadow = style.boxShadow;
+    paint.style.position = style.position;
+    paint.style.willChange = style.willChange;
   };
-  // Collapsed table rules straddle cell edges. Paint the extension the same
-  // way, rather than putting a second border inside a separately boxed div.
-  const copyRules = (band, first, last) => {
-    band.style.setProperty('--action-top-rule', `${parseFloat(first.borderTopWidth || '0') * tableScale / scale}px ${first.borderTopStyle} ${first.borderTopColor}`);
-    band.style.setProperty('--action-bottom-rule', `${parseFloat(last.borderBottomWidth || '0') * tableScale / scale}px ${last.borderBottomStyle} ${last.borderBottomColor}`);
+  // Use the same collapsed-cell painter for gradients, borders and inset
+  // highlights. Div borders/pseudo-elements rasterize differently at the seam.
+  const collapsedTop = (cell, style) => {
+    const previous = cell.parentElement.previousElementSibling?.cells?.[0];
+    const above = previous && getComputedStyle(previous);
+    return above && parseFloat(above.borderBottomWidth) >= parseFloat(style.borderTopWidth)
+      ? above.borderBottom : style.borderTop;
   };
-  const header = table.tHead?.rows[0]?.cells[0];
+  const copyRules = (band, first, last, header = false, top = first.borderTop) => {
+    const paintTable = document.createElement('table');
+    paintTable.className = 'instrument-action-paint';
+    const zoom = tableScale / scale;
+    paintTable.style.zoom = zoom;
+    paintTable.style.width = `${100 / zoom}%`;
+    paintTable.style.top = `${-(parseFloat(top) || 0) / 2}px`;
+    const section = header ? paintTable.createTHead() : paintTable.createTBody();
+    const row = section.insertRow();
+    row.style.height = `${parseFloat(band.style.height) / zoom}px`;
+    const paint = document.createElement(header ? 'th' : 'td');
+    paint.style.borderTop = top;
+    paint.style.borderBottom = last.borderBottom;
+    row.appendChild(paint);
+    band.appendChild(paintTable);
+    return paint;
+  };
+  const header = [...(table.tHead?.rows[0]?.cells || [])].at(-1);
   if (header) {
     const rect = header.getBoundingClientRect();
     copySurface(surface('instrument-action-header', Math.max(viewport.top, rect.top), Math.min(visibleBottom, rect.bottom)), header);
@@ -79,7 +101,7 @@ export function syncInstrumentActions(container, table, layer, pointer = null) {
     if (band) {
       const first = getComputedStyle(group[0].cells[0]), last = getComputedStyle(group.at(-1).cells[0]);
       band.style.setProperty('--instrument-function-color', first.getPropertyValue('--instrument-function-color') || getComputedStyle(group[0]).getPropertyValue('--instrument-function-color'));
-      copyRules(band, first, last);
+      copyRules(band, first, last, false, collapsedTop(group[0].cells[0], first));
       band.dataset.instrumentId = action.dataset.instrumentId;
       band.dataset.measurementArea = action.dataset.measurementArea;
       band.toggleAttribute('data-cell-selected', cellSelected);
