@@ -21741,6 +21741,9 @@ body.light-mode .uncertainty-module .instrument-equipment-table thead th:not(:la
 }
 .uncertainty-module :is(.instrument-equipment-table, .uncertainty-budget-table) .dynamic-input-table thead th {
   position: static; top: auto; z-index: auto;
+  /* Only the outer sticky headers need their own compositor layer. Nested
+     grid borders must paint together at fractional table zoom levels. */
+  will-change: auto; transform: none;
   font-weight: 600; text-transform: none; letter-spacing: normal;
 }
 .uncertainty-module :is(.instrument-equipment-table, .uncertainty-budget-table) .dynamic-budget-editor :is(.dynamic-equation-entry > span, .dynamic-variable-symbol) {
@@ -22032,9 +22035,10 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
 }
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-lookup-table input { display: block; margin: 0; height: 24px; box-sizing: border-box; }
 
-/* Isolate nested lookup geometry from the outer instrument/budget table. */
+/* Separate, single-sided cell borders keep the nested grid continuous at
+   fractional zoom; collapsed borders on positioned cells can paint apart. */
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table {
-  width: var(--dynamic-table-width); table-layout: fixed; border-collapse: collapse !important; border-spacing: 0 !important;
+  width: var(--dynamic-table-width); table-layout: fixed; border-collapse: separate !important; border-spacing: 0 !important;
   --dynamic-grid-color: var(--instrument-editor-divider, var(--table-divider-color, var(--border-color)));
 }
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table > :is(thead, tbody) > tr > :is(th, td) {

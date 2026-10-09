@@ -1,3 +1,4 @@
+import { checkTabularZoom } from "./tabular-zoom-checks.mjs";
 import { checkQualifierRanges } from "./qualifier-range-checks.mjs";
 import { prepareInputTasking } from "./input-tasking-checks.mjs";
 export function prepareTaskingTypeB(session) {
@@ -201,6 +202,7 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
     for(let i=0;i<20;i++) { await new Promise(requestAnimationFrame); widths.push(table.getBoundingClientRect().width); }
     return Math.max(...widths)-Math.min(...widths)<1;
   }));
+  await checkTabularZoom({ editor: instrumentCell, check });
   const pointUnitSummary=instrumentCell.getByRole('button',{name:'Edit point unit',exact:true});
   await pointUnitSummary.click();
   check('Point header opens its own unit and prefix controls',await instrumentCell.getByRole('button',{name:'Point unit base unit',exact:true}).isVisible() && await instrumentCell.getByRole('button',{name:'Point unit prefix',exact:true}).isVisible());
