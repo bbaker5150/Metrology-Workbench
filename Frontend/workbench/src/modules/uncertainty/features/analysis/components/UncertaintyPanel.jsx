@@ -3237,6 +3237,7 @@ const focusFirstInlineColumnControl = ({
     const liveCell =
       table?.rows?.[rowIndex]?.cells?.[cellIndex] ||
       (fallbackCell?.isConnected ? fallbackCell : null);
+    if (activeElement !== origin && liveCell?.contains(activeElement) && activeElement?.matches(INLINE_COLUMN_CONTROL_SELECTOR)) return;
     const firstControl = liveCell?.querySelector?.(
       INLINE_COLUMN_CONTROL_SELECTOR,
     );
@@ -4042,6 +4043,7 @@ const ToleranceTermEditor = ({
   };
   const commitLimit = (side, raw) => {
     const trimmed = String(raw ?? "").trim();
+    if (trimmed === String(componentLimitMagnitude(component, side, typeKey))) return;
     const parsed = parseFloat(trimmed);
     // Symmetric (reading, or any term in ± mode): one magnitude mirrored to
     // both limits. reading also mirrors into `value`; %FS keeps its FS reference.
@@ -4262,7 +4264,11 @@ const ToleranceTermEditor = ({
               value={singleValue}
               placeholder="0"
               onChange={(e) => setSingleValue(e.target.value)}
-              onBlur={(e) => commitSingleValue(e.target.value)}
+              onBlur={(e) => {
+                if (e.target.value.trim() !== String(componentLimitMagnitude(component, singleNeg ? "low" : "high", typeKey))) {
+                  commitSingleValue(e.target.value);
+                }
+              }}
               onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
               className="inline-tolerance-input"
               style={toleranceInputStyleFor(singleValue)}
@@ -4540,7 +4546,10 @@ const SingleSidedToleranceEditor = ({
           aria-label={`${label} ${limitLabel}`}
           disabled={!isSelected}
           onChange={(event) => setLimit(event.target.value)}
-          onBlur={(event) => commit({ limit: event.target.value.trim() })}
+          onBlur={(event) => {
+            const next = event.target.value.trim();
+            if (next !== toPlainNumber(component.limit)) commit({ limit: next });
+          }}
           onKeyDown={(event) => event.key === "Enter" && event.currentTarget.blur()}
           className="inline-tolerance-input"
         />
@@ -4717,17 +4726,17 @@ export const InlineToleranceCell = ({
     onEditingChangeRef.current?.(isEditing);
   }, [isEditing]);
 
-  // Dynamic sources open directly into their first value field. Parametric
-  // sources focus the first mode control: focusing a numeric draft there
-  // causes an untouched value's blur commit to race a portaled unit selection;
-  // moving the checkbox to the footer must not change which value gets saved.
+  // Start at the saved magnitude, or the top magnitude for an empty source.
+  // The full-scale reference is not a tolerance magnitude.
   useLayoutEffect(() => {
     if (!isEditing || !containerRef.current) return;
-    const firstControl = selectedType !== "parametric"
-      ? containerRef.current.querySelector('.dynamic-equation-entry input, .dynamic-budget-editor input:not([disabled])')
-      : containerRef.current.querySelector("button, input");
-    firstControl?.focus();
-  }, [isEditing, selectedType, dynamicModebarTarget]);
+    const inputs = Array.from(containerRef.current.querySelectorAll(selectedType !== "parametric"
+      ? '.dynamic-equation-entry input, .dynamic-budget-editor input:not([disabled])'
+      : '.inline-tolerance-input:not(.inline-tolerance-input--fs):not([disabled])'));
+    const firstControl = (selectedType === "parametric" && inputs.find(input => input.value.trim() !== "")) || inputs[0];
+    firstControl?.focus({ preventScroll: true });
+    firstControl?.select();
+  }, [isEditing, selectedType, selectedSourceId, dynamicModebarTarget]);
 
   const dismissToleranceEditor = useCallback(() => { setIsEditing(false); }, []);
   useInlineColumnDismiss({

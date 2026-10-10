@@ -6,6 +6,7 @@ import useSidebarAutoWidths from "./hooks/useSidebarAutoWidths";
 import { syncInstrumentBudgetComponents } from "./utils/instrumentBudgetComponents";
 import usePageExitRecovery from "./hooks/usePageExitRecovery";
 import useWorkspaceScrollRecovery from "./hooks/useWorkspaceScrollRecovery";
+import { scrollPointViewport } from "./utils/pointViewportScroll";
 import { readEditorDraft, saveEditorDraft, clearEditorDraft } from "./utils/editorRecovery";
 import { claimWorkspaceClipboard, ownsWorkspaceClipboard, WORKSPACE_CLIPBOARD_EVENT } from "./utils/workspaceClipboard";
 import { normalizeSizingPreferences, physicalScopedZoom } from "./utils/scopedZoom";
@@ -907,7 +908,7 @@ export const SidebarPointItem = ({
 
   const handleSingleClickEdit = (e, field, currentVal) => {
     const isPlainEditableClick =
-      (field === "value" || field === "section") && !e.ctrlKey && !e.metaKey && !e.shiftKey;
+      ["value", "section", "qualifier"].includes(field) && !e.ctrlKey && !e.metaKey && !e.shiftKey;
     if (!isSelected && isPlainEditableClick) {
       onSelect?.(e, point);
     }
@@ -3507,6 +3508,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
 
   useEffect(() => {
     const handleZoom = (e) => {
+      scrollPointViewport(e);
       if ((!e.ctrlKey && !e.metaKey) || isUiScaleLocked()) return;
 
       const zoomTarget = getScopedZoomTarget(e.target);

@@ -21168,7 +21168,7 @@ body.point-columns-dragging .point-column-menu-body .point-column-add > span:las
 /* Session details and points share one viewport on both axes. The horizontal
    scrollbar stays at the visible bottom; details/actions stay horizontally
    anchored while the point columns scroll beneath their sticky header. */
-.uncertainty-module .measurement-point-list { display: flex; flex-direction: column; overflow: auto; min-height: 0; }
+.uncertainty-module .measurement-point-list { display: flex; flex-direction: column; overflow: auto; min-height: 0; scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track); }
 .uncertainty-module .sidebar-session-info-zoom-surface { flex: 0 0 auto; max-height: none; overflow: visible; position: sticky; left: 0; }
 .uncertainty-module .measurement-points-zoom-surface,
 .uncertainty-module .measurement-points-zoom-surface > .scoped-zoom-content { display: flex; flex-direction: column; flex: 0 0 auto; min-height: 0; overflow: visible; }

@@ -1136,6 +1136,30 @@ describe("inline range editing", () => {
   });
 });
 
+describe("tolerance initial focus", () => {
+  it.each([
+    [{}, ""],
+    [{ floor: { high: 2.5, low: -2.5, symmetric: true, unit: "V" } }, "2.5"],
+    [{ reading: { high: 0, low: 0, value: 0, symmetric: true } }, "0"],
+    [{ range: { high: 3, low: -3, value: 100, symmetric: true } }, "3"],
+    [{ floor: { high: 4, low: -2, symmetric: false, unit: "V" } }, "2"],
+    [{ singleSided: { limit: 7, direction: "high", measurement: "unknown", unit: "V" } }, "7"],
+  ])("selects the first saved magnitude or the top empty input: %j", (tolerance, expected) => {
+    const onCommit = vi.fn();
+    const { container } = render(<InlineToleranceCell tolerance={tolerance}
+      activeRange={{ id: 'focus-range', min: 0, max: 100, unit: 'V' }} editable onCommit={onCommit} />);
+    fireEvent.click(container.querySelector('.inline-tolerance-summary'));
+    const active = document.activeElement;
+    expect(active).toHaveClass('inline-tolerance-input');
+    expect(active).toHaveValue(expected);
+    expect(active.selectionStart).toBe(0);
+    expect(active.selectionEnd).toBe(expected.length);
+    if (!expected) expect(active).toBe(container.querySelector('.inline-tolerance-input'));
+    fireEvent.blur(active);
+    expect(onCommit).not.toHaveBeenCalled();
+  });
+});
+
 describe("unfilled range preservation", () => {
   it.each([false, true])("does not clear an untouched blank range on blur (single=%s)", isSingleValue => {
     const onEditBound = vi.fn(), onClearRange = vi.fn(), onPatchRange = vi.fn();

@@ -55,14 +55,32 @@ describe("measurement-point value editing", () => {
     expect(container.querySelector('.point-uncertainty-metric')).toHaveTextContent('-');
     expect(container.textContent).not.toContain('99');
   });
-  test('a first qualifier press still selects an unselected point without opening its editor', () => {
+  test('a first qualifier press selects an unselected point and opens its editor', () => {
     const onSelect = vi.fn();
     const { container } = render(<SidebarPointItem point={{ id: 'unselected', testPointInfo: { qualifier: { value: '100 Hz' } } }}
       isSelected={false} visibleColumns={{ qualifier: true }} onSelect={onSelect} onSave={vi.fn()} />);
     const trigger = screen.getByText('100 Hz');
     fireEvent.mouseDown(trigger, { button: 0 }); fireEvent.mouseUp(trigger, { button: 0 }); fireEvent.click(trigger, { button: 0, detail: 1 });
     expect(onSelect).toHaveBeenCalledOnce();
-    expect(container.querySelector('input')).toBeNull();
+    expect(container.querySelector('input')).toHaveFocus();
+    expect(container.querySelector('input')).toHaveValue('100 Hz');
+  });
+
+  test('switches qualifier rows on one press, commits the draft, and stays open on release', () => {
+    const saved = vi.fn();
+    const { container } = render(<>{['first', 'second'].map(id => <SidebarPointItem key={id}
+      point={{ id, testPointInfo: { qualifier: { value: id } } }} isSelected={false}
+      visibleColumns={{ qualifier: true }} onSelect={vi.fn()} onSave={saved} />)}</>);
+    fireEvent.mouseDown(screen.getByText('first'), { button: 0 });
+    fireEvent.change(container.querySelector('input'), { target: { value: 'Draft' } });
+    const trigger = screen.getByText('second');
+    fireEvent.mouseDown(trigger, { button: 0 });
+    expect(saved).toHaveBeenCalledWith(expect.objectContaining({ id: 'first', testPointInfo: expect.objectContaining({ qualifier: expect.objectContaining({ value: 'Draft' }) }) }));
+    expect(container.querySelectorAll('input')).toHaveLength(1);
+    expect(container.querySelector('input')).toHaveValue('second');
+    expect(container.querySelector('input')).toHaveFocus();
+    fireEvent.mouseUp(trigger, { button: 0 }); fireEvent.click(trigger, { button: 0, detail: 1 });
+    expect(container.querySelector('input')).toHaveFocus();
   });
 
   test.each(['section', 'qualifier'])('hands a value draft to a shared %s editor on press and keeps it open on release', async field => {
