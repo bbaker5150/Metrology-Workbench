@@ -61,9 +61,10 @@ it("immediately names the selected distribution while its editor retains focus",
   }
   render(<Harness />);
   fireEvent.click(screen.getByRole("button", { name: "Rectangular" }));
-  fireEvent.click(screen.getByRole("button", { name: "Spec band distribution" }));
+  expect(screen.getByRole("button", { name: "Spec band distribution" })).toHaveAttribute("aria-expanded", "true");
   fireEvent.click(await screen.findByRole("option", { name: /Normal \(Std\. Unc\.\)/ }));
   expect(screen.getByRole("button", { name: "Spec band distribution" })).toHaveTextContent("Normal (Std. Unc.)");
+  expect(screen.getByRole("button", { name: "Spec band distribution" })).toHaveFocus();
   expect(screen.getByRole("button", { name: "Spec band distribution" })).not.toHaveTextContent("k =");
 });
 

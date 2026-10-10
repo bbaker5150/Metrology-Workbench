@@ -129,11 +129,11 @@ describe("distribution-first editing", () => {
     );
 
     fireEvent.click(screen.getByText("Not Set"));
-    fireEvent.click(screen.getByRole("button", { name: "Spec band distribution" }));
+    expect(screen.getByRole("button", { name: "Spec band distribution" })).toHaveAttribute("aria-expanded", "true");
     const triangular = screen
       .getAllByRole("option")
       .find((option) => option.querySelector("span")?.textContent === "Triangular");
     fireEvent.click(triangular);
-    expect(onChange).toHaveBeenCalled();
+    expect(onChange).toHaveBeenCalledWith("2.449");
   });
 });

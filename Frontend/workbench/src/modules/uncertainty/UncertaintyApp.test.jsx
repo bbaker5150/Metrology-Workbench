@@ -1608,8 +1608,9 @@ describe("UncertaintyApp", () => {
     expect(pointRow.querySelector('[data-sidebar-column="uut"] .point-uut-summary')).not.toBeNull();
     expect(pointRow.querySelector('[data-sidebar-column="value"] .point-value-number')).not.toBeNull();
     expect(pointRow.querySelector('[data-sidebar-column="section"]')).toHaveClass('point-section');
-    // The UUT track starts wide enough for a full instrument identity.
-    expect(pointRow.style.gridTemplateColumns).toMatch(/^minmax\(200px, 1\.35fr\) 70px /);
+    // Automatic tracks retain their content minimums and share spare width
+    // proportionally, including the information column beside the UUT.
+    expect(pointRow.style.gridTemplateColumns).toMatch(/^minmax\(200px, 200fr\) minmax\(70px, 70fr\) /);
     expect(pointRow.style.gridTemplateColumns).not.toContain("ch");
     fireEvent.click(pointRow);
     expect(pointRow).toHaveClass("active-point");
