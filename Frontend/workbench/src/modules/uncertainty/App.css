@@ -21508,16 +21508,48 @@ body.light-mode .uncertainty-module :is(.content-area, .results-content, .result
 }
 
 /* Both session accordions are peers; their rules span the sidebar edge. */
-.uncertainty-module .sidebar-session-header-organic { padding: 0; border-left: 0; }
-.uncertainty-module .session-info-block { padding: 10px 14px; }
+.uncertainty-module .sidebar-session-header-organic {
+  padding: 0; border-left: 0; background: transparent; cursor: default;
+  font-family: inherit; transition: none;
+}
+.uncertainty-module .session-info-block { padding: 12px 14px; }
 .uncertainty-module .session-default-inputs {
-  margin: 0; padding: 8px 14px 10px; border-top: 1px solid var(--border-color);
+  margin: 0; padding: 12px 14px; border-top: 1px solid var(--border-color);
+}
+/* Match the tables' type scale and keep the text mirror identical to its
+   read/edit overlay, so entering a field never changes its size or baseline. */
+.uncertainty-module .sidebar-session-header-organic .session-section-toggle {
+  font-family: inherit; font-size: 11px; font-weight: 600; line-height: 18px;
+  letter-spacing: .04em;
+}
+.uncertainty-module .sidebar-session-header-organic .session-header-label {
+  font-size: 10px; font-weight: 600; line-height: 15px; letter-spacing: .04em;
+  opacity: 1; margin: 0; padding-left: 5px;
+}
+.uncertainty-module .sidebar-session-header-organic .session-field-size {
+  font-family: inherit; font-size: var(--point-number-size); font-weight: var(--point-number-weight);
+  line-height: 20px; color: var(--text-color);
+}
+.uncertainty-module .sidebar-session-header-organic .session-field-size--name {
+  font-size: 15px; font-weight: 600; margin-bottom: 10px;
+}
+.uncertainty-module .sidebar-session-header-organic .session-field-size > :is(.session-header-value, .session-header-input) {
+  font: inherit; color: inherit; letter-spacing: normal; text-transform: none;
+  border-radius: 4px; text-shadow: none;
+}
+.uncertainty-module .sidebar-session-header-organic .session-header-field--requirement .session-field-size {
+  font-variant-numeric: tabular-nums;
+}
+.uncertainty-module .sidebar-session-header-organic :is(.session-header-value, .session-header-input):is(:hover, :focus, :focus-visible) {
+  background: color-mix(in srgb, var(--primary-color) 10%, transparent);
+  border-color: var(--primary-color); color: var(--text-color);
+  outline: none; box-shadow: none;
 }
 .uncertainty-module .session-default-input-fields {
   display: grid; grid-auto-flow: column; grid-template-rows: repeat(3, max-content);
   grid-template-columns: repeat(2, minmax(0, 1fr));
   width: 100%; max-width: 440px; gap: 10px 24px;
-  padding-top: 8px;
+  padding-top: 10px;
 }
 .uncertainty-module .session-default-input-fields .session-header-field {
   display: flex; flex-direction: column; align-items: flex-start; gap: 3px;
@@ -21531,12 +21563,15 @@ body.light-mode .uncertainty-module :is(.content-area, .results-content, .result
 .uncertainty-module .session-header-field--requirement .session-field-size-text { padding-right: 4px; }
 .uncertainty-module .session-header-field--requirement .session-field-size:has(input)[data-unit]:not([data-unit=""])::after {
   content: attr(data-unit); position: absolute; top: 3px; right: 5px;
-  font-size: .8rem; pointer-events: none;
+  font: inherit; pointer-events: none;
 }
 .uncertainty-module .session-header-field--requirement .session-field-size:has(input)[data-unit]:not([data-unit=""]) input { padding-right: 23px; }
 .uncertainty-module .session-info-content .session-header-grid {
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  width: 100%; max-width: 440px; gap: 7px 24px;
+  width: 100%; max-width: 440px; gap: 10px 24px;
+}
+.uncertainty-module .session-info-content .session-header-field {
+  gap: 3px;
 }
 
 /* Insertion buttons sit across the top rule and light headers retain columns. */

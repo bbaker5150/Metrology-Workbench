@@ -2182,7 +2182,7 @@ const SidebarSessionHeader = ({
         {isSessionInfoOpen && (
           <div className="session-info-content">
             {/* TITLE / NAME */}
-            <div className="session-field-size session-field-size--name" style={{ marginBottom: "4px" }}>
+            <div className="session-field-size session-field-size--name">
               <span className="session-field-size-text" aria-hidden="true">{(editingField === "name" ? tempValue : sessionData.name) || "Untitled Session"}</span>
               {editingField === "name" ? (
                 <input
