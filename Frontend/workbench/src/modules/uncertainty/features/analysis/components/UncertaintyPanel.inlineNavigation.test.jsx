@@ -3,11 +3,52 @@ import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { describe, expect, it, vi } from "vitest";
 import {
   EditableDescriptionCell,
+  InlineDistributionCell,
   InlineToleranceCell,
   RangeCell,
+  ResolutionCellInput,
 } from "./UncertaintyPanel";
 
 describe("inline instrument column navigation", () => {
+  it.each(['range', 'qualifier', 'resolution', 'distribution', 'description'])('hands tolerance editing to %s and back before mouse-up', async kind => {
+    const commit = vi.fn();
+    const range = { id: 'handoff-range', min: 0, max: 10, unit: 'V', text: '100 Hz' };
+    const editors = {
+      range: <RangeCell activeRange={range} editable onPatchRange={vi.fn()} />,
+      qualifier: <RangeCell activeRange={range} textMode editable onPatchRange={vi.fn()} />,
+      resolution: <ResolutionCellInput value="0.1" unit="V" onCommit={vi.fn()} />,
+      distribution: <InlineDistributionCell divisor="1.732" onChange={vi.fn()} />,
+      description: <EditableDescriptionCell name="Test instrument" onCommit={vi.fn()} />,
+    };
+    const expanded = '.inline-range-editor.is-editing, .instrument-resolution-editor, .inline-distribution-editor, .inline-desc-fields';
+    const { container } = render(<div className="uncertainty-module">
+      <div data-testid="tolerance"><InlineToleranceCell tolerance={{ reading: { value: '1', unit: '%' } }}
+        activeRange={range} editable onCommit={commit} /></div>
+      <div data-testid="destination">{editors[kind]}</div>
+    </div>);
+    const tolerance = screen.getByTestId('tolerance'), destination = screen.getByTestId('destination');
+    fireEvent.mouseDown(tolerance.querySelector('.inline-tolerance-summary'));
+    const draft = tolerance.querySelector('input.inline-tolerance-input');
+    draft.focus();
+    fireEvent.change(draft, { target: { value: '2.5' } });
+    const press = element => { fireEvent.pointerDown(element); fireEvent.mouseDown(element); };
+    const release = async () => {
+      fireEvent.pointerUp(document.body); fireEvent.mouseUp(document.body);
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 10)); });
+    };
+    press(destination.querySelector('button'));
+    expect(tolerance.querySelector('.inline-tolerance-editor')).toBeNull();
+    expect(destination.querySelector(expanded)).not.toBeNull();
+    expect(commit).toHaveBeenCalledWith('reading', expect.objectContaining({ value: '2.5' }));
+    await release();
+    expect(destination.querySelector(expanded)).not.toBeNull();
+    press(tolerance.querySelector('.inline-tolerance-summary'));
+    expect(destination.querySelector(expanded)).toBeNull();
+    expect(container.querySelectorAll('.inline-tolerance-editor')).toHaveLength(1);
+    await release();
+    expect(container.querySelectorAll('.inline-tolerance-editor')).toHaveLength(1);
+  });
+
   it('switches tolerance editors on mouse-down without overlapping or losing the focused draft', async () => {
     const commit = vi.fn();
     const Harness = () => {

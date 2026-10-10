@@ -344,11 +344,11 @@ const getFunctionPointSettings = (sessionData, functionId) => {
 };
 
 const SIDEBAR_COLUMN_GROUPS = [
-  { key: "warnings", label: "Warnings", columns: ["warningIcons"] },
   {
     key: "measurement",
     label: "Measurement",
     columns: [
+      "warningIcons",
       "uut",
       "section",
       "value",
@@ -6193,12 +6193,12 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
                             onClick={() => setIsColumnMenuOpen(open => !open)}><ToolbarLayoutIcon reorder /></button>
                           {isColumnMenuOpen && <SidebarColumnPopover anchorRef={columnMenuRef} onClose={() => setIsColumnMenuOpen(false)}>
                             <PointColumnMenu sections={[
-                              { group: "Warnings", cols: [{ key: "warningIcons", label: "Point Information" }] },
                             {
                               group: "Measurement",
                               cols: [
                                 { key: "uut", label: "UUT" },
                                 { key: "section", label: "Section" },
+                                { key: "warningIcons", label: "Point Information" },
                                 { key: "value", label: "Value" },
                                 { key: "qualifier", label: "Qualifier" },
                                 { key: "tolerance", label: "Tolerance (±)" },

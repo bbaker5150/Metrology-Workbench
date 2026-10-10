@@ -1936,6 +1936,32 @@ const INLINE_EDITOR_PORTAL_SELECTOR =
 
 const isInstrumentScrollTarget = target => target?.matches?.(".instrument-panel-table-container, .dynamic-table-scroll");
 
+const activeInlineEditors = new WeakMap();
+
+// All instrument columns share one handoff. Close the previous editor before
+// the destination paints so expanded rows never briefly stack or collapse.
+// Blur first to save its focused draft, using the latest dismissal callback.
+const useInlineEditorHandoff = ({ expanded, rootRef, onDismiss }) => {
+  const dismissRef = useRef(onDismiss);
+  useLayoutEffect(() => { dismissRef.current = onDismiss; }, [onDismiss]);
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (!expanded || !root) return;
+    const scope = root.closest(".uncertainty-module") || root.ownerDocument;
+    const close = () => {
+      const focused = root.ownerDocument.activeElement;
+      if (root.contains(focused)) focused.blur?.();
+      dismissRef.current();
+    };
+    const previous = activeInlineEditors.get(scope);
+    activeInlineEditors.set(scope, close);
+    previous?.();
+    return () => {
+      if (activeInlineEditors.get(scope) === close) activeInlineEditors.delete(scope);
+    };
+  }, [expanded, rootRef]);
+};
+
 const useInlineColumnDismiss = ({
   expanded,
   rootRef,
@@ -1943,6 +1969,7 @@ const useInlineColumnDismiss = ({
   portalSelector = INLINE_EDITOR_PORTAL_SELECTOR,
   isRelatedTarget,
 }) => {
+  useInlineEditorHandoff({ expanded, rootRef, onDismiss });
   useEffect(() => {
     if (!expanded) return undefined;
 
@@ -2076,6 +2103,13 @@ export const EditableDescriptionCell = ({
   const [editing, setEditing] = useState(false);
   const [open, setOpen] = useState(false);
   const anchorRef = useRef(null);
+  useInlineEditorHandoff({ expanded: editing, rootRef: anchorRef, onDismiss: () => {
+    setEditing(false);
+    setOpen(false);
+  } });
+  useLayoutEffect(() => {
+    if (editing) anchorRef.current?.querySelector("input")?.focus();
+  }, [editing]);
   useEffect(() => {
     setLocal({ make, model, name, nickname });
   }, [make, model, name, nickname]);
@@ -2241,7 +2275,13 @@ export const EditableDescriptionCell = ({
           type="button"
           className={`inline-desc-combined${displayDescription === "Click to add description" ? " is-empty" : ""}`}
           title="Edit manufacturer, model, and name"
-          onMouseDown={(e) => e.stopPropagation()}
+          onMouseDown={(e) => {
+            e.stopPropagation();
+            if (e.button !== 0 || e.ctrlKey || e.metaKey || e.shiftKey) return;
+            e.preventDefault();
+            setEditing(true);
+            setOpen(true);
+          }}
           onClick={(e) => {
             if (e.ctrlKey || e.metaKey || e.shiftKey) return;
             setEditing(true);
@@ -2346,6 +2386,8 @@ const RESOLUTION_DIST_DEFAULT = "3.464";
 const EditableCustomFieldCell = ({ value = "", onCommit, ariaLabel, editLabel, expandOnFocus = true }) => {
   const [draft, setDraft] = useState(value ?? "");
   const [editing, setEditing] = useState(false);
+  const inputRef = useRef(null);
+  useInlineEditorHandoff({ expanded: editing, rootRef: inputRef, onDismiss: () => setEditing(false) });
   useEffect(() => setDraft(value ?? ""), [value]);
   const commit = () => {
     if (String(draft) !== String(value ?? "")) onCommit?.(draft);
@@ -2376,6 +2418,7 @@ const EditableCustomFieldCell = ({ value = "", onCommit, ariaLabel, editLabel, e
   return (
     <input
       autoFocus
+      ref={inputRef}
       className="instrument-custom-field-input"
       aria-label={ariaLabel}
       onFocus={event => event.currentTarget.select()}
@@ -3324,7 +3367,10 @@ export const ResolutionCellInput = ({
           aria-label={summary ? undefined : "Set resolution"}
           onMouseDown={(event) => {
             event.stopPropagation();
+            if (event.button !== 0) return;
+            event.preventDefault();
             onOpenRequest?.();
+            openEditor(event);
           }}
           onClick={openEditor}
         >
@@ -4612,8 +4658,6 @@ export const InstrumentUncertaintyRow = ({ source, activeRange, referencePoint, 
   </tr>;
 };
 
-const activeToleranceEditors = new WeakMap();
-
 export const InlineToleranceCell = ({
   tolerance = {},
   activeRange = {},
@@ -4677,26 +4721,6 @@ export const InlineToleranceCell = ({
     onEditingChangeRef.current?.(isEditing);
   }, [isEditing]);
 
-  // A destination editor opens on mouse-down. Retire the previous editor in
-  // the same layout update, before paint, rather than waiting for mouse-up and
-  // briefly rendering two expanded rows. Commit its focused draft first.
-  useLayoutEffect(() => {
-    const root = containerRef.current;
-    if (!isEditing || !root) return;
-    const scope = root.closest(".uncertainty-module") || root.ownerDocument;
-    const close = () => {
-      const focused = root.ownerDocument.activeElement;
-      if (root.contains(focused)) focused.blur?.();
-      setIsEditing(false);
-    };
-    const previous = activeToleranceEditors.get(scope);
-    activeToleranceEditors.set(scope, close);
-    previous?.();
-    return () => {
-      if (activeToleranceEditors.get(scope) === close) activeToleranceEditors.delete(scope);
-    };
-  }, [isEditing]);
-
   // Dynamic sources open directly into their first value field. Parametric
   // sources focus the first mode control: focusing a numeric draft there
   // causes an untouched value's blur commit to race a portaled unit selection;
@@ -4752,7 +4776,10 @@ export const InlineToleranceCell = ({
           aria-label={hasValue ? undefined : "Set tolerance"}
           onMouseDown={(event) => {
             event.stopPropagation();
+            if (event.button !== 0) return;
+            event.preventDefault();
             onOpenRequest?.();
+            openEditor(event);
           }}
           onClick={openEditor}
         >
@@ -5149,6 +5176,9 @@ export const RangeCell = ({
             aria-label={onExpandAll && rangeSummary ? "Edit ranges" : undefined}
             onMouseDown={(event) => {
               event.stopPropagation();
+              if (event.button !== 0) return;
+              event.preventDefault();
+              openEditor(event);
             }}
             onClick={openEditor}
           >

@@ -407,6 +407,12 @@ describe("UncertaintyApp", () => {
     expect(screen.getByText("Targeted REOP w/ GB")).toBeInTheDocument();
     expect(screen.getByText("Targeted REOP w/o GB")).toBeInTheDocument();
     const menu = screen.getByRole("dialog", { name: "Visible measurement point columns" });
+    expect(within(menu).queryByText("Warnings", { exact: true })).not.toBeInTheDocument();
+    fireEvent.click(within(menu).getByRole('button', { name: 'Hide Point Information' }));
+    const infoOption = within(menu).getByRole('button', { name: 'Add Point Information column' });
+    expect(infoOption.closest('.filter-option-group')?.textContent).toContain('Measurement');
+    fireEvent.click(infoOption);
+    fireEvent.click(within(menu).getByRole('button', { name: 'Reset Columns' }));
     expect(within(menu).queryByRole("checkbox")).not.toBeInTheDocument();
     const displayed = () => [...menu.querySelectorAll('[data-column-key]')].map(row => row.dataset.columnKey);
     expect(displayed()).toEqual(['section', 'uut', 'warningIcons', 'value', 'lowLimit', 'measurementUncertainty', 'tur', 'pfa', 'pfr', 'gbMult', 'gbLow', 'gbPfa', 'gbPfr', 'gbCalInt', 'noGbCalInt', 'noGbMeasRel']);
@@ -1550,16 +1556,12 @@ describe("UncertaintyApp", () => {
     );
     expect(columnGroups.map((group) => group.textContent.trim())).toEqual([
       "Measurement",
-      "Warnings",
-      "Measurement",
       "Risk",
       "Mitigation (GB + Int)",
       "Mitigation (Int Only)",
     ]);
     expect(columnGroups.map((group) => group.style.gridColumn)).toEqual([
-      "span 2",
-      "span 1",
-      "span 5",
+      "span 8",
       "span 2",
       "span 6",
       "span 3",
