@@ -24,6 +24,19 @@ import {
 vi.mock("plotly.js-dist", () => ({ default: {} }));
 
 describe("measurement-point value editing", () => {
+  test("updates live uncertainty with risk and clears obsolete saved totals when the budget becomes empty", () => {
+    const props = {
+      point: { id: "live", testPointInfo: { parameter: { value: 10, unit: "V" } }, expanded_uncertainty_absolute_base: 99 },
+      visibleColumns: { measurementUncertainty: true, pfa: true }, onSelect: vi.fn(), onSave: vi.fn(),
+    };
+    const { container, rerender } = render(<SidebarPointItem {...props}
+      liveUncertainty={{ expanded_uncertainty_absolute_base: 0.123456 }} liveRiskMetrics={{ pfa: 2.5 }} />);
+    expect(container.querySelector('.point-uncertainty-metric')).toHaveTextContent('0.1235');
+    expect(container.querySelector('.point-uncertainty-metric')).toHaveAttribute('title', '0.123456');
+    rerender(<SidebarPointItem {...props} liveUncertainty={null} liveRiskMetrics={null} />);
+    expect(container.querySelector('.point-uncertainty-metric')).toHaveTextContent('-');
+    expect(container.textContent).not.toContain('99');
+  });
   test('a first qualifier press still selects an unselected point without opening its editor', () => {
     const onSelect = vi.fn();
     const { container } = render(<SidebarPointItem point={{ id: 'unselected', testPointInfo: { qualifier: { value: '100 Hz' } } }}

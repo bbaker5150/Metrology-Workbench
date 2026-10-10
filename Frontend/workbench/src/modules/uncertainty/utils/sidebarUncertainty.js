@@ -18,17 +18,19 @@ const parseNumericValue = (value) => {
  * SI-base value; the latter is the source of truth for the measurement-point
  * list so a pound, volt, or temperature point is not mislabeled as PPM.
  */
-export const getSidebarUncertaintyDisplayValue = (point, kind) => {
+export const getSidebarUncertaintyDisplayValue = (point, kind, liveResult) => {
+  if (liveResult === null) return null;
   const unit = point?.testPointInfo?.parameter?.unit || "";
   // Imported/unopened points can still carry cached totals. Never display a
   // number from an incompatible UUT frame while waiting for recalculation.
   if (toleranceUnitMismatch(point?.uutTolerance, unit, unitSystem)) return null;
-  const absoluteBase = point?.[`${kind}_uncertainty_absolute_base`];
+  const source = liveResult === undefined ? point : liveResult;
+  const absoluteBase = source?.[`${kind}_uncertainty_absolute_base`];
   const baseValue = Number(absoluteBase);
   const nativeValue =
     absoluteBase != null && Number.isFinite(baseValue)
       ? unit ? unitSystem.fromBaseUnit(baseValue, unit) : baseValue
-      : point?.[`${kind}_uncertainty`];
+      : source?.[`${kind}_uncertainty`];
   const numeric = parseNumericValue(nativeValue);
 
   if (numeric === null) return null;
@@ -39,16 +41,16 @@ export const getSidebarUncertaintyDisplayValue = (point, kind) => {
   return { numeric, displayUnit };
 };
 
-export const formatSidebarUncertainty = (point, kind) => {
-  const value = getSidebarUncertaintyDisplayValue(point, kind);
+export const formatSidebarUncertainty = (point, kind, liveResult) => {
+  const value = getSidebarUncertaintyDisplayValue(point, kind, liveResult);
   if (!value) return "-";
 
   return value.numeric.toPrecision(4);
 };
 
 /** Full unrounded numeric value used by the native hover tooltip. */
-export const formatSidebarUncertaintyFull = (point, kind) => {
-  const value = getSidebarUncertaintyDisplayValue(point, kind);
+export const formatSidebarUncertaintyFull = (point, kind, liveResult) => {
+  const value = getSidebarUncertaintyDisplayValue(point, kind, liveResult);
   if (!value) return "-";
 
   return String(value.numeric);

@@ -460,7 +460,7 @@ export function updateSharedDynamicDefinition(session, definition) {
 // Returns { pfa, pfr, tur, tar } (pfa/pfr as percentages) or null.
 // onStatus preserves engine explanations even when no numeric summary exists.
 export function computePointRiskMetrics(
-  point, sessionData, includeGuardband = false, onStatus,
+  point, sessionData, includeGuardband = false, onStatus, onUncertainty,
 ) {
   if (!point || !sessionData) return null;
   sessionData = sessionForPoint(point, sessionData);
@@ -471,6 +471,7 @@ export function computePointRiskMetrics(
   }
 
   const calcResults = computeUncertaintyForPoint(point, sessionData);
+  onUncertainty?.(calcResults);
   if (!calcResults) return null;
 
   const uutToleranceData = point.uutTolerance || sessionData.uutTolerance || {};
@@ -915,13 +916,19 @@ export function computePointRiskMetrics(
 export function computeRiskEvaluationMap(points, sessionData, includeGuardband = false) {
   const metrics = {};
   const statuses = {};
+  const uncertainties = {};
   (points || []).forEach((point) => {
+    uncertainties[point.id] = null;
     metrics[point.id] = computePointRiskMetrics(
       point, sessionData, includeGuardband,
       (status) => { statuses[point.id] = status; },
+      (result) => { uncertainties[point.id] = result; },
     );
   });
-  return { metrics, statuses };
+  // Display uncertainty and risk from this same evaluation. Waiting for the
+  // active budget to save its totals produces an intermediate stale/blank
+  // uncertainty cell and a second column resize after every budget edit.
+  return { metrics, statuses, uncertainties };
 }
 
 export function computeRiskMetricsMap(points, sessionData, includeGuardband = false) {

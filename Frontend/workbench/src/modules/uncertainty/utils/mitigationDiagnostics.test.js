@@ -65,6 +65,22 @@ const evaluate = (overrides = {}, target = point) => {
 };
 
 describe("mitigation diagnostics through the sidebar calculation", () => {
+  it("returns uncertainty and risk from the same live budget and clears both on removal", () => {
+    const session = { uncReq: requirements };
+    const stalePoint = { ...point, expanded_uncertainty_absolute_base: 999 };
+    const populated = computeRiskEvaluationMap([stalePoint], session);
+    expect(populated.metrics.p.pfa).toEqual(expect.any(Number));
+    expect(populated.uncertainties.p.expanded_uncertainty_absolute_base).toBeGreaterThan(0);
+    expect(populated.uncertainties.p.expanded_uncertainty_absolute_base).toBeLessThan(1);
+    const removed = computeRiskEvaluationMap([{ ...stalePoint, tmdeTolerances: [] }], session);
+    expect(removed.metrics.p).toBeNull();
+    expect(removed.uncertainties.p).toBeNull();
+  });
+
+  it("retains a valid uncertainty when risk-specific requirements are missing", () => {
+    const result = computeRiskEvaluationMap([point], { uncReq: { ...requirements, reliability: "" } });
+    expect(result.uncertainties.p.expanded_uncertainty_absolute_base).toBeGreaterThan(0);
+  });
   it("explains infeasible targets separately for both mitigation groups", () => {
     const target = {
       ...point,

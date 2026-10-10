@@ -768,6 +768,7 @@ export const SidebarPointItem = ({
   isActivePoint = false,
   isTableSelected,
   liveRiskMetrics,
+  liveUncertainty,
   liveTmdeLimits,
   limitResolution = 0,
   diagnostics = [],
@@ -1658,17 +1659,17 @@ export const SidebarPointItem = ({
       {visibleColumns.standardUncertainty && (
         <span
           className="point-metric point-uncertainty-metric"
-          title={formatSidebarUncertaintyFull(point, "combined")}
+          title={formatSidebarUncertaintyFull(point, "combined", liveUncertainty)}
         ><span className="point-metric-content">
-          {formatSidebarUncertainty(point, "combined")}
+          {formatSidebarUncertainty(point, "combined", liveUncertainty)}
         </span></span>
       )}
       {visibleColumns.measurementUncertainty && (
         <span
           className="point-metric point-uncertainty-metric"
-          title={formatSidebarUncertaintyFull(point, "expanded")}
+          title={formatSidebarUncertaintyFull(point, "expanded", liveUncertainty)}
         ><span className="point-metric-content">
-          {formatSidebarUncertainty(point, "expanded")}
+          {formatSidebarUncertainty(point, "expanded", liveUncertainty)}
         </span></span>
       )}
 
@@ -2403,7 +2404,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
     sidebarColumns.noGbPfr ||
     sidebarColumns.noGbCalInt ||
     sidebarColumns.noGbMeasRel;
-  const { metrics: pointRiskMap, statuses: pointRiskStatusMap } = useMemo(
+  const { metrics: pointRiskMap, statuses: pointRiskStatusMap, uncertainties: pointUncertaintyMap } = useMemo(
     () =>
       computeRiskEvaluationMap(
         currentTestPoints,
@@ -5333,6 +5334,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
       isTableSelected={selectedTablePointIds.includes(tp.id)}
       unitOptions={getMeasurementAreaUnits(currentSessionData, fnGroup.name)}
       liveRiskMetrics={pointRiskMap[tp.id]}
+      liveUncertainty={pointUncertaintyMap[tp.id]}
       liveTmdeLimits={computePointTmdeLimits(tp, currentSessionData)}
       limitResolution={pointDisplayResolution(tp, currentSessionData)}
       diagnostics={pointDiagnosticsMap[tp.id]}

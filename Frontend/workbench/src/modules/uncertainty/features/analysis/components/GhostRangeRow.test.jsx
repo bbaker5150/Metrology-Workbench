@@ -448,7 +448,7 @@ describe("inline resolution distribution", () => {
     );
 
     fireEvent.click(screen.getByRole("button", { name: /Rectangular/ }));
-    fireEvent.click(screen.getByRole("button", { name: "Spec band distribution" }));
+    expect(screen.getByRole("button", { name: "Spec band distribution" })).toHaveAttribute("aria-expanded", "true");
 
     expect(screen.getByRole("option", { name: /Triangular\s+k = 2\.449/ })).toBeInTheDocument();
     expect(screen.getByRole("option", { name: /U-Shaped/ })).toBeInTheDocument();
@@ -486,7 +486,7 @@ describe("inline resolution distribution", () => {
     const unsetDistribution = screen.getByRole("button", { name: "Not Set" });
     expect(unsetDistribution).toHaveClass("inline-tolerance-summary", "is-empty");
     fireEvent.click(unsetDistribution);
-    fireEvent.click(screen.getByRole("button", { name: "Spec band distribution" }));
+    expect(screen.getByRole("button", { name: "Spec band distribution" })).toHaveAttribute("aria-expanded", "true");
     const option = screen.getByRole("option", { name: /Triangular\s+k = 2\.449/ });
     const trigger = screen.getByRole("button", { name: "Spec band distribution" });
 
@@ -974,9 +974,9 @@ describe("inline range editing", () => {
     expect(screen.getByTitle("Edit resolution")).toBeInTheDocument();
 
     fireEvent.click(screen.getByTitle("Edit distribution"));
-    expect(screen.getByLabelText("Spec band distribution")).toBeInTheDocument();
+    expect(screen.getByRole("listbox", { name: "Spec band distribution" })).toBeInTheDocument();
     fireEvent.pointerDown(outside);
-    expect(screen.getByLabelText("Spec band distribution")).toBeInTheDocument();
+    expect(screen.getByRole("listbox", { name: "Spec band distribution" })).toBeInTheDocument();
     fireEvent.pointerUp(outside);
     fireEvent.click(outside);
     await waitFor(() =>

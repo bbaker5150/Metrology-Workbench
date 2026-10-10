@@ -1,7 +1,19 @@
 import { describe, expect, test } from "vitest";
-import { formatSidebarUncertainty } from "./sidebarUncertainty";
+import { formatSidebarUncertainty, formatSidebarUncertaintyFull } from "./sidebarUncertainty";
 
 describe("formatSidebarUncertainty", () => {
+  test("uses the live budget result for both display and tooltip, including cleared budgets", () => {
+    const point = {
+      testPointInfo: { parameter: { unit: "V" } },
+      expanded_uncertainty_absolute_base: 99,
+    };
+    const live = { expanded_uncertainty_absolute_base: 0.123456 };
+    expect(formatSidebarUncertainty(point, "expanded", live)).toBe("0.1235");
+    expect(formatSidebarUncertaintyFull(point, "expanded", live)).toBe("0.123456");
+    expect(formatSidebarUncertainty(point, "expanded", null)).toBe("-");
+    expect(formatSidebarUncertaintyFull(point, "expanded", null)).toBe("-");
+    expect(formatSidebarUncertainty(point, "expanded")).toBe("99.00");
+  });
   test("converts the absolute result to the point's native unit", () => {
     const point = {
       testPointInfo: { parameter: { unit: "lb" } },

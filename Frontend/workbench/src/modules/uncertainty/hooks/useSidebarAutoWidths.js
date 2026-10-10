@@ -2,6 +2,14 @@ import { alignEmptyHintArrows } from "../utils/alignEmptyHintArrows";
 import { useLayoutEffect, useState } from "react";
 import { flushSync } from "react-dom";
 
+export const sidebarMutationAffectsWidths = record => {
+  const target = record.target.nodeType === 1 ? record.target : record.target.parentElement;
+  if (target?.closest('.point-selection-outline')) return false;
+  if (target?.closest('.point-grid-item')) return true;
+  return [...(record.addedNodes || []), ...(record.removedNodes || [])].some(node =>
+    node.nodeType === 1 && (node.matches('.point-grid-item') || node.querySelector('.point-grid-item')));
+};
+
 // Measure rendered content without its current column constraints. Auto widths
 // stay transient; only explicit user resizing is stored in session preferences.
 export default function useSidebarAutoWidths(rootRef) {
@@ -82,8 +90,8 @@ export default function useSidebarAutoWidths(rootRef) {
     // Child editors update independently of this hook's owner. Reconcile their
     // intrinsic widths in the mutation microtask, before the browser paints a
     // new editor into the previous editor's column widths.
-    const observer = new MutationObserver(() => {
-      if (!disposed) flushSync(measure);
+    const observer = new MutationObserver(records => {
+      if (!disposed && records.some(sidebarMutationAffectsWidths)) flushSync(measure);
     });
     observer.observe(root, { childList: true, subtree: true, characterData: true });
     window.addEventListener("resize", schedule);

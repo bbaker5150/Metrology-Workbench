@@ -1,5 +1,5 @@
 import useExclusiveMenu from "../../../hooks/useExclusiveMenu";
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronDown } from "@fortawesome/free-solid-svg-icons";
@@ -109,15 +109,13 @@ const BuilderUnitSelect = ({
     }
   }, [activeValue, isOpen, visibleOptions]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!isOpen) return;
-    requestAnimationFrame(() => {
-      searchRef.current?.focus();
-      const scrollTarget = activeRef.current || selectedRef.current;
-      if (typeof scrollTarget?.scrollIntoView === "function") {
-        scrollTarget.scrollIntoView({ block: "nearest" });
-      }
-    });
+    searchRef.current?.focus({ preventScroll: true });
+    const scrollTarget = activeRef.current || selectedRef.current;
+    if (typeof scrollTarget?.scrollIntoView === "function") {
+      scrollTarget.scrollIntoView({ block: "nearest" });
+    }
   }, [activeValue, isOpen, query]);
 
   return (

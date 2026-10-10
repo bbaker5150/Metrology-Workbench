@@ -577,11 +577,9 @@ export const UnitSelect = ({
   const closeMenu = () => setIsOpen(false);
   useExclusiveMenu(isOpen, closeMenu);
   const focusBaseControl = () => {
-    requestAnimationFrame(() => {
-      rootRef.current
-        ?.querySelector(".inline-unit-base-button")
-        ?.focus();
-    });
+    rootRef.current
+      ?.querySelector(".inline-unit-base-button")
+      ?.focus({ preventScroll: true });
   };
   const chooseBaseUnit = (option) => {
     if (option.scalable) {
@@ -661,12 +659,10 @@ export const UnitSelect = ({
     }
   }, [activeBase, isOpen, visibleOptions]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!isOpen) return;
-    requestAnimationFrame(() => {
-      searchRef.current?.focus();
-      (activeRef.current || selectedRef.current)?.scrollIntoView({ block: "nearest" });
-    });
+    searchRef.current?.focus({ preventScroll: true });
+    (activeRef.current || selectedRef.current)?.scrollIntoView?.({ block: "nearest" });
   }, [activeBase, isOpen, query]);
 
   return (

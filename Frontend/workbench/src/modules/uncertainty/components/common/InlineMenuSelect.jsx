@@ -1,5 +1,5 @@
 import useExclusiveMenu from "../../hooks/useExclusiveMenu";
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import ReactDOM from "react-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faChevronDown } from "@fortawesome/free-solid-svg-icons";
@@ -94,7 +94,7 @@ const InlineMenuSelect = ({
     onOpenChange?.(true);
   };
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!isOpen) return undefined;
     // Opening this selector may collapse another column and change the
     // trigger's position. Keep the portal anchored after that reflow too.
@@ -112,7 +112,7 @@ const InlineMenuSelect = ({
     if (table) observer?.observe(table);
     window.addEventListener("scroll", reposition, true);
     window.addEventListener("resize", reposition);
-    reposition();
+    positionMenu();
     return () => {
       cancelAnimationFrame(frame);
       observer?.disconnect();
@@ -123,10 +123,8 @@ const InlineMenuSelect = ({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [isOpen, menuWidth, fitOptions, options.length]);
 
-  useEffect(() => {
-    if (!autoOpen) return undefined;
-    const frame = requestAnimationFrame(openMenu);
-    return () => cancelAnimationFrame(frame);
+  useLayoutEffect(() => {
+    if (autoOpen) openMenu();
     // Mount-time handoff from a parent read view.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [autoOpen]);
@@ -147,20 +145,20 @@ const InlineMenuSelect = ({
     return () => document.removeEventListener("mousedown", onPointerDown);
   }, [isOpen]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!isOpen) return;
-    const frame = requestAnimationFrame(() => {
-      const menu = menuRef.current;
-      const list = menu?.querySelector('[role="listbox"]');
-      const selected = selectedRef.current || list?.querySelector('[role="option"]');
-      selected?.focus({ preventScroll: true });
-      const target = prefixTable ? menu?.querySelector('.is-base-unit') : selected;
-      if (list && target) {
-        const row = target.getBoundingClientRect(), bounds = list.getBoundingClientRect();
-        list.scrollTop += row.top - bounds.top - (list.clientHeight - row.height) / 2;
-      }
-    });
-    return () => cancelAnimationFrame(frame);
+    // Focus and scroll the chosen option before the portal's first paint.
+    // A queued frame briefly shows the unscrolled list and can steal focus
+    // back after the user has already moved to another field.
+    const menu = menuRef.current;
+    const list = menu?.querySelector('[role="listbox"]');
+    const selected = selectedRef.current || list?.querySelector('[role="option"]');
+    selected?.focus({ preventScroll: true });
+    const target = prefixTable ? menu?.querySelector('.is-base-unit') : selected;
+    if (list && target) {
+      const row = target.getBoundingClientRect(), bounds = list.getBoundingClientRect();
+      list.scrollTop += row.top - bounds.top - (list.clientHeight - row.height) / 2;
+    }
   }, [isOpen]);
 
   const handleKeyDown = (event) => {
