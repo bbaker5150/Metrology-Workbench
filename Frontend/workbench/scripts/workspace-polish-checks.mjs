@@ -213,9 +213,29 @@ export async function checkWorkspacePolish({ frame, page, saved, until, check })
   await frame.getByRole('button', { name: 'Columns', exact: true }).click();
   await columns.getByRole('button', { name: 'Reset Columns', exact: true }).click();
   await columns.getByRole('button', { name: 'Close column settings', exact: true }).click();
+  // Automatic columns now share spare space proportionally. Their rendered
+  // share can change after resetting columns or zooming; their intrinsic
+  // track minimum must stay in logical pixels and their content must fit.
+  const uutZoomLayout = () => point.evaluate(row => {
+    const keys = row.style.gridTemplateAreas.replaceAll('"', '').trim().split(/\s+/);
+    const tracks = row.style.gridTemplateColumns.match(/minmax\([^)]*\)|[^\s]+/g);
+    const cell = row.querySelector('[data-sidebar-column="uut"]');
+    const label = cell.querySelector('.point-uut-summary');
+    const header = document.querySelector('.sidebar-column-header-cell--uut');
+    const bounds = cell.getBoundingClientRect(), heading = header.getBoundingClientRect();
+    return { minimum: parseFloat(tracks[keys.indexOf('uut')].replace(/^minmax\(/, '')),
+      column: cell.clientWidth, content: label.scrollWidth, visible: label.clientWidth,
+      leftOffset: Math.abs(bounds.left - heading.left), widthOffset: Math.abs(bounds.width - heading.width) };
+  });
+  const unzoomedLayout = await uutZoomLayout();
   for (const zoom of [.75, 1.25]) {
     await frame.evaluate(value => { document.documentElement.style.zoom = String(value); window.dispatchEvent(new Event('resize')); }, zoom);
-    check(`automatic widths remain in logical pixels at ${zoom * 100}% zoom`, await until(async () => Math.abs(await point.locator('[data-sidebar-column="uut"]').evaluate(node => node.clientWidth) - defaultWidth) < 3));
+    let layout;
+    check(`automatic widths remain in logical pixels and aligned at ${zoom * 100}% zoom`, await until(async () => {
+      layout = await uutZoomLayout();
+      return Number.isFinite(layout.minimum) && Math.abs(layout.minimum - unzoomedLayout.minimum) < 3 &&
+        layout.column >= layout.minimum - 2 && layout.content <= layout.visible + 1 && layout.leftOffset < 2 && layout.widthOffset < 2;
+    }), JSON.stringify({ baseline: unzoomedLayout, zoomed: layout }));
   }
   await frame.evaluate(() => { document.documentElement.style.zoom = ''; window.dispatchEvent(new Event('resize')); });
   await point.locator('[data-sidebar-column="pfa"]').click();
