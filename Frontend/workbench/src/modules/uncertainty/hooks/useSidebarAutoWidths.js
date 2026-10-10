@@ -1,5 +1,6 @@
 import { alignEmptyHintArrows } from "../utils/alignEmptyHintArrows";
 import { useLayoutEffect, useState } from "react";
+import { flushSync } from "react-dom";
 
 // Measure rendered content without its current column constraints. Auto widths
 // stay transient; only explicit user resizing is stored in session preferences.
@@ -42,7 +43,9 @@ export default function useSidebarAutoWidths(rootRef) {
           copy.style.setProperty("width", "max-content");
           copy.style.setProperty("min-width", "0");
           copy.style.setProperty("max-width", "none");
-          copy.style.setProperty("position", source.matches(".point-value-input-slot > input") ? "absolute" : "static");
+          // These inputs overlay a sizing mirror. Counting both as in-flow
+          // content doubles Section/Qualifier width whenever editing opens.
+          copy.style.setProperty("position", source.matches(".point-value-input-slot > input, .point-label-editing > input") ? "absolute" : "static");
           copy.style.setProperty("transform", "none");
           copy.style.setProperty("white-space", "nowrap");
           copy.style.setProperty("flex", "none");
@@ -76,12 +79,17 @@ export default function useSidebarAutoWidths(rootRef) {
       setWidths(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
     };
     const schedule = () => { if (disposed) return; cancelAnimationFrame(frame); frame = requestAnimationFrame(measure); };
-    const observer = new MutationObserver(schedule);
+    // Child editors update independently of this hook's owner. Reconcile their
+    // intrinsic widths in the mutation microtask, before the browser paints a
+    // new editor into the previous editor's column widths.
+    const observer = new MutationObserver(() => {
+      if (!disposed) flushSync(measure);
+    });
     observer.observe(root, { childList: true, subtree: true, characterData: true });
     window.addEventListener("resize", schedule);
     root.addEventListener("scroll", alignHints, true);
     document.fonts?.ready.then(schedule);
-    schedule();
+    measure();
     return () => { root.removeEventListener("scroll", alignHints, true); disposed = true; observer.disconnect(); cancelAnimationFrame(frame); window.removeEventListener("resize", schedule); };
   });
   return widths;

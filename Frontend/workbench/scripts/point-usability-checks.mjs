@@ -58,9 +58,10 @@ export async function checkPointUsability({ frame, page, check, until }) {
   check('computed risk metrics never use a yellow status', await frame.locator('.point-risk-metric').evaluateAll(nodes => nodes.every(node => !node.style.getPropertyValue('--metric-status-color').includes('warning'))));
   const columns = frame.getByRole('button', { name: 'Columns', exact: true });
   await columns.click();
-  check('Point Information is a regular displayed Warnings column', await frame.getByRole('button', { name: 'Hide Point Information', exact: true }).count() === 1 && await frame.locator('.point-column-selected .filter-option-group-title').filter({ hasText: /^Warnings$/ }).count() === 1);
+  check('Point Information is a regular displayed column without a separate Warnings category', await frame.getByRole('button', { name: 'Hide Point Information', exact: true }).count() === 1 && await frame.locator('.filter-option-group-title').filter({ hasText: /^Warnings$/ }).count() === 0);
   await frame.getByRole('button', { name: 'Hide Point Information', exact: true }).click();
   check('hidden Point Information moves into Add Columns', await frame.getByRole('button', { name: 'Add Point Information column', exact: true }).count() === 1 && await first.locator('[data-sidebar-column="warningIcons"]').count() === 0);
+  check('Point Information belongs to Measurement', await frame.getByRole('button', { name: 'Add Point Information column', exact: true }).evaluate(button => button.closest('.filter-option-group').querySelector('.filter-option-group-title').textContent === 'Measurement'));
   await frame.getByRole('button', { name: 'Set as Default', exact: true }).click();
   await frame.getByRole('button', { name: 'Add Point Information column', exact: true }).click();
   await frame.getByRole('button', { name: 'Reset Columns', exact: true }).click();

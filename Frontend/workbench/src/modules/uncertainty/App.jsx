@@ -13,6 +13,7 @@ import useSelectInputText from "./hooks/useSelectInputText";
 import PointSelectionOutline from "./components/common/PointSelectionOutline";
 import PointNumericInput from "./components/common/PointNumericInput";
 import PointRequirementCell from "./components/common/PointRequirementCell";
+import { commitFocusedPointField, isPointEditorPress } from "./utils/pointEditorHandoff";
 import { POINT_REQUIREMENT_FIELDS, requirementColumn, getPointRequirements } from "./utils/pointRequirements";
 import { claimWorkspaceSelection, WORKSPACE_SELECTION_EVENT } from "./utils/workspaceSelection";
 import { rawDecimal, exposeDecimalOnHover } from "./utils/rawDecimal";
@@ -825,6 +826,7 @@ export const SidebarPointItem = ({
   const groupedCellRefs = useRef({});
   const pointRowRef = useRef(null);
   const valueEditorRef = useRef(null);
+  const sharedFieldPressRef = useRef(null);
   const [groupedCellGeometry, setGroupedCellGeometry] = useState({});
   const orderedVisibleColumns = getVisibleSidebarColumnOrder(
     visibleColumns,
@@ -869,7 +871,7 @@ export const SidebarPointItem = ({
   // run, but the editor belongs to the point the user actually selected. Keep
   // the request alive for the lifetime of the editor; consuming it immediately
   // allowed a parent render to hide a continuation editor before it could save.
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!autoEditField || !["section", "qualifier"].includes(autoEditField)) {
       return;
     }
@@ -884,6 +886,7 @@ export const SidebarPointItem = ({
   const startEdit = (e, field, currentVal) => {
     e.stopPropagation();
     e.preventDefault();
+    commitFocusedPointField(e.currentTarget);
     setEditingField(field);
     setTempValue(
       currentVal !== undefined && currentVal !== null ? currentVal : "",
@@ -902,6 +905,15 @@ export const SidebarPointItem = ({
   };
 
   const handleSharedFieldClick = (e, field, currentVal, group) => {
+    // A shared label stays mounted when its continuation row opens an editor.
+    // Consume that press's later click, but keep ordinary selection clicks on
+    // an unselected qualifier working when the press did not open an editor.
+    if (e.type === "click" && e.detail && sharedFieldPressRef.current === field) {
+      sharedFieldPressRef.current = null;
+      e.stopPropagation();
+      return;
+    }
+    sharedFieldPressRef.current = null;
     const preferredId = String(preferredSharedEditPointId ?? "");
     const preferredBelongsToGroup =
       group?.span > 1 &&
@@ -912,13 +924,17 @@ export const SidebarPointItem = ({
       if (onRequestSharedMemberEdit) {
         e.stopPropagation();
         e.preventDefault();
+        commitFocusedPointField(e.currentTarget);
         onRequestSharedMemberEdit?.(preferredSharedEditPointId, field);
+        if (e.type === "mousedown") sharedFieldPressRef.current = field;
         return;
       }
       startEdit(e, field, currentVal);
+      if (e.type === "mousedown") sharedFieldPressRef.current = field;
       return;
     }
     handleSingleClickEdit(e, field, currentVal);
+    if (e.type === "mousedown" && e.defaultPrevented) sharedFieldPressRef.current = field;
   };
 
   // A plain click on a risk metric just selects the point (what users usually
@@ -1010,6 +1026,7 @@ export const SidebarPointItem = ({
     if (editingField !== "value") return;
     const outside = event => {
       if (valueEditorRef.current?.contains(event.target) || event.target.closest?.('.inline-unit-menu, .inline-menu-popover')) return;
+      if (isPointEditorPress(event) && event.target.closest?.('[data-point-editor-trigger]')) return;
       commitEdit();
     };
     document.addEventListener('pointerdown', outside, true);
@@ -1412,9 +1429,17 @@ export const SidebarPointItem = ({
                       className="point-uut-summary"
                       aria-label="UUT"
                       title="Edit UUT"
-                      onMouseDown={(event) => event.stopPropagation()}
+                      data-point-editor-trigger
+                      onMouseDown={(event) => {
+                        event.stopPropagation();
+                        if (!isPointEditorPress(event)) return;
+                        event.preventDefault();
+                        commitFocusedPointField(event.currentTarget);
+                        setEditingUut(true);
+                      }}
                       onClick={(event) => {
                         event.stopPropagation();
+                        commitFocusedPointField(event.currentTarget);
                         setEditingUut(true);
                       }}
                     >
@@ -1468,14 +1493,18 @@ export const SidebarPointItem = ({
                   <span className="point-edit-affordance">
                     <span
                       className="point-grouped-cell-label"
-                      onClick={(e) =>
+                      data-point-editor-trigger
+                      onMouseDown={(e) => {
+                        if (isPointEditorPress(e)) handleSharedFieldClick(e, "section", point.section, cellGroups.section);
+                      }}
+                      onClick={(e) => {
                         handleSharedFieldClick(
                           e,
                           "section",
                           point.section,
                           cellGroups.section,
-                        )
-                      }
+                        );
+                      }}
                     >
                       {point.section || (
                         <span className="point-placeholder">-</span>
@@ -1513,6 +1542,8 @@ export const SidebarPointItem = ({
             }`}
           >
             <button type="button" className="point-value-summary" aria-label="Edit measurement point value"
+              data-point-editor-trigger
+              onMouseDown={event => { if (isPointEditorPress(event)) handleSingleClickEdit(event, "value", displayValue); }}
               onClick={event => handleSingleClickEdit(event, "value", displayValue)}>
               <span className="point-value-number">{displayValue !== "" && displayValue != null ? displayValue : <span className="point-placeholder">Value</span>}</span>
               {" "}<span>{getUnitDisplayLabel(displayUnit) || "Units"}</span>
@@ -1565,14 +1596,18 @@ export const SidebarPointItem = ({
                   <span className="point-edit-affordance">
                     <span
                       className="point-grouped-cell-label"
-                      onClick={(e) =>
+                      data-point-editor-trigger
+                      onMouseDown={(e) => {
+                        if (isPointEditorPress(e)) handleSharedFieldClick(e, "qualifier", point.testPointInfo?.qualifier?.value, cellGroups.qualifier);
+                      }}
+                      onClick={(e) => {
                         handleSharedFieldClick(
                           e,
                           "qualifier",
                           point.testPointInfo?.qualifier?.value,
                           cellGroups.qualifier,
-                        )
-                      }
+                        );
+                      }}
                     >
                       {point.testPointInfo?.qualifier?.value || (
                         <span className="point-placeholder">-</span>

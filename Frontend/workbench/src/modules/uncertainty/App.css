@@ -21227,7 +21227,9 @@ body.dark-mode .uncertainty-module .measurement-group-container .point-grid-item
 }
 body.dark-mode .uncertainty-module .measurement-group-container .point-grid-item { box-shadow: none !important; }
 .uncertainty-module .measurement-points-table-content { position: relative; }
-.uncertainty-module .point-selection-outline { inset: 0; width: 100%; height: 100%; z-index: 8; }
+/* Keep the whole perimeter above the area header (z-index 10). Otherwise its
+   surface/backdrop filter masks the top stroke and glow of shared selections. */
+.uncertainty-module .point-selection-outline { inset: 0; width: 100%; height: 100%; z-index: 11; }
 .budget-decision-zoom-surface { grid-column: 1; justify-self: center; min-width: 0; }
 .budget-decision-zoom-surface > .scoped-zoom-content { width: 240px; }
 

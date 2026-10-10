@@ -18,6 +18,7 @@ export default function PointSelectionOutline() {
     let frame = null;
     let previous = "";
     const sync = () => {
+      if (frame !== null) cancelAnimationFrame(frame);
       frame = null;
       const bounds = content.getBoundingClientRect();
       if (!bounds.width) return;
@@ -82,7 +83,9 @@ export default function PointSelectionOutline() {
     // Ignore our own SVG mutations: observing the outline itself creates an
     // unnecessary repaint loop, the same class of issue as table hover jitter.
     const mutations = new MutationObserver(records => {
-      if (records.some(record => !overlay.contains(record.target))) schedule();
+      // Editor/column handoffs must move the outline in the same paint as the
+      // cells, rather than showing the previous geometry for another frame.
+      if (records.some(record => !overlay.contains(record.target))) sync();
     });
     mutations.observe(content, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style"] });
     const resize = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(schedule);
