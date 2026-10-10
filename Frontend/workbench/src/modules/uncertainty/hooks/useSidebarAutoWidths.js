@@ -1,5 +1,5 @@
 import { alignEmptyHintArrows } from "../utils/alignEmptyHintArrows";
-import { useLayoutEffect, useState } from "react";
+import { useLayoutEffect, useRef, useState } from "react";
 import { flushSync } from "react-dom";
 
 export const sidebarMutationAffectsWidths = record => {
@@ -14,6 +14,8 @@ export const sidebarMutationAffectsWidths = record => {
 // stay transient; only explicit user resizing is stored in session preferences.
 export default function useSidebarAutoWidths(rootRef) {
   const [widths, setWidths] = useState({});
+  const measurementsRef = useRef({ context: null, cells: new Map() });
+  const measuredFontsRef = useRef(null);
   useLayoutEffect(() => {
     const root = rootRef.current?.querySelector(".results-sidebar") || rootRef.current;
     if (!root) return;
@@ -22,6 +24,18 @@ export default function useSidebarAutoWidths(rootRef) {
     const alignHints = () => alignEmptyHintArrows(root);
     const measure = () => {
       alignHints();
+      // Opening one editor must not clone and force layout for every metric.
+      // Reuse unchanged cell measurements across both local editor mutations
+      // and owner renders. Theme, typography, zoom and viewport changes still
+      // invalidate the cache; each pass retains only cells currently present.
+      const context = JSON.stringify([
+        document.body.className, getComputedStyle(root).font,
+        window.innerWidth, window.innerHeight,
+        root.querySelector('.measurement-points-zoom-surface > .scoped-zoom-content')?.style.cssText,
+      ]);
+      const previousMeasurements = measurementsRef.current.context === context
+        ? measurementsRef.current.cells : new Map();
+      const measurements = new Map();
       const host = document.createElement("div");
       host.style.cssText = "position:fixed;left:-100000px;top:0;visibility:hidden;pointer-events:none;width:max-content;contain:layout style;";
       host.setAttribute("aria-hidden", "true");
@@ -31,9 +45,15 @@ export default function useSidebarAutoWidths(rootRef) {
       root.querySelectorAll(".point-grid-item > [data-sidebar-column]").forEach(cell => {
         if (!cell.getClientRects().length) return;
         const key = cell.dataset.sidebarColumn;
-        const signature = `${key}:${cell.innerHTML}`;
+        const signature = `${key}:${cell.className}:${cell.innerHTML}`;
         if (seen.has(signature)) return;
         seen.add(signature);
+        const cachedWidth = previousMeasurements.get(signature);
+        if (cachedWidth !== undefined) {
+          measurements.set(signature, cachedWidth);
+          next[key] = Math.max(next[key] || 44, cachedWidth);
+          return;
+        }
         const clone = cell.cloneNode(true);
         const sources = [cell, ...cell.querySelectorAll("*")];
         const copies = [clone, ...clone.querySelectorAll("*")];
@@ -80,10 +100,13 @@ export default function useSidebarAutoWidths(rootRef) {
           }
         });
         host.appendChild(clone);
-        next[key] = Math.max(next[key] || 44, clone.offsetWidth + 2);
+        const measuredWidth = clone.offsetWidth + 2;
+        measurements.set(signature, measuredWidth);
+        next[key] = Math.max(next[key] || 44, measuredWidth);
         clone.remove();
       });
       host.remove();
+      measurementsRef.current = { context, cells: measurements };
       setWidths(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
     };
     const schedule = () => { if (disposed) return; cancelAnimationFrame(frame); frame = requestAnimationFrame(measure); };
@@ -96,7 +119,14 @@ export default function useSidebarAutoWidths(rootRef) {
     observer.observe(root, { childList: true, subtree: true, characterData: true });
     window.addEventListener("resize", schedule);
     root.addEventListener("scroll", alignHints, true);
-    document.fonts?.ready.then(schedule);
+    const fontLoading = document.fonts?.ready;
+    const fontsReady = () => {
+      if (disposed || measuredFontsRef.current === fontLoading) return;
+      measuredFontsRef.current = fontLoading;
+      measurementsRef.current.context = null;
+      schedule();
+    };
+    fontLoading?.then(fontsReady);
     measure();
     return () => { root.removeEventListener("scroll", alignHints, true); disposed = true; observer.disconnect(); cancelAnimationFrame(frame); window.removeEventListener("resize", schedule); };
   });

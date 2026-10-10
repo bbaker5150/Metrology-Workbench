@@ -11,6 +11,7 @@ import { readEditorDraft, saveEditorDraft, clearEditorDraft } from "./utils/edit
 import { claimWorkspaceClipboard, ownsWorkspaceClipboard, WORKSPACE_CLIPBOARD_EVENT } from "./utils/workspaceClipboard";
 import { normalizeSizingPreferences, physicalScopedZoom } from "./utils/scopedZoom";
 import useSelectInputText from "./hooks/useSelectInputText";
+import usePointBreakdownCursor from "./hooks/usePointBreakdownCursor";
 import PointSelectionOutline from "./components/common/PointSelectionOutline";
 import PointNumericInput from "./components/common/PointNumericInput";
 import PointRequirementCell from "./components/common/PointRequirementCell";
@@ -977,7 +978,7 @@ export const SidebarPointItem = ({
     const wasRequestedSharedEdit =
       autoEditField && autoEditField === editingField;
     if (editingField === "section") {
-      onSave({ ...point, section: tempValue });
+      if (String(point.section ?? "") !== String(tempValue)) onSave({ ...point, section: tempValue });
     } else if (editingField === "value") {
       const prevInfo = point.testPointInfo || {};
       const prevParam = prevInfo.parameter || {};
@@ -999,7 +1000,7 @@ export const SidebarPointItem = ({
           value: tempValue,
         },
       };
-      onSave({ ...point, testPointInfo: newInfo });
+      if (String(prevQual.value ?? "") !== String(tempValue)) onSave({ ...point, testPointInfo: newInfo });
     }
     setEditingField(null);
     if (wasRequestedSharedEdit) onAutoEditFieldConsumed?.();
@@ -1335,6 +1336,7 @@ export const SidebarPointItem = ({
     <div
       ref={pointRowRef}
       data-point-id={point.id}
+      data-breakdown-available={Boolean(onShowRiskBreakdown && !boundaryOnly) || undefined}
       tabIndex={0}
       className={`point-grid-item ${isSelected ? "active" : ""} ${isActivePoint ? "active-point" : ""} ${isTableSelected ? "table-highlight" : ""}`}
       onMouseOver={(e) => setRunHover(e.currentTarget, e.target)}
@@ -2246,6 +2248,7 @@ const SidebarSessionHeader = ({
 
 function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras = null }) {
   useSelectInputText();
+  usePointBreakdownCursor();
   const confirmRecordDeletes = useConfirmRecordDeletes();
   const workbenchIssues = useWorkbenchIssues();
   const {
@@ -2749,7 +2752,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
     return () => document.removeEventListener("pointerdown", dismiss);
   }, [newSidebarArea]);
   const handleAddSidebarArea = () => {
-    const name = newSidebarArea.trim();
+    const name = (newSidebarArea || "").trim();
     if (!name) return;
     const key = makeMeasurementAreaKey(name);
     const existing = currentSessionData.measurementAreaGroups || [];
@@ -6328,7 +6331,10 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
                         onChange={event => setNewSidebarArea(event.target.value)}
                         onKeyDown={event => { if (event.key === "Enter" && newSidebarArea?.trim()) handleAddSidebarArea(); if (event.key === "Escape") setNewSidebarArea(""); }} />
                       <button type="button" aria-label="Add Measurement Area from points" title="Add Measurement Area"
-                        disabled={!newSidebarArea?.trim()} onClick={handleAddSidebarArea}><FontAwesomeIcon icon={faPlus} /></button>
+                        onClick={event => {
+                          if (newSidebarArea?.trim()) handleAddSidebarArea();
+                          else event.currentTarget.parentElement.querySelector("input")?.focus();
+                        }}><FontAwesomeIcon icon={faPlus} /></button>
                     </div>
                   </div>
                 </div>

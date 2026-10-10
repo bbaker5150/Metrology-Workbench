@@ -25,6 +25,19 @@ import {
 vi.mock("plotly.js-dist", () => ({ default: {} }));
 
 describe("measurement-point value editing", () => {
+  test.each(['', 'Saved value', 0])('switches unchanged Section and Qualifier inputs without saving or recalculating: %j', value => {
+    const saved = vi.fn();
+    const { container } = render(<SidebarPointItem point={{ id: 'no-op', section: value,
+      testPointInfo: { qualifier: { value } } }} isSelected visibleColumns={{ section: true, qualifier: true }}
+      onSelect={vi.fn()} onSave={saved} />);
+    for (const field of ['section', 'qualifier', 'section', 'qualifier']) {
+      fireEvent.mouseDown(container.querySelector(`.point-${field} [data-point-editor-trigger]`), { button: 0 });
+      expect(container.querySelector(`.point-${field} input`)).toHaveFocus();
+    }
+    fireEvent.blur(container.querySelector('input'));
+    expect(saved).not.toHaveBeenCalled();
+  });
+
   const pointEditorSelectors = {
     section: '.point-section .point-edit-affordance',
     qualifier: '.point-qualifier .point-edit-affordance',

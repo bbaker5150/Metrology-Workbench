@@ -1560,13 +1560,22 @@ body:not(.dark-mode) .uncertainty-module .measurement-point-list {
   text-align: center;
 }
 
-/* Risk/guardband cells open a breakdown on click. */
+/* Plain metric clicks select a point. Only Ctrl/Cmd-click opens a breakdown. */
 .point-risk-metric-clickable {
-  cursor: pointer;
+  cursor: default;
   transition: color 0.1s ease;
 }
 
-.point-risk-metric-clickable:hover {
+.uncertainty-module .point-grid-item :is(.point-metric, .point-risk-metric, .point-metric-content, .point-metric-list-item) {
+  cursor: default;
+}
+
+body[data-point-breakdown-enabled] .uncertainty-module .point-grid-item[data-breakdown-available] .point-risk-metric-clickable,
+body[data-point-breakdown-enabled] .uncertainty-module .point-grid-item[data-breakdown-available] .point-risk-metric-clickable * {
+  cursor: pointer;
+}
+
+body[data-point-breakdown-enabled] .uncertainty-module .point-grid-item[data-breakdown-available] .point-risk-metric-clickable:hover {
   text-decoration: underline;
   text-underline-offset: 2px;
 }
@@ -20348,6 +20357,7 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
 .uncertainty-module .sidebar-area-entry input { box-sizing: border-box; width: 100%; height: 26px; padding: 3px 28px 3px 7px; border: 1px solid var(--border-color); border-radius: 5px; background: var(--input-background); color: var(--text-color); font: inherit; font-size: .75rem; }
 .uncertainty-module .sidebar-area-entry button { position: absolute; right: 3px; top: 3px; height: 20px; width: 20px; padding: 0; border: 0; border-radius: 3px; background: transparent; color: var(--primary-color); cursor: pointer; }
 .uncertainty-module .sidebar-area-entry button:disabled { opacity: .4; cursor: default; }
+.uncertainty-module .sidebar-area-entry button > svg { pointer-events: none; cursor: inherit; }
 .uncertainty-module .instrument-equipment-table .range-row-cell { grid-template-columns: minmax(0, 1fr) 24px 24px; }
 .uncertainty-module .instrument-equipment-table .range-row-add { grid-column: 2; }
 .uncertainty-module .instrument-equipment-table .range-row-delete { grid-column: 3; }
