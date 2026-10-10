@@ -21200,7 +21200,6 @@ body.dark-mode .uncertainty-module { --numeric-text: #fff; }
 .point-requirement-override { color: var(--status-warning); }
 .uncertainty-module .measurement-net-bias-remove { border: 0; box-shadow: none; background: transparent; color: var(--status-bad); border-radius: 4px; }
 .uncertainty-module .measurement-net-bias-remove:hover { background: color-mix(in srgb, var(--status-bad) 12%, transparent); }
-.uncertainty-module .instrument-equipment-table tr[data-area-selected="true"] { outline: 1px solid var(--instrument-function-color, var(--primary-color)); outline-offset: -1px; }
 
 .uncertainty-module :is(.instrument-equipment-table, .uncertainty-budget-table, .measurement-inputs-table) td { color: var(--numeric-text); }
 
@@ -21323,11 +21322,6 @@ body.dark-mode .uncertainty-module .measurement-group-container .point-grid-item
 .session-default-inputs { border-top: 1px solid var(--border-color); margin-top: 10px; padding-top: 6px; }
 .session-default-input-fields { display: grid; gap: 7px; padding: 4px 0 8px; }
 .session-default-input-fields .session-header-field { display: flex; flex-direction: row; align-items: center; justify-content: space-between; gap: 12px; }
-/* Paint area selection on its cell: collapsed-table row outlines can be hidden
-   by an adjacent selected instrument. This has no effect on row geometry. */
-.uncertainty-module .instrument-equipment-table tr[data-area-selected="true"] > td {
-  box-shadow: inset 0 0 0 1px var(--instrument-function-color, var(--primary-color));
-}
 /* The column header is opaque and owns the stacking order over all row actions.
    A small upward bleed closes fractional-pixel seams at non-default UI zoom. */
 .uncertainty-module .instrument-equipment-table thead { z-index: 20; background: linear-gradient(var(--component-bg), var(--component-bg)), var(--background-color); }
