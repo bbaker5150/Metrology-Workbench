@@ -919,8 +919,7 @@ export const SidebarPointItem = ({
 
   const handleSharedFieldClick = (e, field, currentVal, group) => {
     // A shared label stays mounted when its continuation row opens an editor.
-    // Consume that press's later click, but keep ordinary selection clicks on
-    // an unselected qualifier working when the press did not open an editor.
+    // Consume that press's later click so it cannot reopen the new editor.
     if (e.type === "click" && e.detail && sharedFieldPressRef.current === field) {
       sharedFieldPressRef.current = null;
       e.stopPropagation();
@@ -1504,9 +1503,8 @@ export const SidebarPointItem = ({
                   />
                   </span>
                 ) : (
-                  <span className="point-edit-affordance">
-                    <span
-                      className="point-grouped-cell-label"
+                  <span
+                      className="point-edit-affordance"
                       data-point-editor-trigger
                       onMouseDown={(e) => {
                         if (isPointEditorPress(e)) handleSharedFieldClick(e, "section", point.section, cellGroups.section);
@@ -1520,6 +1518,7 @@ export const SidebarPointItem = ({
                         );
                       }}
                     >
+                    <span className="point-grouped-cell-label">
                       {normalizedGroupedCellValue(point.section) || (
                         <span className="point-placeholder">-</span>
                       )}
@@ -1607,9 +1606,8 @@ export const SidebarPointItem = ({
                   />
                   </span>
                 ) : (
-                  <span className="point-edit-affordance">
-                    <span
-                      className="point-grouped-cell-label"
+                  <span
+                      className="point-edit-affordance"
                       data-point-editor-trigger
                       onMouseDown={(e) => {
                         if (isPointEditorPress(e)) handleSharedFieldClick(e, "qualifier", point.testPointInfo?.qualifier?.value, cellGroups.qualifier);
@@ -1623,6 +1621,7 @@ export const SidebarPointItem = ({
                         );
                       }}
                     >
+                    <span className="point-grouped-cell-label">
                       {normalizedGroupedCellValue(point.testPointInfo?.qualifier?.value) || (
                         <span className="point-placeholder">-</span>
                       )}

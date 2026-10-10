@@ -25,6 +25,45 @@ import {
 vi.mock("plotly.js-dist", () => ({ default: {} }));
 
 describe("measurement-point value editing", () => {
+  const pointEditorSelectors = {
+    section: '.point-section .point-edit-affordance',
+    qualifier: '.point-qualifier .point-edit-affordance',
+    value: '.point-value-summary',
+    requirement: '[data-sidebar-column="input_neededTUR"] button',
+  };
+  test.each(Object.keys(pointEditorSelectors).flatMap(from =>
+    Object.keys(pointEditorSelectors).filter(to => to !== from).flatMap(to =>
+      [false, true].map(otherRow => ({ from, to, otherRow })))))
+    ('opens $to from $from on one press anywhere in its affordance (other row: $otherRow)', ({ from, to, otherRow }) => {
+      const saved = vi.fn();
+      const Harness = () => {
+        const [points, setPoints] = React.useState(['a', 'b'].map(id => ({ id, section: '',
+          testPointInfo: { parameter: { value: '1', unit: 'V' }, qualifier: { value: '' } } })));
+        return <>{points.map(point => <SidebarPointItem key={point.id} point={point} isSelected
+          visibleColumns={{ section: true, qualifier: true, value: true, input_neededTUR: true }}
+          onSelect={vi.fn()} onSave={updated => { saved(updated); setPoints(all => all.map(p => p.id === updated.id ? updated : p)); }} />)}</>;
+      };
+      const { container } = render(<Harness />);
+      const source = container.querySelector('[data-point-id="a"]');
+      const destination = container.querySelector(`[data-point-id="${otherRow ? 'b' : 'a'}"]`);
+      fireEvent.mouseDown(source.querySelector(pointEditorSelectors[from]), { button: 0 });
+      fireEvent.change(source.querySelector('input'), { target: { value: '12' } });
+      const target = destination.querySelector(pointEditorSelectors[to]);
+      fireEvent(target, new MouseEvent('pointerdown', { bubbles: true, button: 0 }));
+      fireEvent.mouseDown(target, { button: 0 });
+      expect(container.querySelectorAll('input.sidebar-inline-input')).toHaveLength(1);
+      expect(destination.querySelector('input')).toHaveFocus();
+      expect(saved).toHaveBeenCalledOnce();
+      const updated = saved.mock.calls[0][0];
+      expect(updated.id).toBe('a');
+      const value = from === 'section' ? updated.section : from === 'qualifier' ? updated.testPointInfo.qualifier.value
+        : from === 'value' ? updated.testPointInfo.parameter.value : updated.riskRequirements.neededTUR;
+      expect(String(value)).toBe('12');
+      fireEvent.mouseUp(target, { button: 0 });
+      fireEvent.click(target, { button: 0, detail: 1 });
+      expect(destination.querySelector('input')).toHaveFocus();
+    });
+
   test.each(['section', 'qualifier'])("keeps every blank %s separate while grouping populated values, including zero", field => {
     const points = [undefined, null, '', '  ', '100 Hz', '100 Hz', 0, 0].map((value, id) => ({ id, value }));
     const group = index => getConsecutiveSidebarCellGroupDuringEdit(points, index, point => point.value, field, null);
