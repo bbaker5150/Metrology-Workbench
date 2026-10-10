@@ -15,6 +15,7 @@ import {
   getConsecutiveSidebarCellGroupDuringEdit,
   getSidebarColumnMinWidth,
   getSidebarRiskColumnWidths,
+  getSidebarGridTemplate,
   getUutReassignmentPointIds,
   normalizeSidebarColumnOrder,
   pastePointBudget,
@@ -24,6 +25,23 @@ import {
 vi.mock("plotly.js-dist", () => ({ default: {} }));
 
 describe("measurement-point value editing", () => {
+  test("keeps every blank qualifier separate while grouping populated values, including zero", () => {
+    const points = [undefined, null, '', '  ', '100 Hz', '100 Hz', 0, 0].map((value, id) => ({ id, value }));
+    const group = index => getConsecutiveSidebarCellGroupDuringEdit(points, index, point => point.value, 'qualifier', null);
+    for (let i = 0; i < 4; i++) expect(group(i)).toEqual({ isStart: true, isEnd: true, span: 1, pointIds: [i] });
+    expect(group(4).pointIds).toEqual([4, 5]);
+    expect(group(6).pointIds).toEqual([6, 7]);
+  });
+
+  test("fills spare point-table width with automatic columns while preserving a dragged column", () => {
+    const visible = { section: true, value: true, qualifier: true };
+    const measured = { section: 50, value: 90, qualifier: 80 };
+    expect(getSidebarGridTemplate(visible, '90px', measured, ['section', 'value', 'qualifier'], false, { section: 50 }))
+      .toBe('50px minmax(90px, 90fr) minmax(80px, 80fr)');
+    expect(getSidebarGridTemplate(visible, '90px', measured, ['qualifier', 'section', 'value'], true, measured))
+      .toBe('80px 50px minmax(90px, 90fr)');
+    expect(measured).toEqual({ section: 50, value: 90, qualifier: 80 });
+  });
   test("updates live uncertainty with risk and clears obsolete saved totals when the budget becomes empty", () => {
     const props = {
       point: { id: "live", testPointInfo: { parameter: { value: 10, unit: "V" } }, expanded_uncertainty_absolute_base: 99 },

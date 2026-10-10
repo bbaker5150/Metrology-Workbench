@@ -288,8 +288,12 @@ export const getConsecutiveSidebarCellGroup = (
   points = [],
   index,
   valueForPoint,
+  groupEmpty = true,
 ) => {
   const value = normalizedGroupedCellValue(valueForPoint(points[index]));
+  if (!groupEmpty && value === "") {
+    return { isStart: true, isEnd: true, span: 1, pointIds: [points[index].id] };
+  }
   let start = index;
   let end = index;
   while (
@@ -330,7 +334,7 @@ export const getConsecutiveSidebarCellGroupDuringEdit = (
     return isEditedMember
       ? `\u0000sidebar-edit-member:${field}:${candidate?.id}`
       : valueForPoint(candidate);
-  });
+  }, field !== "qualifier");
 
 const getFunctionPointSettings = (sessionData, functionId) => {
   const stored = (sessionData?.measurementAreaGroups || []).find(
@@ -502,27 +506,33 @@ export const getSidebarColumnMinWidth = (key) =>
 
 export const getSidebarRiskColumnWidths = (columnWidths = {}) => columnWidths;
 
-const getSidebarGridTemplate = (
+export const getSidebarGridTemplate = (
   visibleColumns,
   valueColumnWidth = "80px",
   columnWidths = {},
   columnOrder = DEFAULT_SIDEBAR_COLUMN_ORDER,
   fillWidth = false,
+  authoredWidths = null,
 ) => {
   const tracks = {
     ...SIDEBAR_COLUMN_TRACKS,
     value: valueColumnWidth,
   };
-  const parts = getVisibleSidebarColumnOrder(
-    visibleColumns,
-    columnOrder,
-  ).map((key) => {
+  const visible = getVisibleSidebarColumnOrder(visibleColumns, columnOrder);
+  const hasAutomaticColumn = visible.some(key => !(Number(authoredWidths?.[key]) > 0));
+  const parts = visible.map((key, index) => {
     const custom = Number(columnWidths?.[key]);
     const track = Number.isFinite(custom) && custom > 0
       ? `${Math.max(getSidebarColumnMinWidth(key), Math.round(custom))}px`
       : tracks[key];
-    // Keep the complete Value editor on one line; share the remaining
-    // viewport width evenly among all other displayed columns.
+    if (authoredWidths !== null) {
+      // Content-sized columns share spare space in proportion to their widths.
+      // Manual widths stay fixed; if every column is pinned, the final column
+      // keeps its authored minimum and extends to the viewport's right edge.
+      if (Number(authoredWidths[key]) > 0 && (hasAutomaticColumn || index !== visible.length - 1)) return track;
+      const minimum = track.startsWith("minmax(") ? track.slice(7, track.indexOf(",")) : track;
+      return `minmax(${minimum}, ${parseFloat(minimum) || 1}fr)`;
+    }
     return fillWidth ? (key === "value" ? `minmax(${track}, 1fr)` : "minmax(0, 1fr)") : track;
   });
 
@@ -760,6 +770,7 @@ export const SidebarPointItem = ({
   onUutChange,
   cellGroups = {},
   columnWidths = {},
+  authoredColumnWidths = null,
   columnOrder = DEFAULT_SIDEBAR_COLUMN_ORDER,
   fillWidth = false,
   highlightedPointIds = [],
@@ -1335,6 +1346,7 @@ export const SidebarPointItem = ({
           columnWidths,
           columnOrder,
           fillWidth,
+          authoredColumnWidths,
         ),
         gridTemplateAreas: `"${orderedVisibleColumns.join(" ")}"`,
       }}
@@ -1572,7 +1584,7 @@ export const SidebarPointItem = ({
                 editingField === "qualifier" ? " point-qualifier--editing" : ""
               }${groupedCellClass(cellGroups.qualifier, "qualifier")}`}
               data-run={groupedCellRunKey(cellGroups.qualifier, "qualifier")}
-              title={String(point.testPointInfo?.qualifier?.value ?? "-")}
+              title={normalizedGroupedCellValue(point.testPointInfo?.qualifier?.value) || "-"}
             >
               {wrapGroupedCellContent(
                 cellGroups.qualifier,
@@ -1610,7 +1622,7 @@ export const SidebarPointItem = ({
                         );
                       }}
                     >
-                      {point.testPointInfo?.qualifier?.value || (
+                      {normalizedGroupedCellValue(point.testPointInfo?.qualifier?.value) || (
                         <span className="point-placeholder">-</span>
                       )}
                     </span>
@@ -5247,7 +5259,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
       qualifier: getConsecutiveSidebarCellGroupDuringEdit(
         points,
         index,
-        (point) => point.testPointInfo?.qualifier?.value || "",
+        (point) => point.testPointInfo?.qualifier?.value ?? "",
         "qualifier",
         pendingSharedFieldEdit,
       ),
@@ -5268,6 +5280,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
       columnWidths={sidebarRenderedColumnWidths}
       columnOrder={sidebarColumnOrder}
       fillWidth={workspacePane === "points" && !sidebarAutoFit}
+      authoredColumnWidths={sidebarColumnWidths}
       highlightedPointIds={[
         ...selectedSidebarPointIds,
         selectedTestPointId,
@@ -5458,6 +5471,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
       sidebarRenderedColumnWidths,
       sidebarColumnOrder,
       workspacePane === "points" && !sidebarAutoFit,
+      sidebarColumnWidths,
     );
     const orderedVisibleColumns = getVisibleSidebarColumnOrder(
       visibleSidebarColumns,
