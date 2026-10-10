@@ -2453,6 +2453,14 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
     [currentTestPoints, currentSessionData, pointRiskMap, pointRiskStatusMap, sidebarColumns],
   );
 
+  // These values follow the session data, not the active selection. Reuse them
+  // when moving between points, while invalidating on any session edit.
+  const sidebarPointData = useMemo(() => new Map(currentTestPoints.map(point => [point.id, {
+    tmdeLimits: computePointTmdeLimits(point, currentSessionData),
+    resolution: pointDisplayResolution(point, currentSessionData),
+    requirements: getPointRequirements(point, currentSessionData),
+  }])), [currentTestPoints, currentSessionData]);
+
   const sidebarAutoWidths = useSidebarAutoWidths(resultsContainerRef);
   const sidebarRenderedColumnWidths = useMemo(
     () => ({
@@ -5353,10 +5361,10 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
       unitOptions={getMeasurementAreaUnits(currentSessionData, fnGroup.name)}
       liveRiskMetrics={pointRiskMap[tp.id]}
       liveUncertainty={pointUncertaintyMap[tp.id]}
-      liveTmdeLimits={computePointTmdeLimits(tp, currentSessionData)}
-      limitResolution={pointDisplayResolution(tp, currentSessionData)}
+      liveTmdeLimits={sidebarPointData.get(tp.id)?.tmdeLimits}
+      limitResolution={sidebarPointData.get(tp.id)?.resolution}
       diagnostics={pointDiagnosticsMap[tp.id]}
-      riskRequirements={getPointRequirements(tp, currentSessionData)}
+      riskRequirements={sidebarPointData.get(tp.id)?.requirements}
       requirementSession={currentSessionData}
       isLiveRiskTarget={true}
       onSelect={(e) => handleSelectTestPoint(e, tp.id, contextUutId)}
@@ -5469,7 +5477,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
     );
   };
 
-  const renderSidebarColumnHeaders = () => {
+  const sidebarColumnHeaders = useMemo(() => {
     const gridTemplateColumns = getSidebarGridTemplate(
       visibleSidebarColumns,
       sidebarValueColumnWidth,
@@ -5597,7 +5605,8 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
         </div>
       </div>
     );
-  };
+  }, [visibleSidebarColumns, sidebarValueColumnWidth, sidebarRenderedColumnWidths,
+    sidebarColumnOrder, workspacePane, sidebarAutoFit, sidebarColumnWidths, renderSidebarColumnHeader]);
 
   const sidebarSortGroups = sidebarColumnOrder.filter(key => sidebarColumns[key]).reduce((groups, key) => {
     const pairs = { lowLimit: ["lowLimit", "highLimit"], highLimit: ["lowLimit", "highLimit"], tmdeLow: ["tmdeLow", "tmdeHigh"], tmdeHigh: ["tmdeLow", "tmdeHigh"], gbLow: ["gbLow", "gbHigh"], gbHigh: ["gbLow", "gbHigh"] };
@@ -6347,7 +6356,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
                   style={{ "--point-value-number-width": `${Math.max(3, ...currentTestPoints.map(point => String(point.testPointInfo?.parameter?.value ?? "").length)) * 8 + 14}px`, "--point-diagnostics-width": `${Math.max(1, ...Object.values(pointDiagnosticsMap).map(entries => new Set(entries.map(entry => entry.category)).size)) * 17 - 1}px` }}>
                   <div className="measurement-points-table-content">
                     <PointSelectionOutline />
-                    {sidebarData.length > 0 && renderSidebarColumnHeaders()}
+                    {sidebarData.length > 0 && sidebarColumnHeaders}
                 {sidebarData.map((fnGroup) => {
                     const isFnExpanded = expandedFunctions.has(fnGroup.id);
                     // The Unassigned bucket renders its points directly under the

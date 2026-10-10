@@ -36,10 +36,9 @@ export default function useSidebarAutoWidths(rootRef) {
       const previousMeasurements = measurementsRef.current.context === context
         ? measurementsRef.current.cells : new Map();
       const measurements = new Map();
-      const host = document.createElement("div");
-      host.style.cssText = "position:fixed;left:-100000px;top:0;visibility:hidden;pointer-events:none;width:max-content;contain:layout style;";
-      host.setAttribute("aria-hidden", "true");
-      document.body.appendChild(host);
+      // A selection-only render normally reuses all measurements. Do not
+      // mutate the document (and dirty layout) unless a cell needs measuring.
+      let host;
       const next = {};
       const seen = new Set();
       root.querySelectorAll(".point-grid-item > [data-sidebar-column]").forEach(cell => {
@@ -53,6 +52,12 @@ export default function useSidebarAutoWidths(rootRef) {
           measurements.set(signature, cachedWidth);
           next[key] = Math.max(next[key] || 44, cachedWidth);
           return;
+        }
+        if (!host) {
+          host = document.createElement("div");
+          host.style.cssText = "position:fixed;left:-100000px;top:0;visibility:hidden;pointer-events:none;width:max-content;contain:layout style;";
+          host.setAttribute("aria-hidden", "true");
+          document.body.appendChild(host);
         }
         const clone = cell.cloneNode(true);
         const sources = [cell, ...cell.querySelectorAll("*")];
@@ -105,7 +110,7 @@ export default function useSidebarAutoWidths(rootRef) {
         next[key] = Math.max(next[key] || 44, measuredWidth);
         clone.remove();
       });
-      host.remove();
+      host?.remove();
       measurementsRef.current = { context, cells: measurements };
       setWidths(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
     };

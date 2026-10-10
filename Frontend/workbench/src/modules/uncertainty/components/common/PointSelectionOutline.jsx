@@ -2,6 +2,20 @@ import { useLayoutEffect, useRef } from "react";
 import { selectionPerimeter } from "../../utils/instrumentSelectionOutline";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
+const outlineClasses = value => (value || '').split(/\s+/)
+  .filter(name => name && name !== 'is-cell-hovered').sort().join(' ');
+const outlineStyles = value => (value || '')
+  .replace(/--point-hover-(?:left|right)\s*:[^;]*(?:;|$)/g, '').trim();
+
+export const pointMutationAffectsOutline = record => {
+  if (record.type !== 'attributes') return true;
+  const current = record.target.getAttribute(record.attributeName);
+  // Hover changes only the fill. Remeasuring every row here delays the click
+  // that follows the pointer, despite the outline geometry staying identical.
+  if (record.attributeName === 'class') return outlineClasses(record.oldValue) !== outlineClasses(current);
+  if (record.attributeName === 'style') return outlineStyles(record.oldValue) !== outlineStyles(current);
+  return true;
+};
 
 /** Paint the union of selected point cells, using the instrument-table edge
  * cancellation algorithm. Shared UUT/section/qualifier cells participate in
@@ -85,9 +99,9 @@ export default function PointSelectionOutline() {
     const mutations = new MutationObserver(records => {
       // Editor/column handoffs must move the outline in the same paint as the
       // cells, rather than showing the previous geometry for another frame.
-      if (records.some(record => !overlay.contains(record.target))) sync();
+      if (records.some(record => !overlay.contains(record.target) && pointMutationAffectsOutline(record))) sync();
     });
-    mutations.observe(content, { childList: true, subtree: true, attributes: true, attributeFilter: ["class", "style"] });
+    mutations.observe(content, { childList: true, subtree: true, attributes: true, attributeOldValue: true, attributeFilter: ["class", "style"] });
     const resize = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(schedule);
     resize?.observe(content);
     scroller.addEventListener("scroll", schedule, { passive: true });
