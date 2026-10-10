@@ -289,7 +289,7 @@ export const getConsecutiveSidebarCellGroup = (
   points = [],
   index,
   valueForPoint,
-  groupEmpty = true,
+  groupEmpty = false,
 ) => {
   const value = normalizedGroupedCellValue(valueForPoint(points[index]));
   if (!groupEmpty && value === "") {
@@ -335,7 +335,7 @@ export const getConsecutiveSidebarCellGroupDuringEdit = (
     return isEditedMember
       ? `\u0000sidebar-edit-member:${field}:${candidate?.id}`
       : valueForPoint(candidate);
-  }, field !== "qualifier");
+  });
 
 const getFunctionPointSettings = (sessionData, functionId) => {
   const stored = (sessionData?.measurementAreaGroups || []).find(
@@ -1482,7 +1482,7 @@ export const SidebarPointItem = ({
               ref={setGroupedCellRef("section")}
               className={`point-section${groupedCellClass(cellGroups.section, "section")}`}
               data-run={groupedCellRunKey(cellGroups.section, "section")}
-              title={String(point.section || "-")}
+              title={normalizedGroupedCellValue(point.section) || "-"}
             >
               {wrapGroupedCellContent(
                 cellGroups.section,
@@ -1520,7 +1520,7 @@ export const SidebarPointItem = ({
                         );
                       }}
                     >
-                      {point.section || (
+                      {normalizedGroupedCellValue(point.section) || (
                         <span className="point-placeholder">-</span>
                       )}
                     </span>
@@ -5245,16 +5245,17 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
         points,
         index,
         (point) => pointDiagnosticsMap[point.id]?.length ? `point:${point.id}` : "",
+        true, // Read-only empty information cells have no per-point input.
       ),
       uut: getConsecutiveSidebarCellGroup(
         points,
         index,
-        (point) => point.associatedUutIds?.[0] || "__unassigned__",
+        (point) => point.associatedUutIds?.[0] ?? "",
       ),
       section: getConsecutiveSidebarCellGroupDuringEdit(
         points,
         index,
-        (point) => point.section || "",
+        (point) => point.section ?? "",
         "section",
         pendingSharedFieldEdit,
       ),

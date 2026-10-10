@@ -2,7 +2,7 @@
 // equal values occupy one cell. Empty inputs remain independently editable.
 export function consecutiveCellGroup(rows, index, valueAt) {
   const value = valueAt(index);
-  const merge = value !== "" && value != null;
+  const merge = value != null && String(value).trim() !== "";
   if (merge && index > 0 && valueAt(index - 1) === value) return null;
   let end = index + 1;
   while (merge && end < rows.length && valueAt(end) === value) end++;

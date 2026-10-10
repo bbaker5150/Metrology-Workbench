@@ -25,9 +25,9 @@ import {
 vi.mock("plotly.js-dist", () => ({ default: {} }));
 
 describe("measurement-point value editing", () => {
-  test("keeps every blank qualifier separate while grouping populated values, including zero", () => {
+  test.each(['section', 'qualifier'])("keeps every blank %s separate while grouping populated values, including zero", field => {
     const points = [undefined, null, '', '  ', '100 Hz', '100 Hz', 0, 0].map((value, id) => ({ id, value }));
-    const group = index => getConsecutiveSidebarCellGroupDuringEdit(points, index, point => point.value, 'qualifier', null);
+    const group = index => getConsecutiveSidebarCellGroupDuringEdit(points, index, point => point.value, field, null);
     for (let i = 0; i < 4; i++) expect(group(i)).toEqual({ isStart: true, isEnd: true, span: 1, pointIds: [i] });
     expect(group(4).pointIds).toEqual([4, 5]);
     expect(group(6).pointIds).toEqual([6, 7]);
@@ -41,6 +41,29 @@ describe("measurement-point value editing", () => {
     expect(getSidebarGridTemplate(visible, '90px', measured, ['qualifier', 'section', 'value'], true, measured))
       .toBe('80px 50px minmax(90px, 90fr)');
     expect(measured).toEqual({ section: 50, value: 90, qualifier: 80 });
+  });
+  test('keeps blank sections and unassigned UUT selectors available on every point', () => {
+    const points = [undefined, null, '', '  ', 0].map((section, index) => ({ id: `blank-${index}`, section }));
+    const saved = vi.fn();
+    const { container } = render(<>{points.map((point, index) => <SidebarPointItem
+      key={point.id} point={point} uutName="Unassigned" currentUutId=""
+      visibleColumns={{ section: true, uut: true }} onSelect={vi.fn()} onSave={saved}
+      cellGroups={{
+        section: getConsecutiveSidebarCellGroupDuringEdit(points, index, row => row.section, 'section', null),
+        uut: getConsecutiveSidebarCellGroup(points, index, row => row.associatedUutIds?.[0] ?? ''),
+      }}
+    />)}</>);
+    expect(screen.getAllByRole('button', { name: 'UUT' })).toHaveLength(5);
+    expect(container.querySelectorAll('.point-section [data-point-editor-trigger]')).toHaveLength(5);
+    expect(container.querySelector('[data-point-id="blank-3"] .point-section')).toHaveTextContent('-');
+    expect(container.querySelector('[data-point-id="blank-4"] .point-section')).toHaveTextContent('0');
+    const target = container.querySelector('[data-point-id="blank-2"] .point-section [data-point-editor-trigger]');
+    fireEvent.mouseDown(target, { button: 0 });
+    const input = container.querySelector('input.section');
+    fireEvent.change(input, { target: { value: '4.2.1' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+    expect(saved).toHaveBeenCalledWith(expect.objectContaining({ id: 'blank-2', section: '4.2.1' }));
+    expect(saved).toHaveBeenCalledOnce();
   });
   test("updates live uncertainty with risk and clears obsolete saved totals when the budget becomes empty", () => {
     const props = {
@@ -247,13 +270,13 @@ describe("measurement-point value editing", () => {
       { id: "p3", info: "warning" },
       { id: "p4", info: "" },
     ];
-    expect(getConsecutiveSidebarCellGroup(points, 0, point => point.info)).toEqual({
+    expect(getConsecutiveSidebarCellGroup(points, 0, point => point.info, true)).toEqual({
       isStart: true, isEnd: false, span: 2, pointIds: ["p1", "p2"],
     });
-    expect(getConsecutiveSidebarCellGroup(points, 1, point => point.info)).toEqual({
+    expect(getConsecutiveSidebarCellGroup(points, 1, point => point.info, true)).toEqual({
       isStart: false, isEnd: true, span: 2, pointIds: ["p1", "p2"],
     });
-    expect(getConsecutiveSidebarCellGroup(points, 3, point => point.info)).toEqual({
+    expect(getConsecutiveSidebarCellGroup(points, 3, point => point.info, true)).toEqual({
       isStart: true, isEnd: true, span: 1, pointIds: ["p4"],
     });
   });
@@ -263,7 +286,7 @@ describe("measurement-point value editing", () => {
     const { container } = render(<>{points.map((point, index) => <SidebarPointItem
       key={point.id} point={point} diagnostics={[]} onSave={vi.fn()} onSelect={vi.fn()}
       visibleColumns={{ warningIcons: true }} highlightedPointIds={["two"]}
-      cellGroups={{ warningIcons: getConsecutiveSidebarCellGroup(points, index, () => "") }}
+      cellGroups={{ warningIcons: getConsecutiveSidebarCellGroup(points, index, () => "", true) }}
     />)}</>);
     const cells = [...container.querySelectorAll('.point-information')];
     expect(cells).toHaveLength(2);
