@@ -4612,6 +4612,8 @@ export const InstrumentUncertaintyRow = ({ source, activeRange, referencePoint, 
   </tr>;
 };
 
+const activeToleranceEditors = new WeakMap();
+
 export const InlineToleranceCell = ({
   tolerance = {},
   activeRange = {},
@@ -4673,6 +4675,26 @@ export const InlineToleranceCell = ({
 
   useLayoutEffect(() => {
     onEditingChangeRef.current?.(isEditing);
+  }, [isEditing]);
+
+  // A destination editor opens on mouse-down. Retire the previous editor in
+  // the same layout update, before paint, rather than waiting for mouse-up and
+  // briefly rendering two expanded rows. Commit its focused draft first.
+  useLayoutEffect(() => {
+    const root = containerRef.current;
+    if (!isEditing || !root) return;
+    const scope = root.closest(".uncertainty-module") || root.ownerDocument;
+    const close = () => {
+      const focused = root.ownerDocument.activeElement;
+      if (root.contains(focused)) focused.blur?.();
+      setIsEditing(false);
+    };
+    const previous = activeToleranceEditors.get(scope);
+    activeToleranceEditors.set(scope, close);
+    previous?.();
+    return () => {
+      if (activeToleranceEditors.get(scope) === close) activeToleranceEditors.delete(scope);
+    };
   }, [isEditing]);
 
   // Dynamic sources open directly into their first value field. Parametric

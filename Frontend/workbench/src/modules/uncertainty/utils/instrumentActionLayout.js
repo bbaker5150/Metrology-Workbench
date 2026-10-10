@@ -105,7 +105,10 @@ export function syncInstrumentActions(container, table, layer, pointer = null) {
       row.matches(':not([data-selection-key]):is(.selected-row, .selected-spec-row)'));
     if (band) {
       const first = getComputedStyle(group[0].cells[0]), last = getComputedStyle(group.at(-1).cells[0]);
-      band.style.setProperty('--instrument-function-color', first.getPropertyValue('--instrument-function-color') || getComputedStyle(group[0]).getPropertyValue('--instrument-function-color'));
+      const areaColor = first.getPropertyValue('--instrument-function-color') || getComputedStyle(group[0]).getPropertyValue('--instrument-function-color');
+      band.style.setProperty('--instrument-function-color', areaColor);
+      // The portaled delete button cannot inherit the instrument row's accent.
+      action.style.setProperty('--function-input-accent', first.getPropertyValue('--function-input-accent') || areaColor);
       copyRules(band, first, last, false, collapsedTop(group[0].cells[0], first));
       band.dataset.instrumentId = action.dataset.instrumentId;
       band.dataset.measurementArea = action.dataset.measurementArea;

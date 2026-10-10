@@ -8,6 +8,41 @@ import {
 } from "./UncertaintyPanel";
 
 describe("inline instrument column navigation", () => {
+  it('switches tolerance editors on mouse-down without overlapping or losing the focused draft', async () => {
+    const commit = vi.fn();
+    const Harness = () => {
+      const [requested, setRequested] = useState(null);
+      return <div className="uncertainty-module">{[0, 1].map(index =>
+        <div key={index} data-testid={`editor-${index}`}>
+          <InlineToleranceCell tolerance={{reading:{value:'1',unit:'%'}}}
+            activeRange={{id:`r${index}`,unit:'V',max:10}} editable onCommit={commit}
+            openRequested={requested === index} onOpenRequest={() => setRequested(index)}
+            onOpenRequestHandled={() => setRequested(null)} />
+        </div>)}<div className="instrument-panel-table-container" /></div>;
+    };
+    const {container} = render(<Harness />);
+    const first = screen.getByTestId('editor-0'), second = screen.getByTestId('editor-1');
+    fireEvent.mouseDown(first.querySelector('.inline-tolerance-summary'));
+    const input = first.querySelector('input.inline-tolerance-input');
+    input.focus();
+    fireEvent.change(input,{target:{value:'2.5'}});
+    fireEvent.pointerDown(second.querySelector('.inline-tolerance-summary'));
+    fireEvent.mouseDown(second.querySelector('.inline-tolerance-summary'));
+    expect(first.querySelector('.inline-tolerance-editor')).toBeNull();
+    expect(second.querySelector('.inline-tolerance-editor')).not.toBeNull();
+    expect(commit).toHaveBeenCalledWith('reading',expect.objectContaining({value:'2.5'}));
+    fireEvent.pointerUp(second.querySelector('button'));
+    fireEvent.mouseUp(second.querySelector('button'));
+    await act(async () => { await new Promise(resolve => setTimeout(resolve,10)); });
+    expect(container.querySelectorAll('.inline-tolerance-editor')).toHaveLength(1);
+    // A later scrollbar drag still leaves the destination editor open.
+    const scroller = container.querySelector('.instrument-panel-table-container');
+    fireEvent.pointerDown(scroller); fireEvent.mouseDown(scroller);
+    fireEvent.pointerUp(scroller); fireEvent.mouseUp(scroller); fireEvent.click(scroller);
+    await act(async () => { await new Promise(resolve => setTimeout(resolve,10)); });
+    expect(second.querySelector('.inline-tolerance-editor')).not.toBeNull();
+  });
+
   it.each(['uut', 'tmde', 'source'])('commits and collapses %s tolerance on Enter', biasRole => {
     const onCommit = vi.fn();
     const {container} = render(<InlineToleranceCell tolerance={{reading:{value:'1',unit:'%'}}}
