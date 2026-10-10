@@ -25,11 +25,11 @@
     },
     {
       "kind": "traceability",
-      "text": "NPSL maintains traceability to the International System of Units (SI) through an unbroken chain of comparisons with the National Institute of Standards and Technology (NIST), National Measurement Institutes (NMIs), US Naval Observatory, or other Department of the Navy approved sources or intrinsic and derived standards."
+      "text": "NPSL maintains traceability to the International System of Units (SI) through an unbroken chain of comparisons with the National Institute of Standards and Technology (NIST), National Measurement Institutes (NMIs), U.S. Naval Observatory, or other Department of the Navy approved sources or intrinsic and derived standards."
     },
     {
       "kind": "reproduction",
-      "text": "This Report of Calibration shall not be reproduced except in full, without the written approval of the Navy Primary Standards Laboratory. This Report of Calibration shall not be used as an endorsement by NIST, or any agency of the Federal Government for any product or service."
+      "text": "This Report of Calibration shall not be reproduced, except in full, without the written approval of the Navy Primary Standards Laboratory. This Report of Calibration shall not be used as an endorsement by ANAB, NIST, or any agency of the Federal Government for any product or service."
     }
   ],
   "ambient_temperature": "",

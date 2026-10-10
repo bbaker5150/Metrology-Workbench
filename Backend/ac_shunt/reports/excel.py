@@ -125,7 +125,7 @@ def _write_paragraph(ws, row, text):
     cell.font = BODY_FONT
     cell.alignment = JUSTIFY
     ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=GRID_COLUMNS)
-    lines = max(1, -(-len(text) // 145))
+    lines = max(1, -(-len(text) // 130))
     ws.row_dimensions[row].height = 15.6 * lines
     return row + 2
 

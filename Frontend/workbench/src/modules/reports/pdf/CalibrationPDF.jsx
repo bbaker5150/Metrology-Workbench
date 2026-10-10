@@ -67,8 +67,15 @@ function spellOutOhm(text) {
   return String(text ?? "").replace(/Ω/g, "Ohm");
 }
 
+// SOP page margins: 0.5in on every side of the Letter sheet, in PDF points
+// (72/in). The footer sits on the bottom margin line, so the page's bottom
+// padding also reserves FOOTER_HEIGHT to keep body content from running
+// under it.
+export const PAGE_MARGIN = 36;
+const FOOTER_HEIGHT = 22;
+
 const styles = StyleSheet.create({
-  page: { paddingTop: 36, paddingBottom: 36, paddingHorizontal: 36, fontFamily: "Times-Roman", fontSize: 12, color: "#000" },
+  page: { paddingTop: PAGE_MARGIN, paddingBottom: PAGE_MARGIN + FOOTER_HEIGHT, paddingHorizontal: PAGE_MARGIN, fontFamily: "Times-Roman", fontSize: 12, color: "#000" },
   center: { textAlign: "center" },
   labName: { fontFamily: "Times-Bold", fontSize: 14, textAlign: "center" },
   title: { fontFamily: "Times-Bold", fontSize: 18, textAlign: "center" },
@@ -166,7 +173,7 @@ function Signatures({ data }) {
 }
 
 function Footer({ data, page, pages }) {
-  return <View style={{ position: "absolute", bottom: 30, left: 36, right: 36, flexDirection: "row" }} fixed>
+  return <View style={{ position: "absolute", bottom: PAGE_MARGIN, left: PAGE_MARGIN, right: PAGE_MARGIN, flexDirection: "row" }} fixed>
     <View style={{ flexDirection: "row", width: "33%" }}><Text>RoC #:  </Text><Text>{data.roc_number}</Text></View>
     <Text style={{ width: "34%", textAlign: "center" }}>{`Page ${page} of ${pages}`}</Text>
     <View style={{ flexDirection: "row", width: "33%", justifyContent: "flex-end" }}><Text>Issue Date:  </Text><Text>{formatDate(data.issue_date)}</Text></View>
@@ -177,12 +184,11 @@ function DataTable({ table }) {
   const columns = table.columns || [];
   if (!columns.length) return null;
   const rows = table.rows || [];
-  const width = Math.min(85, Math.max(45, columns.length * 18));
   const cellFontSize = columns.length > 4 ? 10 : 12;
   return <View style={{ marginTop: 14 }}>
     {table.intro_text ? <Text style={[styles.statement, { marginBottom: 10 }]}>{spellOutOhm(table.intro_text)}</Text> : null}
     {table.title ? <OhmText style={[styles.center, { marginBottom: 6 }]}>{table.title}</OhmText> : null}
-    <View style={{ width: `${width}%`, alignSelf: "center", fontSize: cellFontSize }}>
+    <View style={{ width: "100%", fontSize: cellFontSize }}>
       <View style={{ flexDirection: "row" }} wrap={false}>
         {columns.map((column, index) => <View key={index} style={[styles.cell, { flex: 1, marginLeft: index ? -0.75 : 0 }]}>
           {String(column.header || "").split("\n").map((line, lineIndex) => <OhmText key={lineIndex} style={styles.cellText}>{line}</OhmText>)}
