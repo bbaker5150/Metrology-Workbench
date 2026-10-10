@@ -15751,7 +15751,7 @@ body.theme-cyberpunk:not(.dark-mode) .range-label-row.active {
   padding: 5px 14px;
   margin-bottom: var(--sidebar-point-row-seam);
   border-radius: 4px;
-  cursor: pointer;
+  cursor: default;
   transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
   font-size: 0.8rem;
   color: var(--text-color);
