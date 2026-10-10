@@ -31,16 +31,26 @@ export async function checkPointUsability({ frame, page, check, until }) {
   await first.getByRole('button', { name: 'UUT', exact: true }).click();
   check('clicking UUT text still opens assignment', await frame.getByRole('listbox', { name: 'UUT', exact: true }).isVisible());
   await page.keyboard.press('Escape');
-  const unitX = await frame.locator('[data-point-id="parity-1"] .point-unit-control, [data-point-id="merged-1"] .point-unit-control, [data-point-id="merged-2"] .point-unit-control').evaluateAll(nodes => nodes.map(node => node.getBoundingClientRect().left));
-  check('different value lengths and units share an aligned unit start', unitX.length === 3 && Math.max(...unitX) - Math.min(...unitX) < .5, JSON.stringify(unitX));
-  check('full unit labels fit inside their controls', await frame.locator('.point-unit-select').evaluateAll(nodes => nodes.every(node => {
-    const css = getComputedStyle(node), ctx = document.createElement('canvas').getContext('2d'); ctx.font = css.font;
-    return node.clientWidth - parseFloat(css.paddingLeft) - parseFloat(css.paddingRight) >= ctx.measureText(node.selectedOptions[0]?.textContent || '').width;
-  })));
+  const summaries = frame.locator('[data-point-id="parity-1"] .point-value-summary, [data-point-id="merged-1"] .point-value-summary, [data-point-id="merged-2"] .point-value-summary');
+  const summaryLayout = await summaries.evaluateAll(nodes => nodes.map(node => {
+    const bounds = node.getBoundingClientRect(), cell = node.closest('[data-sidebar-column="value"]').getBoundingClientRect();
+    const [number, unit] = [...node.children].map(child => child.getBoundingClientRect());
+    return { text: node.textContent.replace(/\s+/g, ' ').trim(),
+      fitsCell: bounds.left >= cell.left - .5 && bounds.right <= cell.right + .5,
+      gap: unit.left - number.right, centerOffset: Math.abs((number.top + number.bottom - unit.top - unit.bottom) / 2),
+      overflow: node.scrollWidth - node.clientWidth };
+  }));
+  check('collapsed values include their complete units in one compact control', summaryLayout.length === 3 && summaryLayout.every((item, index) =>
+    item.text === ['10 V', '9.6 V', '1200 mV'][index] && item.fitsCell && item.gap > 0 && item.centerOffset < .5 && item.overflow <= 1), JSON.stringify(summaryLayout));
   await first.locator('.point-value-number').click();
   const input = first.locator('input.sidebar-inline-input.value');
   const selected = locator => locator.evaluate(node => node.selectionStart === 0 && node.selectionEnd === node.value.length);
   check('opening the value editor selects its existing text', await until(() => selected(input)));
+  check('expanded unit and prefix labels fit inside their controls', await first.locator('.point-unit-control .inline-unit-combobox').evaluateAll(nodes => nodes.length === 2 && nodes.every(node => {
+    const label = node.querySelector('span'), bounds = node.getBoundingClientRect(), textBounds = label.getBoundingClientRect();
+    return label.textContent.trim().length > 0 && label.scrollWidth <= label.clientWidth + 1 &&
+      textBounds.left >= bounds.left && textBounds.right <= bounds.right;
+  })));
   await input.evaluate(node => node.setSelectionRange(0, 0)); await input.click();
   check('clicking an already focused input reselects its value', await until(() => selected(input)));
   await input.press('7');
@@ -70,15 +80,20 @@ export async function checkPointUsability({ frame, page, check, until }) {
   await frame.getByRole('button', { name: 'Add Point Information column', exact: true }).click();
   await columns.click();
   const boundary = frame.locator('[data-point-id="boundary-point"]');
-  check('boundary fixture displays the full Boundary badge at automatic width', await until(async () => await boundary.locator('.point-method-badge').count() === 1));
+  const boundaryMetrics = boundary.locator('[data-sidebar-column="pfa"], [data-sidebar-column="pfr"]');
+  check('boundary-only risk displays NA without offering unavailable breakdowns', await boundaryMetrics.evaluateAll(nodes => nodes.length === 2 && nodes.every(node =>
+    node.textContent.trim() === 'NA' && !node.classList.contains('point-risk-metric-clickable') && getComputedStyle(node).cursor !== 'pointer')));
+  await boundary.locator('[data-sidebar-column="pfa"]').click({ modifiers: ['Control'] });
+  check('Ctrl-click on unavailable risk does not open a breakdown', await frame.getByRole('dialog').count() === 0);
   const separator = frame.getByRole('separator', { name: 'Resize PFA column', exact: true });
   await separator.scrollIntoViewIfNeeded();
   const rect = await separator.boundingBox();
   await page.mouse.move(rect.x + rect.width / 2, rect.y + rect.height / 2); await page.mouse.down(); await page.mouse.move(rect.x - 160, rect.y + rect.height / 2, { steps: 8 }); await page.mouse.up();
   check('PFA can shrink to the same minimum as other risk columns', await boundary.locator('[data-sidebar-column="pfa"]').evaluate(cell => cell.getBoundingClientRect().width <= 45));
-  check('compact boundary marker keeps its explanation inside the cell', await boundary.locator('.point-method-badge').evaluate(badge => {
-    const bounds = badge.getBoundingClientRect(), cell = badge.parentElement.getBoundingClientRect();
-    return badge.classList.contains('is-compact') && badge.title.includes('Measured value unknown') && bounds.right <= cell.right + .5 && bounds.left >= cell.left - .5;
+  check('unavailable risk stays readable at minimum column width', await boundary.locator('[data-sidebar-column="pfa"]').evaluate(cell => {
+    const range = document.createRange(); range.selectNodeContents(cell);
+    const text = range.getBoundingClientRect(), bounds = cell.getBoundingClientRect();
+    return cell.textContent.trim() === 'NA' && text.left >= bounds.left && text.right <= bounds.right && cell.scrollWidth <= cell.clientWidth + 1;
   }));
   await separator.dblclick();
   await list.evaluate(node => { node.scrollLeft = 0; node.scrollTop = 0; });
