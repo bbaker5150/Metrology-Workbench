@@ -51,11 +51,22 @@ export async function checkWorkspacePolish({ frame, page, saved, until, check })
   const hideLabels = await fullViewColumns.locator('.point-column-order-row').evaluateAll(rows => rows.filter(row => !['value', 'pfa', 'pfr'].includes(row.dataset.columnKey)).map(row => row.querySelector('button').getAttribute('aria-label')));
   for (const name of hideLabels) await fullViewColumns.getByRole('button', { name, exact: true }).click();
   await fullViewColumns.getByRole('button', { name: 'Close column settings' }).click();
-  check('full-width points distribute available width evenly across columns', await until(async () => frame.locator('.sidebar-column-headers').first().evaluate(header => {
+  check('full-width points share space in content proportions with aligned headers and rows', await until(async () => frame.locator('.sidebar-column-headers').first().evaluate(header => {
     const cells = [...header.children].map(cell => cell.getBoundingClientRect());
-    const row = document.querySelector('.point-grid-item');
-    const data = [...row.children].map(cell => cell.getBoundingClientRect());
-    return cells.length === 3 && Math.max(...cells.map(r => r.width)) - Math.min(...cells.map(r => r.width)) < 2 && cells.at(-1).right >= header.getBoundingClientRect().right - 12 && data.every(r => Math.abs(r.width - cells[0].width) < 2);
+    const weights = [...header.style.gridTemplateColumns.matchAll(/minmax\([^,]+,\s*([\d.]+)fr\)/g)].map(match => Number(match[1]));
+    const rows = [...document.querySelectorAll('.point-grid-item')];
+    const bounds = header.getBoundingClientRect(), totalWeight = weights.reduce((sum, weight) => sum + weight, 0);
+    const css = getComputedStyle(header), scale = bounds.width / header.offsetWidth;
+    const left = bounds.left + (parseFloat(css.paddingLeft) + parseFloat(css.borderLeftWidth)) * scale;
+    const right = bounds.right - (parseFloat(css.paddingRight) + parseFloat(css.borderRightWidth)) * scale;
+    const trackWidth = right - left - (parseFloat(css.columnGap) || 0) * scale * (cells.length - 1);
+    return cells.length === 3 && weights.length === 3 && rows.length > 0 && totalWeight > 0 &&
+      Math.abs(cells[0].left - left) < 2 && Math.abs(cells.at(-1).right - right) < 2 &&
+      cells.every((cell, index) => Math.abs(cell.width - trackWidth * weights[index] / totalWeight) < 2) &&
+      rows.every(row => {
+        const data = [...row.querySelectorAll(':scope > [data-sidebar-column]')].map(cell => cell.getBoundingClientRect());
+        return data.length === cells.length && data.every((cell, index) => Math.abs(cell.width - cells[index].width) < 2 && Math.abs(cell.left - cells[index].left) < 2);
+      });
   })));
   await frame.getByRole('button', { name: 'Columns', exact: true }).click();
   await fullViewColumns.getByRole('button', { name: 'Reset Columns' }).click();

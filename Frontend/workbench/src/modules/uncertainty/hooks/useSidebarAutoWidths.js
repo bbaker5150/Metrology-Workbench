@@ -115,6 +115,10 @@ export default function useSidebarAutoWidths(rootRef) {
       setWidths(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
     };
     const schedule = () => { if (disposed) return; cancelAnimationFrame(frame); frame = requestAnimationFrame(measure); };
+    // Layout refreshes can change a descendant's font without changing the
+    // viewport or root font (for example, a newly applied typography rule).
+    // Recheck intrinsic sizes on resize while keeping point selection cached.
+    const resize = () => { measurementsRef.current.context = null; schedule(); };
     // Child editors update independently of this hook's owner. Reconcile their
     // intrinsic widths in the mutation microtask, before the browser paints a
     // new editor into the previous editor's column widths.
@@ -122,7 +126,7 @@ export default function useSidebarAutoWidths(rootRef) {
       if (!disposed && records.some(sidebarMutationAffectsWidths)) flushSync(measure);
     });
     observer.observe(root, { childList: true, subtree: true, characterData: true });
-    window.addEventListener("resize", schedule);
+    window.addEventListener("resize", resize);
     root.addEventListener("scroll", alignHints, true);
     const fontLoading = document.fonts?.ready;
     const fontsReady = () => {
@@ -133,7 +137,7 @@ export default function useSidebarAutoWidths(rootRef) {
     };
     fontLoading?.then(fontsReady);
     measure();
-    return () => { root.removeEventListener("scroll", alignHints, true); disposed = true; observer.disconnect(); cancelAnimationFrame(frame); window.removeEventListener("resize", schedule); };
+    return () => { root.removeEventListener("scroll", alignHints, true); disposed = true; observer.disconnect(); cancelAnimationFrame(frame); window.removeEventListener("resize", resize); };
   });
   return widths;
 }

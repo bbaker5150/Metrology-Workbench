@@ -184,9 +184,12 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
     check('Enter commits the uncertainty equation and collapses its tolerance editor', await until(async () =>
       await instrumentCell.locator('.inline-tolerance-summary').count() === 1 && await inlineEquation.count() === 0));
     await instrumentCell.locator('.inline-tolerance-summary').click();
-    check('committed uncertainty equation becomes a compact KaTeX preview', await until(async () => await instrumentCell.locator('.dynamic-equation-summary .katex').count() === 1));
+    check('reopening tolerance focuses its populated equation on the first click', await until(async () =>
+      await inlineEquation.count() === 1 && await inlineEquation.inputValue() === 'a+b' && await inlineEquation.evaluate(input => input === document.activeElement)));
+    await inlineEquation.press('Tab');
+    check('committed uncertainty equation becomes a compact KaTeX preview on blur', await until(async () => await instrumentCell.locator('.dynamic-equation-summary .katex').count() === 1));
     await instrumentCell.getByRole('button', {name:'Edit uncertainty equation',exact:true}).click();
-    check('reopening the tolerance editor preserves the committed equation', await inlineEquation.inputValue() === 'a+b');
+    check('clicking the KaTeX preview reopens the committed equation with focus', await inlineEquation.inputValue() === 'a+b' && await inlineEquation.evaluate(input => input === document.activeElement));
     await inlineEquation.press('Tab');
     check('leaving the equation restores its compact KaTeX preview', await until(async () => await instrumentCell.locator('.dynamic-equation-summary .katex').count() === 1));
     check('equation editor fits its column and settles without resizing feedback', await instrumentCell.evaluate(async cell => {
