@@ -1,6 +1,6 @@
 .instrument-library-window.modal-content {
   position: fixed; z-index: 2100; width: min(var(--instrument-library-width, 1180px), calc(100vw - 32px)); height: auto;
-  min-width: min(480px, calc(100vw - 32px)); min-height: 0; resize: none;
+  min-width: min(480px, calc(100vw - 32px)); min-height: 0; resize: none; border-radius: 0;
   max-width: calc(100vw - 32px); max-height: calc(100vh - 32px);
   display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; padding: 0; margin: 0; overflow: hidden;
   background: var(--content-background-solid, #fff); border: 1px solid var(--border-color); box-shadow: 0 12px 40px #0005;
@@ -13,7 +13,7 @@
 .instrument-library-window .instrument-table-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; }
 /* Match the workspace's auto-height table: vertical scrolling encloses both
    Sync and the independent delete strip; only horizontal scrolling is inside. */
-.instrument-library-window .instrument-panel-table-container { height: auto !important; max-height: none !important; overflow-y: hidden !important; overflow-x: auto; resize: none; scrollbar-width: auto; scrollbar-color: auto; }
+.instrument-library-window .instrument-panel-table-container { height: auto !important; max-height: none !important; overflow-y: hidden !important; overflow-x: auto; resize: none; border-radius: 0; scrollbar-width: auto; scrollbar-color: auto; }
 /* Native scrollbar-width/color override the WebKit pseudo-elements in Chromium.
    Use the app's custom track so the platform cannot reintroduce arrow buttons. */
 .instrument-library-window .instrument-panel-table-container::-webkit-scrollbar { height: 6px; }

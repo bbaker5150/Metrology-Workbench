@@ -134,3 +134,29 @@ it('carries column hover tint into the action strip without moving or revealing 
   expect(action.style.top).toBe(top);
   expect(measure).not.toHaveBeenCalled();
 });
+
+it.each([0.8, 1, 1.25])('keeps hover on the correct row after moving a floating table at scale %s', scale => {
+  const {container,table,layer,action,rows,bounds} = setup(scale);
+  const second = action.cloneNode(true);
+  second.dataset.measurementArea = 'two';
+  layer.appendChild(second);
+  rows[2].className = 'instrument-library-name-row';
+  syncInstrumentActions(container,table,layer);
+  const measures = rows.map(row => vi.spyOn(row, 'getBoundingClientRect'));
+  // The window moves up by one group and right, without any row resize.
+  layer.getBoundingClientRect = () => bounds(160,-80,188,70);
+  updateInstrumentActionHover(layer,{x:170*scale,y:40*scale});
+  expect(action).not.toHaveAttribute('data-active');
+  expect(second).toHaveAttribute('data-active');
+  const band = layer.querySelector('.instrument-action-band[data-measurement-area="two"]');
+  expect(band).toHaveAttribute('data-cell-hovered');
+  expect(rows[2].cells[0]).toHaveAttribute('data-cell-hovered');
+  updateInstrumentActionHover(layer,{x:170*scale,y:-40*scale});
+  expect(action).toHaveAttribute('data-active');
+  expect(second).not.toHaveAttribute('data-active');
+  expect(band).not.toHaveAttribute('data-cell-hovered');
+  expect(rows[2].cells[0]).not.toHaveAttribute('data-cell-hovered');
+  updateInstrumentActionHover(layer);
+  expect(action).not.toHaveAttribute('data-active');
+  measures.forEach(measure => expect(measure).not.toHaveBeenCalled());
+});

@@ -2,10 +2,18 @@ const actionPositions = new WeakMap();
 
 // Pointer movement only changes visibility; it must not remeasure every row.
 export function updateInstrumentActionHover(layer, pointer = null) {
-  for (const {action, band, edgeCells, selected, left, right, top, bottom} of actionPositions.get(layer) || []) {
-    const hovered = pointer && pointer.x >= left && pointer.x <= right && pointer.y >= top && pointer.y < bottom;
+  const positions = actionPositions.get(layer) || [];
+  // A floating library can move without resizing its rows. Keep cached row
+  // geometry local to the layer and translate the pointer using its live bounds.
+  const bounds = pointer && positions.length ? layer.getBoundingClientRect() : null;
+  const scale = bounds && layer.offsetWidth ? bounds.width / layer.offsetWidth || 1 : 1;
+  const x = bounds ? (pointer.x - bounds.left) / scale : null;
+  const y = bounds ? (pointer.y - bounds.top) / scale : null;
+  for (const {action, band, edgeCells, hoverCells, selected, left, right, top, bottom} of positions) {
+    const hovered = bounds && x >= left && x <= right && y >= top && y < bottom;
     action.toggleAttribute('data-active', Boolean(hovered || selected));
     band?.toggleAttribute('data-cell-hovered', Boolean(hovered));
+    hoverCells.forEach(cell => cell.toggleAttribute('data-cell-hovered', Boolean(hovered)));
     band?.toggleAttribute('data-column-hovered', edgeCells.some(cell => cell.hasAttribute('data-column-hovered')));
   }
 }
@@ -125,7 +133,12 @@ export function syncInstrumentActions(container, table, layer, pointer = null) {
     // Follow the adjoining column's tint only; placement and action visibility
     // remain derived from the instrument/area bounds, independent of its cells.
     const edgeCells = group.flatMap(row => [...row.cells].filter(cell => cell.classList.contains('cell-sync')));
-    positions.push({ action, band, edgeCells, selected, left:viewport.left, right:bounds.right, top, bottom });
+    // Collapsed library rows share their hover surface with the delete gutter,
+    // including when the pointer crosses from the description onto the button.
+    const hoverCells = group.filter(row => row.classList.contains('instrument-library-name-row')).flatMap(row => [...row.cells]);
+    positions.push({ action, band, edgeCells, hoverCells, selected,
+      left:(viewport.left - bounds.left) / scale, right:bounds.width / scale,
+      top:(top - bounds.top) / scale, bottom:(bottom - bounds.top) / scale });
   }
   surfaces?.replaceChildren(...bands);
   actionPositions.set(layer, positions);
