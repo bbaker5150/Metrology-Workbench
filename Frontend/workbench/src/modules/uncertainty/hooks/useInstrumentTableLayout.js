@@ -164,6 +164,15 @@ export default function useInstrumentTableLayout(containerRef) {
       // Hidden tables (and non-layout test renderers) have no geometry to
       // synchronize. ResizeObserver will schedule again when they are shown.
       if (!container.getClientRects().length) return;
+      if (library && table.classList.contains('instrument-library-names-only')) {
+        // Names are a compact picker, not a hidden seven-column editor. Never
+        // reuse column minima or cached expanded widths for this view.
+        setProperty(library, '--instrument-library-width', '480px');
+        setProperty(table, '--instrument-live-table-width', '100%');
+        setProperty(table, '--instrument-natural-table-width', '100%');
+        syncActions();
+        return;
+      }
       const cols = [...table.querySelectorAll(":scope > colgroup > col")];
       const absolute = cols.every(col => col.style.width.endsWith("px"));
       // Editor requirements grow only their own columns. The panel fills the

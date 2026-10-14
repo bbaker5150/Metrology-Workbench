@@ -5,14 +5,14 @@ import InstrumentLibraryModal from './InstrumentLibraryModal';
 import { ConfirmRecordDeletesContext } from '../../../contexts/RecordDeletePolicy';
 vi.mock('plotly.js-dist', () => ({ default: {} }));
 const definition = (id, scope='local') => ({ id, scope, manufacturer: 'Example', model: id, description: `Meter ${id}`, functions: [{id:'f', name:'Voltage', unit:'V', ranges:[{id:'r', min:0, max:10, unit:'V', resolution:0.01, tolerances:{reading:{value:1,unit:'%'}}}]}] });
-const openInstrument = id => fireEvent.click(document.querySelector(`tr[data-instrument-id="${id}"] .instrument-library-name`));
-function Harness({ save=vi.fn(), remove=vi.fn(), close=vi.fn() }) {
- const [instruments,setInstruments]=useState([definition('A'),definition('B','validated'),definition('C')]);
+const openInstrument = id => fireEvent.click(document.querySelector(`tr[data-instrument-id="${id}"] .instrument-library-edit`));
+function Harness({ save=vi.fn(), remove=vi.fn(), close=vi.fn(), initial=[definition('A'),definition('B','validated'),definition('C')] }) {
+ const [instruments,setInstruments]=useState(initial);
  return <ConfirmRecordDeletesContext.Provider value={false}><InstrumentLibraryModal isOpen instruments={instruments} onClose={close}
  onSaveToLibrary={async(value,options)=>{await save(value,options);setInstruments(previous=>[...previous.filter(item=>item.id!==value.id),value]);return value;}}
  onBatchAdd={vi.fn()} onDelete={async id=>{await remove(id);setInstruments(previous=>previous.filter(item=>item.id!==id));}} /></ConfirmRecordDeletesContext.Provider>;
 }
-it('starts with names only and opens the real table for selected instruments',()=>{
+it('selects names without expansion and opens the real table only from Edit',()=>{
  render(<Harness/>);
  expect(document.querySelectorAll('.instrument-equipment-table')).toHaveLength(1);
  // Portals need the same scope as the overview for live column widths and
@@ -23,6 +23,11 @@ it('starts with names only and opens the real table for selected instruments',()
  expect(screen.getByRole('heading',{name:'Instrument Library'})).toBeInTheDocument();
  expect(screen.queryByText('All changes saved')).not.toBeInTheDocument();
  expect(screen.queryByRole('button',{name:'Remove selected'})).not.toBeInTheDocument();
+ fireEvent.click(document.querySelector('tr[data-instrument-id="A"] .instrument-library-name'));
+ expect(screen.getByText('1 selected')).toBeInTheDocument();
+ expect(document.querySelector('.cell-tolerance')).toBeNull();
+ expect(document.querySelector('.instrument-equipment-table colgroup')).toBeNull();
+ expect(document.querySelector('.instrument-equipment-table thead')).toBeNull();
  openInstrument('A');
  expect(document.querySelector('tr[data-instrument-id="A"] .cell-tolerance')).not.toBeNull();
  expect(document.querySelectorAll('.instrument-library-name')).toHaveLength(2);
@@ -33,6 +38,24 @@ it('starts with names only and opens the real table for selected instruments',()
  expect(document.querySelector('.library-table')).toBeNull();
  expect(screen.queryByText('Type B')).not.toBeInTheDocument();
  expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+});
+it('shows qualifiers and inserted columns only for the instrument being edited',()=>{
+ const qualified=definition('B');
+ qualified.functions[0].ranges[0].qualifier={id:'q',text:'60 Hz',qualifier:{id:'q2',text:'23 °C'}};
+ render(<Harness initial={[definition('A'),qualified,definition('C')]}/>);
+ openInstrument('A');
+ expect(document.querySelector('th[data-instrument-column="qualifier"]')).toBeNull();
+ openInstrument('B');
+ expect(document.querySelector('th[data-instrument-column="qualifier"]')).not.toBeNull();
+ expect(document.querySelector('th[data-instrument-column="qualifier2"]')).not.toBeNull();
+ const insert=document.querySelector('th[data-instrument-column="resolution"] .instrument-column-insert-button');
+ fireEvent.click(insert);
+ expect(document.querySelector('th[data-instrument-column^="custom:"]')).not.toBeNull();
+ openInstrument('C');
+ expect(document.querySelector('th[data-instrument-column^="qualifier"]')).toBeNull();
+ expect(document.querySelector('th[data-instrument-column^="custom:"]')).toBeNull();
+ openInstrument('B');
+ expect(document.querySelector('th[data-instrument-column^="custom:"]')).not.toBeNull();
 });
 it('commits a focused edit before collapsing on outside click or Escape',async()=>{
  const save=vi.fn();render(<><Harness save={save}/><div className="instrument-table-viewport" data-testid="workspace-table">Workspace table</div></>);

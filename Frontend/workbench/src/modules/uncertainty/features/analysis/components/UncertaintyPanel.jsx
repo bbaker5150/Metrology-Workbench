@@ -48,6 +48,7 @@ import "katex/dist/katex.min.css";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faPlus,
+  faPen,
   faTrashAlt,
   faExclamationTriangle,
   faCheckCircle,
@@ -6766,6 +6767,8 @@ const SummaryDashboard = ({
   libraryMode = false,
   libraryToolbar,
   libraryVisibleIds,
+  libraryExpandedId = null,
+  onLibraryExpand,
   viewMode,
   contextId,
   sessionData,
@@ -6819,8 +6822,14 @@ const SummaryDashboard = ({
     [summaryFunctionColorByKey],
   );
   const { syncToShared, getDiff } = useInstrumentSync(onInstrumentSynced);
-  const customColumnsFor = (kind) =>
-    sessionData.instrumentCustomColumns?.[kind] || [];
+  const libraryColumnItems = libraryMode ? sessionData.tmdes.filter(item => item.id === libraryExpandedId) : sessionData.tmdes;
+  const customColumnsFor = (kind) => {
+    const columns = sessionData.instrumentCustomColumns?.[kind] || [];
+    if (!libraryMode || kind !== "tmde") return columns;
+    return columns.filter(column => libraryColumnItems.some(item =>
+      column.libraryInstrumentId === item.id || Object.hasOwn(item.customFields || {}, column.key) ||
+      Object.values(item.rangeCustomFields || {}).some(fields => Object.hasOwn(fields, column.key))));
+  };
   const uutTableColumns = useInstrumentColumnWidths(
     "uut",
     customColumnsFor("uut"),
@@ -6829,7 +6838,7 @@ const SummaryDashboard = ({
   const tmdeTableColumns = useInstrumentColumnWidths(
     "tmde",
     customColumnsFor("tmde"),
-    instrumentQualifierDepth(sessionData.tmdes),
+    instrumentQualifierDepth(libraryColumnItems),
   );
   const uutTableHeight = useInstrumentTableHeight(
     "overview",
@@ -6850,7 +6859,7 @@ const SummaryDashboard = ({
         ...current,
         [kind]: [
           ...(current[kind] || []),
-          { key, label: "Name", insertAfter },
+          { key, label: "Name", insertAfter, ...(libraryMode ? { libraryInstrumentId: libraryExpandedId } : {}) },
         ],
       },
     });
@@ -7540,7 +7549,7 @@ const SummaryDashboard = ({
     };
     const key = kind === "uut" ? "uuts" : "tmdes";
     onSessionSave({ ...sessionData, [key]: [...(sessionData[key] || []), item] });
-    if (libraryMode) { setSelectedTmdeIds([item.id]); setLastSelectionTarget("tmde"); }
+    if (libraryMode) { setSelectedTmdeIds([item.id]); onLibraryExpand?.(item.id); setLastSelectionTarget("tmde"); }
   };
 
   // Remove this area and its scoped rows/points. Instruments assigned to
@@ -9783,7 +9792,7 @@ const SummaryDashboard = ({
           <table
             onMouseDownCapture={event => { if (event.shiftKey || event.ctrlKey || event.metaKey) event.preventDefault(); }}
             data-selection-mode={lastSelectionTarget === "range" ? "range" : "instrument"}
-            className={`instrument-summary-table industry-table equipment-summary-table instrument-equipment-table${libraryMode && !selectedTmdeIds.length ? " instrument-library-names-only" : ""}`}
+            className={`instrument-summary-table industry-table equipment-summary-table instrument-equipment-table${libraryMode && libraryExpandedId == null ? " instrument-library-names-only" : ""}`}
             onMouseLeave={() => {
               setHoveredCell({ tableId: null, colIndex: null });
               setHoveredRowId(null);
@@ -9794,7 +9803,7 @@ const SummaryDashboard = ({
               minWidth: `${tmdeTableColumns.minimumTableWidth}px`,
             }}
           >
-            <InstrumentTableColgroup
+            {(!libraryMode || libraryExpandedId != null) && <><InstrumentTableColgroup
               kind="tmde"
               customColumns={customColumnsFor("tmde")}
               columns={tmdeTableColumns}
@@ -9807,7 +9816,7 @@ const SummaryDashboard = ({
               columns={tmdeTableColumns}
               renderCustomColumnHeader={renderCustomColumnHeader}
               onInsertAfter={(columnKey) => requestCustomColumn("tmde", columnKey)}
-            />
+            /></>}
             <tbody>
               {groupedTmdeRows.length === 0 ? (
                 <tr className="panel-empty-row">
@@ -9829,11 +9838,17 @@ const SummaryDashboard = ({
                   const idx = row.index;
                   const tmdeRowKey = row.rowKey ?? tmde.id;
                   const tmdeFnKey = row.functionKey ?? null;
-                  if (libraryMode && !selectedTmdeIds.includes(tmde.id)) {
+                  if (libraryMode && libraryExpandedId !== tmde.id) {
                     const name = [tmde.instrument?.manufacturer, tmde.instrument?.model, tmde.name].filter(Boolean).join(" ") || "Untitled instrument";
-                    return <tr key={tmdeRowKey} data-instrument-id={tmde.id} className="instrument-library-name-row">
-                      <td className="cell-description" colSpan={getInstrumentColumnOrder("tmde", customColumnsFor("tmde"), tmdeTableColumns.qualifierEnabled).length}>
-                        <button className="instrument-library-name" onClick={event => handleTmdeClick(event, tmde.id, true)} aria-label={`Open instrument ${name}`}>{name}</button>
+                    return <tr key={tmdeRowKey} data-instrument-id={tmde.id} className={`instrument-library-name-row${selectedTmdeIds.includes(tmde.id) ? " selected-row" : ""}`}>
+                      <td className="cell-description" colSpan={libraryExpandedId == null ? 1 : getInstrumentColumnOrder("tmde", customColumnsFor("tmde"), tmdeTableColumns.qualifierEnabled).length}>
+                        <div className="instrument-library-name-actions">
+                          <button className="instrument-library-name" onClick={event => handleTmdeClick(event, tmde.id, true)} aria-pressed={selectedTmdeIds.includes(tmde.id)} aria-label={`Select instrument ${name}`}>{name}</button>
+                          <button className="instrument-library-edit icon-btn-ghost" aria-label={`Edit instrument ${name}`} title="Edit instrument" onClick={event => {
+                            event.stopPropagation(); document.activeElement?.blur?.();
+                            setSelectedTmdeIds([tmde.id]); setLastSelectionTarget("tmde"); onLibraryExpand?.(tmde.id);
+                          }}><FontAwesomeIcon icon={faPen} /></button>
+                        </div>
                       </td>
                     </tr>;
                   }
@@ -17219,6 +17234,8 @@ const UncertaintyPanel = (props) => {
         libraryMode={props.libraryMode}
         libraryToolbar={props.libraryToolbar}
         libraryVisibleIds={props.libraryVisibleIds}
+        libraryExpandedId={props.libraryExpandedId}
+        onLibraryExpand={props.onLibraryExpand}
         viewMode={viewMode}
         contextId={testPointData.id}
         rangeData={testPointData.rangeData}

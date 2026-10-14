@@ -27,6 +27,7 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
   const [session, setSession] = useState(() => initialSession(instruments));
   const current = useRef(session);
   const [selection, setSelection] = useState([]);
+  const [expandedId, setExpandedId] = useState(null);
   const [query, setQuery] = useState("");
   const [source, setSource] = useState("all");
   const [optionsOpen, setOptionsOpen] = useState(false);
@@ -123,6 +124,9 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
     });
   }, [visibleIds]);
   useEffect(() => {
+    if (!isOpen || !selection.includes(expandedId)) setExpandedId(null);
+  }, [isOpen, selection, expandedId]);
+  useEffect(() => {
     if (!optionsOpen) return;
     const dismiss = event => { if (!event.target.closest?.(".instrument-library-search")) setOptionsOpen(false); };
     document.addEventListener("pointerdown", dismiss);
@@ -137,6 +141,7 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
       if (event.target.closest?.(".inline-unit-menu, .inline-tolerance-shape-menu, .inline-tolerance-shape-backdrop, .inline-desc-search, .modal-overlay, [role='dialog']:not(.instrument-library-window)")) return;
       const active = document.activeElement;
       if (windowRef.current?.contains(active)) active.blur?.();
+      setExpandedId(null);
       setSelection([]);
     };
     document.addEventListener("click", collapseOutsideTable, true);
@@ -173,13 +178,14 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
     onClose();
   };
   if (!isOpen) return null;
-  return ReactDOM.createPortal(<div ref={windowRef} className="uncertainty-module instrument-library-window modal-content floating-window-content" role="dialog" aria-label="Instrument library"
+  return ReactDOM.createPortal(<div ref={windowRef} className={`uncertainty-module instrument-library-window modal-content floating-window-content${expandedId == null ? " is-names-only" : ""}`} role="dialog" aria-label="Instrument library"
     style={{ left: position.x, top: position.y }}>
     <div className="modal-header" onMouseDown={handleMouseDown}>
       <h3>Instrument Library</h3>
       <button className="icon-btn-ghost" aria-label="Close instrument library" onClick={close}><FontAwesomeIcon icon={faTimes} /></button>
     </div>
     <UncertaintyPanel libraryMode testPointData={libraryPoint} sessionData={session}
+      libraryExpandedId={expandedId} onLibraryExpand={setExpandedId}
       libraryVisibleIds={visibleIds} onSessionSave={updateSession} instruments={instruments}
       onSaveInstrument={onSaveToLibrary} onDeleteLibraryInstrument={onDelete} onInstrumentSynced={onInstrumentSynced}
       setNotification={setNotification} currentTmdeSelection={selection} setCurrentTmdeSelection={setSelection}

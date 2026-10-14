@@ -62,16 +62,17 @@ it('sizes the library from content, caches measurements across hover/resize, and
   vi.stubGlobal('cancelAnimationFrame', () => {});
   vi.spyOn(Element.prototype, 'getClientRects').mockReturnValue([{}]);
   measureTableColumnWidths.mockReturnValue({ description: 300, tolerance: 500 });
-  function Fixture() {
+  function Fixture({ namesOnly = false }) {
     const ref = useRef(null); const attach = useInstrumentTableLayout(ref);
     return <div className="instrument-library-window"><div className="configuration-panel"><div ref={attach}>
-      <table style={{ minWidth: 200 }}><colgroup><col style={{ width: '50%' }}/><col style={{ width: '50%' }}/></colgroup>
-        <thead><tr><th data-instrument-column="description">Description</th><th data-instrument-column="tolerance">Tolerance</th></tr></thead>
+      <table className={namesOnly ? 'instrument-library-names-only' : ''} style={{ minWidth: 200 }}>
+        {!namesOnly && <><colgroup><col style={{ width: '50%' }}/><col style={{ width: '50%' }}/></colgroup>
+        <thead><tr><th data-instrument-column="description">Description</th><th data-instrument-column="tolerance">Tolerance</th></tr></thead></>}
         <tbody><tr><td>Meter</td><td>Long bias value</td></tr></tbody>
       </table>
     </div></div></div>;
   }
-  const { container, unmount } = render(<Fixture />);
+  const { container, unmount, rerender } = render(<Fixture />);
   const table = container.querySelector('table');
   const flush = () => act(() => { frames.splice(0).forEach(callback => callback()); });
   expect(measureTableColumnWidths).toHaveBeenCalledOnce();
@@ -86,5 +87,10 @@ it('sizes the library from content, caches measurements across hover/resize, and
   tableMutation([{ type: 'characterData', target: cell.firstChild }]); flush();
   expect(measureTableColumnWidths).toHaveBeenCalledTimes(2);
   expect(table.style.getPropertyValue('--instrument-live-table-width')).toBe('950px');
+  rerender(<Fixture namesOnly />);
+  tableMutation([{ type: 'childList', target: table }]); flush();
+  expect(measureTableColumnWidths).toHaveBeenCalledTimes(2);
+  expect(container.querySelector('.instrument-library-window').style.getPropertyValue('--instrument-library-width')).toBe('480px');
+  expect(table.style.getPropertyValue('--instrument-live-table-width')).toBe('100%');
   unmount();
 });

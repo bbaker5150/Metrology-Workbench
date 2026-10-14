@@ -5,16 +5,21 @@
   display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; padding: 0; margin: 0; overflow: hidden;
   background: var(--content-background-solid, #fff); border: 1px solid var(--border-color); box-shadow: 0 12px 40px #0005;
 }
+.instrument-library-window.modal-content.is-names-only { width: min(480px, calc(100vw - 32px)); }
 .instrument-library-window .modal-header { display: flex; justify-content: space-between; gap: 8px; align-items: center; padding: 12px 16px; cursor: move; }
 .instrument-library-window h3 { margin: 0; font-size: 1.05rem; }
 .instrument-library-window .configuration-panel { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 0; }
 .instrument-library-window > .modal-header, .instrument-library-footer { flex-shrink: 0; }
 .instrument-library-window .icon-btn-ghost { flex: 0 0 32px; font-size: 14px; }
-.instrument-library-window .instrument-table-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; }
+.instrument-library-window .instrument-table-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; }
 /* Match the workspace's auto-height table: vertical scrolling encloses both
    Sync and the independent delete strip; only horizontal scrolling is inside. */
-.instrument-library-window .instrument-panel-table-container { height: auto !important; max-height: none !important; overflow-y: hidden !important; overflow-x: auto; resize: none; }
+.instrument-library-window .instrument-panel-table-container { height: auto !important; max-height: none !important; overflow-y: hidden !important; overflow-x: auto; resize: none; scrollbar-width: auto; scrollbar-color: auto; }
+/* Native scrollbar-width/color override the WebKit pseudo-elements in Chromium.
+   Use the app's custom track so the platform cannot reintroduce arrow buttons. */
+.instrument-library-window .instrument-panel-table-container::-webkit-scrollbar { height: 6px; }
 .instrument-library-window .instrument-panel-table-container::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+.instrument-library-window.is-names-only .instrument-panel-table-container { overflow-x: hidden; }
 .instrument-library-window .instrument-table-height-resize-handle { display: none; }
 .instrument-library-table > .panel-card { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; margin: 0; border: 0; border-radius: 0; overflow: visible; }
 .instrument-library-toolbar { display: flex; flex-shrink: 0; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--border-color); }
@@ -34,5 +39,11 @@
 .instrument-library-window .instrument-library-name-row > td { padding: 0; background: var(--content-background-solid); }
 .instrument-library-name { display: block; width: 100%; border: 0; border-radius: 0; padding: 12px 16px; text-align: left; background: transparent; color: var(--text-color); font: inherit; cursor: pointer; }
 .instrument-library-name:hover, .instrument-library-name:focus-visible { background: var(--input-background); color: var(--primary-color); outline: 2px solid var(--primary-color); outline-offset: -2px; }
+.instrument-library-name-actions { display: flex; align-items: center; min-width: 0; }
+.instrument-library-name-actions .instrument-library-name { flex: 1; min-width: 0; white-space: normal; overflow-wrap: anywhere; }
+.instrument-library-name[aria-pressed="true"] { background: var(--primary-color-light); color: var(--primary-color); }
+.instrument-library-edit { opacity: 0; pointer-events: none; margin: 0 8px; transition: none; }
+.instrument-library-name-row:hover .instrument-library-edit,
+.instrument-library-edit:focus-visible { opacity: 1; pointer-events: auto; }
 .instrument-library-window .instrument-table-viewport:has(.instrument-library-names-only) { padding-right: 0; }
 .instrument-library-window .instrument-library-names-only { width: 100% !important; min-width: 0 !important; }
