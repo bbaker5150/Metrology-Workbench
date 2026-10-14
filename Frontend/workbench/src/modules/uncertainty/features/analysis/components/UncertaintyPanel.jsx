@@ -22,6 +22,7 @@ import PointRiskVisualizer from "./PointRiskVisualizer";
 import LegacyPointBiasNotice from "./LegacyPointBiasNotice";
 import { measureTableColumnWidths } from "../../../utils/measureTableColumnWidths";
 import { setInstrumentDragPreview } from "../../../utils/instrumentDragPreview";
+import { libraryInstrumentDropHandlers } from "../../../utils/libraryInstrumentDrag";
 import { instrumentRowSelectionFromEvent } from "../../../utils/instrumentCellSelection";
 import { SI_PREFIX_OPTIONS, prefixedUnitKey } from "../../../utils/siPrefixes";
 import { updateSharedDynamicDefinition } from "../../../utils/riskCompute";
@@ -6769,6 +6770,7 @@ const SummaryDashboard = ({
   libraryVisibleIds,
   libraryExpandedId = null,
   onLibraryExpand,
+  onLibraryDragStart,
   viewMode,
   contextId,
   sessionData,
@@ -7398,6 +7400,7 @@ const SummaryDashboard = ({
   const [dragOverFunctionTarget, setDragOverFunctionTarget] = useState(null);
   const handleInstrumentDragStart = (kind, item, sourceFunctionKey = null) => (event) => {
     if (isEditingInstrumentText(event.target) || isEditingInstrumentText(document.activeElement)) { event.preventDefault(); return; }
+    if (libraryMode) { onLibraryDragStart?.(event, item.id); return; }
     event.stopPropagation();
     const items = instrumentDragSelectionRef.current || selectedInstrumentEntries(latestSessionDataRef.current,
       selectedUutIds, selectedTmdeIds, kind, item, sourceFunctionKey, selectedInstrumentAreasRef.current);
@@ -9250,6 +9253,7 @@ const SummaryDashboard = ({
           ref={uutTableHeight.containerRef}
           className="panel-table-container instrument-panel-table-container"
           data-tour="uut-table"
+          {...libraryInstrumentDropHandlers(latestSessionDataRef, onSessionSave, "uut", sessionData.id === "instrument-library")}
           style={uutTableHeight.containerStyle}
         >
           <table
@@ -9787,6 +9791,7 @@ const SummaryDashboard = ({
           ref={tmdeTableHeight.containerRef}
           className="panel-table-container instrument-panel-table-container"
           data-tour="tmde-table"
+          {...libraryInstrumentDropHandlers(latestSessionDataRef, onSessionSave, "tmde", sessionData.id === "instrument-library")}
           style={tmdeTableHeight.containerStyle}
         >
           <table
@@ -9817,6 +9822,7 @@ const SummaryDashboard = ({
               renderCustomColumnHeader={renderCustomColumnHeader}
               onInsertAfter={(columnKey) => requestCustomColumn("tmde", columnKey)}
             /></>}
+            {libraryMode && libraryExpandedId == null && <thead><tr><th data-instrument-column="description">Description</th></tr></thead>}
             <tbody>
               {groupedTmdeRows.length === 0 ? (
                 <tr className="panel-empty-row">
@@ -9840,11 +9846,11 @@ const SummaryDashboard = ({
                   const tmdeFnKey = row.functionKey ?? null;
                   if (libraryMode && libraryExpandedId !== tmde.id) {
                     const name = [tmde.instrument?.manufacturer, tmde.instrument?.model, tmde.name].filter(Boolean).join(" ") || "Untitled instrument";
-                    return <tr key={tmdeRowKey} data-instrument-id={tmde.id} className={`instrument-library-name-row${selectedTmdeIds.includes(tmde.id) ? " selected-row" : ""}`}>
+                    return <tr key={tmdeRowKey} data-instrument-id={tmde.id} draggable onDragStart={event => onLibraryDragStart?.(event, tmde.id)} className={`instrument-library-name-row${selectedTmdeIds.includes(tmde.id) ? " selected-row" : ""}`}>
                       <td className="cell-description" colSpan={libraryExpandedId == null ? 1 : getInstrumentColumnOrder("tmde", customColumnsFor("tmde"), tmdeTableColumns.qualifierEnabled).length}>
                         <div className="instrument-library-name-actions">
                           <button className="instrument-library-name" onClick={event => handleTmdeClick(event, tmde.id, true)} aria-pressed={selectedTmdeIds.includes(tmde.id)} aria-label={`Select instrument ${name}`}>{name}</button>
-                          <button className="instrument-library-edit icon-btn-ghost" aria-label={`Edit instrument ${name}`} title="Edit instrument" onClick={event => {
+                          <button className="instrument-library-edit icon-btn-ghost" aria-label={`Edit or View instrument ${name}`} title="Edit or View instrument" onClick={event => {
                             event.stopPropagation(); document.activeElement?.blur?.();
                             setSelectedTmdeIds([tmde.id]); setLastSelectionTarget("tmde"); onLibraryExpand?.(tmde.id);
                           }}><FontAwesomeIcon icon={faPen} /></button>
@@ -15582,6 +15588,7 @@ function DetailedView({
           ref={uutTableHeight.containerRef}
           className="panel-table-container instrument-panel-table-container"
           data-tour="uut-table"
+          {...libraryInstrumentDropHandlers(latestSessionDataRef, onSessionSave, "uut", sessionData.id === "instrument-library")}
           style={uutTableHeight.containerStyle}
         >
           <table
@@ -16376,6 +16383,7 @@ function DetailedView({
             ref={tmdeTableHeight.containerRef}
             className="panel-table-container instrument-panel-table-container"
             data-tour="tmde-table"
+          {...libraryInstrumentDropHandlers(latestSessionDataRef, onSessionSave, "tmde", sessionData.id === "instrument-library")}
             style={tmdeTableHeight.containerStyle}
           >
             <table
@@ -17236,6 +17244,7 @@ const UncertaintyPanel = (props) => {
         libraryVisibleIds={props.libraryVisibleIds}
         libraryExpandedId={props.libraryExpandedId}
         onLibraryExpand={props.onLibraryExpand}
+        onLibraryDragStart={props.onLibraryDragStart}
         viewMode={viewMode}
         contextId={testPointData.id}
         rangeData={testPointData.rangeData}

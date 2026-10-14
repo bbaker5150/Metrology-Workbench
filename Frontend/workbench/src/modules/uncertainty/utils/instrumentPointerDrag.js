@@ -39,14 +39,15 @@ export function attachInstrumentPointerDrag(table) {
     }
   };
   const down = event => {
-    if (event.button !== 0 || event.pointerType === 'touch' || isTableDragBlockedTarget(event.target)) return;
-    const row = event.target.closest('tr.instrument-function-row');
+    if (event.button !== 0 || event.pointerType === 'touch' || (isTableDragBlockedTarget(event.target) && !event.target.closest('.instrument-library-name'))) return;
+    const row = event.target.closest('tr.instrument-function-row, tr.instrument-library-name-row');
     if (!row || row.closest('table') !== table) return;
     clear();
     const values = new Map();
     gesture = { row, target: event.target, pointerId: event.pointerId,
       x: event.clientX, y: event.clientY, last: event, frame: null, started: false,
       transfer: { effectAllowed: 'move', dropEffect: 'none',
+        get types() { return [...values.keys()]; },
         setData: (type, value) => values.set(type, value),
         getData: type => values.get(type) || '' } };
   };
@@ -95,7 +96,7 @@ export function attachInstrumentPointerDrag(table) {
       current.preview = doc.createElement('div');
       current.preview.className = 'instrument-pointer-drag-preview';
       const payload = JSON.parse(current.transfer.getData('application/x-workbench-instruments'));
-      current.preview.textContent = payload.items.length > 1 ? `${payload.items.length} instruments` : 'Move instrument';
+      current.preview.textContent = payload.items.length > 1 ? `${payload.items.length} instruments` : payload.source === 'library' ? 'Add instrument' : 'Move instrument';
       doc.body.append(current.preview);
     }
     event.preventDefault();

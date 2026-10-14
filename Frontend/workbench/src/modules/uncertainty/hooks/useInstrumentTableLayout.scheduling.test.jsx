@@ -90,7 +90,7 @@ it('sizes the library from content, caches measurements across hover/resize, and
   rerender(<Fixture namesOnly />);
   tableMutation([{ type: 'childList', target: table }]); flush();
   expect(measureTableColumnWidths).toHaveBeenCalledTimes(2);
-  expect(container.querySelector('.instrument-library-window').style.getPropertyValue('--instrument-library-width')).toBe('480px');
+  expect(container.querySelector('.instrument-library-window').style.getPropertyValue('--instrument-library-width')).toBe('560px');
   expect(table.style.getPropertyValue('--instrument-live-table-width')).toBe('100%');
   unmount();
 });

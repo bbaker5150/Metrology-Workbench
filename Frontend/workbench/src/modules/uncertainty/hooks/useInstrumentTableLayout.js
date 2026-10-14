@@ -167,9 +167,10 @@ export default function useInstrumentTableLayout(containerRef) {
       if (library && table.classList.contains('instrument-library-names-only')) {
         // Names are a compact picker, not a hidden seven-column editor. Never
         // reuse column minima or cached expanded widths for this view.
-        setProperty(library, '--instrument-library-width', '480px');
+        setProperty(library, '--instrument-library-width', '560px');
         setProperty(table, '--instrument-live-table-width', '100%');
         setProperty(table, '--instrument-natural-table-width', '100%');
+        syncHeaderOffset();
         syncActions();
         return;
       }

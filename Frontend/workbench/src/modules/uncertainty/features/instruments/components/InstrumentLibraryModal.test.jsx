@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import InstrumentLibraryModal from './InstrumentLibraryModal';
+import UncertaintyPanel from '../../analysis/components/UncertaintyPanel';
 import { ConfirmRecordDeletesContext } from '../../../contexts/RecordDeletePolicy';
 vi.mock('plotly.js-dist', () => ({ default: {} }));
 const definition = (id, scope='local') => ({ id, scope, manufacturer: 'Example', model: id, description: `Meter ${id}`, functions: [{id:'f', name:'Voltage', unit:'V', ranges:[{id:'r', min:0, max:10, unit:'V', resolution:0.01, tolerances:{reading:{value:1,unit:'%'}}}]}] });
@@ -27,7 +28,7 @@ it('selects names without expansion and opens the real table only from Edit',()=
  expect(screen.getByText('1 selected')).toBeInTheDocument();
  expect(document.querySelector('.cell-tolerance')).toBeNull();
  expect(document.querySelector('.instrument-equipment-table colgroup')).toBeNull();
- expect(document.querySelector('.instrument-equipment-table thead')).toBeNull();
+ expect(screen.getAllByRole('columnheader').map(node=>node.textContent)).toEqual(['Description']);
  openInstrument('A');
  expect(document.querySelector('tr[data-instrument-id="A"] .cell-tolerance')).not.toBeNull();
  expect(document.querySelectorAll('.instrument-library-name')).toHaveLength(2);
@@ -38,6 +39,31 @@ it('selects names without expansion and opens the real table only from Edit',()=
  expect(document.querySelector('.library-table')).toBeNull();
  expect(screen.queryByText('Type B')).not.toBeInTheDocument();
  expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+});
+it.each([['session','uut'],['session','tmde'],['point','uut'],['point','tmde']])('copies selected library instruments to an empty %s %s table', (viewMode, kind)=>{
+ const save=vi.fn();
+ render(<><Harness/><UncertaintyPanel testPointData={{id:'point',viewMode,testPointInfo:{parameter:{name:'Voltage',value:5,unit:'V'}},components:[],tmdeTolerances:[]}}
+   sessionData={{id:'target',uuts:[],tmdes:[],testPoints:[],measurementAreas:[],uncReq:{}}}
+   currentUutSelection={[]} setCurrentUutSelection={()=>{}} onSessionSave={save}
+   tmdeTolerancesData={[]} uutNominal={{value:5,unit:'V'}} setNotification={()=>{}} /></>);
+ const library=screen.getByRole('dialog',{name:'Instrument library'});
+ const source=library.querySelector('[data-instrument-id="A"]');
+ fireEvent.click(source.querySelector('.instrument-library-name'));
+ fireEvent.click(library.querySelector('[data-instrument-id="B"] .instrument-library-name'),{ctrlKey:true});
+ const data=new Map();const dataTransfer={setData:(key,value)=>data.set(key,value),getData:key=>data.get(key)||'',get types(){return [...data.keys()]}};
+ const drag=new Event('dragstart',{bubbles:true,cancelable:true});
+ Object.assign(drag,{dataTransfer,workbenchPointerDrag:true});fireEvent(source,drag);
+ expect(dataTransfer.effectAllowed).toBe('copy');
+ const target=[...document.querySelectorAll(`[data-tour="${kind}-table"]`)].find(node=>!library.contains(node));
+ fireEvent.drop(target.querySelector('td'),{dataTransfer});
+ expect(save).toHaveBeenCalledTimes(1);
+ const rows=save.mock.calls[0][0][kind==='uut'?'uuts':'tmdes'];
+ expect(rows.map(row=>row.instrument.id)).toEqual(['A','B']);
+ expect(rows.map(row=>row.instrument.scope)).toEqual(['local','validated']);
+ expect(new Set(rows.map(row=>row.id)).size).toBe(2);
+ expect(rows.every(row=>!['A','B'].includes(row.id))).toBe(true);
+ expect(library.querySelectorAll('.instrument-library-name')).toHaveLength(3);
+ expect(rows[0].instrument.functions[0].ranges[0].tolerances.reading.value).toBe(1);
 });
 it('shows qualifiers and inserted columns only for the instrument being edited',()=>{
  const qualified=definition('B');

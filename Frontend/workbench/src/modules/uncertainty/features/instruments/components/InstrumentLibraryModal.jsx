@@ -1,7 +1,8 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faSearch, faSliders, faPlus, faTimes } from "@fortawesome/free-solid-svg-icons";
+import { faSearch, faSliders, faPlus, faTimes, faBookOpen } from "@fortawesome/free-solid-svg-icons";
+import { LIBRARY_INSTRUMENT_MIME } from "../../../utils/libraryInstrumentDrag";
 import UncertaintyPanel from "../../analysis/components/UncertaintyPanel";
 import NotificationModal from "../../../components/modals/NotificationModal";
 import { useFloatingWindow } from "../../../hooks/useFloatingWindow";
@@ -41,7 +42,12 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
   const windowRef = useRef(null);
   const filterRef = useRef(null);
   const filterMenuRef = useRef(null);
-  const { position, setPosition, handleMouseDown } = useFloatingWindow({ isOpen, defaultWidth: 480, defaultHeight: 440 });
+  const { position, setPosition, handleMouseDown } = useFloatingWindow({ isOpen, defaultWidth: 560, defaultHeight: 440 });
+  useLayoutEffect(() => {
+    if (!isOpen || !windowRef.current) return;
+    const rect = windowRef.current.getBoundingClientRect();
+    setPosition({ x: Math.max(16, (window.innerWidth - rect.width) / 2), y: Math.max(16, (window.innerHeight - rect.height) / 2) });
+  }, [isOpen, setPosition]);
   useLayoutEffect(() => {
     if (!isOpen || !windowRef.current || typeof ResizeObserver === "undefined") return;
     const keepVisible = () => {
@@ -177,20 +183,27 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
     await onBatchAdd?.(rows.map(definitionFor), role);
     onClose();
   };
+  const startLibraryDrag = (event, id) => {
+    event.stopPropagation();
+    const ids = selection.includes(id) ? selection : [id];
+    const rows = current.current.tmdes.filter(row => ids.includes(row.id));
+    event.dataTransfer.effectAllowed = "copy";
+    event.dataTransfer.setData(LIBRARY_INSTRUMENT_MIME, JSON.stringify(rows.map(definitionFor)));
+    event.dataTransfer.setData("application/x-workbench-instruments", JSON.stringify({ source: "library", mode: "copy", items: rows.map(item => ({ kind: "tmde", item })) }));
+  };
   if (!isOpen) return null;
   return ReactDOM.createPortal(<div ref={windowRef} className={`uncertainty-module instrument-library-window modal-content floating-window-content${expandedId == null ? " is-names-only" : ""}`} role="dialog" aria-label="Instrument library"
     style={{ left: position.x, top: position.y }}>
-    <div className="modal-header" onMouseDown={handleMouseDown}>
-      <h3>Instrument Library</h3>
-      <button className="icon-btn-ghost" aria-label="Close instrument library" onClick={close}><FontAwesomeIcon icon={faTimes} /></button>
-    </div>
     <UncertaintyPanel libraryMode testPointData={libraryPoint} sessionData={session}
       libraryExpandedId={expandedId} onLibraryExpand={setExpandedId}
+      onLibraryDragStart={startLibraryDrag}
       libraryVisibleIds={visibleIds} onSessionSave={updateSession} instruments={instruments}
       onSaveInstrument={onSaveToLibrary} onDeleteLibraryInstrument={onDelete} onInstrumentSynced={onInstrumentSynced}
       setNotification={setNotification} currentTmdeSelection={selection} setCurrentTmdeSelection={setSelection}
       onDeleteTmdeDefinition={remove} keyboardShortcutsEnabled
-      libraryToolbar={add => <div className="instrument-library-toolbar">
+      libraryToolbar={add => <div className="panel-card-header instrument-panel-card-header instrument-library-header" onMouseDown={handleMouseDown}>
+        <div className="panel-card-title" role="heading" aria-level={3}><FontAwesomeIcon icon={faBookOpen} /><span>Instrument Library</span></div>
+        <div className="panel-card-actions">
         <div className="instrument-library-search">
           <FontAwesomeIcon icon={faSearch} />
           <input aria-label="Search instruments" placeholder="Search instruments" value={query} onChange={event => setQuery(event.target.value)} />
@@ -201,6 +214,8 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
           </div>}
         </div>
         <button className="icon-btn-ghost" aria-label="Add instrument" title="Add instrument" onClick={() => { setQuery(""); setSource("all"); add(); }}><FontAwesomeIcon icon={faPlus} /></button>
+        <button className="icon-btn-ghost" aria-label="Close instrument library" onClick={close}><FontAwesomeIcon icon={faTimes} /></button>
+        </div>
       </div>} />
     {(error || (selection.length > 0 && onBatchAdd)) && <div className="instrument-library-footer">
       {error && <><span role="alert">{error}</span><button className="lib-pill-btn" onClick={() => [...failed.current.values()].forEach(enqueue)}>Retry save</button></>}
