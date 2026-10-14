@@ -3,15 +3,16 @@ import { createPortal } from 'react-dom';
 
 const ActionLayerContext = createContext(null);
 
-export function InstrumentTableViewport({ children, enabled }) {
+export function InstrumentTableViewport({ children, enabled, scrollable = false }) {
   const [layer, setLayer] = useState(null);
-  return <ActionLayerContext.Provider value={layer}>
-    <div className={`instrument-table-viewport${enabled ? ' has-instrument-actions' : ''}`}>
+  const viewport = <div className={`instrument-table-viewport${enabled ? ' has-instrument-actions' : ''}`}>
       {children}
       {enabled && <div ref={setLayer} className="instrument-action-layer">
         <div className="instrument-action-surfaces" aria-hidden="true" />
       </div>}
-    </div>
+    </div>;
+  return <ActionLayerContext.Provider value={layer}>
+    {scrollable ? <div className="instrument-table-scroll">{viewport}</div> : viewport}
   </ActionLayerContext.Provider>;
 }
 

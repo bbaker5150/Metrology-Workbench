@@ -64,6 +64,21 @@ it('keeps tall groups reachable and hides actions outside the visible rows or af
   expect(action.hidden).toBe(true);
 });
 
+it.each([0.8, 1, 1.25])('clips delete placement to the outer library scroller at scale %s', scale => {
+  const {container,table,layer,action,rows,bounds} = setup(scale);
+  const outer = container.parentElement;
+  outer.className = 'instrument-table-scroll';
+  outer.getBoundingClientRect = () => bounds(0,40,138,90);
+  syncInstrumentActions(container,table,layer);
+  expect(action.hidden).toBe(false);
+  expect(parseFloat(action.style.top)).toBeCloseTo(65);
+  expect(parseFloat(layer.querySelector('.instrument-action-band').style.height)).toBeCloseTo(50);
+  rows[0].getBoundingClientRect = () => bounds(0,-30,100,0);
+  rows[1].getBoundingClientRect = () => bounds(0,0,100,30);
+  syncInstrumentActions(container,table,layer);
+  expect(action.hidden).toBe(true);
+});
+
 it('reveals actions on hover without measuring rows again', () => {
   const {container,table,layer,action,rows} = setup();
   syncInstrumentActions(container,table,layer);

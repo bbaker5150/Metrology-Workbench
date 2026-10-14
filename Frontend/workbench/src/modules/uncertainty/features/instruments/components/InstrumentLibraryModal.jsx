@@ -145,8 +145,8 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
   return ReactDOM.createPortal(<div ref={windowRef} className="uncertainty-module instrument-library-window modal-content floating-window-content" role="dialog" aria-label="Instrument library"
     style={{ left: position.x, top: position.y }}>
     <div className="modal-header" onMouseDown={handleMouseDown}>
-      <h3>Instrument library</h3>
       <button className="icon-btn-ghost" aria-label="Close instrument library" onClick={close}><FontAwesomeIcon icon={faTimes} /></button>
+      <h3>Instrument library</h3>
     </div>
     <UncertaintyPanel libraryMode testPointData={libraryPoint} sessionData={session}
       libraryVisibleIds={visibleIds} onSessionSave={updateSession} instruments={instruments}

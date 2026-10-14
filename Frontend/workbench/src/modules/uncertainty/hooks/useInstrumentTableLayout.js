@@ -313,7 +313,8 @@ export default function useInstrumentTableLayout(containerRef) {
       const tableWidth = widths.reduce((sum, width) => sum + width, 0);
       setProperty(table, "--instrument-live-table-width", `${tableWidth}px`);
       if (library) {
-        const gutter = container.offsetWidth - container.clientWidth;
+        const scroller = container.closest('.instrument-table-scroll') || container;
+        const gutter = scroller.offsetWidth - scroller.clientWidth;
         const viewportStyle = viewport && getComputedStyle(viewport);
         const actions = parseFloat(viewportStyle?.paddingRight) || 0;
         setProperty(library, '--instrument-library-width', `${Math.ceil(tableWidth * zoom + actions + gutter + 2)}px`);
@@ -347,6 +348,11 @@ export default function useInstrumentTableLayout(containerRef) {
     });
     mutation.observe(table, { childList: true, characterData: true, subtree: true, attributes: true, attributeOldValue: true, attributeFilter: ["class", "style", "rowspan", "colspan", "data-range-selected", "data-selection-mode"] });
     const contentChanged = () => { contentWidths = null; schedule(); };
+    // Web fonts can finish after the first intrinsic measurement. Refresh the
+    // fit once they settle so cached fallback-font widths don't wrap labels.
+    let active = true;
+    document.fonts?.ready?.then(() => { if (active) contentChanged(); });
+    document.fonts?.addEventListener('loadingdone', contentChanged);
     const theme = new MutationObserver(contentChanged);
     theme.observe(document.body, { attributes:true, attributeFilter:['class'] });
     const resize = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(schedule);
@@ -369,6 +375,8 @@ export default function useInstrumentTableLayout(containerRef) {
     window.addEventListener("resize", schedule);
     sync();
     return () => {
+      active = false;
+      document.fonts?.removeEventListener('loadingdone', contentChanged);
       table.removeEventListener('pointerover', refreshColumnControls);
       table.removeEventListener("pointerover", hover);
       table.removeEventListener("pointermove", hover);

@@ -5,13 +5,15 @@
   display: flex; flex-direction: column; padding: 0; margin: 0; overflow: hidden;
   background: var(--content-background-solid, #fff); border: 1px solid var(--border-color); box-shadow: 0 12px 40px #0005;
 }
-.instrument-library-window .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; cursor: move; }
+.instrument-library-window .modal-header { display: flex; justify-content: flex-start; gap: 8px; align-items: center; padding: 12px 16px; cursor: move; }
 .instrument-library-window h3 { margin: 0; font-size: 1.05rem; }
 .instrument-library-window .configuration-panel { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 0; }
 .instrument-library-window > .modal-header, .instrument-library-footer { flex-shrink: 0; }
 .instrument-library-window .icon-btn-ghost { flex: 0 0 32px; font-size: 14px; }
-.instrument-library-window .instrument-table-viewport { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; }
-.instrument-library-window .instrument-panel-table-container { height: auto !important; max-height: none !important; flex: 1 1 auto !important; overflow: auto !important; scrollbar-gutter: stable; resize: none; }
+.instrument-library-window .instrument-table-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; }
+/* Match the workspace's auto-height table: vertical scrolling encloses both
+   Sync and the independent delete strip; only horizontal scrolling is inside. */
+.instrument-library-window .instrument-panel-table-container { height: auto !important; max-height: none !important; overflow-y: hidden !important; resize: none; }
 .instrument-library-window .instrument-table-height-resize-handle { display: none; }
 .instrument-library-table > .panel-card { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; margin: 0; border: 0; border-radius: 0; overflow: visible; }
 .instrument-library-toolbar { display: flex; flex-shrink: 0; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--border-color); }

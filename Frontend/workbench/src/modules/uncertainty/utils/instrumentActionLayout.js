@@ -23,8 +23,10 @@ export function syncInstrumentActions(container, table, layer, pointer = null) {
   // THEAD itself scrolls; its sticky cells are the visible header boundary.
   const headerBottom = Math.max(viewport.top, ...[...(table.tHead?.rows[0]?.cells || [])]
     .map(cell => cell.getBoundingClientRect().bottom));
-  const visibleTop = Math.max(viewport.top + container.clientTop * containerScale, headerBottom);
-  const visibleBottom = viewport.top + (container.clientTop + container.clientHeight) * containerScale;
+  const scrollRegion = container.closest('.instrument-table-scroll');
+  const scrollBounds = scrollRegion?.getBoundingClientRect();
+  const visibleTop = Math.max(viewport.top + container.clientTop * containerScale, headerBottom, scrollBounds?.top ?? -Infinity);
+  const visibleBottom = Math.min(viewport.top + (container.clientTop + container.clientHeight) * containerScale, scrollBounds?.bottom ?? Infinity);
   const rows = [...table.querySelectorAll(':scope > tbody > tr[data-instrument-id]')];
   const groups = new Map(), positions = [];
   const tableScale = containerScale * (parseFloat(getComputedStyle(table).zoom) || 1);

@@ -9769,7 +9769,7 @@ const SummaryDashboard = ({
           </div>
         </div>
         )}
-        <InstrumentTableViewport enabled={Boolean(onSessionSave)}>
+        <InstrumentTableViewport enabled={Boolean(onSessionSave)} scrollable={libraryMode}>
         <div
           ref={tmdeTableHeight.containerRef}
           className="panel-table-container instrument-panel-table-container"
