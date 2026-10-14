@@ -5514,10 +5514,11 @@ const handleRowSelection = (
   setSelected,
   orderedIds = [],
   selectionAnchorRef = null,
+  forceSelection = false,
 ) => {
   // Let inline editors handle their own clicks; only bare row areas toggle
   // selection (so the user can still select an instrument to copy/cut/delete).
-  if (isInlineRowControlTarget(e.target) && !isModifiedInstrumentSelection(e)) {
+  if (!forceSelection && isInlineRowControlTarget(e.target) && !isModifiedInstrumentSelection(e)) {
     return;
   }
   const anchorId = selectionAnchorRef?.current;
@@ -7539,6 +7540,7 @@ const SummaryDashboard = ({
     };
     const key = kind === "uut" ? "uuts" : "tmdes";
     onSessionSave({ ...sessionData, [key]: [...(sessionData[key] || []), item] });
+    if (libraryMode) { setSelectedTmdeIds([item.id]); setLastSelectionTarget("tmde"); }
   };
 
   // Remove this area and its scoped rows/points. Instruments assigned to
@@ -8692,10 +8694,10 @@ const SummaryDashboard = ({
       uutSelectionAnchorRef,
     );
   };
-  const handleTmdeClick = (e, id) => {
+  const handleTmdeClick = (e, id, forceSelection = false) => {
     pasteDestinationRef.current = { kind: "tmde", areaKey: pasteAreaFromEvent(e, {}), targetId: id };
     selectedInstrumentAreasRef.current[`tmde:${id}`] = pasteAreaFromEvent(e, {});
-    if (!isInlineRowControlTarget(e.target) || isModifiedInstrumentSelection(e)) {
+    if (forceSelection || !isInlineRowControlTarget(e.target) || isModifiedInstrumentSelection(e)) {
       setSelectedInstrumentArea(null);
       onInstrumentSelection();
       if (!(e.ctrlKey || e.metaKey || e.shiftKey)) setSelectedUutIds([]);
@@ -8709,6 +8711,7 @@ const SummaryDashboard = ({
       setSelectedTmdeIds,
       Array.from(new Set(groupedTmdeRows.filter((row) => row.type === "item").map((row) => row.item.id))),
       tmdeSelectionAnchorRef,
+      forceSelection,
     );
   };
 
@@ -9779,7 +9782,7 @@ const SummaryDashboard = ({
           <table
             onMouseDownCapture={event => { if (event.shiftKey || event.ctrlKey || event.metaKey) event.preventDefault(); }}
             data-selection-mode={lastSelectionTarget === "range" ? "range" : "instrument"}
-            className="instrument-summary-table industry-table equipment-summary-table instrument-equipment-table"
+            className={`instrument-summary-table industry-table equipment-summary-table instrument-equipment-table${libraryMode && !selectedTmdeIds.length ? " instrument-library-names-only" : ""}`}
             onMouseLeave={() => {
               setHoveredCell({ tableId: null, colIndex: null });
               setHoveredRowId(null);
@@ -9825,6 +9828,14 @@ const SummaryDashboard = ({
                   const idx = row.index;
                   const tmdeRowKey = row.rowKey ?? tmde.id;
                   const tmdeFnKey = row.functionKey ?? null;
+                  if (libraryMode && !selectedTmdeIds.includes(tmde.id)) {
+                    const name = [tmde.instrument?.manufacturer, tmde.instrument?.model, tmde.name].filter(Boolean).join(" ") || "Untitled instrument";
+                    return <tr key={tmdeRowKey} data-instrument-id={tmde.id} className="instrument-library-name-row">
+                      <td className="cell-description" colSpan={getInstrumentColumnOrder("tmde", customColumnsFor("tmde"), tmdeTableColumns.qualifierEnabled).length}>
+                        <button className="instrument-library-name" onClick={event => handleTmdeClick(event, tmde.id, true)} aria-label={`Open instrument ${name}`}>{name}</button>
+                      </td>
+                    </tr>;
+                  }
                   const resolution = resolveUutRangeHelper(
                     tmde,
                     { [tmde.id]: tmdeRangeIndices[tmdeRowKey] },

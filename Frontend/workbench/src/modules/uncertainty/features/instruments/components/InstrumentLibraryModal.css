@@ -5,7 +5,7 @@
   display: flex; flex-direction: column; padding: 0; margin: 0; overflow: hidden;
   background: var(--content-background-solid, #fff); border: 1px solid var(--border-color); box-shadow: 0 12px 40px #0005;
 }
-.instrument-library-window .modal-header { display: flex; justify-content: flex-start; gap: 8px; align-items: center; padding: 12px 16px; cursor: move; }
+.instrument-library-window .modal-header { display: flex; justify-content: space-between; gap: 8px; align-items: center; padding: 12px 16px; cursor: move; }
 .instrument-library-window h3 { margin: 0; font-size: 1.05rem; }
 .instrument-library-window .configuration-panel { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 0; }
 .instrument-library-window > .modal-header, .instrument-library-footer { flex-shrink: 0; }
@@ -22,10 +22,18 @@
 .instrument-library-search input { flex: 1; min-width: 0; border: 0; outline: 0; padding: 6px 0; background: transparent; color: var(--text-color); font: inherit; }
 .instrument-library-search button { border: 0; background: transparent; color: var(--text-color-muted); padding: 6px 8px; cursor: pointer; border-radius: 4px; }
 .instrument-library-search button:hover, .instrument-library-search button[aria-pressed="true"], .instrument-library-search button.is-active { background: var(--input-background); color: var(--primary-color); }
-.instrument-library-search-options { position: absolute; right: 0; top: calc(100% + 6px); z-index: 50; width: min(340px, 80vw); padding: 12px; display: flex; gap: 8px; flex-wrap: wrap; background: var(--content-background-solid, #fff); border: 1px solid var(--border-color); border-radius: 6px; box-shadow: 0 8px 24px #0004; }
+.instrument-library-search-options { position: fixed; inset: auto; margin: 0; z-index: 2200; width: min(260px, calc(100vw - 16px)); box-sizing: border-box; padding: 12px; display: flex; gap: 8px; flex-wrap: wrap; color: var(--text-color); background: var(--content-background-solid, #fff); border: 1px solid var(--border-color); border-radius: 6px; box-shadow: 0 8px 24px #0004; }
 .instrument-library-search-options > span, .instrument-library-search-options > div { width: 100%; }
 .instrument-library-search-options > span { font-size: .75rem; font-weight: 600; }
 .instrument-library-count { font-size: .8rem; color: var(--text-color-muted); white-space: nowrap; }
-.instrument-library-footer { color: var(--text-color); display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 10px 16px; border-top: 1px solid var(--border-color); font-size: .8rem; }
-.instrument-library-footer > [role="status"] { margin-right: auto; color: var(--text-color-muted); }
+.instrument-library-window > .modal-header, .instrument-library-footer { background: var(--component-header-bg, var(--content-background-solid)); }
+.instrument-library-footer { color: var(--text-color-muted); display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 12px 16px; border-top: 1px solid var(--border-color); font-size: .8rem; }
+.instrument-library-footer > .instrument-library-count { margin-right: auto; }
+.instrument-library-footer .lib-pill-btn { border-radius: 5px; padding: 6px 10px; font: inherit; }
 .instrument-library-footer [role="alert"] { color: var(--danger-color, #e76b6b); }
+.instrument-library-names-only > thead { display: none; }
+.instrument-library-window .instrument-library-name-row > td { padding: 0; background: var(--content-background-solid); }
+.instrument-library-name { display: block; width: 100%; border: 0; border-radius: 0; padding: 12px 16px; text-align: left; background: transparent; color: var(--text-color); font: inherit; cursor: pointer; }
+.instrument-library-name:hover, .instrument-library-name:focus-visible { background: var(--input-background); color: var(--primary-color); outline: 2px solid var(--primary-color); outline-offset: -2px; }
+.instrument-library-window .instrument-table-viewport:has(.instrument-library-names-only) { padding-right: 0; }
+.instrument-library-window .instrument-library-names-only { width: 100% !important; min-width: 0 !important; }

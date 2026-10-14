@@ -444,12 +444,12 @@ if (/not set up yet/i.test(frameText)) {
   const retainedLibraryRecords = instrumentItems.filter(item => !selectedLibraryRecords.includes(item)).map(item => [item.RecordId, item.PayloadJson]);
   const retainedLibraryRecordsUnchanged = () => retainedLibraryRecords.every(([id, payload]) => instrumentItems.find(item => item.RecordId === id)?.PayloadJson === payload);
   const library = frame.getByRole('dialog', { name: 'Instrument library', exact: true });
-  // Select the instrument rows, not editable model text. Ctrl-click retains the
+  // Open instruments from the compact names list. Ctrl-click retains the
   // first selection and the assertion still checks exact archived identities.
   const first = library.locator('tr[data-instrument-id="instrument-301"]');
   const second = library.locator('tr[data-instrument-id="instrument-302"]');
-  await first.locator('td.cell-description').click({ position: { x: 3, y: 3 } });
-  await second.locator('td.cell-description').click({ position: { x: 3, y: 3 }, modifiers: ['Control'] });
+  await first.locator('.instrument-library-name').click();
+  await second.locator('.instrument-library-name').click({ modifiers: ['Control'] });
   check('library selects exactly the two requested instruments', await library.locator('tr.selected-row, tr.instrument-selected').evaluateAll(rows => new Set(rows.map(row => row.dataset.instrumentId)).size) === 2);
   await page.keyboard.press('Delete');
   check('builder bulk removal archives only the selected records without a dialog', await until(() => selectedLibraryRecords.length === 2 && selectedLibraryRecords.every(item => JSON.parse(item.PayloadJson)._uncertaintyArchive)) && retainedLibraryRecordsUnchanged() && dialogs.length === 0);

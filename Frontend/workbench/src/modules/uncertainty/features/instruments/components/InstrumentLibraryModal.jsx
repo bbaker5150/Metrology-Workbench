@@ -29,8 +29,6 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
   const [selection, setSelection] = useState([]);
   const [query, setQuery] = useState("");
   const [source, setSource] = useState("all");
-  const [sort, setSort] = useState("description");
-  const [descending, setDescending] = useState(false);
   const [optionsOpen, setOptionsOpen] = useState(false);
   const [notification, setNotification] = useState(null);
   const [saving, setSaving] = useState(0);
@@ -40,7 +38,9 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
   const lastLibrary = useRef(instruments);
   const confirmDeletes = useConfirmRecordDeletes();
   const windowRef = useRef(null);
-  const { position, setPosition, handleMouseDown } = useFloatingWindow({ isOpen, defaultWidth: 1180, defaultHeight: 720 });
+  const filterRef = useRef(null);
+  const filterMenuRef = useRef(null);
+  const { position, setPosition, handleMouseDown } = useFloatingWindow({ isOpen, defaultWidth: 480, defaultHeight: 440 });
   useLayoutEffect(() => {
     if (!isOpen || !windowRef.current || typeof ResizeObserver === "undefined") return;
     const keepVisible = () => {
@@ -97,7 +97,24 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
   const visibleIds = useMemo(() => session.tmdes.map(row => ({ row, instrument: definitionFor(row) })).filter(({ instrument }) => {
     return (!query || instrumentMatchesSearch(instrument, query)) && (source === "all" ||
       (source === "shared" ? ["shared", "validated"].includes(instrument.scope) : !["shared", "validated"].includes(instrument.scope)));
-  }).sort((a, b) => collator.compare(String(a.instrument[sort] || ""), String(b.instrument[sort] || "")) * (descending ? -1 : 1)).map(({ row }) => row.id), [session.tmdes, query, source, sort, descending]);
+  }).sort((a, b) => collator.compare(a.instrument.description || "", b.instrument.description || "")).map(({ row }) => row.id), [session.tmdes, query, source]);
+  useLayoutEffect(() => {
+    if (!optionsOpen) return;
+    const menu = filterMenuRef.current;
+    menu.showPopover?.();
+    const positionMenu = () => {
+      const anchor = filterRef.current.getBoundingClientRect();
+      const width = menu.offsetWidth, height = menu.offsetHeight;
+      menu.style.left = `${Math.max(8, Math.min(anchor.right - width, window.innerWidth - width - 8))}px`;
+      menu.style.top = `${Math.max(8, Math.min(anchor.bottom + 6, window.innerHeight - height - 8))}px`;
+    };
+    positionMenu();
+    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(positionMenu);
+    observer?.observe(windowRef.current);
+    window.addEventListener('resize', positionMenu);
+    window.addEventListener('scroll', positionMenu, true);
+    return () => { observer?.disconnect(); window.removeEventListener('resize', positionMenu); window.removeEventListener('scroll', positionMenu, true); };
+  }, [optionsOpen, position.x, position.y]);
   useEffect(() => {
     const visible = new Set(visibleIds);
     setSelection(previous => {
@@ -145,8 +162,8 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
   return ReactDOM.createPortal(<div ref={windowRef} className="uncertainty-module instrument-library-window modal-content floating-window-content" role="dialog" aria-label="Instrument library"
     style={{ left: position.x, top: position.y }}>
     <div className="modal-header" onMouseDown={handleMouseDown}>
+      <h3>Instrument Library</h3>
       <button className="icon-btn-ghost" aria-label="Close instrument library" onClick={close}><FontAwesomeIcon icon={faTimes} /></button>
-      <h3>Instrument library</h3>
     </div>
     <UncertaintyPanel libraryMode testPointData={libraryPoint} sessionData={session}
       libraryVisibleIds={visibleIds} onSessionSave={updateSession} instruments={instruments}
@@ -158,21 +175,17 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
           <FontAwesomeIcon icon={faSearch} />
           <input aria-label="Search instruments" placeholder="Search instruments" value={query} onChange={event => setQuery(event.target.value)} />
           {query && <button aria-label="Clear instrument search" onClick={() => setQuery("")}><FontAwesomeIcon icon={faTimes} /></button>}
-          <button aria-label="Filter and sort instruments" aria-expanded={optionsOpen} className={source !== "all" ? "is-active" : ""} onClick={() => setOptionsOpen(open => !open)}><FontAwesomeIcon icon={faSliders} /></button>
-          {optionsOpen && <div className="instrument-library-search-options" onKeyDown={event => { if (event.key === "Escape") setOptionsOpen(false); }}>
+          <button ref={filterRef} aria-label="Filter instruments" aria-expanded={optionsOpen} className={source !== "all" ? "is-active" : ""} onClick={() => setOptionsOpen(open => !open)}><FontAwesomeIcon icon={faSliders} /></button>
+          {optionsOpen && <div ref={filterMenuRef} popover="manual" className="instrument-library-search-options" onKeyDown={event => { if (event.key === "Escape") { setOptionsOpen(false); filterRef.current.focus(); } }}>
             <span>Source</span><div>{["all", "local", "shared"].map(value => <button key={value} aria-pressed={source === value} onClick={() => setSource(value)}>{value === "all" ? "All sources" : value === "local" ? "Local" : "Shared"}</button>)}</div>
-            <span>Sort by</span><div>{["description", "manufacturer", "model"].map(value => <button key={value} aria-pressed={sort === value} onClick={() => setSort(value)}>{value === "description" ? "Description" : value === "manufacturer" ? "Manufacturer" : "Model"}</button>)}</div>
-            <button aria-pressed={descending} onClick={() => setDescending(value => !value)}>{descending ? "Descending" : "Ascending"}</button>
-            <button onClick={() => setOptionsOpen(false)}>Done</button>
           </div>}
         </div>
-        <span className="instrument-library-count">{visibleIds.length} of {session.tmdes.length}</span>
         <button className="icon-btn-ghost" aria-label="Add instrument" title="Add instrument" onClick={() => { setQuery(""); setSource("all"); add(); }}><FontAwesomeIcon icon={faPlus} /></button>
       </div>} />
     <div className="instrument-library-footer">
-      <span role="status">{saving ? "Saving changes…" : error ? "Changes not saved" : "All changes saved"}</span>
+      <span className="instrument-library-count">{visibleIds.length} of {session.tmdes.length} instruments</span>
       {error && <><span role="alert">{error}</span><button className="lib-pill-btn" onClick={() => [...failed.current.values()].forEach(enqueue)}>Retry save</button></>}
-      {selection.length > 0 && <><span>{selection.length} selected</span><button className="lib-pill-btn" onClick={() => remove(selection)}>Remove selected</button>
+      {selection.length > 0 && <><button className="lib-pill-btn" onClick={() => setSelection([])}>Back to names</button><span>{selection.length} selected</span>
         {onBatchAdd && <><button className="lib-pill-btn" disabled={!!saving || !!error} onClick={() => addToSession("uut")}>Use as UUT</button><button className="lib-pill-btn" disabled={!!saving || !!error} onClick={() => addToSession("tmde")}>Use as TMDE</button></>}
       </>}
     </div>
