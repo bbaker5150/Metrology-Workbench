@@ -108,6 +108,7 @@ describe('selection perimeter', () => {
     const outline = createInstrumentSelectionOutline(container,table);
     const segments = () => [...viewport.querySelector('path').getAttribute('d').matchAll(/M([\d.-]+),([\d.-]+)L([\d.-]+),([\d.-]+)/g)].map(m=>m.slice(1).map(Number));
     outline.sync();
+    expect(viewport.querySelector('svg').style.clipPath).toBe('inset(20px 0 0px 0)');
     expect(sorted(segments())).toEqual(sorted([
       [0,20,128,20],[0,40,100,40],[100,60,128,60],[0,20,0,40],[100,40,100,60],[128,20,128,60],
     ]));

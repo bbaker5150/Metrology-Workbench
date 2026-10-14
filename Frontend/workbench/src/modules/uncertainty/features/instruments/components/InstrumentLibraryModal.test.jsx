@@ -7,9 +7,9 @@ import { ConfirmRecordDeletesContext } from '../../../contexts/RecordDeletePolic
 vi.mock('plotly.js-dist', () => ({ default: {} }));
 const definition = (id, scope='local') => ({ id, scope, manufacturer: 'Example', model: id, description: `Meter ${id}`, functions: [{id:'f', name:'Voltage', unit:'V', ranges:[{id:'r', min:0, max:10, unit:'V', resolution:0.01, tolerances:{reading:{value:1,unit:'%'}}}]}] });
 const openInstrument = id => fireEvent.click(document.querySelector(`tr[data-instrument-id="${id}"] .instrument-library-edit`));
-function Harness({ save=vi.fn(), remove=vi.fn(), close=vi.fn(), initial=[definition('A'),definition('B','validated'),definition('C')] }) {
+function Harness({ save=vi.fn(), remove=vi.fn(), close=vi.fn(), confirmDeletes=false, initial=[definition('A'),definition('B','validated'),definition('C')] }) {
  const [instruments,setInstruments]=useState(initial);
- return <ConfirmRecordDeletesContext.Provider value={false}><InstrumentLibraryModal isOpen instruments={instruments} onClose={close}
+ return <ConfirmRecordDeletesContext.Provider value={confirmDeletes}><InstrumentLibraryModal isOpen instruments={instruments} onClose={close}
  onSaveToLibrary={async(value,options)=>{await save(value,options);setInstruments(previous=>[...previous.filter(item=>item.id!==value.id),value]);return value;}}
  onBatchAdd={vi.fn()} onDelete={async id=>{await remove(id);setInstruments(previous=>previous.filter(item=>item.id!==id));}} /></ConfirmRecordDeletesContext.Provider>;
 }
@@ -77,11 +77,44 @@ it('shows qualifiers and inserted columns only for the instrument being edited',
  const insert=document.querySelector('th[data-instrument-column="resolution"] .instrument-column-insert-button');
  fireEvent.click(insert);
  expect(document.querySelector('th[data-instrument-column^="custom:"]')).not.toBeNull();
+ fireEvent.keyDown(window,{key:'Escape'});
  openInstrument('C');
  expect(document.querySelector('th[data-instrument-column^="qualifier"]')).toBeNull();
  expect(document.querySelector('th[data-instrument-column^="custom:"]')).toBeNull();
+ fireEvent.keyDown(window,{key:'Escape'});
  openInstrument('B');
  expect(document.querySelector('th[data-instrument-column^="custom:"]')).not.toBeNull();
+});
+it('keeps multiple editors open independently of selection and internal action clicks',async()=>{
+ const save=vi.fn();render(<Harness save={save}/>);
+ openInstrument('A');openInstrument('C');
+ const a=document.querySelector('tr[data-instrument-id="A"]');
+ const c=document.querySelector('tr[data-instrument-id="C"]');
+ expect(a.querySelector('.cell-tolerance')).not.toBeNull();
+ expect(c.querySelector('.cell-tolerance')).not.toBeNull();
+ expect(screen.getByRole('columnheader',{name:/Tolerance\/Uncertainty/})).toBeInTheDocument();
+ // This changes table selection while both independent editors remain open.
+ fireEvent.click(document.querySelector('tr[data-instrument-id="B"] .instrument-library-name'));
+ fireEvent.click(within(a).getByTitle('Edit tolerance'));
+ fireEvent.click(within(a).getByTitle('Asymmetric tolerance'));
+ fireEvent.click(within(a).getByTitle('Single-sided tolerance'));
+ await waitFor(()=>expect(save).toHaveBeenCalled());
+ expect(a.querySelector('.cell-tolerance')).not.toBeNull();
+ expect(c.querySelector('.cell-tolerance')).not.toBeNull();
+ expect(within(a).getByTitle('Single-sided tolerance')).toHaveAttribute('aria-pressed','true');
+ fireEvent.keyDown(window,{key:'Escape'});
+ expect(document.querySelectorAll('.instrument-library-name')).toHaveLength(3);
+});
+it('closes remove confirmation and keeps the remaining editor open',async()=>{
+ const remove=vi.fn();render(<Harness remove={remove} confirmDeletes/>);
+ openInstrument('C');openInstrument('A');
+ fireEvent.keyDown(window,{key:'Delete'});
+ const dialog=screen.getByRole('alertdialog',{name:'Remove instruments'});
+ fireEvent.click(within(dialog).getByRole('button',{name:'Remove',exact:true}));
+ expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+ await waitFor(()=>expect(remove).toHaveBeenCalledExactlyOnceWith('A'));
+ expect(document.querySelector('tr[data-instrument-id="A"]')).toBeNull();
+ expect(document.querySelector('tr[data-instrument-id="C"] .cell-tolerance')).not.toBeNull();
 });
 it('commits a focused edit before collapsing on outside click or Escape',async()=>{
  const save=vi.fn();render(<><Harness save={save}/><div className="instrument-table-viewport" data-testid="workspace-table">Workspace table</div></>);

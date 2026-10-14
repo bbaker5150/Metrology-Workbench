@@ -2869,7 +2869,7 @@ const InstrumentTableHeader = ({
   const labelFor = (columnKey) => {
     const custom = customByKey.get(columnKey);
     if (custom) return custom.label || "Name";
-    if (kind === "tmde" && columnKey === "tolerance") return "Uncertainty";
+    if (kind === "tmde" && columnKey === "tolerance") return "Tolerance/Uncertainty";
     if (columnKey.startsWith("qualifier")) return qualifierNames[Number(columnKey.slice(9) || 1) - 1] ?? "Qualifier";
     return INSTRUMENT_COLUMN_LABELS[columnKey] || columnKey;
   };
@@ -6768,7 +6768,7 @@ const SummaryDashboard = ({
   libraryMode = false,
   libraryToolbar,
   libraryVisibleIds,
-  libraryExpandedId = null,
+  libraryExpandedIds = [],
   onLibraryExpand,
   onLibraryDragStart,
   viewMode,
@@ -6824,12 +6824,12 @@ const SummaryDashboard = ({
     [summaryFunctionColorByKey],
   );
   const { syncToShared, getDiff } = useInstrumentSync(onInstrumentSynced);
-  const libraryColumnItems = libraryMode ? sessionData.tmdes.filter(item => item.id === libraryExpandedId) : sessionData.tmdes;
+  const libraryColumnItems = libraryMode ? sessionData.tmdes.filter(item => libraryExpandedIds.includes(item.id)) : sessionData.tmdes;
   const customColumnsFor = (kind) => {
     const columns = sessionData.instrumentCustomColumns?.[kind] || [];
     if (!libraryMode || kind !== "tmde") return columns;
     return columns.filter(column => libraryColumnItems.some(item =>
-      column.libraryInstrumentId === item.id || Object.hasOwn(item.customFields || {}, column.key) ||
+      column.libraryInstrumentIds?.includes(item.id) || column.libraryInstrumentId === item.id || Object.hasOwn(item.customFields || {}, column.key) ||
       Object.values(item.rangeCustomFields || {}).some(fields => Object.hasOwn(fields, column.key))));
   };
   const uutTableColumns = useInstrumentColumnWidths(
@@ -6861,7 +6861,7 @@ const SummaryDashboard = ({
         ...current,
         [kind]: [
           ...(current[kind] || []),
-          { key, label: "Name", insertAfter, ...(libraryMode ? { libraryInstrumentId: libraryExpandedId } : {}) },
+          { key, label: "Name", insertAfter, ...(libraryMode ? { libraryInstrumentIds: libraryExpandedIds } : {}) },
         ],
       },
     });
@@ -8045,7 +8045,10 @@ const SummaryDashboard = ({
     if (!keyboardShortcutsEnabled) return undefined;
     const clearSelection = (event) => {
       if (event.key !== "Escape") return;
-      if (libraryMode) document.activeElement?.blur?.();
+      if (libraryMode) {
+        if (document.querySelector('[role="alertdialog"]')) return;
+        document.activeElement?.blur?.();
+      }
       setSelectedUutIds([]);
       setSelectedTmdeIds([]);
       setSelectedRangeIds({});
@@ -9797,7 +9800,7 @@ const SummaryDashboard = ({
           <table
             onMouseDownCapture={event => { if (event.shiftKey || event.ctrlKey || event.metaKey) event.preventDefault(); }}
             data-selection-mode={lastSelectionTarget === "range" ? "range" : "instrument"}
-            className={`instrument-summary-table industry-table equipment-summary-table instrument-equipment-table${libraryMode && libraryExpandedId == null ? " instrument-library-names-only" : ""}`}
+            className={`instrument-summary-table industry-table equipment-summary-table instrument-equipment-table${libraryMode && !libraryExpandedIds.length ? " instrument-library-names-only" : ""}`}
             onMouseLeave={() => {
               setHoveredCell({ tableId: null, colIndex: null });
               setHoveredRowId(null);
@@ -9808,7 +9811,7 @@ const SummaryDashboard = ({
               minWidth: `${tmdeTableColumns.minimumTableWidth}px`,
             }}
           >
-            {(!libraryMode || libraryExpandedId != null) && <><InstrumentTableColgroup
+            {(!libraryMode || libraryExpandedIds.length > 0) && <><InstrumentTableColgroup
               kind="tmde"
               customColumns={customColumnsFor("tmde")}
               columns={tmdeTableColumns}
@@ -9822,7 +9825,7 @@ const SummaryDashboard = ({
               renderCustomColumnHeader={renderCustomColumnHeader}
               onInsertAfter={(columnKey) => requestCustomColumn("tmde", columnKey)}
             /></>}
-            {libraryMode && libraryExpandedId == null && <thead><tr><th data-instrument-column="description">Description</th></tr></thead>}
+            {libraryMode && !libraryExpandedIds.length && <thead><tr><th data-instrument-column="description">Description</th></tr></thead>}
             <tbody>
               {groupedTmdeRows.length === 0 ? (
                 <tr className="panel-empty-row">
@@ -9844,10 +9847,10 @@ const SummaryDashboard = ({
                   const idx = row.index;
                   const tmdeRowKey = row.rowKey ?? tmde.id;
                   const tmdeFnKey = row.functionKey ?? null;
-                  if (libraryMode && libraryExpandedId !== tmde.id) {
+                  if (libraryMode && !libraryExpandedIds.includes(tmde.id)) {
                     const name = [tmde.instrument?.manufacturer, tmde.instrument?.model, tmde.name].filter(Boolean).join(" ") || "Untitled instrument";
                     return <tr key={tmdeRowKey} data-instrument-id={tmde.id} draggable onDragStart={event => onLibraryDragStart?.(event, tmde.id)} className={`instrument-library-name-row${selectedTmdeIds.includes(tmde.id) ? " selected-row" : ""}`}>
-                      <td className="cell-description" colSpan={libraryExpandedId == null ? 1 : getInstrumentColumnOrder("tmde", customColumnsFor("tmde"), tmdeTableColumns.qualifierEnabled).length}>
+                      <td className="cell-description" colSpan={!libraryExpandedIds.length ? 1 : getInstrumentColumnOrder("tmde", customColumnsFor("tmde"), tmdeTableColumns.qualifierEnabled).length}>
                         <div className="instrument-library-name-actions">
                           <button className="instrument-library-name" onClick={event => handleTmdeClick(event, tmde.id, true)} aria-pressed={selectedTmdeIds.includes(tmde.id)} aria-label={`Select instrument ${name}`}>{name}</button>
                           <button className="instrument-library-edit icon-btn-ghost" aria-label={`Edit or View instrument ${name}`} title="Edit or View instrument" onClick={event => {
@@ -17242,7 +17245,7 @@ const UncertaintyPanel = (props) => {
         libraryMode={props.libraryMode}
         libraryToolbar={props.libraryToolbar}
         libraryVisibleIds={props.libraryVisibleIds}
-        libraryExpandedId={props.libraryExpandedId}
+        libraryExpandedIds={props.libraryExpandedIds}
         onLibraryExpand={props.onLibraryExpand}
         onLibraryDragStart={props.onLibraryDragStart}
         viewMode={viewMode}

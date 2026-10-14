@@ -28,7 +28,7 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
   const [session, setSession] = useState(() => initialSession(instruments));
   const current = useRef(session);
   const [selection, setSelection] = useState([]);
-  const [expandedId, setExpandedId] = useState(null);
+  const [expandedIds, setExpandedIds] = useState([]);
   const [query, setQuery] = useState("");
   const [source, setSource] = useState("all");
   const [optionsOpen, setOptionsOpen] = useState(false);
@@ -43,6 +43,17 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
   const filterRef = useRef(null);
   const filterMenuRef = useRef(null);
   const { position, setPosition, handleMouseDown } = useFloatingWindow({ isOpen, defaultWidth: 560, defaultHeight: 440 });
+  useLayoutEffect(() => {
+    if (!isOpen) return;
+    const collapse = event => {
+      if (event.key !== "Escape" || document.querySelector('[role="alertdialog"]')) return;
+      const active = document.activeElement;
+      if (windowRef.current?.contains(active)) active.blur?.();
+      setExpandedIds([]);
+    };
+    window.addEventListener("keydown", collapse, true);
+    return () => window.removeEventListener("keydown", collapse, true);
+  }, [isOpen]);
   useLayoutEffect(() => {
     if (!isOpen || !windowRef.current) return;
     const rect = windowRef.current.getBoundingClientRect();
@@ -130,8 +141,12 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
     });
   }, [visibleIds]);
   useEffect(() => {
-    if (!isOpen || !selection.includes(expandedId)) setExpandedId(null);
-  }, [isOpen, selection, expandedId]);
+    const visible = new Set(visibleIds);
+    setExpandedIds(previous => {
+      const next = isOpen ? previous.filter(id => visible.has(id)) : [];
+      return next.length === previous.length ? previous : next;
+    });
+  }, [isOpen, visibleIds]);
   useEffect(() => {
     if (!optionsOpen) return;
     const dismiss = event => { if (!event.target.closest?.(".instrument-library-search")) setOptionsOpen(false); };
@@ -139,20 +154,20 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
     return () => document.removeEventListener("pointerdown", dismiss);
   }, [optionsOpen]);
   useEffect(() => {
-    if (!isOpen || !selection.length) return;
+    if (!isOpen || (!selection.length && !expandedIds.length)) return;
     const collapseOutsideTable = event => {
       // Preserve interactions with rows, their portaled editors, session actions
       // and confirmations. Wait until click so blur-driven saves finish first.
       if (windowRef.current?.contains(event.target) && event.target.closest?.(".instrument-table-viewport, .instrument-library-footer")) return;
-      if (event.target.closest?.(".inline-unit-menu, .inline-tolerance-shape-menu, .inline-tolerance-shape-backdrop, .inline-desc-search, .modal-overlay, [role='dialog']:not(.instrument-library-window)")) return;
+      if (event.target.closest?.(".inline-unit-menu, .inline-tolerance-shape-menu, .inline-tolerance-shape-backdrop, .inline-desc-search, .modal-overlay, [role='alertdialog'], [role='dialog']:not(.instrument-library-window)")) return;
       const active = document.activeElement;
       if (windowRef.current?.contains(active)) active.blur?.();
-      setExpandedId(null);
+      setExpandedIds([]);
       setSelection([]);
     };
     document.addEventListener("click", collapseOutsideTable, true);
     return () => document.removeEventListener("click", collapseOutsideTable, true);
-  }, [isOpen, selection.length]);
+  }, [isOpen, selection.length, expandedIds.length]);
   const remove = async ids => {
     const rows = current.current.tmdes.filter(row => ids.includes(row.id));
     const perform = async () => {
@@ -169,7 +184,7 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
         if (!failed.current.size) setError("");
       } catch (failure) { setNotification({ title: "Could not remove instrument", message: failure.message || "Please try again." }); }
     };
-    if (confirmDeletes) setNotification({ title: "Remove instruments", message: `Remove ${rows.length} selected instrument${rows.length === 1 ? "" : "s"} from the library?`, confirmText: "Remove", onConfirm: perform });
+    if (confirmDeletes) setNotification({ title: "Remove instruments", message: `Remove ${rows.length} selected instrument${rows.length === 1 ? "" : "s"} from the library?`, confirmText: "Remove", onConfirm: () => { setNotification(null); return perform(); } });
     else await perform();
   };
   const close = () => {
@@ -192,10 +207,10 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
     event.dataTransfer.setData("application/x-workbench-instruments", JSON.stringify({ source: "library", mode: "copy", items: rows.map(item => ({ kind: "tmde", item })) }));
   };
   if (!isOpen) return null;
-  return ReactDOM.createPortal(<div ref={windowRef} className={`uncertainty-module instrument-library-window modal-content floating-window-content${expandedId == null ? " is-names-only" : ""}`} role="dialog" aria-label="Instrument library"
+  return ReactDOM.createPortal(<div ref={windowRef} className={`uncertainty-module instrument-library-window modal-content floating-window-content${!expandedIds.length ? " is-names-only" : ""}`} role="dialog" aria-label="Instrument library"
     style={{ left: position.x, top: position.y }}>
     <UncertaintyPanel libraryMode testPointData={libraryPoint} sessionData={session}
-      libraryExpandedId={expandedId} onLibraryExpand={setExpandedId}
+      libraryExpandedIds={expandedIds} onLibraryExpand={id => setExpandedIds(previous => previous.includes(id) ? previous : [...previous, id])}
       onLibraryDragStart={startLibraryDrag}
       libraryVisibleIds={visibleIds} onSessionSave={updateSession} instruments={instruments}
       onSaveInstrument={onSaveToLibrary} onDeleteLibraryInstrument={onDelete} onInstrumentSynced={onInstrumentSynced}

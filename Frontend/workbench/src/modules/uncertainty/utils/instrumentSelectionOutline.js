@@ -59,6 +59,12 @@ export function createInstrumentSelectionOutline(container, table) {
       const clipBottom = scrollBounds.top + (container.clientTop + container.clientHeight) * scrollScale;
       const clipLeft = scrollBounds.left + container.clientLeft * scrollScale;
       const clipRight = actionLayer?.getBoundingClientRect().left;
+      if (actionLayer) {
+        // The sticky table header covers the glow over real cells, but the
+        // action gutter sits in a separate layer. Clip both at the same edge
+        // so the delete strip cannot glow above the rest of the selected row.
+        overlay.style.clipPath = `inset(${Math.max(0, (clipTop - bounds.top) / scale)}px 0 ${Math.max(0, (bounds.bottom - clipBottom) / scale)}px 0)`;
+      }
       const groups = new Map();
       const selectedCells = [...table.querySelectorAll(SELECTED_CELLS),
         ...(actionLayer?.querySelectorAll('.instrument-action-band[data-cell-selected]') || [])];
