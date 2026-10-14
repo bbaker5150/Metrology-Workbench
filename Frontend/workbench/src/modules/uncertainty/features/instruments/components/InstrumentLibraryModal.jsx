@@ -1,7 +1,7 @@
 import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faSearch, faSliders, faPlus, faTimes, faBookOpen } from "@fortawesome/free-solid-svg-icons";
+import { faSearch, faTools, faPlus, faTimes, faBookOpen } from "@fortawesome/free-solid-svg-icons";
 import { LIBRARY_INSTRUMENT_MIME } from "../../../utils/libraryInstrumentDrag";
 import UncertaintyPanel from "../../analysis/components/UncertaintyPanel";
 import NotificationModal from "../../../components/modals/NotificationModal";
@@ -23,6 +23,13 @@ const initialSession = instruments => ({ id: "instrument-library", tmdes: librar
 const libraryPoint = { id: "instrument-library", viewMode: "session" };
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
+// Document, checklist and gear match the specifications control reference.
+const InstrumentSpecificationsIcon = () => <svg viewBox="0 0 32 32" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+  <path d="M17 4h7l5 5v21H9V17M24 4v6h5M20 17h5M20 22h5M20 27h5M12 17l1.5 1.5L16 16M12 22l1.5 1.5L16 21M12 27l1.5 1.5L16 26" />
+  <path d="m8 2 3-.1.5 2 1.5.7 1.8-1 2 2-1 1.8.7 1.6 2 .5v2.8l-2 .5-.7 1.6 1 1.8-2 2-1.8-1-1.5.7-.5 2H8l-.5-2-1.6-.7-1.8 1-2-2 1-1.8-.7-1.6-2-.5V8.6l2-.5.7-1.6-1-1.8 2-2 1.8 1 1.6-.7Z" transform="translate(2 1) scale(.8)" />
+  <circle cx="9.6" cy="9" r="2.6" />
+</svg>;
+
 // The library is an adapter around the actual overview instrument table. Range
 // rendering, editors, selection, clipboard and creation all stay in that table.
 export default function InstrumentLibraryModal({ isOpen, onClose, instruments = [], onSaveToLibrary, onDelete, onInstrumentSynced, contextSession, contextPoint }) {
@@ -35,8 +42,6 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
   const [expandedIds, setExpandedIds] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [query, setQuery] = useState("");
-  const [source, setSource] = useState("all");
-  const [optionsOpen, setOptionsOpen] = useState(false);
   const [notification, setNotification] = useState(null);
   const [saving, setSaving] = useState(0);
   const [error, setError] = useState("");
@@ -45,8 +50,6 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
   const lastLibrary = useRef(instruments);
   const confirmDeletes = useConfirmRecordDeletes();
   const windowRef = useRef(null);
-  const filterRef = useRef(null);
-  const filterMenuRef = useRef(null);
   const { position, setPosition, handleMouseDown } = useFloatingWindow({ isOpen, defaultWidth: 560, defaultHeight: 440 });
   useLayoutEffect(() => {
     if (!isOpen) return;
@@ -117,27 +120,10 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
       if (!old || JSON.stringify(definitionFor(old)) !== JSON.stringify(definition)) enqueue(definition);
     }
   };
-  const visibleIds = useMemo(() => session.tmdes.map(row => ({ row, instrument: definitionFor(row) })).filter(({ instrument }) => {
-    return (!query || instrumentMatchesSearch(instrument, query)) && (source === "all" ||
-      (source === "shared" ? ["shared", "validated"].includes(instrument.scope) : !["shared", "validated"].includes(instrument.scope)));
-  }).sort((a, b) => collator.compare(a.instrument.description || "", b.instrument.description || "")).map(({ row }) => row.id), [session.tmdes, query, source]);
-  useLayoutEffect(() => {
-    if (!optionsOpen) return;
-    const menu = filterMenuRef.current;
-    menu.showPopover?.();
-    const positionMenu = () => {
-      const anchor = filterRef.current.getBoundingClientRect();
-      const width = menu.offsetWidth, height = menu.offsetHeight;
-      menu.style.left = `${Math.max(8, Math.min(anchor.right - width, window.innerWidth - width - 8))}px`;
-      menu.style.top = `${Math.max(8, Math.min(anchor.bottom + 6, window.innerHeight - height - 8))}px`;
-    };
-    positionMenu();
-    const observer = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(positionMenu);
-    observer?.observe(windowRef.current);
-    window.addEventListener('resize', positionMenu);
-    window.addEventListener('scroll', positionMenu, true);
-    return () => { observer?.disconnect(); window.removeEventListener('resize', positionMenu); window.removeEventListener('scroll', positionMenu, true); };
-  }, [optionsOpen, position.x, position.y]);
+  const visibleIds = useMemo(() => session.tmdes.map(row => ({ row, instrument: definitionFor(row) }))
+    .filter(({ instrument }) => !query || instrumentMatchesSearch(instrument, query))
+    .sort((a, b) => collator.compare(a.instrument.description || "", b.instrument.description || ""))
+    .map(({ row }) => row.id), [session.tmdes, query]);
   useEffect(() => {
     const visible = new Set(visibleIds);
     setSelection(previous => {
@@ -152,12 +138,6 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
       return next.length === previous.length ? previous : next;
     });
   }, [isOpen, visibleIds]);
-  useEffect(() => {
-    if (!optionsOpen) return;
-    const dismiss = event => { if (!event.target.closest?.(".instrument-library-search")) setOptionsOpen(false); };
-    document.addEventListener("pointerdown", dismiss);
-    return () => document.removeEventListener("pointerdown", dismiss);
-  }, [optionsOpen]);
   useEffect(() => {
     if (!isOpen || (!selection.length && !expandedIds.length)) return;
     const collapseOutsideLibrary = event => {
@@ -229,12 +209,15 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
           <FontAwesomeIcon icon={faSearch} />
           <input aria-label="Search instruments" placeholder="Search instruments" value={query} onChange={event => setQuery(event.target.value)} />
           {query && <button aria-label="Clear instrument search" onClick={() => setQuery("")}><FontAwesomeIcon icon={faTimes} /></button>}
-          <button ref={filterRef} aria-label="Filter instruments" aria-expanded={optionsOpen} className={source !== "all" ? "is-active" : ""} onClick={() => setOptionsOpen(open => !open)}><FontAwesomeIcon icon={faSliders} /></button>
-          {optionsOpen && <div ref={filterMenuRef} popover="manual" className="instrument-library-search-options" onKeyDown={event => { if (event.key === "Escape") { setOptionsOpen(false); filterRef.current.focus(); } }}>
-            <span>Source</span><div>{["all", "local", "shared"].map(value => <button key={value} aria-pressed={source === value} onClick={() => setSource(value)}>{value === "all" ? "All sources" : value === "local" ? "Local" : "Shared"}</button>)}</div>
-          </div>}
+          <button type="button" className="btn-add-item btn-add-column function-header-action-btn" aria-label="Add instrument" title="Add instrument" onClick={() => { setQuery(""); add(); }}><FontAwesomeIcon icon={faPlus} /><FontAwesomeIcon icon={faTools} /></button>
+          <button type="button" className="instrument-library-specifications" aria-label="View or Edit Instrument Specifications" title="View or Edit Instrument Specifications" disabled={!selection.length}
+            aria-expanded={selection.length > 0 && selection.every(id => expandedIds.includes(id))}
+            onClick={() => {
+              document.activeElement?.blur?.();
+              setActiveId(selection.at(-1));
+              setExpandedIds(previous => [...new Set([...previous, ...selection])]);
+            }}><InstrumentSpecificationsIcon /></button>
         </div>
-        <button className="icon-btn-ghost" aria-label="Add instrument" title="Add instrument" onClick={() => { setQuery(""); setSource("all"); add(); }}><FontAwesomeIcon icon={faPlus} /></button>
         <button className="icon-btn-ghost" aria-label="Close instrument library" onClick={close}><FontAwesomeIcon icon={faTimes} /></button>
         </div>
       </div>} />

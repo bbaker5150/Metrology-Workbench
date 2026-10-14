@@ -6,14 +6,18 @@ import UncertaintyPanel from '../../analysis/components/UncertaintyPanel';
 import { ConfirmRecordDeletesContext } from '../../../contexts/RecordDeletePolicy';
 vi.mock('plotly.js-dist', () => ({ default: {} }));
 const definition = (id, scope='local') => ({ id, scope, manufacturer: 'Example', model: id, description: `Meter ${id}`, functions: [{id:'f', name:'Voltage', unit:'V', ranges:[{id:'r', min:0, max:10, unit:'V', resolution:0.01, tolerances:{reading:{value:1,unit:'%'}}}]}] });
-const openInstrument = id => fireEvent.click(document.querySelector(`tr[data-instrument-id="${id}"] .instrument-library-edit`));
+const openInstrument = id => {
+ const name = document.querySelector(`tr[data-instrument-id="${id}"] .instrument-library-name`);
+ if (name?.getAttribute('aria-pressed') !== 'true') fireEvent.click(name);
+ fireEvent.click(screen.getByRole('button', {name:'View or Edit Instrument Specifications'}));
+};
 function Harness({ save=vi.fn(), remove=vi.fn(), close=vi.fn(), confirmDeletes=false, contextSession, contextPoint, initial=[definition('A'),definition('B','validated'),definition('C')] }) {
  const [instruments,setInstruments]=useState(initial);
  return <ConfirmRecordDeletesContext.Provider value={confirmDeletes}><InstrumentLibraryModal isOpen instruments={instruments} onClose={close} contextSession={contextSession} contextPoint={contextPoint}
  onSaveToLibrary={async(value,options)=>{await save(value,options);setInstruments(previous=>[...previous.filter(item=>item.id!==value.id),value]);return value;}}
  onBatchAdd={vi.fn()} onDelete={async id=>{await remove(id);setInstruments(previous=>previous.filter(item=>item.id!==id));}} /></ConfirmRecordDeletesContext.Provider>;
 }
-it('selects names without expansion and opens the real table only from Edit',()=>{
+it('selects names without expansion and opens details from the search specifications control',()=>{
  render(<Harness/>);
  expect(document.querySelectorAll('.instrument-equipment-table')).toHaveLength(1);
  // Portals need the same scope as the overview for live column widths and
@@ -30,8 +34,8 @@ it('selects names without expansion and opens the real table only from Edit',()=
  expect(screen.queryByRole('button',{name:'Use as UUT'})).not.toBeInTheDocument();
  expect(document.querySelector('.instrument-library-footer')).toBeNull();
  expect(document.querySelector('.cell-tolerance')).toBeNull();
- expect(document.querySelector('.instrument-equipment-table colgroup')).toBeNull();
- expect(screen.getAllByRole('columnheader').map(node=>node.textContent)).toEqual(['Description']);
+ expect(document.querySelectorAll('.instrument-equipment-table colgroup col')).toHaveLength(2);
+ expect(screen.getAllByRole('columnheader').map(node=>node.textContent)).toEqual(['Description','Sync']);
  openInstrument('A');
  expect(document.querySelector('tr[data-instrument-id="A"] .cell-tolerance')).not.toBeNull();
  expect(document.querySelectorAll('.instrument-library-name')).toHaveLength(2);
@@ -132,18 +136,44 @@ it('commits a focused edit before collapsing on outside click or Escape',async()
    await waitFor(()=>expect(save.mock.calls.at(-1)?.[0].model).toBe(dismiss));
  }
 });
-it('filters by source without sorting controls',()=>{
- render(<Harness/>);
- fireEvent.click(screen.getByLabelText('Filter instruments'));
- fireEvent.click(screen.getByRole('button',{name:'Shared',exact:true}));
+it('shows local/shared sync actions in simplified rows and uses search without a filter menu',()=>{
+ const save=vi.fn();render(<Harness save={save}/>);
+ expect(screen.queryByRole('button',{name:'Filter instruments'})).not.toBeInTheDocument();
+ const local=document.querySelector('tr[data-instrument-id="A"]');
+ const shared=document.querySelector('tr[data-instrument-id="B"]');
+ expect(within(local).getByRole('button',{name:'Local library — click to share'})).toBeInTheDocument();
+ expect(within(shared).getByRole('button',{name:'Shared library — right-click to make local'})).toBeInTheDocument();
+ fireEvent.change(screen.getByLabelText('Search instruments'),{target:{value:'Meter B'}});
  expect(document.querySelector('tr[data-instrument-id="B"]')).toHaveTextContent('Meter B');
  expect(document.querySelector('tr[data-instrument-id="A"]')).toBeNull();
- fireEvent.click(screen.getByRole('button',{name:'All sources'}));
- expect(screen.queryByText('Sort by')).not.toBeInTheDocument();
- expect(screen.queryByRole('button',{name:'Ascending'})).not.toBeInTheDocument();
- expect(screen.queryByRole('button',{name:'Done'})).not.toBeInTheDocument();
  fireEvent.change(screen.getByLabelText('Search instruments'),{target:{value:'missing'}});
  expect(screen.getByText(/No instruments match/)).toBeInTheDocument();
+});
+it('opens every selected instrument from the toolbar without changing the selection',()=>{
+ render(<Harness/>);
+ const view=screen.getByRole('button',{name:'View or Edit Instrument Specifications'});
+ expect(view).toBeDisabled();
+ expect(view).toHaveAttribute('title','View or Edit Instrument Specifications');
+ const search=screen.getByLabelText('Search instruments').parentElement;
+ expect(search).toContainElement(view);
+ const add=within(search).getByRole('button',{name:'Add instrument'});
+ expect(add).toHaveClass('btn-add-item','btn-add-column','function-header-action-btn');
+ expect(add.querySelectorAll('svg')).toHaveLength(2);
+ expect(document.querySelector('.instrument-library-edit')).toBeNull();
+ fireEvent.click(document.querySelector('tr[data-instrument-id="A"] .instrument-library-name'));
+ fireEvent.click(document.querySelector('tr[data-instrument-id="C"] .instrument-library-name'),{ctrlKey:true});
+ fireEvent.click(view);
+ for(const id of ['A','C']) {
+   const row=document.querySelector(`tr[data-instrument-id="${id}"]`);
+   expect(row.querySelector('.cell-tolerance')).not.toBeNull();expect(row).toHaveClass('instrument-selected');
+ }
+ const collapsed=document.querySelector('tr[data-instrument-id="B"]');
+ expect(collapsed.querySelector('.cell-description').colSpan).toBe(screen.getAllByRole('columnheader').length-1);
+ expect(collapsed.querySelector('.cell-sync .inline-sync-badge')).not.toBeNull();
+ expect(view).toHaveAttribute('aria-expanded','true');
+ fireEvent.keyDown(window,{key:'Escape'});
+ expect(view).toHaveAttribute('aria-expanded','false');
+ expect(document.querySelectorAll('.instrument-library-name-row .cell-sync')).toHaveLength(3);
 });
 it('creates an instrument through the table and saves it locally',async()=>{
  const save=vi.fn();render(<Harness save={save}/>);
@@ -278,7 +308,7 @@ it('saves instrument-specific qualifier and custom headers and restores them on 
  const input=screen.getByLabelText('Qualifier 1 column name');fireEvent.change(input,{target:{value:'Test frequency'}});fireEvent.blur(input);
  await waitFor(()=>expect(save.mock.calls.at(-1)?.[0].qualifierColumnNames).toEqual(['Test frequency']));
  fireEvent.click(document.querySelector('th[data-instrument-column="resolution"] .instrument-column-insert-button'));
- const name=screen.getByLabelText('Column name');fireEvent.change(name,{target:{value:'Calibration date'}});fireEvent.blur(name);
+ const name=await screen.findByLabelText('Column name');fireEvent.change(name,{target:{value:'Calibration date'}});fireEvent.blur(name);
  await waitFor(()=>expect(save.mock.calls.at(-1)?.[0].customColumns?.[0].label).toBe('Calibration date'));
  const saved=save.mock.calls.at(-1)[0];
  openInstrument('B');expect(screen.getByRole('button',{name:'Interval',exact:true})).toBeInTheDocument();

@@ -9870,11 +9870,14 @@ const SummaryDashboard = ({
               renderCustomColumnHeader={renderCustomColumnHeader}
               onInsertAfter={(columnKey) => requestCustomColumn("tmde", columnKey)}
             /></>}
-            {libraryMode && !libraryExpandedIds.length && <thead><tr><th data-instrument-column="description">Description</th></tr></thead>}
+            {libraryMode && !libraryExpandedIds.length && <>
+              <colgroup><col /><col style={{ "--instrument-live-column-width": "64px" }} /></colgroup>
+              <thead><tr><th data-instrument-column="description">Description</th><th className="cell-sync" data-instrument-column="sync">Sync</th></tr></thead>
+            </>}
             <tbody>
               {groupedTmdeRows.length === 0 ? (
                 <tr className="panel-empty-row">
-                  <td colSpan={getInstrumentColumnOrder("tmde", customColumnsFor("tmde"), tmdeTableColumns.qualifierEnabled).length}>
+                  <td colSpan={libraryMode && !libraryExpandedIds.length ? 2 : getInstrumentColumnOrder("tmde", customColumnsFor("tmde"), tmdeTableColumns.qualifierEnabled).length}>
                     {libraryMode ? <span>No instruments match. Add an instrument or adjust your search.</span> : <MeasurementAreaEmptyHint />}
                   </td>
                 </tr>
@@ -9897,13 +9900,12 @@ const SummaryDashboard = ({
                     return <React.Fragment key={tmdeRowKey}>
                       {renderInstrumentDeleteButton("tmde", tmde, tmdeFnKey)}
                       <tr data-instrument-id={tmde.id} data-measurement-area={tmdeFnKey} style={functionRowStyle(tmdeFnKey)} draggable onDragStart={event => onLibraryDragStart?.(event, tmde.id)} className={`instrument-function-row instrument-library-name-row${selectedTmdeIds.includes(tmde.id) ? " selected-row" : ""}`}>
-                      <td className="cell-description" colSpan={!libraryExpandedIds.length ? 1 : getInstrumentColumnOrder("tmde", customColumnsFor("tmde"), tmdeTableColumns.qualifierEnabled).length}>
-                        <div className="instrument-library-name-actions">
-                          <button className="instrument-library-name" onClick={event => handleTmdeClick(event, tmde.id, true)} aria-pressed={selectedTmdeIds.includes(tmde.id)} aria-label={`Select instrument ${name}`}>{name}</button>
-                          <button className="instrument-library-edit icon-btn-ghost" aria-label={`Edit or View Instrument Specifications ${name}`} title="Edit or View Instrument Specifications" onClick={event => {
-                            event.stopPropagation(); document.activeElement?.blur?.();
-                            setSelectedTmdeIds([tmde.id]); setLastSelectionTarget("tmde"); onLibraryExpand?.(tmde.id);
-                          }}><FontAwesomeIcon icon={faPen} /></button>
+                      <td className="cell-description" colSpan={!libraryExpandedIds.length ? 1 : getInstrumentColumnOrder("tmde", customColumnsFor("tmde"), tmdeTableColumns.qualifierEnabled).length - 1}>
+                        <button className="instrument-library-name" onClick={event => handleTmdeClick(event, tmde.id, true)} aria-pressed={selectedTmdeIds.includes(tmde.id)} aria-label={`Select instrument ${name}`}>{name}</button>
+                      </td>
+                      <td className="cell-sync">
+                        <div className="instrument-row-tools">
+                          <SyncBadge item={tmde} allowSessionDemotion={false} onSync={() => handleSyncItem("tmde", tmde)} onDemote={() => handleDemoteItem("tmde", tmde)} />
                         </div>
                       </td>
                     </tr></React.Fragment>;
