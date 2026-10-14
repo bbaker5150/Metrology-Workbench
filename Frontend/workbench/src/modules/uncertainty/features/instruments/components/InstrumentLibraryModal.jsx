@@ -206,6 +206,19 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
     {error && <div className="instrument-library-save-error"><span role="alert">{error}</span><button onClick={() => [...failed.current.values()].forEach(enqueue)}>Retry save</button></div>}
     <UncertaintyPanel libraryMode testPointData={libraryPoint} sessionData={session}
       libraryExpandedIds={expandedIds} libraryActiveId={activeId} onLibraryExpand={id => { setActiveId(id); setExpandedIds(previous => previous.includes(id) ? previous : [...previous, id]); }}
+      libraryRenderSpecifications={id => {
+        const expanded = expandedIds.includes(id);
+        const row = session.tmdes.find(item => item.id === id);
+        const name = [row?.instrument?.manufacturer, row?.instrument?.model, row?.name].filter(Boolean).join(" ") || "Untitled instrument";
+        const label = expanded ? "Hide Instrument Specifications" : "View or Edit Instrument Specifications";
+        return <button type="button" className="icon-btn-ghost instrument-library-specifications" title={label} aria-label={`${label} ${name}`} aria-expanded={expanded}
+          onClick={event => {
+            event.stopPropagation(); document.activeElement?.blur?.();
+            setActiveId(id);
+            if (!selection.includes(id)) setSelection([id]);
+            setExpandedIds(previous => previous.includes(id) ? previous.filter(item => item !== id) : [...previous, id]);
+          }}><InstrumentSpecificationsIcon /></button>;
+      }}
       onLibraryDragStart={startLibraryDrag}
       libraryVisibleIds={visibleIds} onSessionSave={updateSession} instruments={instruments}
       onSaveInstrument={onSaveToLibrary} onDeleteLibraryInstrument={onDelete} onInstrumentSynced={onInstrumentSynced}
@@ -214,15 +227,6 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
       libraryToolbar={add => <div className="panel-card-header instrument-panel-card-header instrument-library-header" onMouseDown={handleMouseDown}>
         <div className="panel-card-title" role="heading" aria-level={3}><FontAwesomeIcon icon={faBookOpen} /><span>Instrument Library</span></div>
         <div className="panel-card-actions">
-          <button type="button" className="icon-btn-ghost instrument-library-specifications" aria-label="View or Edit Selected Instrument Specifications" title="View or Edit Selected Instrument Specifications" disabled={!selection.length}
-            aria-expanded={selection.length > 0 && selection.every(id => expandedIds.includes(id))}
-            onClick={() => {
-              document.activeElement?.blur?.();
-              setActiveId(selection.at(-1));
-              setExpandedIds(previous => selection.every(id => previous.includes(id))
-                ? previous.filter(id => !selection.includes(id))
-                : [...new Set([...previous, ...selection])]);
-            }}><InstrumentSpecificationsIcon /></button>
         <div className="instrument-library-search">
           <FontAwesomeIcon icon={faSearch} />
           <input aria-label="Search instruments" placeholder="Search instruments" value={query} onChange={event => setQuery(event.target.value)} />

@@ -10,9 +10,9 @@
 .instrument-library-header .panel-card-actions { margin-left: auto; gap: 6px; }
 .instrument-library-window .configuration-panel { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 0; }
 .instrument-library-window .icon-btn-ghost { flex: 0 0 32px; font-size: 14px; }
-.instrument-library-window .instrument-table-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable; }
-/* Match the workspace's auto-height table: vertical scrolling encloses both
-   Sync and the independent delete strip; only horizontal scrolling is inside. */
+.instrument-library-window .instrument-table-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable both-edges; }
+/* Keep symmetric scrollbar gutters around the table. Library delete controls
+   share the real Sync cell so row borders and highlighting cannot drift. */
 .instrument-library-window .instrument-panel-table-container { height: auto !important; max-height: none !important; overflow-y: hidden !important; overflow-x: auto; resize: none; border-radius: 0; scrollbar-width: auto; scrollbar-color: auto; }
 /* Native scrollbar-width/color override the WebKit pseudo-elements in Chromium.
    Use the app's custom track so the platform cannot reintroduce arrow buttons. */
@@ -36,5 +36,20 @@
 .instrument-library-save-error button { border: 0; background: transparent; color: inherit; cursor: pointer; }
 
 .instrument-library-window .instrument-library-specifications { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 26px; width: 26px; height: 26px; padding: 0; }
-.instrument-library-window .instrument-library-specifications:disabled { opacity: 1; cursor: default; color: var(--text-color-muted); background: transparent; border-color: transparent; }
+
 .instrument-library-search .function-header-action-btn.btn-add-item { height: 20px; gap: 3px; padding: 0 3px; }
+
+.instrument-library-description { display: flex; align-items: center; min-width: 0; }
+.instrument-library-description .instrument-library-name { flex: 1; min-width: 0; }
+.instrument-library-description .instrument-library-specifications { margin: 0 8px; }
+.instrument-library-window .instrument-library-expanded-description { position: relative; padding-right: 44px; }
+.instrument-library-expanded-description > .instrument-library-specifications { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); }
+.instrument-library-window .instrument-library-specifications { opacity: 0; pointer-events: none; border: 0; background: transparent; box-shadow: none; transition: none; }
+.instrument-library-window tr:hover > .cell-description .instrument-library-specifications,
+.instrument-library-window .cell-description:is(:hover, :focus-within, [data-cell-hovered]) .instrument-library-specifications { opacity: 1; pointer-events: auto; }
+
+.instrument-library-window .instrument-equipment-table .cell-sync .instrument-row-tools { position: relative; width: 100%; min-height: 26px; padding-right: 28px; box-sizing: border-box; }
+.instrument-library-window .instrument-equipment-table th.cell-sync { padding-right: 34px; }
+.instrument-library-window .cell-sync .instrument-row-delete { position: absolute; right: 0; top: 50%; transform: translateY(-50%); }
+.instrument-library-window tr:is(:hover, .selected-row, .instrument-selected) > .cell-sync .instrument-row-delete,
+.instrument-library-window .cell-sync:focus-within .instrument-row-delete { opacity: 1; pointer-events: auto; }

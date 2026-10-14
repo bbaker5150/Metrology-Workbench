@@ -16,7 +16,7 @@ function App() {
 }
 const expand = async () => {
   fireEvent.click(await screen.findByRole('button', { name: 'Select instrument Meter' }));
-  fireEvent.click(screen.getByRole('button', { name: 'View or Edit Selected Instrument Specifications' }));
+  fireEvent.click(screen.getByRole('button', { name: 'View or Edit Instrument Specifications Meter' }));
 };
 const persist = async (_url, record) => { stored = copy(record); return { data: copy(stored) }; };
 beforeEach(() => {

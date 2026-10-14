@@ -6775,6 +6775,7 @@ const QuickAddRow = ({
 const SummaryDashboard = ({
   libraryMode = false,
   libraryToolbar,
+  libraryRenderSpecifications,
   libraryVisibleIds,
   libraryExpandedIds = [],
   libraryActiveId = null,
@@ -7932,26 +7933,25 @@ const SummaryDashboard = ({
     );
   };
 
-  const renderInstrumentDeleteButton = (kind, item, measurementArea) => {
-    if (!onSessionSave) return null;
+  const renderInstrumentDeleteButton = (kind, item, measurementArea, inline = false) => {
+    if (!onSessionSave || (libraryMode && !inline)) return null;
     const label = "Delete Instrument";
-    return (
-      <InstrumentDeleteAction instrumentId={item.id} measurementArea={measurementArea}>
-        <button
-          type="button"
-          className="range-header-action-btn range-header-action-btn--delete instrument-row-delete"
-          title={label}
-          aria-label={label}
-          onClick={(event) => {
-            event.stopPropagation();
-            if (kind === "uut") onDeleteUut?.([item.id]);
-            else onDeleteTmdeDefinition?.([item.id]);
-          }}
-        >
-          <FontAwesomeIcon icon={faTimes} />
-        </button>
-      </InstrumentDeleteAction>
+    const button = (
+      <button
+        type="button"
+        className="range-header-action-btn range-header-action-btn--delete instrument-row-delete"
+        title={label}
+        aria-label={label}
+        onClick={(event) => {
+          event.stopPropagation();
+          if (kind === "uut") onDeleteUut?.([item.id]);
+          else onDeleteTmdeDefinition?.([item.id]);
+        }}
+      >
+        <FontAwesomeIcon icon={faTimes} />
+      </button>
     );
+    return inline ? button : <InstrumentDeleteAction instrumentId={item.id} measurementArea={measurementArea}>{button}</InstrumentDeleteAction>;
   };
 
   // Per-subsection delete (only acts on an unused function).
@@ -9842,7 +9842,7 @@ const SummaryDashboard = ({
           </div>
         </div>
         )}
-        <InstrumentTableViewport enabled={Boolean(onSessionSave)} scrollable={libraryMode}>
+        <InstrumentTableViewport enabled={Boolean(onSessionSave) && !libraryMode} scrollable={libraryMode}>
         <div
           ref={tmdeTableHeight.containerRef}
           className="panel-table-container instrument-panel-table-container"
@@ -9881,7 +9881,7 @@ const SummaryDashboard = ({
               onInsertAfter={(columnKey) => requestCustomColumn("tmde", columnKey)}
             /></>}
             {libraryMode && !libraryExpandedIds.length && <>
-              <colgroup><col /><col style={{ "--instrument-live-column-width": "64px" }} /></colgroup>
+              <colgroup><col /><col style={{ "--instrument-live-column-width": "92px" }} /></colgroup>
               <thead><tr><th data-instrument-column="description">Description</th><th className="cell-sync" data-instrument-column="sync">Sync</th></tr></thead>
             </>}
             <tbody>
@@ -9911,11 +9911,15 @@ const SummaryDashboard = ({
                       {renderInstrumentDeleteButton("tmde", tmde, tmdeFnKey)}
                       <tr data-instrument-id={tmde.id} data-measurement-area={tmdeFnKey} style={functionRowStyle(tmdeFnKey)} draggable onDragStart={event => onLibraryDragStart?.(event, tmde.id)} className={`instrument-function-row instrument-library-name-row${selectedTmdeIds.includes(tmde.id) ? " selected-row" : ""}`}>
                       <td className="cell-description" colSpan={!libraryExpandedIds.length ? 1 : getInstrumentColumnOrder("tmde", customColumnsFor("tmde"), tmdeTableColumns.qualifierEnabled).length - 1}>
-                        <button className="instrument-library-name" onClick={event => handleTmdeClick(event, tmde.id, true)} aria-pressed={selectedTmdeIds.includes(tmde.id)} aria-label={`Select instrument ${name}`}>{name}</button>
+                        <div className="instrument-library-description">
+                          <button className="instrument-library-name" onClick={event => handleTmdeClick(event, tmde.id, true)} aria-pressed={selectedTmdeIds.includes(tmde.id)} aria-label={`Select instrument ${name}`}>{name}</button>
+                          {libraryRenderSpecifications?.(tmde.id)}
+                        </div>
                       </td>
                       <td className="cell-sync">
                         <div className="instrument-row-tools">
                           <SyncBadge item={tmde} allowSessionDemotion={false} onSync={() => handleSyncItem("tmde", tmde)} onDemote={() => handleDemoteItem("tmde", tmde)} />
+                          {renderInstrumentDeleteButton("tmde", tmde, tmdeFnKey, true)}
                         </div>
                       </td>
                     </tr></React.Fragment>;
@@ -9991,12 +9995,13 @@ const SummaryDashboard = ({
                               {i === 0 && (
                                 <td
                                   rowSpan={spanRows}
-                                  className={`cell-description${libraryMode ? "" : " has-order-controls"} ${hoveredCell.tableId === "tmde" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
+                                  className={`cell-description${libraryMode ? " instrument-library-expanded-description" : " has-order-controls"} ${hoveredCell.tableId === "tmde" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
                                   onMouseEnter={() =>
                                     setHoveredCell({ tableId: "tmde", colIndex: 0 })
                                   }
                                   title={tmde.name}
                                 >
+                                  {libraryMode && libraryRenderSpecifications?.(tmde.id)}
                                   {!libraryMode && <InstrumentOrderControls
                                     onMoveUp={() => moveInstrument("tmde", tmde.id, tmdeFnKey, -1)}
                                     onMoveDown={() => moveInstrument("tmde", tmde.id, tmdeFnKey, 1)}
@@ -10036,6 +10041,7 @@ const SummaryDashboard = ({
                                 >
                                   <div className="instrument-row-tools">
                                     <SyncBadge item={tmde} allowSessionDemotion={!libraryMode} onSync={() => handleSyncItem("tmde", tmde)} onDemote={() => handleDemoteItem("tmde", tmde)} />
+                                    {libraryMode && renderInstrumentDeleteButton("tmde", tmde, tmdeFnKey, true)}
                                   </div>
                                 </td>
                               )}
@@ -10101,12 +10107,13 @@ const SummaryDashboard = ({
                       >
                         <td
                           rowSpan={rowSpan}
-                          className={`cell-description${libraryMode ? "" : " has-order-controls"} ${hoveredCell.tableId === "tmde" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
+                          className={`cell-description${libraryMode ? " instrument-library-expanded-description" : " has-order-controls"} ${hoveredCell.tableId === "tmde" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
                           onMouseEnter={() =>
                             setHoveredCell({ tableId: "tmde", colIndex: 0 })
                           }
                           title={tmde.name}
                         >
+                          {libraryMode && libraryRenderSpecifications?.(tmde.id)}
                           {!libraryMode && <InstrumentOrderControls
                             onMoveUp={() => moveInstrument("tmde", tmde.id, tmdeFnKey, -1)}
                             onMoveDown={() => moveInstrument("tmde", tmde.id, tmdeFnKey, 1)}
@@ -10360,6 +10367,7 @@ const SummaryDashboard = ({
                         >
                           <div className="instrument-row-tools">
                             <SyncBadge item={tmde} allowSessionDemotion={!libraryMode} onSync={() => handleSyncItem("tmde", tmde)} onDemote={() => handleDemoteItem("tmde", tmde)} />
+                            {libraryMode && renderInstrumentDeleteButton("tmde", tmde, tmdeFnKey, true)}
                           </div>
                         </td>
                       </tr>
@@ -17303,6 +17311,7 @@ const UncertaintyPanel = (props) => {
       <SummaryDashboard
         libraryMode={props.libraryMode}
         libraryToolbar={props.libraryToolbar}
+        libraryRenderSpecifications={props.libraryRenderSpecifications}
         libraryVisibleIds={props.libraryVisibleIds}
         libraryExpandedIds={props.libraryExpandedIds}
         libraryActiveId={props.libraryActiveId}

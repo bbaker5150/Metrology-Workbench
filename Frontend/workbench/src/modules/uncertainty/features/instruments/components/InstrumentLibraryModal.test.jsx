@@ -6,18 +6,14 @@ import UncertaintyPanel from '../../analysis/components/UncertaintyPanel';
 import { ConfirmRecordDeletesContext } from '../../../contexts/RecordDeletePolicy';
 vi.mock('plotly.js-dist', () => ({ default: {} }));
 const definition = (id, scope='local') => ({ id, scope, manufacturer: 'Example', model: id, description: `Meter ${id}`, functions: [{id:'f', name:'Voltage', unit:'V', ranges:[{id:'r', min:0, max:10, unit:'V', resolution:0.01, tolerances:{reading:{value:1,unit:'%'}}}]}] });
-const openInstrument = id => {
- const name = document.querySelector(`tr[data-instrument-id="${id}"] .instrument-library-name`);
- if (name?.getAttribute('aria-pressed') !== 'true') fireEvent.click(name);
- fireEvent.click(screen.getByRole('button', {name:'View or Edit Selected Instrument Specifications'}));
-};
+const openInstrument = id => fireEvent.click(document.querySelector(`tr[data-instrument-id="${id}"] .instrument-library-specifications`));
 function Harness({ save=vi.fn(), remove=vi.fn(), close=vi.fn(), confirmDeletes=false, initial=[definition('A'),definition('B','validated'),definition('C')] }) {
  const [instruments,setInstruments]=useState(initial);
  return <ConfirmRecordDeletesContext.Provider value={confirmDeletes}><InstrumentLibraryModal isOpen instruments={instruments} onClose={close}
  onSaveToLibrary={async(value,options)=>{await save(value,options);setInstruments(previous=>[...previous.filter(item=>item.id!==value.id),value]);return value;}}
  onBatchAdd={vi.fn()} onDelete={async id=>{await remove(id);setInstruments(previous=>previous.filter(item=>item.id!==id));}} /></ConfirmRecordDeletesContext.Provider>;
 }
-it('selects names without expansion and opens details from the toolbar specifications control',()=>{
+it('selects names without expansion and opens details from its row specifications control',()=>{
  render(<Harness/>);
  expect(document.querySelectorAll('.instrument-equipment-table')).toHaveLength(1);
  // Portals need the same scope as the overview for live column widths and
@@ -149,39 +145,30 @@ it('shows local/shared sync actions in simplified rows and uses search without a
  fireEvent.change(screen.getByLabelText('Search instruments'),{target:{value:'missing'}});
  expect(screen.getByText(/No instruments match/)).toBeInTheDocument();
 });
-it('toggles selected instrument specifications from the toolbar without changing selection',()=>{
+it('toggles specifications per row while preserving multi-selection and other expanded instruments',()=>{
  render(<Harness/>);
- const view=screen.getByRole('button',{name:'View or Edit Selected Instrument Specifications'});
- expect(view).toBeDisabled();
- expect(view).toHaveAttribute('title','View or Edit Selected Instrument Specifications');
  const search=screen.getByLabelText('Search instruments').parentElement;
- expect(search.previousElementSibling).toBe(view);
+ expect(search.parentElement.querySelector('.instrument-library-specifications')).toBeNull();
  const add=within(search).getByRole('button',{name:'Add instrument'});
  expect(add).toHaveClass('btn-add-item','btn-add-column','function-header-action-btn');
- expect(add.querySelectorAll('svg')).toHaveLength(2);
- expect(document.querySelector('.instrument-library-edit')).toBeNull();
- fireEvent.click(document.querySelector('tr[data-instrument-id="A"] .instrument-library-name'));
- fireEvent.click(document.querySelector('tr[data-instrument-id="C"] .instrument-library-name'),{ctrlKey:true});
- fireEvent.click(view);
- for(const id of ['A','C']) {
-   const row=document.querySelector(`tr[data-instrument-id="${id}"]`);
-   expect(row.querySelector('.cell-tolerance')).not.toBeNull();expect(row).toHaveClass('instrument-selected');
- }
- const collapsed=document.querySelector('tr[data-instrument-id="B"]');
- expect(collapsed.querySelector('.cell-description').colSpan).toBe(screen.getAllByRole('columnheader').length-1);
- expect(collapsed.querySelector('.cell-sync .inline-sync-badge')).not.toBeNull();
- expect(view).toHaveAttribute('aria-expanded','true');
- fireEvent.click(view);
- expect(view).toHaveAttribute('aria-expanded','false');
- expect(document.querySelectorAll('.instrument-library-name-row .cell-sync')).toHaveLength(3);
- for(const id of ['A','C'])expect(document.querySelector(`tr[data-instrument-id="${id}"] .instrument-library-name`)).toHaveAttribute('aria-pressed','true');
- fireEvent.click(view);
- for(const id of ['A','C'])expect(document.querySelector(`tr[data-instrument-id="${id}"] .cell-tolerance`)).not.toBeNull();
- // Select a different row: toggling its details must leave the others open.
- fireEvent.click(document.querySelector('tr[data-instrument-id="B"] .instrument-library-name'));
- fireEvent.click(view);fireEvent.click(view);
- expect(document.querySelector('tr[data-instrument-id="B"] .instrument-library-name')).toHaveAttribute('aria-pressed','true');
- for(const id of ['A','C'])expect(document.querySelector(`tr[data-instrument-id="${id}"] .cell-tolerance`)).not.toBeNull();
+ const row=id=>document.querySelector(`tr[data-instrument-id="${id}"]`);
+ const control=id=>row(id).querySelector('.instrument-library-specifications');
+ expect(control('A')).toHaveAttribute('title','View or Edit Instrument Specifications');
+ expect(row('A').querySelector('.cell-description')).toContainElement(control('A'));
+ fireEvent.click(row('A').querySelector('.instrument-library-name'));
+ fireEvent.click(row('C').querySelector('.instrument-library-name'),{ctrlKey:true});
+ fireEvent.click(control('A'));
+ expect(row('A').querySelector('.cell-tolerance')).not.toBeNull();
+ expect(row('C').querySelector('.instrument-library-name')).toHaveAttribute('aria-pressed','true');
+ expect(control('A')).toHaveAttribute('title','Hide Instrument Specifications');
+ expect(control('A')).toHaveAttribute('aria-expanded','true');
+ fireEvent.click(control('C'));fireEvent.click(control('A'));
+ expect(row('A').querySelector('.instrument-library-name')).toHaveAttribute('aria-pressed','true');
+ expect(row('C').querySelector('.cell-tolerance')).not.toBeNull();
+ expect(control('A')).toHaveAttribute('aria-expanded','false');
+ fireEvent.click(control('A'));fireEvent.click(control('C'));
+ expect(row('A').querySelector('.cell-tolerance')).not.toBeNull();
+ expect(row('C').querySelector('.instrument-library-name')).toHaveAttribute('aria-pressed','true');
 });
 it('creates an instrument through the table and saves it locally',async()=>{
  const save=vi.fn();render(<Harness save={save}/>);
