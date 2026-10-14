@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faSearch, faSliders, faPlus, faTimes } from "@fortawesome/free-solid-svg-icons";
@@ -10,14 +10,16 @@ import { useConfirmRecordDeletes } from "../../../contexts/RecordDeletePolicy";
 import "./InstrumentLibraryModal.css";
 
 const libraryEntries = instruments => instruments.filter(item => item.scope !== "session");
-const rowFor = instrument => ({ id: instrument.id, description: instrument.description || "", nickname: instrument.nickname || "", instrument,
+const rowFor = instrument => ({ id: instrument.id, name: instrument.description || "", nickname: instrument.nickname || "", instrument,
   customFields: instrument.customFields, rangeCustomFields: instrument.rangeCustomFields });
-const definitionFor = row => ({ ...row.instrument, description: row.description || "", nickname: row.nickname || "",
+const definitionFor = row => ({ ...row.instrument, description: row.name || "", nickname: row.nickname || "",
   ...(row.ranges ? { ranges: row.ranges } : {}),
   ...(row.customFields ? { customFields: row.customFields } : {}),
   ...(row.rangeCustomFields ? { rangeCustomFields: row.rangeCustomFields } : {}),
 });
-const initialSession = instruments => ({ id: "instrument-library", uuts: libraryEntries(instruments).map(rowFor), tmdes: [], testPoints: [], measurementAreas: [], measurementAreaGroups: [] });
+const initialSession = instruments => ({ id: "instrument-library", tmdes: libraryEntries(instruments).map(rowFor), uuts: [], testPoints: [], measurementAreas: [], measurementAreaGroups: [] });
+const libraryPoint = { id: "instrument-library", viewMode: "session" };
+const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
 // The library is an adapter around the actual overview instrument table. Range
 // rendering, editors, selection, clipboard and creation all stay in that table.
@@ -37,16 +39,34 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
   const failed = useRef(new Map());
   const lastLibrary = useRef(instruments);
   const confirmDeletes = useConfirmRecordDeletes();
-  const { position, handleMouseDown } = useFloatingWindow({ isOpen, defaultWidth: 1180, defaultHeight: 720 });
+  const windowRef = useRef(null);
+  const { position, setPosition, handleMouseDown } = useFloatingWindow({ isOpen, defaultWidth: 1180, defaultHeight: 720 });
+  useLayoutEffect(() => {
+    if (!isOpen || !windowRef.current || typeof ResizeObserver === "undefined") return;
+    const keepVisible = () => {
+      const rect = windowRef.current.getBoundingClientRect();
+      setPosition(previous => {
+        const x = Math.max(16, Math.min(previous.x, window.innerWidth - rect.width - 16));
+        const y = Math.max(16, Math.min(previous.y, window.innerHeight - rect.height - 16));
+        return x === previous.x && y === previous.y ? previous : { x, y };
+      });
+    };
+    const observer = new ResizeObserver(keepVisible);
+    observer.observe(windowRef.current);
+    window.addEventListener("resize", keepVisible);
+    return () => { observer.disconnect(); window.removeEventListener("resize", keepVisible); };
+  }, [isOpen, setPosition]);
   const replace = next => { current.current = next; setSession(next); };
   useEffect(() => {
     if (saving || error || lastLibrary.current === instruments) return;
     lastLibrary.current = instruments;
     // Keep row identities while a shared edit becomes a new local definition.
-    const old = current.current.uuts;
-    replace({ ...current.current, uuts: libraryEntries(instruments).map(instrument => {
-      const prior = old.find(row => String(row.instrument.id) === String(instrument.id));
-      const collision = prior && libraryEntries(instruments).some(other => String(other.id) === String(prior.id) && String(other.id) !== String(instrument.id));
+    const old = new Map(current.current.tmdes.map(row => [String(row.instrument.id), row]));
+    const entries = libraryEntries(instruments);
+    const ids = new Set(entries.map(item => String(item.id)));
+    replace({ ...current.current, tmdes: entries.map(instrument => {
+      const prior = old.get(String(instrument.id));
+      const collision = prior && ids.has(String(prior.id)) && String(prior.id) !== String(instrument.id);
       return { ...rowFor(instrument), id: !collision && prior?.id || instrument.id };
     }) });
   }, [instruments, saving, error]);
@@ -64,23 +84,24 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
     });
   };
   const updateSession = next => {
-    const previous = current.current;
-    replace({ ...next, uuts: next.uuts.filter(row => row.instrument?.scope !== "session") });
-    for (const row of next.uuts) {
+    const previous = new Map(current.current.tmdes.map(row => [row.id, row]));
+    replace({ ...next, tmdes: next.tmdes.filter(row => row.instrument?.scope !== "session") });
+    for (const row of next.tmdes) {
       if (["session", "validated", "shared"].includes(row.instrument?.scope)) continue;
-      const old = previous.uuts.find(item => item.id === row.id);
+      const old = previous.get(row.id);
+      if (old === row) continue;
       const definition = definitionFor(row);
       if (!old || JSON.stringify(definitionFor(old)) !== JSON.stringify(definition)) enqueue(definition);
     }
   };
-  const visibleIds = useMemo(() => session.uuts.filter(row => {
-    const instrument = definitionFor(row);
+  const visibleIds = useMemo(() => session.tmdes.map(row => ({ row, instrument: definitionFor(row) })).filter(({ instrument }) => {
     return (!query || instrumentMatchesSearch(instrument, query)) && (source === "all" ||
       (source === "shared" ? ["shared", "validated"].includes(instrument.scope) : !["shared", "validated"].includes(instrument.scope)));
-  }).sort((a, b) => String(definitionFor(a)[sort] || "").localeCompare(String(definitionFor(b)[sort] || ""), undefined, { numeric: true, sensitivity: "base" }) * (descending ? -1 : 1)).map(row => row.id), [session, query, source, sort, descending]);
+  }).sort((a, b) => collator.compare(String(a.instrument[sort] || ""), String(b.instrument[sort] || "")) * (descending ? -1 : 1)).map(({ row }) => row.id), [session.tmdes, query, source, sort, descending]);
   useEffect(() => {
+    const visible = new Set(visibleIds);
     setSelection(previous => {
-      const next = previous.filter(id => visibleIds.includes(id));
+      const next = previous.filter(id => visible.has(id));
       return next.length === previous.length ? previous : next;
     });
   }, [visibleIds]);
@@ -91,7 +112,7 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
     return () => document.removeEventListener("pointerdown", dismiss);
   }, [optionsOpen]);
   const remove = async ids => {
-    const rows = current.current.uuts.filter(row => ids.includes(row.id));
+    const rows = current.current.tmdes.filter(row => ids.includes(row.id));
     const perform = async () => {
       try {
         // Complete queued edits before removing records so a late save cannot
@@ -100,7 +121,7 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
         for (const row of rows) {
           await onDelete(row.instrument.id);
           failed.current.delete(row.instrument.id);
-          replace({ ...current.current, uuts: current.current.uuts.filter(item => item.id !== row.id) });
+          replace({ ...current.current, tmdes: current.current.tmdes.filter(item => item.id !== row.id) });
         }
         setSelection(previous => previous.filter(id => !ids.includes(id)));
         if (!failed.current.size) setError("");
@@ -116,22 +137,22 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
   const addToSession = async role => {
     await queue.current;
     if (failed.current.size) return;
-    const rows = current.current.uuts.filter(row => selection.includes(row.id));
+    const rows = current.current.tmdes.filter(row => selection.includes(row.id));
     await onBatchAdd?.(rows.map(definitionFor), role);
     onClose();
   };
   if (!isOpen) return null;
-  return ReactDOM.createPortal(<div className="instrument-library-window modal-content floating-window-content" role="dialog" aria-label="Instrument library"
+  return ReactDOM.createPortal(<div ref={windowRef} className="uncertainty-module instrument-library-window modal-content floating-window-content" role="dialog" aria-label="Instrument library"
     style={{ left: position.x, top: position.y }}>
     <div className="modal-header" onMouseDown={handleMouseDown}>
       <h3>Instrument library</h3>
-      <button className="modal-close-button" aria-label="Close instrument library" onClick={close}><FontAwesomeIcon icon={faTimes} /></button>
+      <button className="icon-btn-ghost" aria-label="Close instrument library" onClick={close}><FontAwesomeIcon icon={faTimes} /></button>
     </div>
-    <UncertaintyPanel libraryMode testPointData={{ id: "instrument-library", viewMode: "session" }} sessionData={session}
+    <UncertaintyPanel libraryMode testPointData={libraryPoint} sessionData={session}
       libraryVisibleIds={visibleIds} onSessionSave={updateSession} instruments={instruments}
       onSaveInstrument={onSaveToLibrary} onDeleteLibraryInstrument={onDelete} onInstrumentSynced={onInstrumentSynced}
-      setNotification={setNotification} currentUutSelection={selection} setCurrentUutSelection={setSelection}
-      onDeleteUut={remove} keyboardShortcutsEnabled
+      setNotification={setNotification} currentTmdeSelection={selection} setCurrentTmdeSelection={setSelection}
+      onDeleteTmdeDefinition={remove} keyboardShortcutsEnabled
       libraryToolbar={add => <div className="instrument-library-toolbar">
         <div className="instrument-library-search">
           <FontAwesomeIcon icon={faSearch} />
@@ -145,7 +166,7 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
             <button onClick={() => setOptionsOpen(false)}>Done</button>
           </div>}
         </div>
-        <span className="instrument-library-count">{visibleIds.length} of {session.uuts.length}</span>
+        <span className="instrument-library-count">{visibleIds.length} of {session.tmdes.length}</span>
         <button className="icon-btn-ghost" aria-label="Add instrument" title="Add instrument" onClick={() => { setQuery(""); setSource("all"); add(); }}><FontAwesomeIcon icon={faPlus} /></button>
       </div>} />
     <div className="instrument-library-footer">

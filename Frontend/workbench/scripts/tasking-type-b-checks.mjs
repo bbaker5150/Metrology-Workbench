@@ -60,7 +60,7 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
   check("opening the library preserves the associated instrument components", saved().uuts[0].instrument.typeBComponents.length === 4);
   await library.getByRole("button", { name: "Close instrument library", exact: true }).click();
   // Reusable table/equation authoring is tested in the budget where it remains
-  // available. The library now intentionally exposes instrument ranges only.
+  // available. The library uses the TMDE range and additional-uncertainty editors.
   const definitionsBefore = new Set((saved().dynamicBudgetDefinitions || []).map(d => d.id));
   await add.first().click();
   await frame.getByRole("button", { name: /^Add manual component/ }).click();

@@ -6,6 +6,7 @@ import { useCallback, useLayoutEffect, useState } from "react";
 import { preserveTableTextSelection } from "../utils/tableTextSelection";
 import { createInstrumentSelectionOutline } from "../utils/instrumentSelectionOutline";
 import { syncInstrumentActions, updateInstrumentActionHover } from "../utils/instrumentActionLayout";
+import { measureTableColumnWidths } from "../utils/measureTableColumnWidths";
 
 const EDITORS = ".inline-desc-fields, .inline-range-editor.is-editing, .qualifier-range-cell .inline-range-editor, .inline-tolerance-editor, .inline-resolution-editor, .inline-distribution-editor, .instrument-custom-field-input";
 export const qualifierColumnKey = cell => {
@@ -69,6 +70,8 @@ export default function useInstrumentTableLayout(containerRef) {
     // another layout pass when its perimeter changes.
     const selectionOutline = createInstrumentSelectionOutline(container, table);
     const viewport = container.closest('.instrument-table-viewport');
+    const library = container.closest('.instrument-library-window');
+    let contentWidths = null;
     let actionPointer = null;
     const actionLayer = () => viewport?.querySelector(':scope > .instrument-action-layer');
     const syncActions = () => {
@@ -166,10 +169,20 @@ export default function useInstrumentTableLayout(containerRef) {
       // Editor requirements grow only their own columns. The panel fills the
       // workspace and scrolls when authored/editor widths exceed the viewport.
       const requirements = [];
+      // A library popout follows its contents, including read-only summaries
+      // (long bias values, names and custom fields), not the viewport width.
+      // Cache the intrinsic measurement: scrolling and our own width writes
+      // must not clone/reflow the whole library again.
+      if (library) {
+        contentWidths ||= measureTableColumnWidths(table, 'instrumentColumn', { exclude: '.inline-tolerance-editor' });
+        [...table.tHead.rows[0].cells].forEach((header, index) => {
+          requirements[index] = contentWidths[header.dataset.instrumentColumn] || 0;
+        });
+      }
       // Header rename inputs use the same intrinsic text measurement as their
       // collapsed labels; allocated column widths must not feed back into it.
       [...(table.tHead?.rows[0]?.cells || [])].forEach((header, index) => {
-        if (!header.dataset.instrumentColumn?.startsWith('qualifier')) return;
+        if (library || !header.dataset.instrumentColumn?.startsWith('qualifier')) return;
         const label = header.querySelector('.instrument-custom-column-label, .instrument-custom-column-name-input');
         if (!label) return;
         const style = getComputedStyle(label);
@@ -180,7 +193,7 @@ export default function useInstrumentTableLayout(containerRef) {
         probe.style.letterSpacing = style.letterSpacing;
         probe.textContent = label.value ?? label.textContent;
         document.body.appendChild(probe);
-        requirements[index] = probe.offsetWidth + 32;
+        requirements[index] = Math.max(requirements[index] || 0, probe.offsetWidth + 32);
         probe.remove();
       });
       if (!absolute) {
@@ -194,6 +207,7 @@ export default function useInstrumentTableLayout(containerRef) {
         });
       }
       table.querySelectorAll(EDITORS).forEach(editor => {
+        if (library && editor.matches('.inline-range-editor:not(.is-editing)')) return;
         const cell = editor.closest("td");
         if (!cell || cell.colSpan !== 1) return;
         const style = getComputedStyle(cell);
@@ -294,10 +308,16 @@ export default function useInstrumentTableLayout(containerRef) {
       const fillIndex = cols.findIndex(col => col.dataset.fill === "true");
       const naturalWidths = expandedInstrumentWidths(cols.map(col => parseFloat(col.style.width) || 1), parseFloat(table.style.minWidth) || 1200, requirements, absolute, fillIndex < 0 ? cols.length - 1 : fillIndex);
       setProperty(table, "--instrument-natural-table-width", `${naturalWidths.reduce((sum, width) => sum + width, 0)}px`);
-      const widths = expandedInstrumentWidths(cols.map(col => parseFloat(col.style.width) || 1), baseline, requirements, absolute, fillIndex < 0 ? cols.length - 1 : fillIndex);
+      const widths = library ? naturalWidths : expandedInstrumentWidths(cols.map(col => parseFloat(col.style.width) || 1), baseline, requirements, absolute, fillIndex < 0 ? cols.length - 1 : fillIndex);
       cols.forEach((col, index) => setProperty(col, "--instrument-live-column-width", `${widths[index]}px`));
       const tableWidth = widths.reduce((sum, width) => sum + width, 0);
       setProperty(table, "--instrument-live-table-width", `${tableWidth}px`);
+      if (library) {
+        const gutter = container.offsetWidth - container.clientWidth;
+        const viewportStyle = viewport && getComputedStyle(viewport);
+        const actions = parseFloat(viewportStyle?.paddingRight) || 0;
+        setProperty(library, '--instrument-library-width', `${Math.ceil(tableWidth * zoom + actions + gutter + 2)}px`);
+      }
       card?.style.removeProperty("--instrument-panel-width");
 
       alignEmptyHintArrows(table);
@@ -318,16 +338,22 @@ export default function useInstrumentTableLayout(containerRef) {
     // Hover changes color only. Re-measuring every cell on mouse movement can
     // feed rounding/scrollbar changes back into the widths of a large table.
     const mutation = new MutationObserver(records => {
+      if (library && records?.some(record =>
+        instrumentMutationAffectsLayout(record) &&
+        !(record.type === 'attributes' && record.attributeName === 'style' &&
+          (record.target === table || record.target.matches('col, .instrument-column-insert-button')))
+      )) contentWidths = null;
       if (!records || records.some(instrumentMutationAffectsLayout)) schedule();
     });
-    mutation.observe(table, { childList: true, subtree: true, attributes: true, attributeOldValue: true, attributeFilter: ["class", "style", "rowspan", "colspan", "data-range-selected", "data-selection-mode"] });
-    const theme = new MutationObserver(schedule);
+    mutation.observe(table, { childList: true, characterData: true, subtree: true, attributes: true, attributeOldValue: true, attributeFilter: ["class", "style", "rowspan", "colspan", "data-range-selected", "data-selection-mode"] });
+    const contentChanged = () => { contentWidths = null; schedule(); };
+    const theme = new MutationObserver(contentChanged);
     theme.observe(document.body, { attributes:true, attributeFilter:['class'] });
     const resize = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(schedule);
     resize?.observe(container);
     resize?.observe(table);
     container.addEventListener("focusin", schedule);
-    container.addEventListener("input", schedule);
+    container.addEventListener("input", contentChanged);
     // Scroll only changes the sticky offset, not column widths. Update it in
     // the scroll event instead of deferring an entire table measurement a frame.
     const onScroll = event => {
@@ -362,7 +388,7 @@ export default function useInstrumentTableLayout(containerRef) {
       theme.disconnect();
       resize?.disconnect();
       container.removeEventListener("focusin", schedule);
-      container.removeEventListener("input", schedule);
+      container.removeEventListener("input", contentChanged);
       window.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("resize", schedule);
     };

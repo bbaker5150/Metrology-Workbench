@@ -2,6 +2,8 @@ import React, { useRef } from "react";
 import { act, render } from "@testing-library/react";
 import { afterEach, expect, it, vi } from "vitest";
 import useInstrumentTableLayout, { instrumentMutationAffectsLayout } from "./useInstrumentTableLayout";
+import { measureTableColumnWidths } from "../utils/measureTableColumnWidths";
+vi.mock('../utils/measureTableColumnWidths', () => ({ measureTableColumnWidths: vi.fn() }));
 
 afterEach(() => { vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
@@ -45,4 +47,44 @@ it("coalesces drag style and resize notifications, yielding before measuring aga
   unmount();
   expect(frames.size).toBe(0);
   expect(disconnected).toHaveBeenCalled();
+});
+
+it('sizes the library from content, caches measurements across hover/resize, and refits edited text', () => {
+  let tableMutation, resize;
+  const frames = [];
+  vi.stubGlobal('MutationObserver', class {
+    constructor(callback) { this.callback = callback; }
+    observe(node) { if (node.tagName === 'TABLE') tableMutation = this.callback; }
+    disconnect() {}
+  });
+  vi.stubGlobal('ResizeObserver', class { constructor(callback) { resize = callback; } observe() {} disconnect() {} });
+  vi.stubGlobal('requestAnimationFrame', callback => { frames.push(callback); return frames.length; });
+  vi.stubGlobal('cancelAnimationFrame', () => {});
+  vi.spyOn(Element.prototype, 'getClientRects').mockReturnValue([{}]);
+  measureTableColumnWidths.mockReturnValue({ description: 300, tolerance: 500 });
+  function Fixture() {
+    const ref = useRef(null); const attach = useInstrumentTableLayout(ref);
+    return <div className="instrument-library-window"><div className="configuration-panel"><div ref={attach}>
+      <table style={{ minWidth: 200 }}><colgroup><col style={{ width: '50%' }}/><col style={{ width: '50%' }}/></colgroup>
+        <thead><tr><th data-instrument-column="description">Description</th><th data-instrument-column="tolerance">Tolerance</th></tr></thead>
+        <tbody><tr><td>Meter</td><td>Long bias value</td></tr></tbody>
+      </table>
+    </div></div></div>;
+  }
+  const { container, unmount } = render(<Fixture />);
+  const table = container.querySelector('table');
+  const flush = () => act(() => { frames.splice(0).forEach(callback => callback()); });
+  expect(measureTableColumnWidths).toHaveBeenCalledOnce();
+  expect(table.style.getPropertyValue('--instrument-live-table-width')).toBe('800px');
+  // Our width writes and viewport resizes must not trigger a new clone/reflow.
+  tableMutation([{ type: 'attributes', attributeName: 'style', target: table }]);
+  resize(); flush();
+  const cell = table.querySelector('td'); cell.className = 'col-hovered';
+  tableMutation([{ type: 'attributes', attributeName: 'class', oldValue: '', target: cell }]); flush();
+  expect(measureTableColumnWidths).toHaveBeenCalledOnce();
+  measureTableColumnWidths.mockReturnValue({ description: 300, tolerance: 650 });
+  tableMutation([{ type: 'characterData', target: cell.firstChild }]); flush();
+  expect(measureTableColumnWidths).toHaveBeenCalledTimes(2);
+  expect(table.style.getPropertyValue('--instrument-live-table-width')).toBe('950px');
+  unmount();
 });

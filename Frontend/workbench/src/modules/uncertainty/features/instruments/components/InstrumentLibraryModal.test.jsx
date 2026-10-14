@@ -14,6 +14,9 @@ function Harness({ save=vi.fn(), remove=vi.fn(), close=vi.fn() }) {
 it('renders the real instrument table with no separate function or Type B editor',()=>{
  render(<Harness/>);
  expect(document.querySelectorAll('.instrument-equipment-table')).toHaveLength(1);
+ // Portals need the same scope as the overview for live column widths and
+ // expanded-editor rules to apply.
+ expect(screen.getByRole('dialog', { name: 'Instrument library' })).toHaveClass('uncertainty-module');
  expect(screen.getByText('Description')).toBeInTheDocument();
  expect(screen.getByText('Resolution')).toBeInTheDocument();
  expect(document.querySelector('.library-table')).toBeNull();
@@ -83,4 +86,35 @@ it('removes a demoted local entry from the library and retains other records',as
  await waitFor(()=>expect(remove).toHaveBeenCalledExactlyOnceWith('A'));
  await waitFor(()=>expect(document.querySelector('tr[data-instrument-id="A"]')).toBeNull());
  expect(document.querySelectorAll('tr[data-instrument-id]')).toHaveLength(2);
+});
+
+it.each(['Table', 'Equation'])('saves the primary uncertainty as %s through the TMDE type menu', async label => {
+ const save=vi.fn();render(<Harness save={save}/>);
+ const row=document.querySelector('tr[data-instrument-id="A"]');
+ fireEvent.click(within(row).getByTitle('Edit tolerance'));
+ fireEvent.click(within(row).getByRole('button',{name:'Change uncertainty type'}));
+ fireEvent.click(within(row).getByRole('button',{name:label,exact:true}));
+ await waitFor(()=>expect(save).toHaveBeenCalled());
+ expect(save.mock.calls.at(-1)[0].functions[0].ranges[0].tolerances.tmdeUncertaintyDefinition.kind).toBe(label.toLowerCase());
+ expect(row.querySelector('.dynamic-budget-editor')).toHaveAttribute('data-dynamic-kind',label.toLowerCase());
+});
+
+it('adds, names, changes type and restores additional uncertainties in the library',async()=>{
+ const save=vi.fn();const view=render(<Harness save={save}/>);
+ fireEvent.click(within(document.querySelector('tr[data-instrument-id="A"]')).getByTitle('Edit tolerance'));
+ fireEvent.click(screen.getByRole('button',{name:'Add a secondary uncertainty'}));
+ await waitFor(()=>expect(save.mock.calls.at(-1)?.[0].tmdeSecondaryUncertainties).toHaveLength(1));
+ const name=screen.getByRole('textbox',{name:'Uncertainty name'});
+ fireEvent.change(name,{target:{value:'Thermal drift'}});fireEvent.keyDown(name,{key:'Enter'});
+ const source=document.querySelector('.instrument-uncertainty-row');
+ fireEvent.click(within(source).getByRole('button',{name:'Change uncertainty type'}));
+ fireEvent.click(within(source).getByRole('button',{name:'Equation',exact:true}));
+ await waitFor(()=>expect(save.mock.calls.at(-1)?.[0].tmdeSecondaryUncertainties[0]).toMatchObject({name:'Thermal drift',kind:'equation'}));
+ const saved=save.mock.calls.at(-1)[0];
+ expect(saved.functions[0].ranges[0].tolerances.reading.value).toBe(1);
+ view.unmount();
+ render(<InstrumentLibraryModal isOpen instruments={[saved]} onClose={()=>{}} onSaveToLibrary={save}/>);
+ expect(document.querySelector('.instrument-uncertainty-row')).toHaveTextContent('Thermal drift');
+ fireEvent.click(document.querySelector('.instrument-uncertainty-row .cell-tolerance button'));
+ expect(document.querySelector('.instrument-uncertainty-row .dynamic-budget-editor')).toHaveAttribute('data-dynamic-kind','equation');
 });

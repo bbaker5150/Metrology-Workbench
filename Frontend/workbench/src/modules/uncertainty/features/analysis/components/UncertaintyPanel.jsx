@@ -6784,6 +6784,8 @@ const SummaryDashboard = ({
   // Global UUT Selection (synced with sidebar Quick Add)
   currentUutSelection = [],
   setCurrentUutSelection,
+  currentTmdeSelection,
+  setCurrentTmdeSelection,
   instruments = [],
   onSaveInstrument,
   onDeleteLibraryInstrument,
@@ -7999,7 +8001,9 @@ const SummaryDashboard = ({
       return next;
     });
   }, [setCurrentUutSelection]);
-  const [selectedTmdeIds, setSelectedTmdeIds] = useState([]);
+  const [localTmdeSelection, setLocalTmdeSelection] = useState([]);
+  const selectedTmdeIds = currentTmdeSelection ?? localTmdeSelection;
+  const setSelectedTmdeIds = setCurrentTmdeSelection || setLocalTmdeSelection;
   useEffect(() => {
     // Sidebar selection replaces the table selection; table Ctrl/Shift selection
     // intentionally supports a mixed batch of UUTs and TMDEs.
@@ -8014,10 +8018,10 @@ const SummaryDashboard = ({
   // cannot accidentally target a range from a different UUT/TMDE row.
   const [selectedRangeIds, setSelectedRangeIds] = useState({});
   useEffect(() => {
-    if (libraryMode && !selectedUutIds.length) {
+    if (libraryMode && !selectedTmdeIds.length) {
       setSelectedRangeIds(previous => Object.keys(previous).length ? {} : previous);
     }
-  }, [libraryMode, selectedUutIds]);
+  }, [libraryMode, selectedTmdeIds]);
   const rangeSelectionAnchorRef = useRef(null);
   const [lastSelectionTarget, setLastSelectionTarget] = useState(null);
   const uutSelectionAnchorRef = useRef(null);
@@ -8633,32 +8637,35 @@ const SummaryDashboard = ({
   );
 
   const groupedUutRows = useMemo(
-    () =>
-      filterCollapsedFunctionRows(
-        getGroupedInstrumentRows(libraryMode && libraryVisibleIds ? libraryVisibleIds.map(id => filteredUuts.find(item => sameId(item.id, id))).filter(Boolean) : filteredUuts, "session", pinnedInlineUutIds, "uut"),
+    () => filterCollapsedFunctionRows(
+        getGroupedInstrumentRows(filteredUuts, "session", pinnedInlineUutIds, "uut"),
         collapsedFunctionKeys,
         "uut",
       ),
-    [collapsedFunctionKeys, filteredUuts, getGroupedInstrumentRows, pinnedInlineUutIds, libraryMode, libraryVisibleIds],
+    [collapsedFunctionKeys, filteredUuts, getGroupedInstrumentRows, pinnedInlineUutIds],
   );
 
   const groupedTmdeRows = useMemo(
-    () =>
-      filterCollapsedFunctionRows(
+    () => {
+      const byId = new Map(filteredTmdes.map(item => [String(item.id), item]));
+      const rows = libraryMode && libraryVisibleIds ? libraryVisibleIds.map(id => byId.get(String(id))).filter(Boolean) : filteredTmdes;
+      return filterCollapsedFunctionRows(
         getGroupedInstrumentRows(
-          filteredTmdes,
+          rows,
           "instrument",
           pinnedInlineTmdeIds,
           "tmde",
         ),
         collapsedFunctionKeys,
         "tmde",
-      ),
+      );
+    },
     [
       collapsedFunctionKeys,
       filteredTmdes,
       getGroupedInstrumentRows,
       pinnedInlineTmdeIds,
+      libraryMode, libraryVisibleIds,
     ],
   );
 
@@ -9215,8 +9222,7 @@ const SummaryDashboard = ({
       )}
 
       {/* UUT TABLE */}
-      <div className="panel-card">
-        {libraryMode ? libraryToolbar?.(() => handleAddInstrumentToFunction("uut", { name: "" })) : (
+      {!libraryMode && <div className="panel-card">
         <div className="panel-card-header instrument-panel-card-header">
           <div className="panel-card-title">
             <FontAwesomeIcon icon={faMicroscope} />
@@ -9226,7 +9232,6 @@ const SummaryDashboard = ({
             <MeasurementAreaEntry kind="uut" onAdd={handleAddFunction} />
           </div>
         </div>
-        )}
         <InstrumentTableViewport enabled={Boolean(onSessionSave)}>
         <div
           ref={uutTableHeight.containerRef}
@@ -9266,7 +9271,7 @@ const SummaryDashboard = ({
               {groupedUutRows.length === 0 ? (
                 <tr className="panel-empty-row">
                   <td colSpan={getInstrumentColumnOrder("uut", customColumnsFor("uut"), uutTableColumns.qualifierEnabled).length}>
-                    {libraryMode ? <span>No instruments match. Add an instrument or adjust your search.</span> : <MeasurementAreaEmptyHint />}
+                    <MeasurementAreaEmptyHint />
                   </td>
                 </tr>
               ) : (
@@ -9749,10 +9754,11 @@ const SummaryDashboard = ({
         </div>
         </InstrumentTableViewport>
         <InstrumentTableHeightHandle kind="uut" sizing={uutTableHeight} />
-      </div>
+      </div>}
 
       {/* TMDE TABLE */}
-      {!libraryMode && <div className="panel-card">
+      <div className="panel-card">
+        {libraryMode ? libraryToolbar?.(() => handleAddInstrumentToFunction("tmde", { name: "" })) : (
         <div className="panel-card-header instrument-panel-card-header">
           <div className="panel-card-title">
             <FontAwesomeIcon icon={faTools} />
@@ -9762,6 +9768,7 @@ const SummaryDashboard = ({
             <MeasurementAreaEntry kind="tmde" onAdd={handleAddFunction} />
           </div>
         </div>
+        )}
         <InstrumentTableViewport enabled={Boolean(onSessionSave)}>
         <div
           ref={tmdeTableHeight.containerRef}
@@ -9801,7 +9808,7 @@ const SummaryDashboard = ({
               {groupedTmdeRows.length === 0 ? (
                 <tr className="panel-empty-row">
                   <td colSpan={getInstrumentColumnOrder("tmde", customColumnsFor("tmde"), tmdeTableColumns.qualifierEnabled).length}>
-                    <MeasurementAreaEmptyHint />
+                    {libraryMode ? <span>No instruments match. Add an instrument or adjust your search.</span> : <MeasurementAreaEmptyHint />}
                   </td>
                 </tr>
               ) : (
@@ -10297,7 +10304,7 @@ const SummaryDashboard = ({
         </div>
         </InstrumentTableViewport>
         <InstrumentTableHeightHandle kind="tmde" sizing={tmdeTableHeight} />
-      </div>}
+      </div>
 
       <ContextMenu menu={rowMenu} onClose={() => setRowMenu(null)} />
 
@@ -17214,6 +17221,8 @@ const UncertaintyPanel = (props) => {
         // Global UUT Selection for Sidebar Quick Add
         currentUutSelection={props.currentUutSelection}
         setCurrentUutSelection={props.setCurrentUutSelection}
+        currentTmdeSelection={props.currentTmdeSelection}
+        setCurrentTmdeSelection={props.setCurrentTmdeSelection}
         // Navigation Handlers
         onSelectUut={props.onSelectUut}
         onSelectTestPoint={props.onSelectTestPoint}
