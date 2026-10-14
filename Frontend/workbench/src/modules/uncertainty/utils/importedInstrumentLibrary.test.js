@@ -1,60 +1,24 @@
 import { expect, it } from 'vitest';
 import { reconcileImportedInstruments } from './importedInstrumentLibrary';
-import { computeSyncState, diffFromSnapshot } from './instrumentSync';
-
-const instrument = { id: 'meter', manufacturer: 'Example', model: '20A', functions: [], typeBComponents: [], scope: 'local', owner: 'exporter' };
-const session = { uuts: [{ id: 'uut', instrument }], tmdes: [{ id: 'tmde', instrument }], testPoints: [{ id: 'point' }] };
-
-it('imports another user’s local instruments into the importing user’s library once', () => {
-  const result = reconcileImportedInstruments(session, [], 'importer');
-  expect(result.localInstruments).toHaveLength(1);
-  const copy = result.localInstruments[0];
-  expect(copy).toMatchObject({ scope: 'local', owner: 'importer', sourceId: null });
-  expect(copy.id).not.toBe('meter');
-  expect(result.session.uuts[0].instrument).toBe(result.session.tmdes[0].instrument);
-  expect(result.session.tmdes[0].id).toBe('tmde');
-  expect(computeSyncState(copy)).toBe('yellow');
-  expect(instrument.owner).toBe('exporter');
-});
-
-it('recognizes an instrument synced after the session was exported', () => {
-  const shared = { ...instrument, scope: 'validated', sourceId: 'meter' };
-  const result = reconcileImportedInstruments(session, [shared], 'importer');
-  expect(result.localInstruments).toHaveLength(0);
-  expect(computeSyncState(result.session.uuts[0].instrument)).toBe('green');
-});
-
-it('preserves provenance through a local import and later export before syncing', () => {
-  const first = reconcileImportedInstruments(session, [], 'importer');
-  const next = reconcileImportedInstruments(first.session, [{ ...instrument, scope: 'validated' }], 'third-user');
-  expect(next.localInstruments).toHaveLength(0);
-  expect(computeSyncState(next.session.uuts[0].instrument)).toBe('green');
-});
-
-it('preserves independently edited definitions even when exported ids match', () => {
-  const result = reconcileImportedInstruments({ ...session, tmdes: [{ id: 'tmde', instrument: { ...instrument, model: 'Edited' } }] }, [], 'importer');
-  expect(result.localInstruments).toHaveLength(2);
-  expect(result.session.tmdes[0].instrument.model).toBe('Edited');
-  expect(result.session.uuts[0].instrument.model).toBe('20A');
-});
-
-it('does not trust exported sync metadata when the shared record is absent or changed', () => {
-  const exported = { ...session, uuts: [{ id: 'uut', instrument: { ...instrument, scope: 'validated', sourceId: 'meter', validatedSnapshot: instrument } }] };
-  for (const library of [[], [{ ...instrument, scope: 'validated', model: 'Different' }]]) {
-    const result = reconcileImportedInstruments(exported, library, 'importer');
-    expect(result.session.uuts[0].instrument).toMatchObject({ scope: 'local', owner: 'importer' });
-    expect(result.localInstruments).toContain(result.session.uuts[0].instrument);
-    expect(result.session.uuts[0].instrument.localOverride).toBe(true);
-    expect(computeSyncState(result.session.uuts[0].instrument)).toBe('yellow');
-    expect(result.session.uuts[0].instrument.model).toBe('20A');
-  }
-});
-
-it('includes secondary uncertainty sources when checking whether specifications match', () => {
-  const result = reconcileImportedInstruments(session, [{ ...instrument, scope: 'validated', tmdeSecondaryUncertainties: [{ id: 'extra', name: 'Thermal' }] }], 'importer');
+import { computeSyncState } from './instrumentSync';
+const instrument = { id: 'meter', model: '20A', functions: [], owner: 'exporter' };
+it.each(['local', 'validated', 'shared', 'session'])('imports %s as session only', scope => {
+  const definition = { ...instrument, scope, sourceId: 'shared', libraryInstrumentId: 'shared', validatedSnapshot: instrument };
+  const session = { uuts: [{ id: 'uut', libraryInstrumentId: 'shared', instrument: definition }], tmdes: [{ id: 'tmde', instrument: definition }], testPoints: [{ id: 'p', tmdeTolerances: [{ sourceInstrument: definition }] }] };
+  const result = reconcileImportedInstruments(session, [definition], 'importer');
   const copy = result.session.uuts[0].instrument;
-  expect(result.localInstruments).toEqual([copy]);
-  expect(copy).toMatchObject({ scope: 'local', owner: 'importer', localOverride: true });
-  expect(diffFromSnapshot(copy).map(diff => diff.field)).toEqual(['tmdeSecondaryUncertainties']);
-  expect(computeSyncState(copy)).toBe('yellow');
+  expect(result.localInstruments).toEqual([]);
+  expect(copy).toMatchObject({ scope: 'session', owner: null, sourceId: null, libraryInstrumentId: null, validatedSnapshot: null, model: '20A' });
+  expect(copy.id).not.toBe(definition.id);
+  expect(computeSyncState(copy)).toBe('red');
+  expect(result.session.uuts[0].libraryInstrumentId).toBeNull();
+  expect(result.session.tmdes[0].instrument).toBe(copy);
+  expect(result.session.testPoints[0].tmdeTolerances[0].sourceInstrument).toBe(copy);
+  expect(definition.scope).toBe(scope);
+});
+it('retains independent edits and detaches point-only instruments', () => {
+  const result = reconcileImportedInstruments({ uuts: [{ instrument }], tmdes: [{ instrument: { ...instrument, model: 'Edited' } }], testPoints: [{ tmdeTolerances: [{ instrument: { ...instrument, id: 'point-only' } }] }] });
+  expect(result.session.uuts[0].instrument.id).not.toBe(result.session.tmdes[0].instrument.id);
+  expect(result.session.tmdes[0].instrument.model).toBe('Edited');
+  expect(result.session.testPoints[0].tmdeTolerances[0].instrument.scope).toBe('session');
 });

@@ -1196,3 +1196,14 @@
     min-width: 0;
     width: 58px;
 }
+
+/* Inline library editing uses the instrument tables' specification cells. */
+.instrument-builder-wrapper .search-toolbar { flex-wrap: wrap; }
+.library-inline-value, .library-inline-input {
+    width: 100%; min-width: 0; text-align: left; color: var(--text-color);
+    font: inherit; background: transparent; border: 1px solid transparent; padding: 4px;
+}
+.library-inline-value { cursor: text; }
+.library-inline-value:hover, .library-inline-input:focus { border-color: var(--border-color); }
+.library-inline-specs { min-width: 0; border: 0; padding: 8px; margin: 0; }
+.library-inline-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; }

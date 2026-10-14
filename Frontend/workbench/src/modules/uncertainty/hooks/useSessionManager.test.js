@@ -63,6 +63,15 @@ describe("prepareImportedSession", () => {
       expect(result.current.sessions).toHaveLength(1);
     } finally { log.mockRestore(); }
   });
+  it("imports without fetching or writing the instrument library", async () => {
+    const { result } = renderHook(() => useSessionManager());
+    await waitFor(() => expect(result.current.currentSessionData?.name).toBe("Original"));
+    axios.get.mockClear(); axios.post.mockClear();
+    await act(async () => { await result.current.importSession({ name: "Imported", uuts: [{ id: "uut", instrument: { id: "shared", scope: "validated", functions: [] } }], testPoints: [] }); });
+    expect(axios.get).not.toHaveBeenCalled();
+    expect(axios.post.mock.calls.filter(([url]) => url.includes("/instruments/"))).toEqual([]);
+    expect(result.current.currentSessionData.uuts[0].instrument.scope).toBe("session");
+  });
   it("always creates a separate session without changing nested IDs", () => {
     const loadedSession = {
       id: 100,

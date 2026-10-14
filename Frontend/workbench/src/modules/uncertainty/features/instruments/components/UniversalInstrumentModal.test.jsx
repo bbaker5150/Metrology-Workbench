@@ -241,7 +241,7 @@ describe("UniversalInstrumentModal library synchronization", () => {
     });
 
     fireEvent.click(screen.getByText("Edited local DMM").closest("tr"));
-    fireEvent.click(screen.getByRole("button", { name: /Sync/i }));
+    fireEvent.click(screen.getByRole("button", { name: /^Sync$/i }));
 
     fireEvent.change(screen.getByLabelText("Shared library password"), {
       target: { value: "calibrate" },
@@ -854,3 +854,18 @@ test("deletes selected SharePoint library records without an extra confirmation"
   await waitFor(() => expect(onDelete).toHaveBeenCalledWith("library-1"));
   expect(screen.queryByRole("alertdialog", { name: "Delete Instrument" })).not.toBeInTheDocument();
 });
+
+ test('filters and sorts library instruments', () => {
+  renderModal({ mode: 'library', initialData: null, instruments: [
+    { ...libraryInstrument, id: 'z', manufacturer: 'Zeta', scope: 'local' },
+    { ...libraryInstrument, id: 'a', manufacturer: 'Alpha', model: 'Shared model', scope: 'validated' },
+  ] });
+  const manufacturers = () => screen.getAllByRole('button', { name: /^Edit manufacturer:/ }).map(button => button.textContent);
+  expect(manufacturers()).toEqual(['Alpha', 'Zeta']);
+  fireEvent.click(screen.getByLabelText('Reverse instrument sort'));
+  expect(manufacturers()).toEqual(['Zeta', 'Alpha']);
+  fireEvent.change(screen.getByLabelText('Filter instrument source'), { target: { value: 'shared' } });
+  expect(manufacturers()).toEqual(['Alpha']);
+  fireEvent.change(screen.getByLabelText('Search instruments'), { target: { value: 'missing' } });
+  expect(screen.getByText('No instruments match your search or filter.')).toBeInTheDocument();
+ });

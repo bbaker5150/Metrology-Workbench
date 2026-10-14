@@ -1,3 +1,4 @@
+import LibraryInstrumentRow from "./LibraryInstrumentRow";
 import { instrumentDeleteTarget } from "../../../utils/instrumentIdentity";
 import { normalizeInstrumentTypeBComponents } from "../../../utils/instrumentBudgetComponents";
 import { withInstrumentEditorDrafts } from "../../../utils/instrumentBudgetComponents";
@@ -32,7 +33,6 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import { v4 as uuidv4 } from "uuid";
 import {
-  getToleranceSummary,
   getUnitDisplayLabel,
   unitCategories,
   unitSystem,
@@ -92,15 +92,6 @@ const TOLERANCE_DIST_DEFAULT = "1.732";
 const RESOLUTION_DIST_DEFAULT = "3.464";
 const MAX_BUILDER_UNDO_STEPS = 50;
 const BAND_KEYS = ["reading", "readings_iv", "range", "floor"];
-
-const formatToleranceSummary = (tolerances) => {
-    const summary = getToleranceSummary(tolerances);
-    return (
-        <span className={`tolerance-badge${summary === "Not Set" ? " is-empty" : ""}`}>
-            {summary === "Not Set" ? "Set tolerance..." : summary}
-        </span>
-    );
-};
 
 const getBandDistribution = (tolerances = {}) => {
     const key = BAND_KEYS.find((k) => tolerances?.[k]);
@@ -283,7 +274,10 @@ const UniversalInstrumentModal = ({
     const [effectiveMode, setEffectiveMode] = useState(mode);
 
     const [searchTerm, setSearchTerm] = useState("");
-    const [expandedDetail, setExpandedDetail] = useState(null);
+    const [libraryDrafts, setLibraryDrafts] = useState({});
+    const [sourceFilter, setSourceFilter] = useState("all");
+    const [sortField, setSortField] = useState("manufacturer");
+    const [sortDirection, setSortDirection] = useState("asc");
 
     // Library list multi-select: ids of checked rows + the anchor for shift-range.
     const [selectedIds, setSelectedIds] = useState([]);
@@ -341,7 +335,6 @@ const UniversalInstrumentModal = ({
     useEffect(() => {
         if (isOpen) {
             setSearchTerm("");
-            setExpandedDetail(null);
             setSelectedIds([]);
             setSelectionAnchor(null);
             setPendingDelete(null);
@@ -512,9 +505,10 @@ const UniversalInstrumentModal = ({
     }, [isOpen, viewMode]);
 
     const filteredInstruments = useMemo(() => {
-        if (!searchTerm) return instruments;
-        return instruments.filter(instrument => instrumentMatchesSearch(instrument, searchTerm));
-    }, [instruments, searchTerm]);
+        return instruments.filter(instrument => (!searchTerm || instrumentMatchesSearch(instrument, searchTerm)) &&
+            (sourceFilter === "all" || (sourceFilter === "shared" ? ["shared", "validated"].includes(instrument.scope) : !["shared", "validated"].includes(instrument.scope))))
+            .sort((a, b) => String(a[sortField] || "").localeCompare(String(b[sortField] || ""), undefined, { numeric: true, sensitivity: "base" }) * (sortDirection === "asc" ? 1 : -1));
+    }, [instruments, searchTerm, sourceFilter, sortField, sortDirection]);
 
     const selectedInstrument = useMemo(
         () =>
@@ -1222,15 +1216,6 @@ const UniversalInstrumentModal = ({
         completeSave();
     };
 
-    const toggleFunctionDetails = (e, instId, funcId) => {
-        e.stopPropagation();
-        if (expandedDetail && expandedDetail.instId === instId && expandedDetail.funcId === funcId) {
-            setExpandedDetail(null);
-        } else {
-            setExpandedDetail({ instId, funcId });
-        }
-    };
-
     if (!isOpen) return null;
 
     return ReactDOM.createPortal(
@@ -1281,6 +1266,13 @@ const UniversalInstrumentModal = ({
                                     autoFocus
                                 />
                             </div>
+                            <select aria-label="Filter instrument source" value={sourceFilter} onChange={event => setSourceFilter(event.target.value)}>
+                                <option value="all">All sources</option><option value="local">Local</option><option value="shared">Shared</option>
+                            </select>
+                            <select aria-label="Sort instruments" value={sortField} onChange={event => setSortField(event.target.value)}>
+                                <option value="manufacturer">Manufacturer</option><option value="model">Model</option><option value="description">Description</option>
+                            </select>
+                            <button className="lib-pill-btn" aria-label="Reverse instrument sort" onClick={() => setSortDirection(value => value === "asc" ? "desc" : "asc")}>{sortDirection === "asc" ? "Ascending" : "Descending"}</button>
                             <button className="icon-btn-ghost" onClick={handleCreateNew} title="Create Instrument">
                                 <FontAwesomeIcon icon={faPlus} />
                             </button>
@@ -1298,73 +1290,14 @@ const UniversalInstrumentModal = ({
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {filteredInstruments.map(inst => {
-                                        const isExpanded = expandedDetail?.instId === inst.id;
-                                        const isRowSelected = selectedIds.includes(inst.id);
-                                        const linkedShared = linkedSharedFor(inst);
-                                        return (
-                                            <React.Fragment key={inst.id}>
-                                                <tr
-                                                    onClick={(e) => handleRowSelect(e, inst.id)}
-                                                    onDoubleClick={() => handleEditLibraryItem(inst)}
-                                                    className={`hover-row ${isRowSelected ? 'row-selected' : ''}`}
-                                                    title="Select instrument"
-                                                    tabIndex={0}
-                                                    aria-selected={isRowSelected}
-                                                >
-                                                    <td style={{ fontWeight: '600' }}>{inst.manufacturer}</td>
-                                                    <td style={{ color: 'var(--primary-color)', fontWeight: 'bold' }}>{inst.model}</td>
-                                                    <td style={{ color: 'var(--text-color-muted)' }}>{inst.description}</td>
-                                                    <td>
-                                                        <InstrumentSourceBadge
-                                                            instrument={inst}
-                                                            linkedInstrument={linkedShared}
-                                                        />
-                                                    </td>
-                                                    <td onClick={e => e.stopPropagation()}>
-                                                        <div style={{ display: "flex", flexWrap: "wrap", gap: "5px" }}>
-                                                            {inst.functions.map((f, functionIndex) => (
-                                                                <button
-                                                                    key={f.id || `${inst.id}-function-${functionIndex}`}
-                                                                    onClick={(e) => toggleFunctionDetails(e, inst.id, f.id)}
-                                                                    className={`status-pill ${isExpanded && expandedDetail.funcId === f.id ? "active" : ""}`}
-                                                                >
-                                                                    {f.name} <FontAwesomeIcon icon={isExpanded && expandedDetail.funcId === f.id ? faChevronUp : faChevronDown} size="xs" />
-                                                                </button>
-                                                            ))}
-                                                        </div>
-                                                    </td>
-                                                </tr>
-                                                {isExpanded && (
-                                                    <tr className="detail-row">
-                                                        <td colSpan="5">
-                                                            <div style={{padding: '10px', background: 'var(--background-color-secondary)'}}>
-                                                                {(() => {
-                                                                    const func = inst.functions.find(f => f.id === expandedDetail.funcId);
-                                                                    if (!func) return null;
-                                                                    return (
-                                                                        <table className="ranges-table">
-                                                                            <thead><tr><th>Min</th><th>Max</th><th>Resolution</th><th>Spec</th></tr></thead>
-                                                                            <tbody>
-                                                                                {func.ranges.map((r, i) => (
-                                                                                    <tr key={i}>
-                                                                                        <td>{r.min}</td>
-                                                                                        <td>{r.max}</td>
-                                                                                        <td>{r.resolution ?? 0}</td>
-                                                                                        <td>{formatToleranceSummary(r.tolerances)}</td>
-                                                                                    </tr>
-                                                                                ))}
-                                                                            </tbody>
-                                                                        </table>
-                                                                    )
-                                                                })()}
-                                                            </div>
-                                                        </td>
-                                                    </tr>
-                                                )}
-                                            </React.Fragment>
-                                        )
-                                    })}
+                                    {filteredInstruments.map(inst => <LibraryInstrumentRow key={inst.id}
+                                        draft={libraryDrafts[inst.id] || null}
+                                        setDraft={update => setLibraryDrafts(previous => ({ ...previous, [inst.id]: typeof update === "function" ? update(previous[inst.id]) : update }))}
+                                        instrument={inst} selected={selectedIds.includes(inst.id)}
+                                        onSelect={event => handleRowSelect(event, inst.id)} onEdit={handleEditLibraryItem}
+                                        onSave={onSaveToLibrary}
+                                        sourceBadge={<InstrumentSourceBadge instrument={inst} linkedInstrument={linkedSharedFor(inst)} />} />)}
+                                    {!filteredInstruments.length && <tr><td colSpan="5">No instruments match your search or filter.</td></tr>}
                                 </tbody>
                             </table>
                         </div>

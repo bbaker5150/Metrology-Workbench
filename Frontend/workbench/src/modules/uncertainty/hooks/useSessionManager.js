@@ -860,12 +860,7 @@ const useSessionManager = () => {
         loadedSession,
         sessions,
       );
-      const liveLibrary = await axios.get(`${UNCERTAINTY_API}/instruments/`, { params: { owner: getDeviceKey() } });
-      const { session: importedSession, localInstruments } = reconcileImportedInstruments(prepared, Array.isArray(liveLibrary.data) ? liveLibrary.data : [], getDeviceKey());
-      for (const instrument of localInstruments) {
-        const saved = await axios.post(`${UNCERTAINTY_API}/instruments/`, instrument);
-        replaceInstruments(previous => [...previous, saved?.data?.id ? saved.data : instrument]);
-      }
+      const { session: importedSession } = reconcileImportedInstruments(prepared);
       if (requireSaved && !(await persistSession(importedSession))) {
         throw new Error("The new budget could not be saved to the database. Your current session is unchanged.");
       }

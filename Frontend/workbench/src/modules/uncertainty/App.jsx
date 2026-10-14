@@ -5922,7 +5922,14 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
           isOpen={isInstrumentBuilderOpen}
           onClose={() => setIsInstrumentBuilderOpen(false)}
           onSave={handleUniversalModalSave}
-          onSaveToLibrary={saveInstrument}
+          onSaveToLibrary={async (instrument, options) => {
+            const saved = await saveInstrument(instrument, options);
+            if (saved && currentSessionData) {
+              const next = syncInstrumentBudgetComponents(currentSessionData, saved);
+              if (next !== currentSessionData) updateSession(next);
+            }
+            return saved;
+          }}
           onInstrumentSynced={reconcileSyncedInstrument}
           onDelete={deleteInstrument}
           onBatchAdd={handleBatchAddInstruments}
