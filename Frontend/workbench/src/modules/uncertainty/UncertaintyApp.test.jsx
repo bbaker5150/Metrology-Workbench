@@ -1449,12 +1449,14 @@ describe("UncertaintyApp", () => {
     fireEvent.click(
       screen.getByRole("button", { name: "Instrument Library" }),
     );
-    const libraryRow = (await screen.findByText("LIB-DELETE")).closest("tr");
-    fireEvent.click(libraryRow);
+    const library = await screen.findByRole("dialog", { name: "Instrument library" });
+    fireEvent.click(within(library).getByRole("button", {
+      name: "Select instrument Acme LIB-DELETE Library Delete Target",
+    }));
     fireEvent.keyDown(window, { key: "Delete" });
 
     expect(
-      screen.getByRole("alertdialog", { name: "Delete Instrument" }),
+      screen.getByRole("alertdialog", { name: "Remove instruments" }),
     ).toBeInTheDocument();
     expect(
       screen.queryByRole("alertdialog", { name: "Delete UUT" }),

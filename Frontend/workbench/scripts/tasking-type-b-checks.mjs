@@ -53,7 +53,7 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
   await frame.evaluate(() => location.reload());
   await frame.getByRole("combobox", { name: "Analysis Session" }).waitFor();
   await frame.getByRole("button", { name: "Switch to dark mode", exact: true }).click();
-  await frame.getByRole("button", { name: "Instrument builder", exact: true }).click();
+  await frame.getByRole("button", { name: "Instrument Library", exact: true }).click();
   const library = frame.getByRole("dialog", { name: "Instrument library", exact: true });
   check("library uses the same instrument table as the workspace", await library.locator(".instrument-equipment-table").count() === 1 && await library.locator(".library-table").count() === 0);
   check("library omits function sections and Type B authoring", await library.locator(".function-spec-section, .typeb-card, .budget-dynamic-row").count() === 0 && await library.getByRole("button", { name: "Add Type B component", exact: true }).count() === 0);
@@ -73,7 +73,7 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
   await newTable.getByRole('textbox', { name: 'Error source name' }).fill('Temporary switched table');
   await newTable.getByRole('textbox', { name: 'Error source name' }).press('Enter');
   const tableEditor = frame.locator(".budget-dynamic-row").filter({ hasText: "Temporary switched table" });
-  await tableEditor.locator("[data-budget-field=\"tolerance\"]").click();
+  await tableEditor.locator(".dynamic-tolerance-cell").click();
   await tableEditor.locator('[data-dynamic-cell="0:0"]').fill('5');
   await tableEditor.locator('[data-dynamic-cell="0:1"]').fill('.01');
   check('budget table inputs share the themed inline styling', await tableEditor.locator('[data-dynamic-cell="0:1"]').evaluate(node => getComputedStyle(node).borderRadius === '4px' && getComputedStyle(node).backgroundColor !== 'rgb(255, 255, 255)'));

@@ -439,7 +439,7 @@ if (/not set up yet/i.test(frameText)) {
   }
   await frame.getByTitle('Delete Session', { exact: true }).click();
   check('session deletion archives the full document without a dialog', await until(() => [...sessions.values()].some(doc => doc._uncertaintyArchive)) && dialogs.length === 0);
-  await frame.getByRole('button', { name: 'Instrument builder', exact: true }).click();
+  await frame.getByRole('button', { name: 'Instrument Library', exact: true }).click();
   const selectedLibraryRecords = instrumentItems.filter(item => ['instrument-301', 'instrument-302'].includes(item.RecordId));
   const retainedLibraryRecords = instrumentItems.filter(item => !selectedLibraryRecords.includes(item)).map(item => [item.RecordId, item.PayloadJson]);
   const retainedLibraryRecordsUnchanged = () => retainedLibraryRecords.every(([id, payload]) => instrumentItems.find(item => item.RecordId === id)?.PayloadJson === payload);
@@ -448,7 +448,29 @@ if (/not set up yet/i.test(frameText)) {
   // first selection and the assertion still checks exact archived identities.
   const first = library.locator('tr[data-instrument-id="instrument-301"]');
   const second = library.locator('tr[data-instrument-id="instrument-302"]');
-  await first.locator('.instrument-library-name').click();
+  await first.locator('.cell-description').hover();
+  const specs = first.locator('.instrument-library-specifications');
+  const remove = first.getByRole('button', { name: 'Delete Instrument', exact: true });
+  const beforeHover = await remove.boundingBox();
+  await remove.hover();
+  const afterHover = await remove.boundingBox();
+  check('library delete button stays fixed on hover', Math.abs(beforeHover.y - afterHover.y) < 0.5);
+  await specs.hover();
+  check('library specifications use the table accent highlight', await specs.evaluate(node => {
+    const style = getComputedStyle(node);
+    const reference = document.createElement('span');
+    reference.style.color = 'var(--function-input-accent, var(--primary-color))';
+    node.append(reference);
+    const accent = getComputedStyle(reference).color;
+    reference.remove();
+    return style.color === accent && style.boxShadow !== 'none';
+  }));
+  await specs.click();
+  check('library row specifications expand independently', await specs.getAttribute('aria-expanded') === 'true' && await second.locator('.instrument-library-name').count() === 1);
+  await first.locator('.cell-description').hover();
+  await specs.click();
+  check('library row specifications toggle closed', await specs.getAttribute('aria-expanded') === 'false' && await first.locator('.instrument-library-name').count() === 1);
+  // The specs toggle already selected the first instrument.
   await second.locator('.instrument-library-name').click({ modifiers: ['Control'] });
   check('library selects exactly the two requested instruments', await library.locator('tr.selected-row, tr.instrument-selected').evaluateAll(rows => new Set(rows.map(row => row.dataset.instrumentId)).size) === 2);
   await page.keyboard.press('Delete');
@@ -457,7 +479,7 @@ if (/not set up yet/i.test(frameText)) {
   // The iframe can attach after navigation's network-idle event. Resolve it
   // lazily so the following action waits for the reloaded application.
   const reloaded = page.frameLocator('iframe#app');
-  await reloaded.getByRole('button', { name: 'Instrument builder', exact: true }).click();
+  await reloaded.getByRole('button', { name: 'Instrument Library', exact: true }).click();
   check('archived instruments stay absent after reload', await reloaded.getByRole('dialog', { name: 'Instrument library', exact: true }).locator('tr[data-instrument-id="instrument-301"], tr[data-instrument-id="instrument-302"]').count() === 0);
   check('records remain recoverable in SharePoint', sessions.size === 2 && selectedLibraryRecords.every(item => JSON.parse(item.PayloadJson).description === 'Archive smoke instrument') && retainedLibraryRecordsUnchanged());
 }

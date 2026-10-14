@@ -77,7 +77,9 @@ describe.each(['session', 'point'])('independent Measurement Areas in %s view', 
     const target = viewMode === 'session'
       ? screen.getByRole('button', { name: 'Other W200 Target standard' }).closest('tr')
       : screen.getAllByLabelText('Measurement area subsection name').find(node => node.textContent === 'Inspection').closest('tr');
-    fireEvent.drop(target, { dataTransfer: { getData: () => JSON.stringify({ items: [{ item: original, kind: 'uut', sourceFunctionKey: 'torque' }] }) } });
+    const mime = 'application/x-workbench-instruments';
+    const payload = JSON.stringify({ items: [{ item: original, kind: 'uut', sourceFunctionKey: 'torque' }] });
+    fireEvent.drop(target, { dataTransfer: { types: [mime], getData: type => type === mime ? payload : '' } });
     expect(save.mock.lastCall[0].uuts.find(item => item.id === 'source').measurementAreaNames).toEqual(['Inspection']);
     expect(save.mock.lastCall[0].uuts.find(item => item.id === 'source').instrument).toEqual(lengthInstrument);
   });
