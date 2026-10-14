@@ -21911,7 +21911,7 @@ body.light-mode .uncertainty-module :is(.instrument-equipment-table, .instrument
 .uncertainty-module .budget-range-selector .inline-menu-select-trigger > svg { align-self: center; }
 
 .uncertainty-type-menu { position: relative; display: inline-flex; }
-.uncertainty-type-menu .instrument-source-settings { right: 0; left: auto; z-index: 30; }
+.uncertainty-module .uncertainty-type-menu .instrument-source-settings { position: fixed; inset: auto; margin: 0; overflow-y: auto; z-index: 30; }
 .budget-uncertainty-type-toolbar { display: flex; justify-content: flex-end; }
 
 /* Empty measurement areas use the same instruction and arrow as empty points. */
