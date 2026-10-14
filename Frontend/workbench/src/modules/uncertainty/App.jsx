@@ -5925,8 +5925,6 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
         {/* Global Library Modal (Instrument Manager) */}
         {instrumentModalConfig.mode === "library" ? <InstrumentLibraryModal
           isOpen={isInstrumentBuilderOpen}
-          contextSession={currentSessionData}
-          contextPoint={analysisMode === "uncertaintyTool" ? currentTestPoints.find(point => point.id === selectedTestPointId) || virtualPoint : null}
           onClose={() => setIsInstrumentBuilderOpen(false)}
           instruments={instruments} onSaveToLibrary={async (instrument, options) => {
             const saved = await saveInstrument(instrument, options);

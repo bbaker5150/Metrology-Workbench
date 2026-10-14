@@ -11,9 +11,9 @@ const openInstrument = id => {
  if (name?.getAttribute('aria-pressed') !== 'true') fireEvent.click(name);
  fireEvent.click(screen.getByRole('button', {name:'View or Edit Selected Instrument Specifications'}));
 };
-function Harness({ save=vi.fn(), remove=vi.fn(), close=vi.fn(), confirmDeletes=false, contextSession, contextPoint, initial=[definition('A'),definition('B','validated'),definition('C')] }) {
+function Harness({ save=vi.fn(), remove=vi.fn(), close=vi.fn(), confirmDeletes=false, initial=[definition('A'),definition('B','validated'),definition('C')] }) {
  const [instruments,setInstruments]=useState(initial);
- return <ConfirmRecordDeletesContext.Provider value={confirmDeletes}><InstrumentLibraryModal isOpen instruments={instruments} onClose={close} contextSession={contextSession} contextPoint={contextPoint}
+ return <ConfirmRecordDeletesContext.Provider value={confirmDeletes}><InstrumentLibraryModal isOpen instruments={instruments} onClose={close}
  onSaveToLibrary={async(value,options)=>{await save(value,options);setInstruments(previous=>[...previous.filter(item=>item.id!==value.id),value]);return value;}}
  onBatchAdd={vi.fn()} onDelete={async id=>{await remove(id);setInstruments(previous=>previous.filter(item=>item.id!==id));}} /></ConfirmRecordDeletesContext.Provider>;
 }
@@ -321,15 +321,6 @@ it('saves instrument-specific qualifier and custom headers and restores them on 
  expect(screen.getByRole('button',{name:'Interval',exact:true})).toBeInTheDocument();
  expect(screen.queryByRole('button',{name:'Calibration date',exact:true})).not.toBeInTheDocument();
 });
-it('takes its accent from the selected point area or the first overview area',()=>{
- const contextSession={measurementAreaGroups:[{name:'Voltage',color:'#aa1122'},{name:'Current',color:'#11aa22'}],uuts:[],tmdes:[],testPoints:[]};
- const view=render(<Harness contextSession={contextSession} contextPoint={{testPointInfo:{measurementArea:'Current'}}}/>);
- const modal=()=>screen.getByRole('dialog',{name:'Instrument library'});
- expect(modal().style.getPropertyValue('--primary-color')).toBe('#11aa22');
- view.rerender(<Harness contextSession={contextSession}/>);expect(modal().style.getPropertyValue('--primary-color')).toBe('#aa1122');
- view.rerender(<Harness/>);expect(modal().style.getPropertyValue('--primary-color')).toBe('');
-});
-
 it('isolates library column widths and the tolerance heading from the workspace TMDE table',()=>{
  render(<><Harness/><UncertaintyPanel testPointData={{id:'target',viewMode:'session'}} sessionData={{id:'target',uuts:[],tmdes:[],testPoints:[],measurementAreas:[]}} onSessionSave={()=>{}} /></>);
  openInstrument('A');

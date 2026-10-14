@@ -8,7 +8,6 @@ import NotificationModal from "../../../components/modals/NotificationModal";
 import { useFloatingWindow } from "../../../hooks/useFloatingWindow";
 import { instrumentMatchesSearch } from "../../../utils/functionGrouping";
 import { useConfirmRecordDeletes } from "../../../contexts/RecordDeletePolicy";
-import { measurementAreaKeyOf, resolveSessionMeasurementAreas } from "../../../utils/measurementAreaGrouping";
 import { journalSession, acknowledgeSession } from "../../../utils/sessionRecovery";
 import "./InstrumentLibraryModal.css";
 
@@ -33,9 +32,7 @@ const InstrumentSpecificationsIcon = () => <svg viewBox="0 0 32 32" width="20" h
 
 // The library is an adapter around the actual overview instrument table. Range
 // rendering, editors, selection, clipboard and creation all stay in that table.
-export default function InstrumentLibraryModal({ isOpen, onClose, instruments = [], onSaveToLibrary, onDelete, onInstrumentSynced, contextSession, contextPoint }) {
-  const areas = contextSession ? resolveSessionMeasurementAreas(contextSession) : [];
-  const accent = (contextPoint ? areas.find(area => area.key === measurementAreaKeyOf(contextPoint)) : areas[0])?.color;
+export default function InstrumentLibraryModal({ isOpen, onClose, instruments = [], onSaveToLibrary, onDelete, onInstrumentSynced }) {
   const dragSelection = useRef(null);
   const [session, setSession] = useState(() => initialSession(instruments));
   const current = useRef(session);
@@ -205,7 +202,7 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
       }
       dragSelection.current = row ? { id: row.id, ids: selection.includes(row.id) ? [...selection] : [row.id] } : null;
     }}
-    style={{ left: position.x, top: position.y, ...(accent ? { "--primary-color": accent, "--primary-color-light": `color-mix(in srgb, ${accent} 12%, transparent)` } : {}) }}>
+    style={{ left: position.x, top: position.y }}>
     {error && <div className="instrument-library-save-error"><span role="alert">{error}</span><button onClick={() => [...failed.current.values()].forEach(enqueue)}>Retry save</button></div>}
     <UncertaintyPanel libraryMode testPointData={libraryPoint} sessionData={session}
       libraryExpandedIds={expandedIds} libraryActiveId={activeId} onLibraryExpand={id => { setActiveId(id); setExpandedIds(previous => previous.includes(id) ? previous : [...previous, id]); }}
