@@ -107,7 +107,7 @@ describe("instrumentSync", () => {
   it("buildValidatedSnapshot captures only the defining fields", () => {
     const snap = buildValidatedSnapshot(validated({ assetId: "ignore-me" }));
     expect(Object.keys(snap).sort()).toEqual(
-      ["description", "functions", "manufacturer", "model", "typeBComponents", "ranges", "tmdeSecondaryUncertainties"].sort(),
+      ["description", "functions", "manufacturer", "model", "typeBComponents", "ranges", "tmdeSecondaryUncertainties", "qualifierColumnNames", "customColumns"].sort(),
     );
     expect(snap.assetId).toBeUndefined();
   });

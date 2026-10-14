@@ -308,7 +308,7 @@ describe("UncertaintyApp", () => {
 
     fireEvent.click(await screen.findByRole("button", { name: "Close walkthrough" }));
     const builderButton = await screen.findByRole("button", {
-      name: "Instrument builder",
+      name: "Instrument Library",
     });
     expect(screen.queryByRole("dialog", { name: "Instrument library" })).not.toBeInTheDocument();
     expect(readEditorDraft("open-instrument-builder")).toBeNull();
@@ -1447,7 +1447,7 @@ describe("UncertaintyApp", () => {
     expect(uutRow).toHaveClass("selected-row");
 
     fireEvent.click(
-      screen.getByRole("button", { name: "Instrument builder" }),
+      screen.getByRole("button", { name: "Instrument Library" }),
     );
     const libraryRow = (await screen.findByText("LIB-DELETE")).closest("tr");
     fireEvent.click(libraryRow);

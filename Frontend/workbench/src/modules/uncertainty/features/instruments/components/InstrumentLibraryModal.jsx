@@ -8,6 +8,7 @@ import NotificationModal from "../../../components/modals/NotificationModal";
 import { useFloatingWindow } from "../../../hooks/useFloatingWindow";
 import { instrumentMatchesSearch } from "../../../utils/functionGrouping";
 import { useConfirmRecordDeletes } from "../../../contexts/RecordDeletePolicy";
+import { measurementAreaKeyOf, resolveSessionMeasurementAreas } from "../../../utils/measurementAreaGrouping";
 import "./InstrumentLibraryModal.css";
 
 const libraryEntries = instruments => instruments.filter(item => item.scope !== "session");
@@ -24,11 +25,15 @@ const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "bas
 
 // The library is an adapter around the actual overview instrument table. Range
 // rendering, editors, selection, clipboard and creation all stay in that table.
-export default function InstrumentLibraryModal({ isOpen, onClose, instruments = [], onSaveToLibrary, onDelete, onInstrumentSynced }) {
+export default function InstrumentLibraryModal({ isOpen, onClose, instruments = [], onSaveToLibrary, onDelete, onInstrumentSynced, contextSession, contextPoint }) {
+  const areas = contextSession ? resolveSessionMeasurementAreas(contextSession) : [];
+  const accent = (contextPoint ? areas.find(area => area.key === measurementAreaKeyOf(contextPoint)) : areas[0])?.color;
+  const dragSelection = useRef(null);
   const [session, setSession] = useState(() => initialSession(instruments));
   const current = useRef(session);
   const [selection, setSelection] = useState([]);
   const [expandedIds, setExpandedIds] = useState([]);
+  const [activeId, setActiveId] = useState(null);
   const [query, setQuery] = useState("");
   const [source, setSource] = useState("all");
   const [optionsOpen, setOptionsOpen] = useState(false);
@@ -158,7 +163,7 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
     const collapseOutsideLibrary = event => {
       // Keep header dragging, table edits and portaled controls inside the
       // library interaction. Wait until click so blur-driven saves finish first.
-      if (windowRef.current?.contains(event.target)) return;
+      if (windowRef.current?.contains(event.target) || event.target.closest?.("[data-theme-toggle]")) return;
       if (event.target.closest?.(".inline-unit-menu, .inline-tolerance-shape-menu, .inline-tolerance-shape-backdrop, .inline-desc-search, .modal-overlay, [role='alertdialog'], [role='dialog']:not(.instrument-library-window)")) return;
       const active = document.activeElement;
       if (windowRef.current?.contains(active)) active.blur?.();
@@ -193,7 +198,8 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
   };
   const startLibraryDrag = (event, id) => {
     event.stopPropagation();
-    const ids = selection.includes(id) ? selection : [id];
+    const ids = dragSelection.current?.id === id ? dragSelection.current.ids : selection.includes(id) ? selection : [id];
+    dragSelection.current = null;
     const rows = current.current.tmdes.filter(row => ids.includes(row.id));
     event.dataTransfer.effectAllowed = "copy";
     event.dataTransfer.setData(LIBRARY_INSTRUMENT_MIME, JSON.stringify(rows.map(definitionFor)));
@@ -201,10 +207,16 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
   };
   if (!isOpen) return null;
   return ReactDOM.createPortal(<div ref={windowRef} className={`uncertainty-module instrument-library-window modal-content floating-window-content${!expandedIds.length ? " is-names-only" : ""}`} role="dialog" aria-label="Instrument library"
-    style={{ left: position.x, top: position.y }}>
+    onPointerDownCapture={event => {
+      const id = event.target.closest?.('tr[data-instrument-id]')?.dataset.instrumentId;
+      const row = current.current.tmdes.find(item => String(item.id) === id);
+      if (row) setActiveId(row.id);
+      dragSelection.current = row ? { id: row.id, ids: selection.includes(row.id) ? [...selection] : [row.id] } : null;
+    }}
+    style={{ left: position.x, top: position.y, ...(accent ? { "--primary-color": accent, "--primary-color-light": `color-mix(in srgb, ${accent} 12%, transparent)` } : {}) }}>
     {error && <div className="instrument-library-save-error"><span role="alert">{error}</span><button onClick={() => [...failed.current.values()].forEach(enqueue)}>Retry save</button></div>}
     <UncertaintyPanel libraryMode testPointData={libraryPoint} sessionData={session}
-      libraryExpandedIds={expandedIds} onLibraryExpand={id => setExpandedIds(previous => previous.includes(id) ? previous : [...previous, id])}
+      libraryExpandedIds={expandedIds} libraryActiveId={activeId} onLibraryExpand={id => { setActiveId(id); setExpandedIds(previous => previous.includes(id) ? previous : [...previous, id]); }}
       onLibraryDragStart={startLibraryDrag}
       libraryVisibleIds={visibleIds} onSessionSave={updateSession} instruments={instruments}
       onSaveInstrument={onSaveToLibrary} onDeleteLibraryInstrument={onDelete} onInstrumentSynced={onInstrumentSynced}

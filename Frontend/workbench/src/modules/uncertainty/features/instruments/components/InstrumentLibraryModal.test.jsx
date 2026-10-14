@@ -7,9 +7,9 @@ import { ConfirmRecordDeletesContext } from '../../../contexts/RecordDeletePolic
 vi.mock('plotly.js-dist', () => ({ default: {} }));
 const definition = (id, scope='local') => ({ id, scope, manufacturer: 'Example', model: id, description: `Meter ${id}`, functions: [{id:'f', name:'Voltage', unit:'V', ranges:[{id:'r', min:0, max:10, unit:'V', resolution:0.01, tolerances:{reading:{value:1,unit:'%'}}}]}] });
 const openInstrument = id => fireEvent.click(document.querySelector(`tr[data-instrument-id="${id}"] .instrument-library-edit`));
-function Harness({ save=vi.fn(), remove=vi.fn(), close=vi.fn(), confirmDeletes=false, initial=[definition('A'),definition('B','validated'),definition('C')] }) {
+function Harness({ save=vi.fn(), remove=vi.fn(), close=vi.fn(), confirmDeletes=false, contextSession, contextPoint, initial=[definition('A'),definition('B','validated'),definition('C')] }) {
  const [instruments,setInstruments]=useState(initial);
- return <ConfirmRecordDeletesContext.Provider value={confirmDeletes}><InstrumentLibraryModal isOpen instruments={instruments} onClose={close}
+ return <ConfirmRecordDeletesContext.Provider value={confirmDeletes}><InstrumentLibraryModal isOpen instruments={instruments} onClose={close} contextSession={contextSession} contextPoint={contextPoint}
  onSaveToLibrary={async(value,options)=>{await save(value,options);setInstruments(previous=>[...previous.filter(item=>item.id!==value.id),value]);return value;}}
  onBatchAdd={vi.fn()} onDelete={async id=>{await remove(id);setInstruments(previous=>previous.filter(item=>item.id!==id));}} /></ConfirmRecordDeletesContext.Provider>;
 }
@@ -252,4 +252,64 @@ it('adds, names, changes type and restores additional uncertainties in the libra
  expect(document.querySelector('.instrument-uncertainty-row')).toHaveTextContent('Thermal drift');
  fireEvent.click(document.querySelector('.instrument-uncertainty-row .cell-tolerance button'));
  expect(document.querySelector('.instrument-uncertainty-row .dynamic-budget-editor')).toHaveAttribute('data-dynamic-kind','equation');
+});
+
+it('preserves selection through editor controls and theme changes without library move controls',()=>{
+ render(<><Harness/><button data-theme-toggle>Theme</button></>);
+ openInstrument('A');
+ const row=()=>document.querySelector('tr[data-instrument-id="A"]');
+ const click=button=>{fireEvent.pointerDown(button,{button:0});fireEvent.mouseDown(button,{button:0});fireEvent.click(button);};
+ click(within(row()).getByTitle('Edit tolerance'));
+ for(const label of ['Asymmetric tolerance','Single-sided tolerance','Double-sided tolerance','Symmetric tolerance']) {
+   click(within(row()).getByTitle(label));expect(row()).toHaveClass('instrument-selected');
+ }
+ expect(document.querySelector('.instrument-order-controls')).toBeNull();
+ click(screen.getByRole('button',{name:'Theme'}));
+ expect(row().querySelector('.inline-tolerance-editor')).not.toBeNull();
+ expect(row()).toHaveClass('instrument-selected');
+});
+it('saves instrument-specific qualifier and custom headers and restores them on reopening',async()=>{
+ const a=definition('A'), b=definition('B');
+ for(const item of [a,b])item.functions[0].ranges[0].qualifier={id:'q',text:'60'};
+ a.qualifierColumnNames=['Frequency'];b.qualifierColumnNames=['Interval'];
+ const save=vi.fn();const view=render(<Harness initial={[a,b]} save={save}/>);
+ openInstrument('A');
+ fireEvent.click(screen.getByRole('button',{name:'Frequency',exact:true}));
+ const input=screen.getByLabelText('Qualifier 1 column name');fireEvent.change(input,{target:{value:'Test frequency'}});fireEvent.blur(input);
+ await waitFor(()=>expect(save.mock.calls.at(-1)?.[0].qualifierColumnNames).toEqual(['Test frequency']));
+ fireEvent.click(document.querySelector('th[data-instrument-column="resolution"] .instrument-column-insert-button'));
+ const name=screen.getByLabelText('Column name');fireEvent.change(name,{target:{value:'Calibration date'}});fireEvent.blur(name);
+ await waitFor(()=>expect(save.mock.calls.at(-1)?.[0].customColumns?.[0].label).toBe('Calibration date'));
+ const saved=save.mock.calls.at(-1)[0];
+ openInstrument('B');expect(screen.getByRole('button',{name:'Interval',exact:true})).toBeInTheDocument();
+ fireEvent.pointerDown(document.querySelector('tr[data-instrument-id="A"]'),{button:0});
+ expect(screen.getByRole('button',{name:'Test frequency',exact:true})).toBeInTheDocument();
+ view.unmount();render(<Harness initial={[saved,b]}/>);openInstrument('A');
+ expect(screen.getByRole('button',{name:'Test frequency',exact:true})).toBeInTheDocument();
+ expect(screen.getByRole('button',{name:'Calibration date',exact:true})).toBeInTheDocument();
+ fireEvent.keyDown(window,{key:'Escape'});openInstrument('B');
+ expect(screen.getByRole('button',{name:'Interval',exact:true})).toBeInTheDocument();
+ expect(screen.queryByRole('button',{name:'Calibration date',exact:true})).not.toBeInTheDocument();
+});
+it('takes its accent from the selected point area or the first overview area',()=>{
+ const contextSession={measurementAreaGroups:[{name:'Voltage',color:'#aa1122'},{name:'Current',color:'#11aa22'}],uuts:[],tmdes:[],testPoints:[]};
+ const view=render(<Harness contextSession={contextSession} contextPoint={{testPointInfo:{measurementArea:'Current'}}}/>);
+ const modal=()=>screen.getByRole('dialog',{name:'Instrument library'});
+ expect(modal().style.getPropertyValue('--primary-color')).toBe('#11aa22');
+ view.rerender(<Harness contextSession={contextSession}/>);expect(modal().style.getPropertyValue('--primary-color')).toBe('#aa1122');
+ view.rerender(<Harness/>);expect(modal().style.getPropertyValue('--primary-color')).toBe('');
+});
+
+it('isolates library column widths and the tolerance heading from the workspace TMDE table',()=>{
+ render(<><Harness/><UncertaintyPanel testPointData={{id:'target',viewMode:'session'}} sessionData={{id:'target',uuts:[],tmdes:[],testPoints:[],measurementAreas:[]}} onSessionSave={()=>{}} /></>);
+ openInstrument('A');
+ const modal=screen.getByRole('dialog',{name:'Instrument library'});
+ const workspace=[...document.querySelectorAll('.instrument-equipment-table')].find(table=>!modal.contains(table)&&table.querySelector('th[data-instrument-column="distribution"]'));
+ expect(workspace.querySelector('th[data-instrument-column="tolerance"]')).toHaveAccessibleName('Uncertainty');
+ expect(modal.querySelector('th[data-instrument-column="tolerance"]')).toHaveAccessibleName('Tolerance/Uncertainty');
+ const before=workspace.querySelector('col').getAttribute('style');
+ fireEvent.keyDown(within(modal).getByRole('button',{name:'Resize Description column'}),{key:'ArrowRight'});
+ expect(workspace.querySelector('col').getAttribute('style')).toBe(before);
+ expect(localStorage.getItem('uncertalytics:library:tmde:instrument-column-widths:v2')).not.toBeNull();
+ localStorage.removeItem('uncertalytics:library:tmde:instrument-column-widths:v2');
 });

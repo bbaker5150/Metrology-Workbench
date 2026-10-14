@@ -99,7 +99,7 @@ import {
   faQuestionCircle,
   faLayerGroup,
   faMicroscope,
-  faRadio,
+  faBookOpen,
   faHistory,
   faRightLeft,
   faSave,
@@ -5925,6 +5925,8 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
         {/* Global Library Modal (Instrument Manager) */}
         {instrumentModalConfig.mode === "library" ? <InstrumentLibraryModal
           isOpen={isInstrumentBuilderOpen}
+          contextSession={currentSessionData}
+          contextPoint={analysisMode === "uncertaintyTool" ? currentTestPoints.find(point => point.id === selectedTestPointId) || virtualPoint : null}
           onClose={() => setIsInstrumentBuilderOpen(false)}
           instruments={instruments} onSaveToLibrary={async (instrument, options) => {
             const saved = await saveInstrument(instrument, options);
@@ -6044,12 +6046,12 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
                         handleOpenLibrary();
                       }
                     }}
-                    title="Instrument builder"
-                    aria-label="Instrument builder"
+                    title="Instrument Library"
+                    aria-label="Instrument Library"
                     data-ui-toggle
                     aria-expanded={isInstrumentBuilderOpen}
                   >
-                    <FontAwesomeIcon icon={faRadio} />
+                    <FontAwesomeIcon icon={faBookOpen} />
                   </button>
                   <button
                     type="button"
@@ -6144,6 +6146,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
                     <button
                       type="button"
                       className="app-chrome-meta-icon"
+                      data-theme-toggle
                       onClick={toggleTheme}
                       title={
                         theme === "dark"

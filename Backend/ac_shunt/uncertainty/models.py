@@ -263,6 +263,7 @@ class Instrument(models.Model):
     instrument_type = models.CharField(max_length=64, blank=True, default="")
     # functions[] -> ranges[] -> tolerances{} : irregular nested tree -> JSON.
     functions = models.JSONField(default=list, blank=True)
+    column_metadata = models.JSONField(default=dict, blank=True)
 
     # Instrument-level associated Type B uncertainty components (e.g. head
     # pressure on a pressure gage). Same shape as a tolerance's manual

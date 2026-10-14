@@ -196,6 +196,7 @@ def session_to_dict(s):
 
 def instrument_to_dict(i):
     return {
+        **(i.column_metadata or {}),
         "id": _coerce_id(i.id),
         "manufacturer": i.manufacturer,
         "model": i.model,
@@ -450,6 +451,10 @@ def save_instrument(data):
         "measurement_area_color": data.get("measurementAreaColor", "") or "",
         "instrument_type": data.get("type", "") or "",
         "functions": data.get("functions") or [],
+        "column_metadata": {
+            **(existing.column_metadata if existing else {}),
+            **{key: data[key] for key in ("qualifierColumnNames", "customColumns", "customFields", "rangeCustomFields") if key in data},
+        },
         "type_b_components": data.get("typeBComponents") or [],
         "scope": scope,
         "owner": owner or (existing.owner if existing else ""),

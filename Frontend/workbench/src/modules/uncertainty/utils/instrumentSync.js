@@ -18,10 +18,12 @@ export const SNAPSHOT_FIELDS = [
   "typeBComponents",
   "tmdeSecondaryUncertainties",
   "ranges",
+  "qualifierColumnNames",
+  "customColumns",
 ];
 
 // Defining fields that are arrays (default to [] rather than "" when absent).
-const ARRAY_SNAPSHOT_FIELDS = new Set(["functions", "typeBComponents", "tmdeSecondaryUncertainties", "ranges"]);
+const ARRAY_SNAPSHOT_FIELDS = new Set(["functions", "typeBComponents", "tmdeSecondaryUncertainties", "ranges", "qualifierColumnNames", "customColumns"]);
 
 const stableStringify = (value) => {
   // Order-independent JSON so key ordering can't produce false divergence.

@@ -51,6 +51,7 @@ export default function WorkbenchTopBar() {
         <button
           type="button"
           className="workbench-topbar-icon-btn"
+          data-theme-toggle
           onClick={(e) => toggleTheme(e)}
           aria-label={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}
           title={theme === "dark" ? "Switch to light mode" : "Switch to dark mode"}

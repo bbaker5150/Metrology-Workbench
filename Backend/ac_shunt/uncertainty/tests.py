@@ -276,6 +276,21 @@ class InstrumentAndBugReportTests(APITestCase):
         self.assertEqual(delete.status_code, status.HTTP_204_NO_CONTENT)
         self.assertEqual(models.Instrument.objects.count(), 0)
 
+    def test_instrument_column_metadata_round_trip(self):
+        columns = {"qualifierColumnNames": ["Frequency"],
+                   "customColumns": [{"key": "interval", "label": "Interval", "insertAfter": "range"}],
+                   "customFields": {"interval": "12 months"}, "rangeCustomFields": {"r1": {"interval": "6 months"}}}
+        payload = {"id": "column-spec", "owner": "bench-1", "scope": "local", **columns}
+        post = self.client.post("/api/uncertainty/instruments/", payload, format="json")
+        self.assertEqual(post.status_code, status.HTTP_201_CREATED)
+        listing = self.client.get("/api/uncertainty/instruments/", {"owner": "bench-1"})
+        for key, value in columns.items():
+            self.assertEqual(listing.data[0][key], value)
+        # A partial edit must not erase saved header names.
+        self.client.post("/api/uncertainty/instruments/", {"id": "column-spec", "owner": "bench-1", "model": "Updated"}, format="json")
+        listing = self.client.get("/api/uncertainty/instruments/", {"owner": "bench-1"})
+        self.assertEqual(listing.data[0]["qualifierColumnNames"], ["Frequency"])
+
     def test_global_listing_and_foreign_delete_do_not_expose_local_instruments(self):
         self.client.post(
             "/api/uncertainty/instruments/",

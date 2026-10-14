@@ -1930,6 +1930,7 @@ const confirmViaNotification = (
 // active column collapses it after blur-driven commits have run. Unit and
 // tolerance menus are portaled to <body>, so they remain part of the editor.
 const INLINE_EDITOR_PORTAL_SELECTOR =
+  "[data-theme-toggle], " +
   ".inline-unit-menu, .inline-tolerance-shape-menu, .inline-tolerance-shape-backdrop, .inline-desc-search";
 
 const isInstrumentScrollTarget = target => target?.matches?.(".instrument-panel-table-container, .dynamic-table-scroll");
@@ -2624,7 +2625,7 @@ const renderedInstrumentColumnWidths = (table) => {
   return Object.fromEntries(headers.map(header => [header.dataset.instrumentColumn, header.getBoundingClientRect().width / (table.getBoundingClientRect().width / table.offsetWidth || 1)]));
 };
 
-const useInstrumentColumnWidths = (kind, customColumns = [], qualifierEnabled = false) => {
+const useInstrumentColumnWidths = (kind, customColumns = [], qualifierEnabled = false, scope = "workspace") => {
   const beginResize = usePointerResize();
   const customSignature = customColumns
     .map((column) => `${column.key}:${column.insertAfter || "legacy"}`)
@@ -2640,7 +2641,7 @@ const useInstrumentColumnWidths = (kind, customColumns = [], qualifierEnabled = 
   }, [kind, customSignature]);
   // Keep existing proportional defaults until the user resizes a column.
   // Explicit resizing stores pixels so neighboring columns retain their widths.
-  const storageKey = `uncertalytics:${kind}:instrument-column-widths:v2`;
+  const storageKey = `uncertalytics:${scope === "library" ? "library:" : ""}${kind}:instrument-column-widths:v2`;
   const instanceIdRef = useRef(uuidv4());
   const [widths, setWidths] = useState(() => {
     try {
@@ -2655,6 +2656,7 @@ const useInstrumentColumnWidths = (kind, customColumns = [], qualifierEnabled = 
     const syncWidths = (event) => {
       if (
         event.detail?.kind !== kind ||
+        (event.detail?.scope || "workspace") !== scope ||
         event.detail?.source === instanceIdRef.current
       ) {
         return;
@@ -2664,7 +2666,7 @@ const useInstrumentColumnWidths = (kind, customColumns = [], qualifierEnabled = 
     window.addEventListener(INSTRUMENT_COLUMN_RESIZE_EVENT, syncWidths);
     return () =>
       window.removeEventListener(INSTRUMENT_COLUMN_RESIZE_EVENT, syncWidths);
-  }, [kind, defaults]);
+  }, [kind, defaults, scope]);
 
   useEffect(() => {
     const resetWidths = () => {
@@ -2716,11 +2718,11 @@ const useInstrumentColumnWidths = (kind, customColumns = [], qualifierEnabled = 
       }
       window.dispatchEvent(
         new CustomEvent(INSTRUMENT_COLUMN_RESIZE_EVENT, {
-          detail: { kind, widths: next, source: instanceIdRef.current },
+          detail: { kind, scope, widths: next, source: instanceIdRef.current },
         }),
       );
     },
-    [kind, storageKey],
+    [kind, storageKey, scope],
   );
 
   const resizePair = useCallback((key, deltaPixels, tablePixelWidth, sourceWidths = null) => {
@@ -2858,6 +2860,7 @@ const InstrumentTableHeader = ({
   columns,
   renderCustomColumnHeader,
   qualifierNames = [],
+  libraryMode = false,
   onRenameQualifier,
   onInsertAfter,
 }) => {
@@ -2869,7 +2872,7 @@ const InstrumentTableHeader = ({
   const labelFor = (columnKey) => {
     const custom = customByKey.get(columnKey);
     if (custom) return custom.label || "Name";
-    if (kind === "tmde" && columnKey === "tolerance") return "Tolerance/Uncertainty";
+    if (kind === "tmde" && columnKey === "tolerance") return libraryMode ? "Tolerance/Uncertainty" : "Uncertainty";
     if (columnKey.startsWith("qualifier")) return qualifierNames[Number(columnKey.slice(9) || 1) - 1] ?? "Qualifier";
     return INSTRUMENT_COLUMN_LABELS[columnKey] || columnKey;
   };
@@ -6769,6 +6772,7 @@ const SummaryDashboard = ({
   libraryToolbar,
   libraryVisibleIds,
   libraryExpandedIds = [],
+  libraryActiveId = null,
   onLibraryExpand,
   onLibraryDragStart,
   viewMode,
@@ -6825,12 +6829,22 @@ const SummaryDashboard = ({
   );
   const { syncToShared, getDiff } = useInstrumentSync(onInstrumentSynced);
   const libraryColumnItems = libraryMode ? sessionData.tmdes.filter(item => libraryExpandedIds.includes(item.id)) : sessionData.tmdes;
+  const libraryHeaderItem = libraryMode ? libraryColumnItems.find(item => item.id === (libraryActiveId ?? currentTmdeSelection?.at(-1)))
+    || libraryColumnItems.find(item => item.id === libraryExpandedIds.at(-1)) : null;
   const customColumnsFor = (kind) => {
     const columns = sessionData.instrumentCustomColumns?.[kind] || [];
     if (!libraryMode || kind !== "tmde") return columns;
-    return columns.filter(column => libraryColumnItems.some(item =>
-      column.libraryInstrumentIds?.includes(item.id) || column.libraryInstrumentId === item.id || Object.hasOwn(item.customFields || {}, column.key) ||
-      Object.values(item.rangeCustomFields || {}).some(fields => Object.hasOwn(fields, column.key))));
+    return [...new Map(libraryColumnItems.flatMap(item => item.instrument?.customColumns || []).map(column => [column.key, column])).values()];
+  };
+  const libraryColumnOwner = key => libraryHeaderItem?.instrument?.customColumns?.some(column => column.key === key)
+    ? libraryHeaderItem : libraryColumnItems.find(item => item.instrument?.customColumns?.some(column => column.key === key));
+  const saveLibraryColumns = (item, changes) => {
+    if (item) persistInlineItem("tmde", { ...item, instrument: { ...item.instrument, ...changes } });
+  };
+  const renameLibraryQualifier = (index, name) => {
+    if (!libraryHeaderItem) return;
+    const names = [...(libraryHeaderItem.instrument.qualifierColumnNames || [])]; names[index] = name;
+    saveLibraryColumns(libraryHeaderItem, { qualifierColumnNames: names });
   };
   const uutTableColumns = useInstrumentColumnWidths(
     "uut",
@@ -6841,6 +6855,7 @@ const SummaryDashboard = ({
     "tmde",
     customColumnsFor("tmde"),
     instrumentQualifierDepth(libraryColumnItems),
+    libraryMode ? "library" : "workspace",
   );
   const uutTableHeight = useInstrumentTableHeight(
     "overview",
@@ -6854,6 +6869,11 @@ const SummaryDashboard = ({
   );
   const requestCustomColumn = (kind, insertAfter = "resolution") => {
     const key = `field-${uuidv4().slice(0, 8)}`;
+    if (libraryMode && kind === "tmde") {
+      if (!libraryHeaderItem) return;
+      saveLibraryColumns(libraryHeaderItem, { customColumns: [...(libraryHeaderItem.instrument.customColumns || []), { key, label: "Name", insertAfter }] });
+      setEditingCustomColumnKey(key); return;
+    }
     const current = sessionData.instrumentCustomColumns || {};
     onSessionSave?.({
       ...sessionData,
@@ -6868,6 +6888,11 @@ const SummaryDashboard = ({
     setEditingCustomColumnKey(key);
   };
   const updateCustomColumnLabel = (kind, key, label) => {
+    if (libraryMode && kind === "tmde") {
+      const item = libraryColumnOwner(key);
+      saveLibraryColumns(item, { customColumns: item?.instrument.customColumns.map(column => column.key === key ? { ...column, label } : column) });
+      setEditingCustomColumnKey(null); return;
+    }
     const current = sessionData.instrumentCustomColumns || {};
     onSessionSave?.({
       ...sessionData,
@@ -6881,6 +6906,13 @@ const SummaryDashboard = ({
     setEditingCustomColumnKey(null);
   };
   const requestDeleteCustomColumn = (kind, column) => {
+    if (libraryMode && kind === "tmde") {
+      const item = libraryColumnOwner(column.key);
+      if (!item) return;
+      const cleaned = removeInstrumentCustomColumn({ tmdes: [item] }, kind, column.key).tmdes[0];
+      persistInlineItem(kind, { ...cleaned, instrument: { ...item.instrument, customColumns: item.instrument.customColumns.filter(entry => entry.key !== column.key) } });
+      setEditingCustomColumnKey(null); return;
+    }
     const nextSession = removeInstrumentCustomColumn(latestSessionDataRef.current, kind, column.key);
     latestSessionDataRef.current = nextSession;
     onSessionSave?.(nextSession);
@@ -8215,6 +8247,17 @@ const SummaryDashboard = ({
   };
   const selectRangeRow = (event, kind, item, index, rangeId, stateItemId = item.id) => {
     if (event.button !== undefined && event.button !== 0) return;
+    if (libraryMode && kind === "tmde") {
+      // Editing a selected instrument never toggles it off. Preserve the batch
+      // on pointer-down so dragging any selected row transfers the whole set.
+      if (event.ctrlKey || event.metaKey || event.shiftKey) handleTmdeClick(event, item.id, true);
+      else if (!selectedTmdeIds.includes(item.id)) {
+        setSelectedTmdeIds([item.id]); setSelectedRangeIds({});
+      }
+      setLastSelectionTarget("tmde");
+      setTmdeRangeIndices(previous => Number.isInteger(index) ? { ...previous, [item.id]: index, [stateItemId]: index } : previous);
+      return;
+    }
     setSelectedInstrumentArea(null);
     if (event.target.closest('input, select, textarea, .range-row-add, .range-row-delete, .range-qualifier-add, .instrument-row-tools button, .instrument-order-controls')) return;
     pasteDestinationRef.current = { kind, areaKey: pasteAreaFromEvent(event, item), targetId: item.id };
@@ -9819,8 +9862,9 @@ const SummaryDashboard = ({
             />
             <InstrumentTableHeader
               kind="tmde"
-              qualifierNames={sessionData.qualifierColumnNames?.tmde || []}
-              onRenameQualifier={(index, name) => { const names = [...(sessionData.qualifierColumnNames?.tmde || [])]; names[index] = name; onSessionSave({ ...sessionData, qualifierColumnNames: { ...sessionData.qualifierColumnNames, tmde: names } }); }}
+              libraryMode={libraryMode}
+              qualifierNames={libraryMode ? libraryHeaderItem?.instrument?.qualifierColumnNames || [] : sessionData.qualifierColumnNames?.tmde || []}
+              onRenameQualifier={(index, name) => { if (libraryMode) { renameLibraryQualifier(index, name); return; } const names = [...(sessionData.qualifierColumnNames?.tmde || [])]; names[index] = name; onSessionSave({ ...sessionData, qualifierColumnNames: { ...sessionData.qualifierColumnNames, tmde: names } }); }}
               customColumns={customColumnsFor("tmde")}
               columns={tmdeTableColumns}
               renderCustomColumnHeader={renderCustomColumnHeader}
@@ -9856,7 +9900,7 @@ const SummaryDashboard = ({
                       <td className="cell-description" colSpan={!libraryExpandedIds.length ? 1 : getInstrumentColumnOrder("tmde", customColumnsFor("tmde"), tmdeTableColumns.qualifierEnabled).length}>
                         <div className="instrument-library-name-actions">
                           <button className="instrument-library-name" onClick={event => handleTmdeClick(event, tmde.id, true)} aria-pressed={selectedTmdeIds.includes(tmde.id)} aria-label={`Select instrument ${name}`}>{name}</button>
-                          <button className="instrument-library-edit icon-btn-ghost" aria-label={`Edit or View instrument ${name}`} title="Edit or View instrument" onClick={event => {
+                          <button className="instrument-library-edit icon-btn-ghost" aria-label={`Edit or View Instrument Specifications ${name}`} title="Edit or View Instrument Specifications" onClick={event => {
                             event.stopPropagation(); document.activeElement?.blur?.();
                             setSelectedTmdeIds([tmde.id]); setLastSelectionTarget("tmde"); onLibraryExpand?.(tmde.id);
                           }}><FontAwesomeIcon icon={faPen} /></button>
@@ -9935,16 +9979,16 @@ const SummaryDashboard = ({
                               {i === 0 && (
                                 <td
                                   rowSpan={spanRows}
-                                  className={`cell-description has-order-controls ${hoveredCell.tableId === "tmde" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
+                                  className={`cell-description${libraryMode ? "" : " has-order-controls"} ${hoveredCell.tableId === "tmde" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
                                   onMouseEnter={() =>
                                     setHoveredCell({ tableId: "tmde", colIndex: 0 })
                                   }
                                   title={tmde.name}
                                 >
-                                  <InstrumentOrderControls
+                                  {!libraryMode && <InstrumentOrderControls
                                     onMoveUp={() => moveInstrument("tmde", tmde.id, tmdeFnKey, -1)}
                                     onMoveDown={() => moveInstrument("tmde", tmde.id, tmdeFnKey, 1)}
-                                  />
+                                  />}
                                   <EditableDescriptionCell
                                     name={tmde.name}
                                     nickname={tmde.nickname}
@@ -10045,16 +10089,16 @@ const SummaryDashboard = ({
                       >
                         <td
                           rowSpan={rowSpan}
-                          className={`cell-description has-order-controls ${hoveredCell.tableId === "tmde" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
+                          className={`cell-description${libraryMode ? "" : " has-order-controls"} ${hoveredCell.tableId === "tmde" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
                           onMouseEnter={() =>
                             setHoveredCell({ tableId: "tmde", colIndex: 0 })
                           }
                           title={tmde.name}
                         >
-                          <InstrumentOrderControls
+                          {!libraryMode && <InstrumentOrderControls
                             onMoveUp={() => moveInstrument("tmde", tmde.id, tmdeFnKey, -1)}
                             onMoveDown={() => moveInstrument("tmde", tmde.id, tmdeFnKey, 1)}
-                          />
+                          />}
                           {onSessionSave ? (
                             <EditableDescriptionCell
                               name={tmde.name}
@@ -17249,6 +17293,7 @@ const UncertaintyPanel = (props) => {
         libraryToolbar={props.libraryToolbar}
         libraryVisibleIds={props.libraryVisibleIds}
         libraryExpandedIds={props.libraryExpandedIds}
+        libraryActiveId={props.libraryActiveId}
         onLibraryExpand={props.onLibraryExpand}
         onLibraryDragStart={props.onLibraryDragStart}
         viewMode={viewMode}
