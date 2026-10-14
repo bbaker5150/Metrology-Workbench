@@ -219,7 +219,9 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
             onClick={() => {
               document.activeElement?.blur?.();
               setActiveId(selection.at(-1));
-              setExpandedIds(previous => [...new Set([...previous, ...selection])]);
+              setExpandedIds(previous => selection.every(id => previous.includes(id))
+                ? previous.filter(id => !selection.includes(id))
+                : [...new Set([...previous, ...selection])]);
             }}><InstrumentSpecificationsIcon /></button>
         <div className="instrument-library-search">
           <FontAwesomeIcon icon={faSearch} />

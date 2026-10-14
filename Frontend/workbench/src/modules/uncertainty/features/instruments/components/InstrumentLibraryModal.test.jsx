@@ -149,7 +149,7 @@ it('shows local/shared sync actions in simplified rows and uses search without a
  fireEvent.change(screen.getByLabelText('Search instruments'),{target:{value:'missing'}});
  expect(screen.getByText(/No instruments match/)).toBeInTheDocument();
 });
-it('opens every selected instrument from the toolbar without changing the selection',()=>{
+it('toggles selected instrument specifications from the toolbar without changing selection',()=>{
  render(<Harness/>);
  const view=screen.getByRole('button',{name:'View or Edit Selected Instrument Specifications'});
  expect(view).toBeDisabled();
@@ -171,9 +171,17 @@ it('opens every selected instrument from the toolbar without changing the select
  expect(collapsed.querySelector('.cell-description').colSpan).toBe(screen.getAllByRole('columnheader').length-1);
  expect(collapsed.querySelector('.cell-sync .inline-sync-badge')).not.toBeNull();
  expect(view).toHaveAttribute('aria-expanded','true');
- fireEvent.keyDown(window,{key:'Escape'});
+ fireEvent.click(view);
  expect(view).toHaveAttribute('aria-expanded','false');
  expect(document.querySelectorAll('.instrument-library-name-row .cell-sync')).toHaveLength(3);
+ for(const id of ['A','C'])expect(document.querySelector(`tr[data-instrument-id="${id}"] .instrument-library-name`)).toHaveAttribute('aria-pressed','true');
+ fireEvent.click(view);
+ for(const id of ['A','C'])expect(document.querySelector(`tr[data-instrument-id="${id}"] .cell-tolerance`)).not.toBeNull();
+ // Select a different row: toggling its details must leave the others open.
+ fireEvent.click(document.querySelector('tr[data-instrument-id="B"] .instrument-library-name'));
+ fireEvent.click(view);fireEvent.click(view);
+ expect(document.querySelector('tr[data-instrument-id="B"] .instrument-library-name')).toHaveAttribute('aria-pressed','true');
+ for(const id of ['A','C'])expect(document.querySelector(`tr[data-instrument-id="${id}"] .cell-tolerance`)).not.toBeNull();
 });
 it('creates an instrument through the table and saves it locally',async()=>{
  const save=vi.fn();render(<Harness save={save}/>);
