@@ -1887,10 +1887,10 @@ const applyBandDistribution = (tolerance = {}, value) => {
   return next;
 };
 
-export const SyncBadge = ({ item, onSync, onDemote }) => {
+export const SyncBadge = ({ item, onSync, onDemote, allowSessionDemotion = true }) => {
   const state = computeSyncState(item?.instrument || item || {});
-  const label = state === "green" ? "Shared library — right-click to make local" : state === "yellow" ? "Local library — click to share; right-click for session only" : "Session only — click to save locally";
-  return <button type="button" className={`inline-sync-badge inline-sync-badge--${state}`} onClick={event => { event.stopPropagation(); onSync?.(); }} onContextMenu={event => { event.preventDefault(); event.stopPropagation(); if (state !== "red") onDemote?.(); }} disabled={!onSync && !onDemote} title={label} aria-label={label}>
+  const label = state === "green" ? "Shared library — right-click to make local" : state === "yellow" ? (allowSessionDemotion ? "Local library — click to share; right-click for session only" : "Local library — click to share") : "Session only — click to save locally";
+  return <button type="button" className={`inline-sync-badge inline-sync-badge--${state}`} onClick={event => { event.stopPropagation(); onSync?.(); }} onContextMenu={event => { event.preventDefault(); event.stopPropagation(); if (state === "green" || (state === "yellow" && allowSessionDemotion)) onDemote?.(); }} disabled={!onSync && !onDemote} title={label} aria-label={label}>
     <FontAwesomeIcon icon={state === "green" ? faLink : faLinkSlash} />
   </button>;
 };
@@ -6988,6 +6988,7 @@ const SummaryDashboard = ({
 
   const syncScopeChanges = useRef(new Set());
   const changeItemSyncScope = async (kind, item, scope) => {
+    if (libraryMode && scope === "session") return;
     const key = `${kind}:${item.id}`;
     if (syncScopeChanges.current.has(key)) return;
     syncScopeChanges.current.add(key);
@@ -9849,7 +9850,9 @@ const SummaryDashboard = ({
                   const tmdeFnKey = row.functionKey ?? null;
                   if (libraryMode && !libraryExpandedIds.includes(tmde.id)) {
                     const name = [tmde.instrument?.manufacturer, tmde.instrument?.model, tmde.name].filter(Boolean).join(" ") || "Untitled instrument";
-                    return <tr key={tmdeRowKey} data-instrument-id={tmde.id} draggable onDragStart={event => onLibraryDragStart?.(event, tmde.id)} className={`instrument-library-name-row${selectedTmdeIds.includes(tmde.id) ? " selected-row" : ""}`}>
+                    return <React.Fragment key={tmdeRowKey}>
+                      {renderInstrumentDeleteButton("tmde", tmde, tmdeFnKey)}
+                      <tr data-instrument-id={tmde.id} data-measurement-area={tmdeFnKey} style={functionRowStyle(tmdeFnKey)} draggable onDragStart={event => onLibraryDragStart?.(event, tmde.id)} className={`instrument-function-row instrument-library-name-row${selectedTmdeIds.includes(tmde.id) ? " selected-row" : ""}`}>
                       <td className="cell-description" colSpan={!libraryExpandedIds.length ? 1 : getInstrumentColumnOrder("tmde", customColumnsFor("tmde"), tmdeTableColumns.qualifierEnabled).length}>
                         <div className="instrument-library-name-actions">
                           <button className="instrument-library-name" onClick={event => handleTmdeClick(event, tmde.id, true)} aria-pressed={selectedTmdeIds.includes(tmde.id)} aria-label={`Select instrument ${name}`}>{name}</button>
@@ -9859,7 +9862,7 @@ const SummaryDashboard = ({
                           }}><FontAwesomeIcon icon={faPen} /></button>
                         </div>
                       </td>
-                    </tr>;
+                    </tr></React.Fragment>;
                   }
                   const resolution = resolveUutRangeHelper(
                     tmde,
@@ -9976,7 +9979,7 @@ const SummaryDashboard = ({
                                   style={{ textAlign: "center" }}
                                 >
                                   <div className="instrument-row-tools">
-                                    <SyncBadge item={tmde} onSync={() => handleSyncItem("tmde", tmde)} onDemote={() => handleDemoteItem("tmde", tmde)} />
+                                    <SyncBadge item={tmde} allowSessionDemotion={!libraryMode} onSync={() => handleSyncItem("tmde", tmde)} onDemote={() => handleDemoteItem("tmde", tmde)} />
                                   </div>
                                 </td>
                               )}
@@ -10300,7 +10303,7 @@ const SummaryDashboard = ({
                           style={{ textAlign: "center" }}
                         >
                           <div className="instrument-row-tools">
-                            <SyncBadge item={tmde} onSync={() => handleSyncItem("tmde", tmde)} onDemote={() => handleDemoteItem("tmde", tmde)} />
+                            <SyncBadge item={tmde} allowSessionDemotion={!libraryMode} onSync={() => handleSyncItem("tmde", tmde)} onDemote={() => handleDemoteItem("tmde", tmde)} />
                           </div>
                         </td>
                       </tr>

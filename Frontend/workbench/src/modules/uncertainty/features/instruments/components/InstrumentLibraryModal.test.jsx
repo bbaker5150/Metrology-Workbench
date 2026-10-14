@@ -25,7 +25,10 @@ it('selects names without expansion and opens the real table only from Edit',()=
  expect(screen.queryByText('All changes saved')).not.toBeInTheDocument();
  expect(screen.queryByRole('button',{name:'Remove selected'})).not.toBeInTheDocument();
  fireEvent.click(document.querySelector('tr[data-instrument-id="A"] .instrument-library-name'));
- expect(screen.getByText('1 selected')).toBeInTheDocument();
+ expect(document.querySelector('tr[data-instrument-id="A"]')).toHaveClass('selected-row');
+ expect(screen.queryByText('1 selected')).not.toBeInTheDocument();
+ expect(screen.queryByRole('button',{name:'Use as UUT'})).not.toBeInTheDocument();
+ expect(document.querySelector('.instrument-library-footer')).toBeNull();
  expect(document.querySelector('.cell-tolerance')).toBeNull();
  expect(document.querySelector('.instrument-equipment-table colgroup')).toBeNull();
  expect(screen.getAllByRole('columnheader').map(node=>node.textContent)).toEqual(['Description']);
@@ -155,9 +158,10 @@ it('removes only the selected records using table selection and Delete',async()=
  const first=document.querySelector('tr[data-instrument-id="A"]');
  const third=document.querySelector('tr[data-instrument-id="C"]');
  fireEvent.click(first.querySelector('.instrument-library-name'));
- expect(screen.getByText("1 selected")).toBeInTheDocument();
+ expect(first).toHaveClass("selected-row");
  fireEvent.click(third.querySelector('.instrument-library-name'),{ctrlKey:true});
- expect(screen.getByText("2 selected")).toBeInTheDocument();
+ expect(first).toHaveClass("selected-row");
+ expect(third).toHaveClass("selected-row");
  fireEvent.keyDown(window,{key:'Delete'});
  await waitFor(()=>expect(remove).toHaveBeenCalledTimes(2));
  expect(remove.mock.calls.map(([id])=>id)).toEqual(['A','C']);
@@ -188,13 +192,32 @@ it('persists inline edits and keeps the shared original when making a local copy
  expect(new Set([...document.querySelectorAll('tr[data-instrument-id]')].map(row=>row.dataset.instrumentId)).size).toBe(4);
  expect(within(document.querySelector('tr[data-instrument-id="B"]')).getByPlaceholderText('Model')).toHaveValue('B');
 });
-it('removes a demoted local entry from the library and retains other records',async()=>{
- const remove=vi.fn();render(<Harness remove={remove}/>);
+it('keeps local library entries local while allowing shared entries to become local',async()=>{
+ const remove=vi.fn(), save=vi.fn();render(<Harness remove={remove} save={save}/>);
  openInstrument('A');
- fireEvent.contextMenu(document.querySelector('tr[data-instrument-id="A"] .inline-sync-badge'));
- await waitFor(()=>expect(remove).toHaveBeenCalledExactlyOnceWith('A'));
- await waitFor(()=>expect(document.querySelector('tr[data-instrument-id="A"]')).toBeNull());
- expect(document.querySelectorAll('tr[data-instrument-id]')).toHaveLength(2);
+ const badge=document.querySelector('tr[data-instrument-id="A"] .inline-sync-badge');
+ expect(badge).not.toHaveAccessibleName(/session only/);
+ fireEvent.contextMenu(badge);
+ expect(remove).not.toHaveBeenCalled();
+ expect(save).not.toHaveBeenCalled();
+ expect(document.querySelector('tr[data-instrument-id="A"] .cell-tolerance')).not.toBeNull();
+ openInstrument('B');
+ fireEvent.contextMenu(document.querySelector('tr[data-instrument-id="B"] .inline-sync-badge'));
+ await waitFor(()=>expect(save).toHaveBeenCalled());
+ expect(save.mock.calls[0][0]).toMatchObject({scope:'local',sourceId:'B'});
+ expect(remove).not.toHaveBeenCalled();
+});
+it('keeps expanded instruments open when moving the library header',()=>{
+ render(<Harness/>);openInstrument('A');openInstrument('C');
+ const modal=screen.getByRole('dialog',{name:'Instrument library'});
+ const title=screen.getByRole('heading',{name:'Instrument Library'});
+ const left=parseFloat(modal.style.left);
+ fireEvent.mouseDown(title,{clientX:300,clientY:100,button:0});
+ fireEvent.mouseMove(document,{clientX:380,clientY:180});
+ fireEvent.mouseUp(document);
+ fireEvent.click(title);
+ expect(parseFloat(modal.style.left)).toBe(left+80);
+ for(const id of ['A','C']) expect(modal.querySelector(`tr[data-instrument-id="${id}"] .cell-tolerance`)).not.toBeNull();
 });
 
 it.each(['Table', 'Equation'])('saves the primary uncertainty as %s through the TMDE type menu', async label => {

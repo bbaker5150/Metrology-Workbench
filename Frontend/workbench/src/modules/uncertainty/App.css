@@ -11993,9 +11993,10 @@ input.inline-function-input:focus {
   display: inline-grid;
   grid-template-columns: minmax(56px, 1fr) var(--inline-prefix-width, 58px);
   gap: 4px;
-  width: max(var(--inline-unit-width, 124px), 124px);
-  min-width: max(var(--inline-unit-width, 124px), 124px);
-  flex-basis: max(var(--inline-unit-width, 124px), 124px);
+  /* Include the 56px base control, 4px gap and full prefix control. */
+  width: max(var(--inline-unit-width, 124px), 124px, calc(60px + var(--inline-prefix-width, 58px)));
+  min-width: max(var(--inline-unit-width, 124px), 124px, calc(60px + var(--inline-prefix-width, 58px)));
+  flex-basis: max(var(--inline-unit-width, 124px), 124px, calc(60px + var(--inline-prefix-width, 58px)));
 }
 
 /* Range rows share one fixed-width table cell with their numeric bounds.
@@ -20900,7 +20901,7 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
   .uncertainty-module .instrument-equipment-table tr.instrument-function-row > td[data-column-hovered] {
     --instrument-cell-tint: var(--instrument-column-tint);
   }
-  .uncertainty-module .instrument-equipment-table tr.instrument-function-row:not([data-selection-key]):hover > td,
+  .uncertainty-module .instrument-equipment-table tr.instrument-function-row:where(:not([data-selection-key])):hover > td,
   .uncertainty-module .instrument-equipment-table tr.instrument-function-row > td[data-cell-hovered] {
     --instrument-cell-tint: var(--instrument-hover-tint);
   }

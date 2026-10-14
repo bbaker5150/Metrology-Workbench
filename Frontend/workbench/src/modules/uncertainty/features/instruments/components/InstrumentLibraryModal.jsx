@@ -24,7 +24,7 @@ const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "bas
 
 // The library is an adapter around the actual overview instrument table. Range
 // rendering, editors, selection, clipboard and creation all stay in that table.
-export default function InstrumentLibraryModal({ isOpen, onClose, instruments = [], onSaveToLibrary, onDelete, onBatchAdd, onInstrumentSynced }) {
+export default function InstrumentLibraryModal({ isOpen, onClose, instruments = [], onSaveToLibrary, onDelete, onInstrumentSynced }) {
   const [session, setSession] = useState(() => initialSession(instruments));
   const current = useRef(session);
   const [selection, setSelection] = useState([]);
@@ -155,18 +155,18 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
   }, [optionsOpen]);
   useEffect(() => {
     if (!isOpen || (!selection.length && !expandedIds.length)) return;
-    const collapseOutsideTable = event => {
-      // Preserve interactions with rows, their portaled editors, session actions
-      // and confirmations. Wait until click so blur-driven saves finish first.
-      if (windowRef.current?.contains(event.target) && event.target.closest?.(".instrument-table-viewport, .instrument-library-footer")) return;
+    const collapseOutsideLibrary = event => {
+      // Keep header dragging, table edits and portaled controls inside the
+      // library interaction. Wait until click so blur-driven saves finish first.
+      if (windowRef.current?.contains(event.target)) return;
       if (event.target.closest?.(".inline-unit-menu, .inline-tolerance-shape-menu, .inline-tolerance-shape-backdrop, .inline-desc-search, .modal-overlay, [role='alertdialog'], [role='dialog']:not(.instrument-library-window)")) return;
       const active = document.activeElement;
       if (windowRef.current?.contains(active)) active.blur?.();
       setExpandedIds([]);
       setSelection([]);
     };
-    document.addEventListener("click", collapseOutsideTable, true);
-    return () => document.removeEventListener("click", collapseOutsideTable, true);
+    document.addEventListener("click", collapseOutsideLibrary, true);
+    return () => document.removeEventListener("click", collapseOutsideLibrary, true);
   }, [isOpen, selection.length, expandedIds.length]);
   const remove = async ids => {
     const rows = current.current.tmdes.filter(row => ids.includes(row.id));
@@ -191,13 +191,6 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
     if (saving || failed.current.size) { setNotification({ title: "Changes have not been saved", message: saving ? "Wait for saving to finish before closing the library." : "Retry the failed save before closing the library." }); return; }
     onClose();
   };
-  const addToSession = async role => {
-    await queue.current;
-    if (failed.current.size) return;
-    const rows = current.current.tmdes.filter(row => selection.includes(row.id));
-    await onBatchAdd?.(rows.map(definitionFor), role);
-    onClose();
-  };
   const startLibraryDrag = (event, id) => {
     event.stopPropagation();
     const ids = selection.includes(id) ? selection : [id];
@@ -209,6 +202,7 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
   if (!isOpen) return null;
   return ReactDOM.createPortal(<div ref={windowRef} className={`uncertainty-module instrument-library-window modal-content floating-window-content${!expandedIds.length ? " is-names-only" : ""}`} role="dialog" aria-label="Instrument library"
     style={{ left: position.x, top: position.y }}>
+    {error && <div className="instrument-library-save-error"><span role="alert">{error}</span><button onClick={() => [...failed.current.values()].forEach(enqueue)}>Retry save</button></div>}
     <UncertaintyPanel libraryMode testPointData={libraryPoint} sessionData={session}
       libraryExpandedIds={expandedIds} onLibraryExpand={id => setExpandedIds(previous => previous.includes(id) ? previous : [...previous, id])}
       onLibraryDragStart={startLibraryDrag}
@@ -232,12 +226,6 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
         <button className="icon-btn-ghost" aria-label="Close instrument library" onClick={close}><FontAwesomeIcon icon={faTimes} /></button>
         </div>
       </div>} />
-    {(error || (selection.length > 0 && onBatchAdd)) && <div className="instrument-library-footer">
-      {error && <><span role="alert">{error}</span><button className="lib-pill-btn" onClick={() => [...failed.current.values()].forEach(enqueue)}>Retry save</button></>}
-      {selection.length > 0 && <><span>{selection.length} selected</span>
-        {onBatchAdd && <><button className="lib-pill-btn" disabled={!!saving || !!error} onClick={() => addToSession("uut")}>Use as UUT</button><button className="lib-pill-btn" disabled={!!saving || !!error} onClick={() => addToSession("tmde")}>Use as TMDE</button></>}
-      </>}
-    </div>}
     <NotificationModal {...notification} isOpen={!!notification} onClose={() => setNotification(null)} />
   </div>, document.body);
 }
