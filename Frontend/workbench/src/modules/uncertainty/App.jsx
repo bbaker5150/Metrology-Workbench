@@ -1,3 +1,4 @@
+import InstrumentLibraryModal from "./features/instruments/components/InstrumentLibraryModal";
 import { newMeasurementAreaColor } from "./utils/measurementAreaGrouping";
 import MeasurementAreaEmptyHint from "./components/common/MeasurementAreaEmptyHint";
 import { UnitSelect } from "./features/analysis/components/UncertaintyPanel";
@@ -5918,7 +5919,20 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
         />
 
         {/* Global Library Modal (Instrument Manager) */}
-        <UniversalInstrumentModal
+        {instrumentModalConfig.mode === "library" ? <InstrumentLibraryModal
+          isOpen={isInstrumentBuilderOpen}
+          onClose={() => setIsInstrumentBuilderOpen(false)}
+          instruments={instruments} onSaveToLibrary={async (instrument, options) => {
+            const saved = await saveInstrument(instrument, options);
+            if (saved && currentSessionData) {
+              const next = syncInstrumentBudgetComponents(currentSessionData, saved);
+              if (next !== currentSessionData) updateSession(next);
+            }
+            return saved;
+          }}
+          onDelete={deleteInstrument} onBatchAdd={handleBatchAddInstruments}
+          onInstrumentSynced={reconcileSyncedInstrument}
+        /> : <UniversalInstrumentModal
           isOpen={isInstrumentBuilderOpen}
           onClose={() => setIsInstrumentBuilderOpen(false)}
           onSave={handleUniversalModalSave}
@@ -5936,7 +5950,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
           instruments={instruments}
           mode={instrumentModalConfig.mode}
           initialData={instrumentModalConfig.data}
-        />
+        />}
 
         <NotificationModal
           isOpen={!!confirmationModal}
@@ -6559,6 +6573,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
                     onDeleteUut={handleDeleteUut}
                     instruments={instruments}
                     onSaveInstrument={saveInstrument}
+                    onDeleteLibraryInstrument={deleteInstrument}
                     onInstrumentSynced={reconcileSyncedInstrument}
                     customEquations={customEquations}
                     onSaveCustomEquation={saveCustomEquation}

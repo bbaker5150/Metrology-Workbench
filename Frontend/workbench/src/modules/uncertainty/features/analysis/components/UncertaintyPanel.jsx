@@ -6762,6 +6762,9 @@ const QuickAddRow = ({
 
 // --- UPDATED: SUMMARY DASHBOARD ---
 const SummaryDashboard = ({
+  libraryMode = false,
+  libraryToolbar,
+  libraryVisibleIds,
   viewMode,
   contextId,
   sessionData,
@@ -6783,6 +6786,7 @@ const SummaryDashboard = ({
   setCurrentUutSelection,
   instruments = [],
   onSaveInstrument,
+  onDeleteLibraryInstrument,
   onInstrumentSynced,
   setNotification,
   showToast,
@@ -6977,8 +6981,8 @@ const SummaryDashboard = ({
       const current = (latestSessionDataRef.current[kind === "uut" ? "uuts" : "tmdes"] || []).find(row => sameId(row.id, item.id));
       if (!current) return;
       const definition = itemInstrumentForLibrary(kind, current);
-      // A demotion detaches this session's definition, preserving saved library
-      // records and other sessions. Subsequent edits retain the chosen scope.
+      // Demotion removes the local library entry before detaching this session.
+      // Other sessions retain their embedded specifications.
       let id = scope === "session" || definition.scope === "validated" ? uuidv4() : definition.id;
       const nextDefinition = { ...definition, id, libraryInstrumentId: id, scope, localOverride: true,
         sourceId: definition.sourceId || (definition.scope === "validated" ? definition.id : undefined),
@@ -6987,6 +6991,10 @@ const SummaryDashboard = ({
         if (!onSaveInstrument) return;
         const saved = await onSaveInstrument(nextDefinition, { requireSaved: true });
         id = saved?.id || id;
+      }
+      if (scope === "session" && definition.scope === "local") {
+        if (!onDeleteLibraryInstrument) throw new Error("Library removal is unavailable");
+        await onDeleteLibraryInstrument(definition.id);
       }
       const latest = (latestSessionDataRef.current[kind === "uut" ? "uuts" : "tmdes"] || []).find(row => sameId(row.id, item.id));
       if (!latest) return;
@@ -7185,6 +7193,7 @@ const SummaryDashboard = ({
     ).find((item) => String(item.id) === String(localizedItem.id)) || localizedItem;
     latestSessionDataRef.current = nextSession;
     onSessionSave(nextSession);
+    if (libraryMode) return;
     if (
       !skipLibrarySave && onSaveInstrument && synchronizedItem.instrument?.scope !== "session" &&
       (synchronizedItem.instrument?.sourceId ||
@@ -7523,7 +7532,7 @@ const SummaryDashboard = ({
     const item = {
       id: uuidv4(), name: "", description: "", measurementAreaNames: [fn.name],
       ...(kind === "tmde" ? { quantity: 1, assetId: "", isInstrumentBased: false } : {}),
-      instrument: { id: uuidv4(), manufacturer: "", model: "", description: "",
+      instrument: { id: uuidv4(), ...(libraryMode ? { scope: "local" } : {}), manufacturer: "", model: "", description: "",
         functions: [{ name: "", unit: "", ranges: [{ id: uuidv4(), min: "", max: "", unit: "", resolution: "", tolerances: {} }] }] },
     };
     const key = kind === "uut" ? "uuts" : "tmdes";
@@ -8004,6 +8013,11 @@ const SummaryDashboard = ({
   // key uses the same identity as the expanded row group so a Delete action
   // cannot accidentally target a range from a different UUT/TMDE row.
   const [selectedRangeIds, setSelectedRangeIds] = useState({});
+  useEffect(() => {
+    if (libraryMode && !selectedUutIds.length) {
+      setSelectedRangeIds(previous => Object.keys(previous).length ? {} : previous);
+    }
+  }, [libraryMode, selectedUutIds]);
   const rangeSelectionAnchorRef = useRef(null);
   const [lastSelectionTarget, setLastSelectionTarget] = useState(null);
   const uutSelectionAnchorRef = useRef(null);
@@ -8586,9 +8600,9 @@ const SummaryDashboard = ({
       filteredTmdes: tmdes,
       title: displayTitle,
       subtitle: displaySubtitle,
-      showAreaColumn: isSessionView,
+      showAreaColumn: isSessionView && !libraryMode,
     };
-  }, [viewMode, contextId, sessionData, rangeData, uutId]);
+  }, [viewMode, contextId, sessionData, rangeData, uutId, libraryMode]);
 
   const getGroupedInstrumentRows = useCallback(
     (items = [], source = "session", pinnedIds = [], kind = null) => {
@@ -8621,11 +8635,11 @@ const SummaryDashboard = ({
   const groupedUutRows = useMemo(
     () =>
       filterCollapsedFunctionRows(
-        getGroupedInstrumentRows(filteredUuts, "session", pinnedInlineUutIds, "uut"),
+        getGroupedInstrumentRows(libraryMode && libraryVisibleIds ? libraryVisibleIds.map(id => filteredUuts.find(item => sameId(item.id, id))).filter(Boolean) : filteredUuts, "session", pinnedInlineUutIds, "uut"),
         collapsedFunctionKeys,
         "uut",
       ),
-    [collapsedFunctionKeys, filteredUuts, getGroupedInstrumentRows, pinnedInlineUutIds],
+    [collapsedFunctionKeys, filteredUuts, getGroupedInstrumentRows, pinnedInlineUutIds, libraryMode, libraryVisibleIds],
   );
 
   const groupedTmdeRows = useMemo(
@@ -9169,8 +9183,8 @@ const SummaryDashboard = ({
   };
 
   return (
-    <div className="configuration-panel">
-      {viewMode !== "session" && (
+    <div className={`configuration-panel${libraryMode ? " instrument-library-table" : ""}`}>
+      {!libraryMode && viewMode !== "session" && (
         <div
           style={{
             paddingBottom: "10px",
@@ -9202,6 +9216,7 @@ const SummaryDashboard = ({
 
       {/* UUT TABLE */}
       <div className="panel-card">
+        {libraryMode ? libraryToolbar?.(() => handleAddInstrumentToFunction("uut", { name: "" })) : (
         <div className="panel-card-header instrument-panel-card-header">
           <div className="panel-card-title">
             <FontAwesomeIcon icon={faMicroscope} />
@@ -9211,6 +9226,7 @@ const SummaryDashboard = ({
             <MeasurementAreaEntry kind="uut" onAdd={handleAddFunction} />
           </div>
         </div>
+        )}
         <InstrumentTableViewport enabled={Boolean(onSessionSave)}>
         <div
           ref={uutTableHeight.containerRef}
@@ -9250,7 +9266,7 @@ const SummaryDashboard = ({
               {groupedUutRows.length === 0 ? (
                 <tr className="panel-empty-row">
                   <td colSpan={getInstrumentColumnOrder("uut", customColumnsFor("uut"), uutTableColumns.qualifierEnabled).length}>
-                    <MeasurementAreaEmptyHint />
+                    {libraryMode ? <span>No instruments match. Add an instrument or adjust your search.</span> : <MeasurementAreaEmptyHint />}
                   </td>
                 </tr>
               ) : (
@@ -9736,7 +9752,7 @@ const SummaryDashboard = ({
       </div>
 
       {/* TMDE TABLE */}
-      <div className="panel-card">
+      {!libraryMode && <div className="panel-card">
         <div className="panel-card-header instrument-panel-card-header">
           <div className="panel-card-title">
             <FontAwesomeIcon icon={faTools} />
@@ -10281,11 +10297,11 @@ const SummaryDashboard = ({
         </div>
         </InstrumentTableViewport>
         <InstrumentTableHeightHandle kind="tmde" sizing={tmdeTableHeight} />
-      </div>
+      </div>}
 
       <ContextMenu menu={rowMenu} onClose={() => setRowMenu(null)} />
 
-      {typeBEditor &&
+      {!libraryMode && typeBEditor &&
         ReactDOM.createPortal(
           <div
             className="modal-overlay"
@@ -10406,6 +10422,7 @@ function DetailedView({
   sessionData,
   onSessionSave,
   onSaveInstrument,
+  onDeleteLibraryInstrument,
   onInstrumentSynced,
   instruments = [],
   calcResults,
@@ -11262,8 +11279,8 @@ function DetailedView({
       const current = (latestSessionDataRef.current[kind === "uut" ? "uuts" : "tmdes"] || []).find(row => sameId(row.id, item.id));
       if (!current) return;
       const definition = itemInstrumentForLibrary(kind, current);
-      // A demotion detaches this session's definition, preserving saved library
-      // records and other sessions. Subsequent edits retain the chosen scope.
+      // Demotion removes the local library entry before detaching this session.
+      // Other sessions retain their embedded specifications.
       let id = scope === "session" || definition.scope === "validated" ? uuidv4() : definition.id;
       const nextDefinition = { ...definition, id, libraryInstrumentId: id, scope, localOverride: true,
         sourceId: definition.sourceId || (definition.scope === "validated" ? definition.id : undefined),
@@ -11272,6 +11289,10 @@ function DetailedView({
         if (!onSaveInstrument) return;
         const saved = await onSaveInstrument(nextDefinition, { requireSaved: true });
         id = saved?.id || id;
+      }
+      if (scope === "session" && definition.scope === "local") {
+        if (!onDeleteLibraryInstrument) throw new Error("Library removal is unavailable");
+        await onDeleteLibraryInstrument(definition.id);
       }
       const latest = (latestSessionDataRef.current[kind === "uut" ? "uuts" : "tmdes"] || []).find(row => sameId(row.id, item.id));
       if (!latest) return;
@@ -17176,6 +17197,9 @@ const UncertaintyPanel = (props) => {
   if (viewMode !== "point") {
     return (
       <SummaryDashboard
+        libraryMode={props.libraryMode}
+        libraryToolbar={props.libraryToolbar}
+        libraryVisibleIds={props.libraryVisibleIds}
         viewMode={viewMode}
         contextId={testPointData.id}
         rangeData={testPointData.rangeData}
@@ -17198,6 +17222,7 @@ const UncertaintyPanel = (props) => {
         onDeleteTmdeDefinition={props.onDeleteTmdeDefinition}
         onSessionSave={props.onSessionSave}
         instruments={props.instruments || []}
+        onDeleteLibraryInstrument={props.onDeleteLibraryInstrument}
         onSaveInstrument={props.onSaveInstrument}
         onInstrumentSynced={props.onInstrumentSynced}
         showToast={props.showToast}

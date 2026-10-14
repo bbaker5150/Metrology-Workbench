@@ -1,0 +1,23 @@
+.instrument-library-window.modal-content {
+  position: fixed; z-index: 2100; width: min(1180px, calc(100vw - 32px)); height: min(720px, calc(100vh - 32px));
+  max-width: calc(100vw - 32px); max-height: calc(100vh - 32px);
+  display: flex; flex-direction: column; padding: 0; margin: 0; overflow: hidden;
+  background: var(--content-background-solid, #fff); border: 1px solid var(--border-color); box-shadow: 0 12px 40px #0005;
+}
+.instrument-library-window .modal-header { display: flex; justify-content: space-between; align-items: center; padding: 12px 16px; cursor: move; }
+.instrument-library-window h3 { margin: 0; font-size: 1.05rem; }
+.instrument-library-window .configuration-panel { flex: 1; min-height: 0; overflow: auto; padding: 0; }
+.instrument-library-table > .panel-card { margin: 0; border: 0; border-radius: 0; overflow: visible; }
+.instrument-library-toolbar { display: flex; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--border-color); }
+.instrument-library-search { display: flex; flex: 1; gap: 8px; align-items: center; position: relative; border: 1px solid var(--border-color); border-radius: 6px; padding: 4px 10px; background: var(--input-background); color: var(--text-color-muted); }
+.instrument-library-search:focus-within { border-color: var(--primary-color); }
+.instrument-library-search input { flex: 1; min-width: 0; border: 0; outline: 0; padding: 6px 0; background: transparent; color: var(--text-color); font: inherit; }
+.instrument-library-search button { border: 0; background: transparent; color: var(--text-color-muted); padding: 6px 8px; cursor: pointer; border-radius: 4px; }
+.instrument-library-search button:hover, .instrument-library-search button[aria-pressed="true"], .instrument-library-search button.is-active { background: var(--input-background); color: var(--primary-color); }
+.instrument-library-search-options { position: absolute; right: 0; top: calc(100% + 6px); z-index: 50; width: min(340px, 80vw); padding: 12px; display: flex; gap: 8px; flex-wrap: wrap; background: var(--content-background-solid, #fff); border: 1px solid var(--border-color); border-radius: 6px; box-shadow: 0 8px 24px #0004; }
+.instrument-library-search-options > span, .instrument-library-search-options > div { width: 100%; }
+.instrument-library-search-options > span { font-size: .75rem; font-weight: 600; }
+.instrument-library-count { font-size: .8rem; color: var(--text-color-muted); white-space: nowrap; }
+.instrument-library-footer { color: var(--text-color); display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 10px 16px; border-top: 1px solid var(--border-color); font-size: .8rem; }
+.instrument-library-footer > [role="status"] { margin-right: auto; color: var(--text-color-muted); }
+.instrument-library-footer [role="alert"] { color: var(--danger-color, #e76b6b); }

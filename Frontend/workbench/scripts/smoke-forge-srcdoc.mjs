@@ -443,10 +443,14 @@ if (/not set up yet/i.test(frameText)) {
   const selectedLibraryRecords = instrumentItems.filter(item => ['instrument-301', 'instrument-302'].includes(item.RecordId));
   const retainedLibraryRecords = instrumentItems.filter(item => !selectedLibraryRecords.includes(item)).map(item => [item.RecordId, item.PayloadJson]);
   const retainedLibraryRecordsUnchanged = () => retainedLibraryRecords.every(([id, payload]) => instrumentItems.find(item => item.RecordId === id)?.PayloadJson === payload);
-  const first = frame.getByText('DMM-301', { exact: true });
-  const second = frame.getByText('DMM-302', { exact: true });
-  await first.click();
-  await second.click({ modifiers: ['Control'] });
+  const library = frame.getByRole('dialog', { name: 'Instrument library', exact: true });
+  // Select the instrument rows, not editable model text. Ctrl-click retains the
+  // first selection and the assertion still checks exact archived identities.
+  const first = library.locator('tr[data-instrument-id="instrument-301"]');
+  const second = library.locator('tr[data-instrument-id="instrument-302"]');
+  await first.locator('td.cell-description').click({ position: { x: 3, y: 3 } });
+  await second.locator('td.cell-description').click({ position: { x: 3, y: 3 }, modifiers: ['Control'] });
+  check('library selects exactly the two requested instruments', await library.locator('tr.selected-row, tr.instrument-selected').evaluateAll(rows => new Set(rows.map(row => row.dataset.instrumentId)).size) === 2);
   await page.keyboard.press('Delete');
   check('builder bulk removal archives only the selected records without a dialog', await until(() => selectedLibraryRecords.length === 2 && selectedLibraryRecords.every(item => JSON.parse(item.PayloadJson)._uncertaintyArchive)) && retainedLibraryRecordsUnchanged() && dialogs.length === 0);
   await page.reload({ waitUntil: 'networkidle' });
@@ -454,7 +458,7 @@ if (/not set up yet/i.test(frameText)) {
   // lazily so the following action waits for the reloaded application.
   const reloaded = page.frameLocator('iframe#app');
   await reloaded.getByRole('button', { name: 'Instrument builder', exact: true }).click();
-  check('archived instruments stay absent after reload', await reloaded.getByText('DMM-301', { exact: true }).count() === 0 && await reloaded.getByText('DMM-302', { exact: true }).count() === 0);
+  check('archived instruments stay absent after reload', await reloaded.getByRole('dialog', { name: 'Instrument library', exact: true }).locator('tr[data-instrument-id="instrument-301"], tr[data-instrument-id="instrument-302"]').count() === 0);
   check('records remain recoverable in SharePoint', sessions.size === 2 && selectedLibraryRecords.every(item => JSON.parse(item.PayloadJson).description === 'Archive smoke instrument') && retainedLibraryRecordsUnchanged());
 }
 
