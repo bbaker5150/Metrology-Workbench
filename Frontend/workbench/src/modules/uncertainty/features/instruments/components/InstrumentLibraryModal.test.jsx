@@ -9,7 +9,7 @@ const definition = (id, scope='local') => ({ id, scope, manufacturer: 'Example',
 const openInstrument = id => {
  const name = document.querySelector(`tr[data-instrument-id="${id}"] .instrument-library-name`);
  if (name?.getAttribute('aria-pressed') !== 'true') fireEvent.click(name);
- fireEvent.click(screen.getByRole('button', {name:'View or Edit Instrument Specifications'}));
+ fireEvent.click(screen.getByRole('button', {name:'View or Edit Selected Instrument Specifications'}));
 };
 function Harness({ save=vi.fn(), remove=vi.fn(), close=vi.fn(), confirmDeletes=false, contextSession, contextPoint, initial=[definition('A'),definition('B','validated'),definition('C')] }) {
  const [instruments,setInstruments]=useState(initial);
@@ -17,7 +17,7 @@ function Harness({ save=vi.fn(), remove=vi.fn(), close=vi.fn(), confirmDeletes=f
  onSaveToLibrary={async(value,options)=>{await save(value,options);setInstruments(previous=>[...previous.filter(item=>item.id!==value.id),value]);return value;}}
  onBatchAdd={vi.fn()} onDelete={async id=>{await remove(id);setInstruments(previous=>previous.filter(item=>item.id!==id));}} /></ConfirmRecordDeletesContext.Provider>;
 }
-it('selects names without expansion and opens details from the search specifications control',()=>{
+it('selects names without expansion and opens details from the toolbar specifications control',()=>{
  render(<Harness/>);
  expect(document.querySelectorAll('.instrument-equipment-table')).toHaveLength(1);
  // Portals need the same scope as the overview for live column widths and
@@ -151,11 +151,11 @@ it('shows local/shared sync actions in simplified rows and uses search without a
 });
 it('opens every selected instrument from the toolbar without changing the selection',()=>{
  render(<Harness/>);
- const view=screen.getByRole('button',{name:'View or Edit Instrument Specifications'});
+ const view=screen.getByRole('button',{name:'View or Edit Selected Instrument Specifications'});
  expect(view).toBeDisabled();
- expect(view).toHaveAttribute('title','View or Edit Instrument Specifications');
+ expect(view).toHaveAttribute('title','View or Edit Selected Instrument Specifications');
  const search=screen.getByLabelText('Search instruments').parentElement;
- expect(search).toContainElement(view);
+ expect(search.previousElementSibling).toBe(view);
  const add=within(search).getByRole('button',{name:'Add instrument'});
  expect(add).toHaveClass('btn-add-item','btn-add-column','function-header-action-btn');
  expect(add.querySelectorAll('svg')).toHaveLength(2);

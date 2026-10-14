@@ -205,18 +205,18 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
       libraryToolbar={add => <div className="panel-card-header instrument-panel-card-header instrument-library-header" onMouseDown={handleMouseDown}>
         <div className="panel-card-title" role="heading" aria-level={3}><FontAwesomeIcon icon={faBookOpen} /><span>Instrument Library</span></div>
         <div className="panel-card-actions">
-        <div className="instrument-library-search">
-          <FontAwesomeIcon icon={faSearch} />
-          <input aria-label="Search instruments" placeholder="Search instruments" value={query} onChange={event => setQuery(event.target.value)} />
-          {query && <button aria-label="Clear instrument search" onClick={() => setQuery("")}><FontAwesomeIcon icon={faTimes} /></button>}
-          <button type="button" className="btn-add-item btn-add-column function-header-action-btn" aria-label="Add instrument" title="Add instrument" onClick={() => { setQuery(""); add(); }}><FontAwesomeIcon icon={faPlus} /><FontAwesomeIcon icon={faTools} /></button>
-          <button type="button" className="instrument-library-specifications" aria-label="View or Edit Instrument Specifications" title="View or Edit Instrument Specifications" disabled={!selection.length}
+          <button type="button" className="icon-btn-ghost instrument-library-specifications" aria-label="View or Edit Selected Instrument Specifications" title="View or Edit Selected Instrument Specifications" disabled={!selection.length}
             aria-expanded={selection.length > 0 && selection.every(id => expandedIds.includes(id))}
             onClick={() => {
               document.activeElement?.blur?.();
               setActiveId(selection.at(-1));
               setExpandedIds(previous => [...new Set([...previous, ...selection])]);
             }}><InstrumentSpecificationsIcon /></button>
+        <div className="instrument-library-search">
+          <FontAwesomeIcon icon={faSearch} />
+          <input aria-label="Search instruments" placeholder="Search instruments" value={query} onChange={event => setQuery(event.target.value)} />
+          {query && <button aria-label="Clear instrument search" onClick={() => setQuery("")}><FontAwesomeIcon icon={faTimes} /></button>}
+          <button type="button" className="btn-add-item btn-add-column function-header-action-btn" aria-label="Add instrument" title="Add instrument" onClick={() => { setQuery(""); add(); }}><FontAwesomeIcon icon={faPlus} /><FontAwesomeIcon icon={faTools} /></button>
         </div>
         <button className="icon-btn-ghost" aria-label="Close instrument library" onClick={close}><FontAwesomeIcon icon={faTimes} /></button>
         </div>

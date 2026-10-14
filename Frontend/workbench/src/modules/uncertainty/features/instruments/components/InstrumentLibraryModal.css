@@ -22,7 +22,7 @@
 .instrument-library-window .instrument-table-height-resize-handle { display: none; }
 .instrument-library-table > .panel-card { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; margin: 0; border: 0; border-radius: 0; overflow: visible; }
 .instrument-library-header .instrument-library-search { font-weight: 500; letter-spacing: normal; text-transform: none; }
-.instrument-library-search { display: flex; flex: 0 1 224px; width: 224px; height: 26px; box-sizing: border-box; gap: 4px; align-items: center; position: relative; border: 1px solid var(--border-color); border-radius: 5px; padding: 3px 6px; background: var(--input-background); color: var(--text-color-muted); font-size: .75rem; }
+.instrument-library-search { display: flex; flex: 0 1 196px; width: 196px; height: 26px; box-sizing: border-box; gap: 4px; align-items: center; position: relative; border: 1px solid var(--border-color); border-radius: 5px; padding: 3px 6px; background: var(--input-background); color: var(--text-color-muted); font-size: .75rem; }
 .instrument-library-search:focus-within { border-color: var(--primary-color); }
 .instrument-library-search input { flex: 1; width: 0; min-width: 0; border: 0; outline: 0; padding: 0; background: transparent; color: var(--text-color); font: inherit; }
 .instrument-library-search button { border: 0; background: transparent; color: var(--text-color-muted); padding: 2px 3px; cursor: pointer; border-radius: 4px; }
@@ -35,6 +35,6 @@
 .instrument-library-save-error { display: flex; align-items: center; gap: 10px; padding: 8px 16px; color: var(--danger-color, #e76b6b); font-size: .8rem; }
 .instrument-library-save-error button { border: 0; background: transparent; color: inherit; cursor: pointer; }
 
-.instrument-library-search .instrument-library-specifications { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 auto; padding: 0 2px; }
-.instrument-library-search .instrument-library-specifications:disabled { opacity: .4; cursor: default; }
+.instrument-library-window .instrument-library-specifications { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 26px; width: 26px; height: 26px; padding: 0; }
+.instrument-library-window .instrument-library-specifications:disabled { opacity: .4; cursor: default; }
 .instrument-library-search .function-header-action-btn.btn-add-item { height: 20px; gap: 3px; padding: 0 3px; }
