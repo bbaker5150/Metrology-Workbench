@@ -156,6 +156,7 @@ const useSessionManager = () => {
   const [sessions, setSessions] = useState([]);
   const [sessionsLoaded, setSessionsLoaded] = useState(false);
   const [instruments, setInstruments] = useState([]);
+  const [instrumentsLoaded, setInstrumentsLoaded] = useState(false);
   const [customEquations, setCustomEquations] = useState([]);
   const [bugReports, setBugReports] = useState([]);
   const [selectedSessionId, setSelectedSessionId] = useState(() => readRecovery().navigation?.sessionId ?? null);
@@ -164,6 +165,7 @@ const useSessionManager = () => {
   const selectedSessionIdRef = useRef(null);
   const selectedTestPointIdRef = useRef(null);
   const instrumentsRef = useRef([]);
+  const instrumentSaveQueuesRef = useRef(new Map());
   // One chronological history for the whole uncertainty workspace. Keeping a
   // per-session map made Ctrl+Z depend on whichever session happened to be
   // selected and left add/delete/import outside undo entirely.
@@ -300,10 +302,14 @@ const useSessionManager = () => {
       }
       const instRes = instrumentResult.value;
       replaceInstruments(
-        dedupeLibraryInstruments(Array.isArray(instRes.data) ? instRes.data : []),
+        dedupeLibraryInstruments([...(Array.isArray(instRes.data) ? instRes.data : []),
+          ...Object.values(readRecovery().libraryEdits || {}).map(entry => entry.instrument)]),
       );
     } catch (e) {
       console.error("Failed to load instruments from backend", e);
+      replaceInstruments(previous => dedupeLibraryInstruments([...previous, ...Object.values(readRecovery().libraryEdits || {}).map(entry => entry.instrument)]));
+    } finally {
+      setInstrumentsLoaded(true);
     }
 
     try {
@@ -479,8 +485,12 @@ const useSessionManager = () => {
       return;
     }
 
+    const key = String(payload.id);
+    const previous = instrumentSaveQueuesRef.current.get(key) || Promise.resolve();
+    const request = previous.catch(() => {}).then(() => axios.post(`${UNCERTAINTY_API}/instruments/`, payload));
+    instrumentSaveQueuesRef.current.set(key, request);
     try {
-      const res = await axios.post(`${UNCERTAINTY_API}/instruments/`, payload);
+      const res = await request;
       // Reconcile with the server's canonical record (scope/snapshot resolution).
       if (res?.data?.id) {
         replaceInstruments((prev) => prev.some(i => String(i.id) === String(res.data.id))
@@ -491,8 +501,26 @@ const useSessionManager = () => {
     } catch (e) {
       console.error("Failed to save instrument to backend", e);
       if (requireSaved) throw e;
+    } finally {
+      if (instrumentSaveQueuesRef.current.get(key) === request) instrumentSaveQueuesRef.current.delete(key);
     }
   }, [replaceInstruments]);
+
+  // Library edits are journaled before entering the modal's save queue, so an
+  // interrupted app can restore even the latest edit that never reached POST.
+  useEffect(() => {
+    if (!instrumentsLoaded) return;
+    const retry = () => {
+      for (const [id, entry] of Object.entries(readRecovery().libraryEdits || {})) {
+        saveInstrument(entry.instrument, { requireSaved: true }).then(() => {
+          acknowledgeSession("libraryEdits", id, entry.token);
+        }).catch(() => {}); // Keep failed entries for the next reconnect/reopen.
+      }
+    };
+    retry();
+    window.addEventListener("online", retry);
+    return () => window.removeEventListener("online", retry);
+  }, [instrumentsLoaded, saveInstrument]);
 
   const reconcileSyncedInstrument = useCallback((instrument) => {
     if (!instrument?.id) return;
@@ -520,6 +548,8 @@ const useSessionManager = () => {
       await axios.delete(`${UNCERTAINTY_API}/instruments/${instrumentId}/`, {
         params: { owner: getDeviceKey() },
       });
+      const pending = readRecovery().libraryEdits?.[String(instrumentId)];
+      if (pending) acknowledgeSession("libraryEdits", String(instrumentId), pending.token);
       replaceInstruments((prev) => prev.filter((i) => i.id !== instrumentId));
     } catch (e) {
       console.error("Failed to delete instrument from backend", e);

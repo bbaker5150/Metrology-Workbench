@@ -9,6 +9,7 @@ import { useFloatingWindow } from "../../../hooks/useFloatingWindow";
 import { instrumentMatchesSearch } from "../../../utils/functionGrouping";
 import { useConfirmRecordDeletes } from "../../../contexts/RecordDeletePolicy";
 import { measurementAreaKeyOf, resolveSessionMeasurementAreas } from "../../../utils/measurementAreaGrouping";
+import { journalSession, acknowledgeSession } from "../../../utils/sessionRecovery";
 import "./InstrumentLibraryModal.css";
 
 const libraryEntries = instruments => instruments.filter(item => item.scope !== "session");
@@ -46,6 +47,7 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
   const [saving, setSaving] = useState(0);
   const [error, setError] = useState("");
   const queue = useRef(Promise.resolve());
+  const latestQueuedEdit = useRef(new Map());
   const failed = useRef(new Map());
   const lastLibrary = useRef(instruments);
   const confirmDeletes = useConfirmRecordDeletes();
@@ -97,10 +99,15 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
     }) });
   }, [instruments, saving, error]);
   const enqueue = definition => {
+    const token = journalSession("libraryEdits", String(definition.id), { instrument: definition });
+    latestQueuedEdit.current.set(definition.id, token);
     setSaving(count => count + 1);
     queue.current = queue.current.then(async () => {
       try {
+        // Coalesce typing that is still queued behind a slower network save.
+        if (latestQueuedEdit.current.get(definition.id) !== token) return;
         await onSaveToLibrary(definition, { requireSaved: true });
+        acknowledgeSession("libraryEdits", String(definition.id), token);
         failed.current.delete(definition.id);
         if (!failed.current.size) setError("");
       } catch (failure) {
@@ -190,7 +197,12 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
     onPointerDownCapture={event => {
       const id = event.target.closest?.('tr[data-instrument-id]')?.dataset.instrumentId;
       const row = current.current.tmdes.find(item => String(item.id) === id);
-      if (row) setActiveId(row.id);
+      if (row) {
+        // Commit a header edit to its original instrument before changing owner.
+        const active = document.activeElement;
+        if (windowRef.current?.contains(active) && active.matches?.(".instrument-custom-column-name-input")) active.blur();
+        setActiveId(row.id);
+      }
       dragSelection.current = row ? { id: row.id, ids: selection.includes(row.id) ? [...selection] : [row.id] } : null;
     }}
     style={{ left: position.x, top: position.y, ...(accent ? { "--primary-color": accent, "--primary-color-light": `color-mix(in srgb, ${accent} 12%, transparent)` } : {}) }}>

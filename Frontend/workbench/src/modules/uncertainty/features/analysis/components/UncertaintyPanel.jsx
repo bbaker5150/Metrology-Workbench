@@ -1,6 +1,6 @@
 import { InstrumentTableViewport, InstrumentDeleteAction } from "./InstrumentTableActions";
 import { consecutiveCellGroup } from "../../../utils/consecutiveCellGroup";
-import { formatQualifierValue, formatQualifierPath, editQualifierRange, instrumentQualifierDepth, qualifierAt, qualifierGroupKey, qualifierRowSpan } from "../../../utils/qualifierRanges";
+import { formatQualifierValue, formatQualifierPath, editQualifierRange, instrumentQualifierDepth, instrumentQualifierNames, qualifierAt, qualifierGroupKey, qualifierRowSpan } from "../../../utils/qualifierRanges";
 import { measurementPreview } from '../../../utils/measurementPreview';
 import { newMeasurementAreaColor } from "../../../utils/measurementAreaGrouping";
 import MeasurementAreaEmptyHint from "../../../components/common/MeasurementAreaEmptyHint";
@@ -2473,9 +2473,11 @@ const EditableCustomColumnHeader = ({
   onEdit,
   onDelete,
   inputLabel = "Column name",
+  onDraftChange,
 }) => {
-  const [draft, setDraft] = useState(column.label || "Name");
-  useEffect(() => setDraft(column.label || "Name"), [column.label]);
+  const editLabel = column.editLabel ?? column.label ?? "Name";
+  const [draft, setDraft] = useState(editLabel);
+  useEffect(() => { if (!editing) setDraft(editLabel); }, [editLabel, editing]);
   const finish = () => onCommit(String(draft || "").trim() || "Name");
   if (!editing) {
     return (
@@ -2486,6 +2488,7 @@ const EditableCustomColumnHeader = ({
           title="Edit column name"
           onClick={(event) => {
             event.stopPropagation();
+            setDraft(editLabel);
             onEdit(column.key);
           }}
         >
@@ -2512,7 +2515,7 @@ const EditableCustomColumnHeader = ({
       className="instrument-custom-column-name-input"
       value={draft}
       aria-label={inputLabel}
-      onChange={(event) => setDraft(event.target.value)}
+      onChange={(event) => { setDraft(event.target.value); onDraftChange?.(event.target.value); }}
       onFocus={(event) => event.currentTarget.select()}
       onBlur={finish}
       onKeyDown={(event) => {
@@ -2860,6 +2863,7 @@ const InstrumentTableHeader = ({
   columns,
   renderCustomColumnHeader,
   qualifierNames = [],
+  qualifierEditNames,
   libraryMode = false,
   onRenameQualifier,
   onInsertAfter,
@@ -2906,8 +2910,9 @@ const InstrumentTableHeader = ({
                         <span>Range</span>
                       </span>
                     )
-                  : columnKey.startsWith("qualifier") ? <EditableCustomColumnHeader column={{ key: columnKey, label }} editing={editingQualifier === columnKey} onEdit={setEditingQualifier}
+                  : columnKey.startsWith("qualifier") ? <EditableCustomColumnHeader column={{ key: columnKey, label, editLabel: qualifierEditNames ? qualifierEditNames[Number(columnKey.slice(9) || 1) - 1] || "Qualifier" : label }} editing={editingQualifier === columnKey} onEdit={setEditingQualifier}
                       inputLabel={`Qualifier ${Number(columnKey.slice(9) || 1)} column name`}
+                      onDraftChange={name => onRenameQualifier?.(Number(columnKey.slice(9) || 1) - 1, name)}
                       onCommit={name => { onRenameQualifier?.(Number(columnKey.slice(9) || 1) - 1, name); setEditingQualifier(null); }} /> : label}
             </ResizableInstrumentHeader>
           );
@@ -6828,7 +6833,8 @@ const SummaryDashboard = ({
     [summaryFunctionColorByKey],
   );
   const { syncToShared, getDiff } = useInstrumentSync(onInstrumentSynced);
-  const libraryColumnItems = libraryMode ? sessionData.tmdes.filter(item => libraryExpandedIds.includes(item.id)) : sessionData.tmdes;
+  const libraryColumnItems = libraryMode ? sessionData.tmdes.filter(item => libraryExpandedIds.includes(item.id))
+    .sort((a, b) => (libraryVisibleIds || libraryExpandedIds).indexOf(a.id) - (libraryVisibleIds || libraryExpandedIds).indexOf(b.id)) : sessionData.tmdes;
   const libraryHeaderItem = libraryMode ? libraryColumnItems.find(item => item.id === (libraryActiveId ?? currentTmdeSelection?.at(-1)))
     || libraryColumnItems.find(item => item.id === libraryExpandedIds.at(-1)) : null;
   const customColumnsFor = (kind) => {
@@ -6841,10 +6847,13 @@ const SummaryDashboard = ({
   const saveLibraryColumns = (item, changes) => {
     if (item) persistInlineItem("tmde", { ...item, instrument: { ...item.instrument, ...changes } });
   };
+  const libraryQualifierOwner = index => instrumentQualifierDepth([libraryHeaderItem].filter(Boolean)) > index
+    ? libraryHeaderItem : libraryColumnItems.find(item => instrumentQualifierDepth([item]) > index);
   const renameLibraryQualifier = (index, name) => {
-    if (!libraryHeaderItem) return;
-    const names = [...(libraryHeaderItem.instrument.qualifierColumnNames || [])]; names[index] = name;
-    saveLibraryColumns(libraryHeaderItem, { qualifierColumnNames: names });
+    const item = libraryQualifierOwner(index);
+    if (!item) return;
+    const names = [...(item.instrument.qualifierColumnNames || [])]; names[index] = name;
+    saveLibraryColumns(item, { qualifierColumnNames: names });
   };
   const uutTableColumns = useInstrumentColumnWidths(
     "uut",
@@ -9863,7 +9872,8 @@ const SummaryDashboard = ({
             <InstrumentTableHeader
               kind="tmde"
               libraryMode={libraryMode}
-              qualifierNames={libraryMode ? libraryHeaderItem?.instrument?.qualifierColumnNames || [] : sessionData.qualifierColumnNames?.tmde || []}
+              qualifierNames={libraryMode ? instrumentQualifierNames(libraryColumnItems) : sessionData.qualifierColumnNames?.tmde || []}
+              qualifierEditNames={libraryMode ? Array.from({ length: instrumentQualifierDepth(libraryColumnItems) }, (_, index) => libraryQualifierOwner(index)?.instrument?.qualifierColumnNames?.[index]) : undefined}
               onRenameQualifier={(index, name) => { if (libraryMode) { renameLibraryQualifier(index, name); return; } const names = [...(sessionData.qualifierColumnNames?.tmde || [])]; names[index] = name; onSessionSave({ ...sessionData, qualifierColumnNames: { ...sessionData.qualifierColumnNames, tmde: names } }); }}
               customColumns={customColumnsFor("tmde")}
               columns={tmdeTableColumns}

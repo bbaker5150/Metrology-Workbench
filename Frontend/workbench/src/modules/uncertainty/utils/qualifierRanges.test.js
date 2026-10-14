@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { editQualifierRange, qualifierRowSpan, hasQualifierRanges } from './qualifierRanges';
+import { editQualifierRange, qualifierRowSpan, hasQualifierRanges, instrumentQualifierNames } from './qualifierRanges';
 import { assessRangeCompatibility } from './tmdeCompatibility';
 import { applyItemRangePatch, resolveUutRangeHelper } from '../features/analysis/components/UncertaintyPanel';
 const instrument = () => ({ id:'u', instrument:{functions:[{id:'f',name:'Current',unit:'A',ranges:[{id:'r',min:10,max:100,unit:'A',tolerances:{reading:{value:1,unit:'%'}}}]}]} });
@@ -73,4 +73,17 @@ it('groups adjacent equal qualifier values and edits the shared value without ch
 it('groups nested qualifiers by value while leaving separate blank inputs editable',()=>{
  const ranges=['Test','Test','Test','',''].map((text,index)=>({id:`r${index}`,qualifierGroupId:'g',qualifier:{id:`parent${index}`,text:`Frequency ${index}`,qualifier:{id:`q${index}`,text}}}));
  expect(ranges.map(range=>qualifierRowSpan(ranges,range,2))).toEqual([3,0,0,1,1]);
+});
+
+it('combines qualifier names by depth, excluding instruments without that depth and duplicate names',()=>{
+ const first=instrument(),second=instrument(),third=instrument();
+ rows(first)[0].qualifier={text:'60',qualifier:{text:'warm'}};
+ rows(second)[0].qualifier={text:'12'};
+ rows(third)[0].qualifier={text:'100'};
+ first.instrument.qualifierColumnNames=['Frequency','Temperature'];
+ second.instrument.qualifierColumnNames=['Interval','Unused'];
+ third.instrument.qualifierColumnNames=['Frequency'];
+ expect(instrumentQualifierNames([first,second,third,instrument()])).toEqual(['Frequency/Interval','Temperature']);
+ expect(instrumentQualifierNames([second,first])).toEqual(['Interval/Frequency','Temperature']);
+ expect(instrumentQualifierNames([])).toEqual([]);
 });

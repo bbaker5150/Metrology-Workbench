@@ -32,6 +32,16 @@ export const qualifierAt = (range, depth = 0) => {
 export const qualifierDepth = range => range?.qualifier ? 1 + qualifierDepth(range.qualifier) : 0;
 export const instrumentQualifierDepth = items => Math.max(0, ...(items || []).flatMap(item => getInstrumentRangeRows(item).map(qualifierDepth)));
 export const hasQualifierRanges = items => instrumentQualifierDepth(items) > 0;
+
+// Each visible depth represents the names authored by the instruments that
+// actually have that qualifier. Repeated names only appear once.
+export const instrumentQualifierNames = (items = [], fallback = []) => {
+  const qualified = items.map(item => ({ item, depth: instrumentQualifierDepth([item]) }));
+  return Array.from({ length: Math.max(0, ...qualified.map(entry => entry.depth)) }, (_, index) =>
+    [...new Set(qualified.filter(entry => entry.depth > index).map(({ item }) =>
+      String(item.instrument?.qualifierColumnNames?.[index] || fallback[index] || "Qualifier").trim() || "Qualifier"
+    ))].join("/"));
+};
 const branchKey = (range, depth) => {
   const root = qualifierGroupKey(range);
   if (!root) return null;

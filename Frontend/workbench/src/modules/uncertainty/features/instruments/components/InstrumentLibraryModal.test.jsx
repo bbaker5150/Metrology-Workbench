@@ -311,9 +311,9 @@ it('saves instrument-specific qualifier and custom headers and restores them on 
  const name=await screen.findByLabelText('Column name');fireEvent.change(name,{target:{value:'Calibration date'}});fireEvent.blur(name);
  await waitFor(()=>expect(save.mock.calls.at(-1)?.[0].customColumns?.[0].label).toBe('Calibration date'));
  const saved=save.mock.calls.at(-1)[0];
- openInstrument('B');expect(screen.getByRole('button',{name:'Interval',exact:true})).toBeInTheDocument();
+ openInstrument('B');expect(screen.getByRole('button',{name:'Test frequency/Interval',exact:true})).toBeInTheDocument();
  fireEvent.pointerDown(document.querySelector('tr[data-instrument-id="A"]'),{button:0});
- expect(screen.getByRole('button',{name:'Test frequency',exact:true})).toBeInTheDocument();
+ expect(screen.getByRole('button',{name:'Test frequency/Interval',exact:true})).toBeInTheDocument();
  view.unmount();render(<Harness initial={[saved,b]}/>);openInstrument('A');
  expect(screen.getByRole('button',{name:'Test frequency',exact:true})).toBeInTheDocument();
  expect(screen.getByRole('button',{name:'Calibration date',exact:true})).toBeInTheDocument();
@@ -342,4 +342,21 @@ it('isolates library column widths and the tolerance heading from the workspace 
  expect(workspace.querySelector('col').getAttribute('style')).toBe(before);
  expect(localStorage.getItem('uncertalytics:library:tmde:instrument-column-widths:v2')).not.toBeNull();
  localStorage.removeItem('uncertalytics:library:tmde:instrument-column-widths:v2');
+});
+
+it('combines unique qualifier names while editing only the active instrument name',async()=>{
+ const a=definition('A'),b=definition('B'),c=definition('C');
+ for(const item of [a,b,c]) item.functions[0].ranges[0].qualifier={id:'q',text:'60'};
+ a.qualifierColumnNames=['Frequency'];b.qualifierColumnNames=['Interval'];c.qualifierColumnNames=['Frequency'];
+ const save=vi.fn();render(<Harness initial={[a,b,c]} save={save}/>);
+ for(const id of ['A','B','C'])openInstrument(id);
+ fireEvent.pointerDown(document.querySelector('tr[data-instrument-id="B"]'),{button:0});
+ fireEvent.click(screen.getByRole('button',{name:'Frequency/Interval',exact:true}));
+ const input=screen.getByLabelText('Qualifier 1 column name');
+ expect(input).toHaveValue('Interval');
+ fireEvent.change(input,{target:{value:'Time interval'}});
+ await waitFor(()=>expect(save.mock.calls.at(-1)?.[0]).toMatchObject({id:'B',qualifierColumnNames:['Time interval']}));
+ fireEvent.pointerDown(document.querySelector('tr[data-instrument-id="A"]'),{button:0});
+ expect(screen.getByRole('button',{name:'Frequency/Time interval',exact:true})).toBeInTheDocument();
+ expect(save.mock.calls.every(([item])=>item.id==='B')).toBe(true);
 });

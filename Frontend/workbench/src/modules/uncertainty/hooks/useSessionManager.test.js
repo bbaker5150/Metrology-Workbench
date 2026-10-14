@@ -507,3 +507,11 @@ it('keeps background recalculation out of undo history but retains propagation-m
   act(()=>expect(result.current.undoLastSessionChange()).toBe(true));
   expect(result.current.currentSessionData.testPoints[0].budgetPropagationMethod).not.toBe('montecarlo');
 });
+
+it('clears a pending library edit when the instrument is deleted so reopening cannot restore it',async()=>{
+ const {result}=renderHook(()=>useSessionManager());
+ await waitFor(()=>expect(result.current.currentSessionData?.name).toBe('Original'));
+ journalSession('libraryEdits','removed',{instrument:{id:'removed',scope:'local',qualifierColumnNames:['Frequency']}});
+ await act(async()=>{await result.current.deleteInstrument('removed');});
+ expect(readRecovery().libraryEdits.removed).toBeUndefined();
+});
