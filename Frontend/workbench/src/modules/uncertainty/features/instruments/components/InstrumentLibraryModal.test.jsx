@@ -177,6 +177,16 @@ it('creates an instrument through the table and saves it locally',async()=>{
  expect(save.mock.calls[0][0]).toMatchObject({scope:'local',manufacturer:'',model:''});
  expect(save.mock.calls[0][1]).toEqual({requireSaved:true});
  expect(document.querySelectorAll('tr[data-instrument-id]')).toHaveLength(4);
+ const createdId=save.mock.calls[0][0].id;
+ const row=[...document.querySelectorAll('tr[data-instrument-id]')].find(node=>!['A','B','C'].includes(node.dataset.instrumentId));
+ fireEvent.mouseDown(row.querySelector('.inline-desc-combined'),{button:0});
+ const make=within(row).getByPlaceholderText('Mfr.');
+ fireEvent.focus(make);
+ expect(screen.queryByRole('listbox',{name:'Choose instrument'})).not.toBeInTheDocument();
+ fireEvent.change(make,{target:{value:'Example'}});
+ expect(screen.queryByRole('listbox',{name:'Choose instrument'})).not.toBeInTheDocument();
+ fireEvent.blur(make);
+ await waitFor(()=>expect(save.mock.calls.at(-1)[0]).toMatchObject({id:createdId,manufacturer:'Example'}));
 });
 it('removes only the selected records using table selection and Delete',async()=>{
  const remove=vi.fn();render(<Harness remove={remove}/>);

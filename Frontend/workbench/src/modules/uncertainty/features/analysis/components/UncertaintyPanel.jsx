@@ -10013,7 +10013,7 @@ const SummaryDashboard = ({
                                     model={tmde.instrument?.model}
 
                                     instruments={instruments}
-                                    onPickLibrary={(inst) =>
+                                    onPickLibrary={libraryMode ? undefined : (inst) =>
                                       promptLibraryPick("tmde", tmde.id, inst)
                                     }
                                     onCommit={(field, value) =>
@@ -10126,7 +10126,7 @@ const SummaryDashboard = ({
                               model={tmde.instrument?.model}
 
                               instruments={instruments}
-                              onPickLibrary={(inst) =>
+                              onPickLibrary={libraryMode ? undefined : (inst) =>
                                 promptLibraryPick("tmde", tmde.id, inst)
                               }
                               onCommit={(field, value) =>
