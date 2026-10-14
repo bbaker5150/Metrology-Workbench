@@ -22276,7 +22276,7 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
 
 /* Instrument actions share the measurement-area surface of editable fields,
    including the delete button in the independent action strip. */
-.uncertainty-module .instrument-equipment-table :is(.range-row-add, .range-row-delete, .range-qualifier-add, .inline-sync-badge):is(:hover, :focus-visible):not(:disabled),
+.uncertainty-module .instrument-equipment-table :is(.range-row-add, .range-row-delete, .range-qualifier-add, .inline-sync-badge, .instrument-library-specifications, .instrument-row-delete):is(:hover, :focus-visible):not(:disabled),
 .uncertainty-module .instrument-row-action .instrument-row-delete:is(:hover, :focus-visible):not(:disabled) {
   color: var(--function-input-accent, var(--primary-color));
   background: color-mix(in srgb, var(--function-input-accent, var(--primary-color)) 10%, transparent);

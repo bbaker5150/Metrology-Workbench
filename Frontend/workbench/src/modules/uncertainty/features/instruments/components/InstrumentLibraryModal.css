@@ -50,6 +50,7 @@
 
 .instrument-library-window .instrument-equipment-table .cell-sync .instrument-row-tools { position: relative; width: 100%; min-height: 26px; padding-right: 28px; box-sizing: border-box; }
 .instrument-library-window .instrument-equipment-table th.cell-sync { padding-right: 34px; }
-.instrument-library-window .cell-sync .instrument-row-delete { position: absolute; right: 0; top: 50%; transform: translateY(-50%); }
+/* Center without a transform so the shared button hover reset cannot move it. */
+.instrument-library-window .cell-sync .instrument-row-delete { position: absolute; right: 0; top: 0; bottom: 0; margin-block: auto; transform: none; }
 .instrument-library-window tr:is(:hover, .selected-row, .instrument-selected) > .cell-sync .instrument-row-delete,
 .instrument-library-window .cell-sync:focus-within .instrument-row-delete { opacity: 1; pointer-events: auto; }
