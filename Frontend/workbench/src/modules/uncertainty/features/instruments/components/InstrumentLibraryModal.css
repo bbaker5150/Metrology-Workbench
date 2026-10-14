@@ -2,7 +2,7 @@
   position: fixed; z-index: 2100; width: min(var(--instrument-library-width, 1180px), calc(100vw - 32px)); height: auto;
   min-width: min(480px, calc(100vw - 32px)); min-height: 0; resize: none;
   max-width: calc(100vw - 32px); max-height: calc(100vh - 32px);
-  display: flex; flex-direction: column; padding: 0; margin: 0; overflow: hidden;
+  display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; padding: 0; margin: 0; overflow: hidden;
   background: var(--content-background-solid, #fff); border: 1px solid var(--border-color); box-shadow: 0 12px 40px #0005;
 }
 .instrument-library-window .modal-header { display: flex; justify-content: space-between; gap: 8px; align-items: center; padding: 12px 16px; cursor: move; }
@@ -13,22 +13,21 @@
 .instrument-library-window .instrument-table-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; scrollbar-gutter: stable; }
 /* Match the workspace's auto-height table: vertical scrolling encloses both
    Sync and the independent delete strip; only horizontal scrolling is inside. */
-.instrument-library-window .instrument-panel-table-container { height: auto !important; max-height: none !important; overflow-y: hidden !important; resize: none; }
+.instrument-library-window .instrument-panel-table-container { height: auto !important; max-height: none !important; overflow-y: hidden !important; overflow-x: auto; resize: none; }
+.instrument-library-window .instrument-panel-table-container::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
 .instrument-library-window .instrument-table-height-resize-handle { display: none; }
 .instrument-library-table > .panel-card { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; margin: 0; border: 0; border-radius: 0; overflow: visible; }
 .instrument-library-toolbar { display: flex; flex-shrink: 0; align-items: center; gap: 12px; padding: 10px 16px; border-bottom: 1px solid var(--border-color); }
-.instrument-library-search { display: flex; flex: 1; gap: 8px; align-items: center; position: relative; border: 1px solid var(--border-color); border-radius: 6px; padding: 4px 10px; background: var(--input-background); color: var(--text-color-muted); }
+.instrument-library-search { display: flex; flex: 0 1 180px; width: 180px; height: 26px; box-sizing: border-box; gap: 4px; align-items: center; position: relative; border: 1px solid var(--border-color); border-radius: 5px; padding: 3px 6px; background: var(--input-background); color: var(--text-color-muted); font-size: .75rem; }
 .instrument-library-search:focus-within { border-color: var(--primary-color); }
-.instrument-library-search input { flex: 1; min-width: 0; border: 0; outline: 0; padding: 6px 0; background: transparent; color: var(--text-color); font: inherit; }
-.instrument-library-search button { border: 0; background: transparent; color: var(--text-color-muted); padding: 6px 8px; cursor: pointer; border-radius: 4px; }
+.instrument-library-search input { flex: 1; width: 0; min-width: 0; border: 0; outline: 0; padding: 0; background: transparent; color: var(--text-color); font: inherit; }
+.instrument-library-search button { border: 0; background: transparent; color: var(--text-color-muted); padding: 2px 3px; cursor: pointer; border-radius: 4px; }
 .instrument-library-search button:hover, .instrument-library-search button[aria-pressed="true"], .instrument-library-search button.is-active { background: var(--input-background); color: var(--primary-color); }
 .instrument-library-search-options { position: fixed; inset: auto; margin: 0; z-index: 2200; width: min(260px, calc(100vw - 16px)); box-sizing: border-box; padding: 12px; display: flex; gap: 8px; flex-wrap: wrap; color: var(--text-color); background: var(--content-background-solid, #fff); border: 1px solid var(--border-color); border-radius: 6px; box-shadow: 0 8px 24px #0004; }
 .instrument-library-search-options > span, .instrument-library-search-options > div { width: 100%; }
 .instrument-library-search-options > span { font-size: .75rem; font-weight: 600; }
-.instrument-library-count { font-size: .8rem; color: var(--text-color-muted); white-space: nowrap; }
 .instrument-library-window > .modal-header, .instrument-library-footer { background: var(--component-header-bg, var(--content-background-solid)); }
 .instrument-library-footer { color: var(--text-color-muted); display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 12px 16px; border-top: 1px solid var(--border-color); font-size: .8rem; }
-.instrument-library-footer > .instrument-library-count { margin-right: auto; }
 .instrument-library-footer .lib-pill-btn { border-radius: 5px; padding: 6px 10px; font: inherit; }
 .instrument-library-footer [role="alert"] { color: var(--danger-color, #e76b6b); }
 .instrument-library-names-only > thead { display: none; }

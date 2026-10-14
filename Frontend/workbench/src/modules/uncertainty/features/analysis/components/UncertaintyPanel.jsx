@@ -8033,6 +8033,7 @@ const SummaryDashboard = ({
     if (!keyboardShortcutsEnabled) return undefined;
     const clearSelection = (event) => {
       if (event.key !== "Escape") return;
+      if (libraryMode) document.activeElement?.blur?.();
       setSelectedUutIds([]);
       setSelectedTmdeIds([]);
       setSelectedRangeIds({});
@@ -8042,7 +8043,7 @@ const SummaryDashboard = ({
     };
     window.addEventListener("keydown", clearSelection, true);
     return () => window.removeEventListener("keydown", clearSelection, true);
-  }, [keyboardShortcutsEnabled, setSelectedUutIds]);
+  }, [keyboardShortcutsEnabled, setSelectedUutIds, libraryMode]);
 
   // Keep the current selection through Add and through a delete confirmation.
   // Prune it only after the backing session rows have actually disappeared.

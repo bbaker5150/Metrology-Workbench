@@ -10,7 +10,7 @@ function Harness({ save=vi.fn(), remove=vi.fn(), close=vi.fn() }) {
  const [instruments,setInstruments]=useState([definition('A'),definition('B','validated'),definition('C')]);
  return <ConfirmRecordDeletesContext.Provider value={false}><InstrumentLibraryModal isOpen instruments={instruments} onClose={close}
  onSaveToLibrary={async(value,options)=>{await save(value,options);setInstruments(previous=>[...previous.filter(item=>item.id!==value.id),value]);return value;}}
- onDelete={async id=>{await remove(id);setInstruments(previous=>previous.filter(item=>item.id!==id));}} /></ConfirmRecordDeletesContext.Provider>;
+ onBatchAdd={vi.fn()} onDelete={async id=>{await remove(id);setInstruments(previous=>previous.filter(item=>item.id!==id));}} /></ConfirmRecordDeletesContext.Provider>;
 }
 it('starts with names only and opens the real table for selected instruments',()=>{
  render(<Harness/>);
@@ -26,11 +26,26 @@ it('starts with names only and opens the real table for selected instruments',()
  openInstrument('A');
  expect(document.querySelector('tr[data-instrument-id="A"] .cell-tolerance')).not.toBeNull();
  expect(document.querySelectorAll('.instrument-library-name')).toHaveLength(2);
- fireEvent.click(screen.getByRole('button',{name:'Back to names'}));
+ expect(screen.queryByRole('button',{name:'Back to names'})).not.toBeInTheDocument();
+ expect(screen.queryByText(/of 3 instruments/)).not.toBeInTheDocument();
+ fireEvent.keyDown(window,{key:'Escape'});
  expect(document.querySelectorAll('.instrument-library-name')).toHaveLength(3);
  expect(document.querySelector('.library-table')).toBeNull();
  expect(screen.queryByText('Type B')).not.toBeInTheDocument();
  expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+});
+it('commits a focused edit before collapsing on outside click or Escape',async()=>{
+ const save=vi.fn();render(<><Harness save={save}/><div className="instrument-table-viewport" data-testid="workspace-table">Workspace table</div></>);
+ for (const dismiss of ['outside','escape']) {
+   openInstrument('A');
+   fireEvent.mouseDown(document.querySelector('tr[data-instrument-id="A"] .inline-desc-combined'),{button:0});
+   const model=screen.getByPlaceholderText('Model',{exact:true});
+   model.focus();fireEvent.change(model,{target:{value: dismiss}});
+   if (dismiss==='outside') fireEvent.click(screen.getByTestId('workspace-table'));
+   else fireEvent.keyDown(model,{key:'Escape'});
+   expect(document.querySelectorAll('.instrument-library-name')).toHaveLength(3);
+   await waitFor(()=>expect(save.mock.calls.at(-1)?.[0].model).toBe(dismiss));
+ }
 });
 it('filters by source without sorting controls',()=>{
  render(<Harness/>);

@@ -2306,14 +2306,18 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
   // Instrument Manager Modal State
   // We use this boolean to open the modal in 'library' mode from the Tools menu.
   // Editing specific instances (UUT/TMDE) is handled via handlers passed to Analysis.
-  const [isInstrumentBuilderOpen, setIsInstrumentBuilderOpen] = useState(() => Boolean(readEditorDraft("open-instrument-builder")));
+  const [isInstrumentBuilderOpen, setIsInstrumentBuilderOpen] = useState(() => {
+    const draft = readEditorDraft("open-instrument-builder");
+    return Boolean(draft && draft.mode !== "library");
+  });
   const [instrumentModalConfig, setInstrumentModalConfig] = useState(() => readEditorDraft("open-instrument-builder") || {
     mode: "library",
     data: null,
     associateToPointId: null,
   });
   useEffect(() => {
-    if (isInstrumentBuilderOpen) saveEditorDraft("open-instrument-builder", instrumentModalConfig);
+    // The library saves inline; reopening it is a user action, not draft recovery.
+    if (isInstrumentBuilderOpen && instrumentModalConfig.mode !== "library") saveEditorDraft("open-instrument-builder", instrumentModalConfig);
     else clearEditorDraft("open-instrument-builder");
   }, [isInstrumentBuilderOpen, instrumentModalConfig]);
 

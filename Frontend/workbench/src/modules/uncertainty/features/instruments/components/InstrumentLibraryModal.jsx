@@ -128,6 +128,20 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
     document.addEventListener("pointerdown", dismiss);
     return () => document.removeEventListener("pointerdown", dismiss);
   }, [optionsOpen]);
+  useEffect(() => {
+    if (!isOpen || !selection.length) return;
+    const collapseOutsideTable = event => {
+      // Preserve interactions with rows, their portaled editors, session actions
+      // and confirmations. Wait until click so blur-driven saves finish first.
+      if (windowRef.current?.contains(event.target) && event.target.closest?.(".instrument-table-viewport, .instrument-library-footer")) return;
+      if (event.target.closest?.(".inline-unit-menu, .inline-tolerance-shape-menu, .inline-tolerance-shape-backdrop, .inline-desc-search, .modal-overlay, [role='dialog']:not(.instrument-library-window)")) return;
+      const active = document.activeElement;
+      if (windowRef.current?.contains(active)) active.blur?.();
+      setSelection([]);
+    };
+    document.addEventListener("click", collapseOutsideTable, true);
+    return () => document.removeEventListener("click", collapseOutsideTable, true);
+  }, [isOpen, selection.length]);
   const remove = async ids => {
     const rows = current.current.tmdes.filter(row => ids.includes(row.id));
     const perform = async () => {
@@ -182,13 +196,12 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
         </div>
         <button className="icon-btn-ghost" aria-label="Add instrument" title="Add instrument" onClick={() => { setQuery(""); setSource("all"); add(); }}><FontAwesomeIcon icon={faPlus} /></button>
       </div>} />
-    <div className="instrument-library-footer">
-      <span className="instrument-library-count">{visibleIds.length} of {session.tmdes.length} instruments</span>
+    {(error || (selection.length > 0 && onBatchAdd)) && <div className="instrument-library-footer">
       {error && <><span role="alert">{error}</span><button className="lib-pill-btn" onClick={() => [...failed.current.values()].forEach(enqueue)}>Retry save</button></>}
-      {selection.length > 0 && <><button className="lib-pill-btn" onClick={() => setSelection([])}>Back to names</button><span>{selection.length} selected</span>
+      {selection.length > 0 && <><span>{selection.length} selected</span>
         {onBatchAdd && <><button className="lib-pill-btn" disabled={!!saving || !!error} onClick={() => addToSession("uut")}>Use as UUT</button><button className="lib-pill-btn" disabled={!!saving || !!error} onClick={() => addToSession("tmde")}>Use as TMDE</button></>}
       </>}
-    </div>
+    </div>}
     <NotificationModal {...notification} isOpen={!!notification} onClose={() => setNotification(null)} />
   </div>, document.body);
 }

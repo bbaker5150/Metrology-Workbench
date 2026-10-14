@@ -53,6 +53,7 @@ vi.mock("axios", () => {
 import UncertaintyApp from "./UncertaintyApp";
 import { ThemeProvider } from "../../shared/ThemeContext";
 import { NotificationProvider } from "../../shared/NotificationContext";
+import { readEditorDraft, saveEditorDraft } from "./utils/editorRecovery";
 
 beforeAll(async () => {
   // Resolve the real lazy Notes module before measuring user interaction.
@@ -293,7 +294,8 @@ describe("UncertaintyApp", () => {
     ).not.toBeInTheDocument();
   });
 
-  test("toggles the instrument builder from its header button", async () => {
+  test.each([false, true])("opens the library only by request, with saved open state %s", async (savedOpen) => {
+    if (savedOpen) saveEditorDraft("open-instrument-builder", { mode: "library", data: null });
     render(
       <ThemeProvider>
         <NotificationProvider>
@@ -308,11 +310,14 @@ describe("UncertaintyApp", () => {
     const builderButton = await screen.findByRole("button", {
       name: "Instrument builder",
     });
+    expect(screen.queryByRole("dialog", { name: "Instrument library" })).not.toBeInTheDocument();
+    expect(readEditorDraft("open-instrument-builder")).toBeNull();
     fireEvent.click(builderButton);
-    expect(screen.getByText("Select Instrument from Library")).toBeInTheDocument();
+    expect(screen.getByRole("dialog", { name: "Instrument library" })).toBeInTheDocument();
+    expect(readEditorDraft("open-instrument-builder")).toBeNull();
 
-    fireEvent.click(builderButton);
-    expect(screen.queryByText("Select Instrument from Library")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Close instrument library" }));
+    expect(screen.queryByRole("dialog", { name: "Instrument library" })).not.toBeInTheDocument();
   });
 
   test("adds an optional UUT column to the current session", async () => {
