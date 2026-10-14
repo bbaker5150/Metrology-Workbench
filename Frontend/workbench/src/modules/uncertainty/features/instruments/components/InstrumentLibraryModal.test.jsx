@@ -242,17 +242,30 @@ it('keeps local library entries local while allowing shared entries to become lo
  expect(save.mock.calls[0][0]).toMatchObject({scope:'local',sourceId:'B'});
  expect(remove).not.toHaveBeenCalled();
 });
-it('keeps expanded instruments open when moving the library header',()=>{
- render(<Harness/>);openInstrument('A');openInstrument('C');
+it('keeps the focused tolerance editor and its draft open when moving the library header',async()=>{
+ const save=vi.fn();render(<Harness save={save}/>);openInstrument('A');openInstrument('C');
  const modal=screen.getByRole('dialog',{name:'Instrument library'});
  const title=screen.getByRole('heading',{name:'Instrument Library'});
+ const row=modal.querySelector('tr[data-instrument-id="A"]');
+ fireEvent.click(within(row).getByTitle('Edit tolerance'));
+ const input=row.querySelector('.inline-tolerance-input');
+ input.focus();fireEvent.change(input,{target:{value:'2.5'}});
  const left=parseFloat(modal.style.left);
+ fireEvent.pointerDown(title,{clientX:300,clientY:100,button:0});
  fireEvent.mouseDown(title,{clientX:300,clientY:100,button:0});
  fireEvent.mouseMove(document,{clientX:380,clientY:180});
+ fireEvent.pointerUp(title,{clientX:380,clientY:180,button:0});
  fireEvent.mouseUp(document);
  fireEvent.click(title);
+ // Dismissal runs after the release/click to allow blur-driven commits.
+ await new Promise(resolve=>setTimeout(resolve,20));
  expect(parseFloat(modal.style.left)).toBe(left+80);
  for(const id of ['A','C']) expect(modal.querySelector(`tr[data-instrument-id="${id}"] .cell-tolerance`)).not.toBeNull();
+ expect(row.querySelector('.inline-tolerance-editor')).not.toBeNull();
+ expect(input).toHaveFocus();
+ expect(input).toHaveValue('2.5');
+ fireEvent.blur(input);
+ await waitFor(()=>expect(save.mock.calls.at(-1)?.[0].functions[0].ranges[0].tolerances.reading.value).toBe('2.5'));
 });
 
 it.each(['Table', 'Equation'])('saves the primary uncertainty as %s through the TMDE type menu', async label => {

@@ -1930,7 +1930,8 @@ const confirmViaNotification = (
 // active column collapses it after blur-driven commits have run. Unit and
 // tolerance menus are portaled to <body>, so they remain part of the editor.
 const INLINE_EDITOR_PORTAL_SELECTOR =
-  "[data-theme-toggle], " +
+  // Moving the library is a layout gesture, not an editor handoff.
+  "[data-theme-toggle], .instrument-library-header, " +
   ".inline-unit-menu, .inline-tolerance-shape-menu, .inline-tolerance-shape-backdrop, .inline-desc-search";
 
 const isInstrumentScrollTarget = target => target?.matches?.(".instrument-panel-table-container, .dynamic-table-scroll");

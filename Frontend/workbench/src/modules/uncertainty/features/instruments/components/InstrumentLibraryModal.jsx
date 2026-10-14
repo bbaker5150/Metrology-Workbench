@@ -224,7 +224,11 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
       onSaveInstrument={onSaveToLibrary} onDeleteLibraryInstrument={onDelete} onInstrumentSynced={onInstrumentSynced}
       setNotification={setNotification} currentTmdeSelection={selection} setCurrentTmdeSelection={setSelection}
       onDeleteTmdeDefinition={remove} keyboardShortcutsEnabled
-      libraryToolbar={add => <div className="panel-card-header instrument-panel-card-header instrument-library-header" onMouseDown={handleMouseDown}>
+      libraryToolbar={add => <div className="panel-card-header instrument-panel-card-header instrument-library-header" onMouseDown={event => {
+        // Keep the focused draft and editor geometry intact throughout a drag.
+        if (!event.target.closest("button, input, .no-drag")) event.preventDefault();
+        handleMouseDown(event);
+      }}>
         <div className="panel-card-title" role="heading" aria-level={3}><FontAwesomeIcon icon={faBookOpen} /><span>Instrument Library</span></div>
         <div className="panel-card-actions">
         <div className="instrument-library-search">
