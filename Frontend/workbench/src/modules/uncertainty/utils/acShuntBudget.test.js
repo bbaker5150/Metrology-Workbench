@@ -34,6 +34,9 @@ describe('native AC-shunt derived workflow',()=>{
     const {session}=buildAcShuntBudget(fixture(model));
     const point=JSON.parse(JSON.stringify(session.testPoints[0]));
     expect(point.measurementType).toBe('derived');
+    expect(point.testPointInfo.acShuntSource).toMatchObject({sessionId:10,pointIds:[1,2],deltaPpm:3,
+      derivedModel:{version:1,convention:'Nominal-centered equivalent-current AC/DC comparison',
+        readerCorrelation:expect.stringContaining('Conservative'),directionCombination:expect.stringContaining('Type A imported once')}});
     expect(point.components.every(row=>!row.tmdeTransferSources)).toBe(true);
     const result=derivedResult(point,session);
     expect(result.error).toBeNull();

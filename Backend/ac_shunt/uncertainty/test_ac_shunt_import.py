@@ -82,3 +82,40 @@ class AcShuntImportTests(TestCase):
         restored = session_to_dict(save_session(data))
         self.assertEqual(restored['testPoints'][0]['testPointInfo'],data['testPoints'][0]['testPointInfo'])
         self.assertEqual(restored['testPoints'][0]['components'][1]['pendingReason'],'No RoC')
+
+    def test_native_derived_inputs_sources_and_model_survive_repeated_save(self):
+        point = {
+            'id': 'derived-point', 'measurementType': 'derived',
+            'equationString': 'Iref + I0 * ((Vac / Vdc - 1) / 2)',
+            'variableMappings': {'Iref': 'Reference shunt calibration', 'I0': 'Nominal test current',
+                                 'Vac': 'Reference reader AC', 'Vdc': 'Reference reader DC'},
+            'variableNominals': {'Iref': {'value': 10, 'unit': 'A'}, 'I0': {'value': 10, 'unit': 'A'},
+                                 'Vac': {'value': .2, 'unit': 'V', 'qualifier': {'value': 1000, 'unit': 'Hz'}},
+                                 'Vdc': {'value': .2, 'unit': 'V', 'qualifier': {'value': 1000, 'unit': 'Hz'}}},
+            'inputCorrelations': {'Reference reader AC|Reference reader DC': -1},
+            'testPointInfo': {'parameter': {'value': 10, 'unit': 'A'}, 'acShuntSource': {
+                'sessionId': self.session.pk, 'pointIds': [1, 2], 'deltaPpm': 3,
+                'derivedModel': {'version': 1, 'convention': 'Nominal-centered equivalent-current AC/DC comparison',
+                                 'readerCorrelation': 'Conservative full-magnitude correlation',
+                                 'directionCombination': 'Type A imported once at output'}}},
+            'components': [
+                {'id': 'reader', 'type': 'B', 'name': 'Reader uncertainty', 'variableSymbol': 'Vac',
+                 'variableType': 'Reference reader AC', 'value_native': .00001, 'unit_native': 'V',
+                 'tmdeBudgetSourceId': 'reader-master', 'tmdeBudgetRangeId': 'ac-range',
+                 'tmdeBudgetFunctionId': 'ac-function', 'tmdeBudgetComponentKind': 'TMDE Error',
+                 'acShuntSource': {'phase': 'ac_open', 'direction': 'Forward', 'role': 'std'}},
+                {'id': 'type-a', 'type': 'A', 'name': 'AC/DC repeatability',
+                 'value_native': .00002, 'unit_native': 'A', 'dof': 3},
+            ],
+        }
+        data = {'id': 12346, 'name': 'Native derived import', 'testPoints': [point]}
+        for _ in range(2):
+            data = session_to_dict(save_session(data))
+            restored = data['testPoints'][0]
+            for key in ('measurementType', 'equationString', 'variableMappings', 'variableNominals',
+                        'inputCorrelations', 'testPointInfo'):
+                self.assertEqual(restored[key], point[key], key)
+            for expected, actual in zip(point['components'], restored['components']):
+                for key, value in expected.items():
+                    self.assertEqual(actual[key], value, key)
+            self.assertFalse(restored['components'][1].get('variableSymbol'))

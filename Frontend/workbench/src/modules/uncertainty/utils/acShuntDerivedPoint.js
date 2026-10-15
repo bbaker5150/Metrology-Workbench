@@ -100,8 +100,12 @@ export function buildAcShuntDerivedPoint(point, savedPoint, session) {
   }));
   return {...point, measurementType:'derived', equationString:expression,
     variableMappings, variableNominals, inputCorrelations, components,
-    acShuntDerivedModel: {version:1, convention:'Nominal-centered equivalent-current AC/DC comparison',
-      readerCorrelation:'Conservative full-magnitude correlation within each physical reader; review in the correlation editor.',
-      directionCombination:'Equal-weight mean of saved forward/reverse comparison sensitivities; Type A imported once at output.'},
+    // testPointInfo is persisted by the session API; unknown top-level point
+    // fields are discarded when the relational session is saved and reopened.
+    testPointInfo: {...point.testPointInfo, acShuntSource: {...point.testPointInfo.acShuntSource,
+      derivedModel: {version:1, convention:'Nominal-centered equivalent-current AC/DC comparison',
+        readerCorrelation:'Conservative full-magnitude correlation within each physical reader; review in the correlation editor.',
+        directionCombination:'Equal-weight mean of saved forward/reverse comparison sensitivities; Type A imported once at output.'},
+    }},
   };
 }
