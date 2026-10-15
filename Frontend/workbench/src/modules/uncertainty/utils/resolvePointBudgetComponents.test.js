@@ -72,6 +72,19 @@ it("refreshes secondary uncertainties by source id across renames, type changes 
 });
 
 describe.each(["direct","derived"])("live instrument components (%s)", measurementType => {
+  it("keeps missing sources incomplete instead of dropping them or substituting another range", () => {
+    const {point,session}=makeFixture(measurementType);
+    point.components=resolvePointBudgetComponents(point,session);
+    const fn=session.tmdes[0].instrument.functions[0];
+    fn.ranges=[{...fn.ranges[0],id:'different-range'}];
+    let rows=resolvePointBudgetComponents(point,session);
+    expect(rows).toHaveLength(2);
+    expect(rows.every(row=>row.value_native===null && /range is missing/.test(row.pendingReason))).toBe(true);
+    session.tmdes=[];
+    rows=resolvePointBudgetComponents(point,session);
+    expect(rows).toHaveLength(2);
+    expect(rows.every(row=>row.value_native===null && /instrument is missing/.test(row.pendingReason))).toBe(true);
+  });
   it("refreshes existing accuracy and resolution rows, including legacy aliases, units and distribution", () => {
     const {point,session} = makeFixture(measurementType);
     const initial=resolvePointBudgetComponents(point,session);

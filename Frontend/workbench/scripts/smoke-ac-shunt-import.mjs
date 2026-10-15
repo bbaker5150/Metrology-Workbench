@@ -32,6 +32,7 @@ try {
   await page.goto(`${url}/#/uncertainty`);
   const button=page.getByRole('button',{name:'Import AC/DC shunt session',exact:true});
   await button.waitFor({timeout:90000});
+  console.log('Workbench loaded.');
   await page.getByRole('button',{name:'Close walkthrough',exact:true}).click();
   assert.equal(await button.evaluate(b=>b.previousElementSibling?.getAttribute('aria-label')),'Unit converter');
   await button.click();
@@ -42,6 +43,7 @@ try {
   await page.screenshot({path:'tmp/ac-shunt-import/preview.png'});
   await page.getByRole('button',{name:'Create budget',exact:true}).click();
   await page.waitForFunction(()=>!document.querySelector('dialog.ac-shunt-import'));
+  console.log('Imported session saved.');
   assert.equal(saved.testPoints.length,3);
   assert.equal(saved.testPoints[0].components[0].dof,4);
   assert.equal(saved.tmdes.length,3);
@@ -50,30 +52,37 @@ try {
   assert.ok(saved.testPoints.every(p=>p.uutTolerance.tolerances.reading.high===100 && p.uutTolerance.tolerances.reading.low===-100));
   assert.ok(saved.testPoints.every(p=>!p.uutTolerance.tolerances.bias));
   assert.ok(saved.testPoints.every(p=>p.expanded_uncertainty_absolute_base>0));
-  assert.ok(saved.testPoints.every(p=>p.components.filter(c=>c.type==='B').every(c=>c.tmdeBudgetSourceId && c.toleranceLimit_native>0)));
-  assert.ok(saved.testPoints.every(p=>p.components.filter(c=>c.type==='B').every(c=>/^Normal/.test(c.distribution))));
+  assert.ok(saved.testPoints.every(p=>p.measurementType==='derived' && p.equationString && p.variableNominals.Vstd11.unit==='V'));
+  assert.ok(saved.testPoints.every(p=>p.components.every(c=>!c.tmdeTransferSources)));
+  assert.ok(saved.testPoints.every(p=>p.components.filter(c=>c.type==='B').every(c=>c.tmdeBudgetSourceId && c.variableSymbol && c.value_native>0)));
+  assert.ok(saved.testPoints.every(p=>p.components.filter(c=>c.type==='B' && !c.isResolution).every(c=>/^Normal/.test(c.distribution))));
   assert.ok(saved.tmdes.every(t=>!(t.instrument.typeBComponents || []).length));
   assert.equal(saved.tmdes[1].instrument.functions.find(f=>f.name==='AC Voltage').ranges.length,2);
   assert.equal(saved.tmdes[1].instrument.functions.find(f=>f.name==='DC Voltage').ranges.length,1);
   assert.ok(saved.tmdes[1].instrument.functions.flatMap(f=>f.ranges).some(r=>r.max===.07));
   assert.ok(saved.tmdes[1].instrument.functions.flatMap(f=>f.ranges).some(r=>r.max===.22));
-  await page.getByRole('button',{name:'Expand measurement area',exact:true}).click();
+  const expandArea=page.getByRole('button',{name:'Expand measurement area',exact:true});
+  if(await expandArea.count()) await expandArea.click();
   await page.getByRole('button',{name:'Columns',exact:true}).click();
   await page.getByRole('button',{name:'Add TAR column',exact:true}).click();
   await page.getByRole('button',{name:'Close column settings',exact:true}).click();
+  console.log('Sidebar metrics displayed.');
   const rows=page.locator('[data-point-id]');
   assert.equal(await rows.count(),3);
   writeFileSync('tmp/ac-shunt-import/point-row.html',await rows.first().evaluate(el=>el.outerHTML));
   for (const row of await rows.all()) {
-    for (const metric of ['TUR','TAR','PFA','PFR']) {
+    for (const metric of ['TUR','PFA','PFR']) {
       const cell=row.locator(`[data-sidebar-column="${metric.toLowerCase()}"]`).first();
       assert.equal(await cell.count(),1,`${metric} column is visible`);
       assert.ok(Number.isFinite(Number((await cell.innerText()).replace('%',''))),`${metric} must be calculated`);
     }
   }
   await rows.first().click({position:{x:2,y:2}});
-  const budget=page.getByText('AC CURRENT UNCERTAINTY BUDGET',{exact:false});
+  await page.getByRole('button',{name:'Uncertainty Budget',exact:true}).click();
+  const budget=page.getByRole('heading',{name:/Reference shunt calibration Uncertainty Budget/i});
   await budget.scrollIntoViewIfNeeded();
+  console.log('Native input budgets opened.');
+  assert.equal(await page.getByRole('heading',{name:/reader (Forward|Reverse) .*Uncertainty Budget/i}).count(),16);
   const body=await page.locator('body').innerText();
   assert.match(body,/Normal \(99%\)/);
   assert.match(body,/Normal \(95.45%\)/);
@@ -81,16 +90,18 @@ try {
   const risk=await page.evaluate(async session=>{
     const {computePointRiskMetrics}=await import('/src/modules/uncertainty/utils/riskCompute.js');
     const metrics=computePointRiskMetrics(session.testPoints[0],session);
-    return {pfa:metrics.pfa,pfr:metrics.pfr};
+    return {pfa:metrics.pfa,pfr:metrics.pfr,tar:metrics.tar,tarReason:metrics.tmdeLimits.reason};
   },saved);
+  assert.equal(risk.tar,undefined);
+  assert.match(risk.tarReason,/different physical units/);
   for (const metric of ['pfa','pfr']) {
     assert.ok(Number.isFinite(risk[metric]));
-    assert.match(body,new RegExp(`${metric.toUpperCase()}\\s+${risk[metric].toFixed(3).replace('.','\\.')} %`));
+    assert.match(body,new RegExp(`${metric.toUpperCase()}\\s+${risk[metric].toPrecision(4).replace('.','\\.')} %`));
   }
   await page.screenshot({path:'tmp/ac-shunt-import/budget.png'});
   writeFileSync('tmp/ac-shunt-import/feature-body.txt',await page.locator('body').innerText());
   assert.deepEqual(errors,[]);
-  console.log('PASS: UUT limits, unique TMDE ranges, linked budget errors, and calculated TUR/TAR/PFA/PFR on every imported point.');
+  console.log('PASS: native derived points, UUT limits, voltage input sources, unique TMDE ranges, and calculated TUR/PFA/PFR on every imported point.');
 } catch (error) {
   mkdirSync('tmp/ac-shunt-import',{recursive:true});
   await page.screenshot({path:'tmp/ac-shunt-import/failure.png'});

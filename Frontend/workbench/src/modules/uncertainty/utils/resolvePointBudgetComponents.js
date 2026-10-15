@@ -87,7 +87,7 @@ export function resolvePointBudgetComponents(point, sessionData, instruments = [
             String(tmde.id) === String(sourceId) ||
             String(tmde.sourceId) === String(sourceId),
         );
-        if (!master) return null;
+        if (!master) return unresolvedComponent(component, "The linked TMDE instrument is missing. Select an error source.");
         const ranges = getInstrumentRangeRows(master, { flattenTolerances: true });
         const selectedRange =
           ranges.find(
@@ -99,14 +99,14 @@ export function resolvePointBudgetComponents(point, sessionData, instruments = [
                 !range.functionId ||
                 String(range.functionId) === String(component.tmdeBudgetFunctionId)),
           ) ||
-          ranges.find(
+          (!component.tmdeBudgetRangeId && (ranges.find(
             (range) =>
               component.tmdeBudgetFunctionName &&
               String(range.functionName || "").trim() ===
                 String(component.tmdeBudgetFunctionName).trim(),
           ) ||
-          ranges[0];
-        if (!selectedRange) return null;
+          ranges[0]));
+        if (!selectedRange) return unresolvedComponent(component, "The linked TMDE range is missing. Select an error source range.");
         const referencePoint = getReferencePoint(component);
         const resolutionLinked =
           String(component.tmdeBudgetComponentKind || "").toLowerCase() ===

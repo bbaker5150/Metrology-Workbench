@@ -1,13 +1,13 @@
 import { v4 as uuid } from 'uuid';
 import { normalizeInlineManualComponent } from '../features/analysis/utils/manualComponentUtils';
 import { getBudgetComponentsFromTolerance } from '../features/analysis/utils/budgetUtils';
-import { getInstrumentRangeRows } from './instrumentFunctionSelection';
 import { readerContribution, readerTransferInputs } from './acShuntReaderSpecs';
 import { acShuntUutSpec } from './acShuntUutSpecs';
 import { resolvePointBudgetComponents } from './resolvePointBudgetComponents';
 import { computePointRiskMetrics, recalculatePointUncertaintyFields } from './riskCompute';
 import { resolveErrorDistribution } from './uncertaintyMath';
 import { selectAcShuntDefinitions, linkAcShuntDefinition, matchAcShuntRange } from './acShuntLibrary';
+import { buildAcShuntDerivedPoint } from './acShuntDerivedPoint';
 
 const finite = n => n !== null && n !== undefined && n !== '' && Number.isFinite(Number(n));
 const maker = model => /Y5020|A40B|5790/i.test(model || '') ? 'Fluke' : /34420/i.test(model || '') ? 'Agilent' : '';
@@ -160,7 +160,7 @@ export function buildAcShuntBudget(snapshot, { rocK = 2, instruments: library = 
         const details=point.readerPoints.map(p=>reader.libraryInstrumentId ? readerTransferInputs(model,side,p) : readerContribution(model,side,p,point.frequency));
         const transfers=[];
         let firstRange;
-        for (const d of details) for (const [i,voltage] of d.voltages.entries()) {
+        for (const [directionIndex,d] of details.entries()) for (const [i,voltage] of d.voltages.entries()) {
           const s=d.specs?.[i];
           const transferNominal={value:Math.abs(Number(voltage)),unit:'V',qualifier:nominal.qualifier};
           const physicalRange=/5790/i.test(model || '') ? (finite(d.rangeMode) ? (i>=2 ? Math.max(.22,Number(d.rangeMode)) : Number(d.rangeMode)) : /^auto$/i.test(d.rangeMode) ? 'AUTO' : null) : null;
@@ -171,20 +171,13 @@ export function buildAcShuntBudget(snapshot, { rocK = 2, instruments: library = 
             tolerances:{reading:term(s.readingPpm,s.divisor),floor:term(s.floorVolts,s.divisor,'V')}});
           firstRange ||= range;
           transfers.push({sourceId:reader.id,rangeId:range.rangeId,functionId:range.functionId,
-          nominal:transferNominal,sensitivity:d.sensitivities[i]*point.current,role:side,direction:d.direction});
+          nominal:transferNominal,sensitivity:d.sensitivities[i]*point.current,role:side,direction:d.direction,
+          directionIndex,phase:['ac_open','ac_close','dc_pos','dc_neg'][i]});
         }
         let c=byReader.get(reader.id);
-        if (!c) {c=linked(reader,`Reader uncertainty · ${reader.name}`,firstRange,{interval:'1 year',details:[],method:'Sum absolute phase sensitivities; largest direction; shared reader roles summed.'});c.tmdeTransferSources=[];byReader.set(reader.id,c);}
+        if (!c) {c=linked(reader,`Reader uncertainty · ${reader.name}`,firstRange,{interval:'1 year',details:[],method:'Native derived phase inputs with explicit conservative reader correlations.'});c.tmdeTransferSources=[];byReader.set(reader.id,c);}
         c.tmdeTransferSources.push(...transfers);c.acShuntSource.details.push(...details);
       } catch(error) {missing(`${role} reader · ${reader.name}`,error.message,{model,side});}
-    }
-    for (const reader of byReader.values()) {
-      const master=[...instruments.values()].find(item=>item.id===reader.tmdeBudgetSourceId);
-      if (master.libraryInstrumentId && !getInstrumentRangeRows(master).some(range=>
-        reader.tmdeTransferSources.some(source=>source.rangeId===range.rangeId && source.functionId===range.functionId) &&
-        (range.includeResolutionInBudget || range.tolerances?.includeResolutionInBudget))) continue;
-      const id=uuid();
-      components.push({...reader,id,componentId:id,name:reader.name.replace('Reader uncertainty','Reader resolution'),isResolution:true,tmdeBudgetComponentKind:'Resolution'});
     }
     let uutTolerance=null;
     try {
@@ -208,7 +201,8 @@ export function buildAcShuntBudget(snapshot, { rocK = 2, instruments: library = 
     topology==='Y5020' ? 'Y5020 UUT acceptance: Navy requirement ±100 ppm of reading, with no bias. This overrides older manufacturer/bias specifications in the imported session copy only.' : 'A40B UUT acceptance: shared instrument limits when matched; otherwise manufacturer p.4, 1 year, Tcal ±1 °C, ≤50% RH, interpolation above 1 kHz and 1 kHz limit below it.',
     'Matching shared instruments supply existing ranges and uncertainties. Unmatched instruments are generated for initial setup; share their completed definitions for repeat imports. Missing or ambiguous shared ranges remain incomplete.',
     'Generated reader specifications: 1 year. 34420A: 1 V DC, 23 ±5 °C, 100 NPLC, filters off, 2-hour warm-up. 5790B: saved range or autorange from recorded voltage, ±5 °C of calibration, manufacturer warm-up and DC-zero requirements. Shared readers retain their authored specifications.',
-    'Budget errors are linked to the authored TMDE ranges at the saved phase voltages. Absolute phase sensitivities sum conservatively; use the largest direction and sum shared-reader roles before RSS. Range edits refresh the budget and risk.',
+    'Derived AC/DC comparison: native equation inputs retain the saved reader phase voltages and linked uncertainty ranges. The equal-weight forward/reverse comparison is centered on the recorded operating point so its measured difference is not reapplied as UUT bias. The reference shunt input is its equivalent-current calibration uncertainty; Type A is added once at the final output.',
+    'Reader input correlations use the conservative full-magnitude assumption within each physical instrument, with signs chosen to prevent assumed cancellation. Review these visible correlations against the lab method. TAR remains unavailable for mixed-unit TMDE inputs, as in other derived Uncertalytics budgets.',
     'Default risk assumptions: 85% reliability, 12-month interval, required TUR 4, PFA target 2%, 95% coverage. Review lab requirements.'];
   const session={name:`${snapshot.name} · AC/DC budget`,organization:'NPSL',document:`AC-shunt session ${snapshot.id}`,
     documentDate:snapshot.createdAt.slice(0,10),measurementAreas:[{id:areaId,name:'Electrical',color:'#5aa6d9'}],
@@ -217,8 +211,9 @@ export function buildAcShuntBudget(snapshot, { rocK = 2, instruments: library = 
     uncReq:{uncertaintyConfidence:95,reliability:85,calInt:12,neededTUR:4,reqPFA:2},
     detailSectionOrder:['instruments','equation','budget'],detailCollapsedSections:[]};
   for (const item of [...session.uuts,...session.tmdes].filter(item=>!item.libraryInstrumentId)) for (const fn of item.instrument.functions) fn.ranges.sort((a,b) => (a.min-b.min) || (a.max-b.max) || String(a.qualifierGroupId || '').localeCompare(String(b.qualifierGroupId || '')) || ((a.qualifier?.min ?? 0)-(b.qualifier?.min ?? 0)));
-  session.testPoints=testPoints.map(point=>{
-    const resolved={...point,components:resolvePointBudgetComponents(point,session)};
+  session.testPoints=testPoints.map((point,index)=>{
+    const derived=buildAcShuntDerivedPoint(point,snapshot.points[index],session);
+    const resolved={...derived,components:resolvePointBudgetComponents(derived,session)};
     return recalculatePointUncertaintyFields(resolved,session);
   });
   let riskCalculated=0;

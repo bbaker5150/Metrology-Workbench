@@ -10,6 +10,9 @@ import { getBudgetRangeWarnings } from './pointDiagnostics';
 import { reconcileImportedInstruments } from './importedInstrumentLibrary';
 import { computeSyncState } from './instrumentSync';
 import { getUutBiasDefault } from './measurementBias';
+import { calculateDerivedUncertainty, correlationKey } from './uncertaintyMath';
+import { renderHook, waitFor } from '@testing-library/react';
+import { useUncertaintyCalculation } from '../features/analysis/hooks/useUncertaintyCalculation';
 
 export const fixture = (model='Y5020',shared=false) => ({id:10,name:'Saved run',createdAt:'2026-10-02T00:00:00Z',
   instruments:{test_instrument_model:model,test_instrument_serial:'UUT',standard_instrument_model:model,
@@ -21,6 +24,67 @@ export const fixture = (model='Y5020',shared=false) => ({id:10,name:'Saved run',
     tvcs:{std:{expandedPpm:6,testVoltage:1},ti:{expandedPpm:8,testVoltage:1}},
     readerPoints:['Forward','Reverse'].map(direction=>({direction,rangeMode:'.22',eta_std:1,eta_ti:1,
       phases:Object.fromEntries(['std','ti'].flatMap(side=>['ac_open','ac_close','dc_pos','dc_neg'].map(p=>[`${side}_${p}`,.2])))}))}]});
+
+const derivedResult=(point,session)=>calculateDerivedUncertainty(point.equationString,point.variableMappings,[],
+  {...point.testPointInfo.parameter,variableNominals:point.variableNominals},
+  resolvePointBudgetComponents(point,session).filter(row=>row.variableSymbol),{strictUnitValidation:true});
+
+describe('native AC-shunt derived workflow',()=>{
+  it.each(['Y5020','A40B'])('keeps %s voltage sources in native input budgets and propagates dimensionally valid sensitivities',model=>{
+    const {session}=buildAcShuntBudget(fixture(model));
+    const point=JSON.parse(JSON.stringify(session.testPoints[0]));
+    expect(point.measurementType).toBe('derived');
+    expect(point.components.every(row=>!row.tmdeTransferSources)).toBe(true);
+    const result=derivedResult(point,session);
+    expect(result.error).toBeNull();
+    expect(result.nominalResult).toBeCloseTo(10,12);
+    expect(result.breakdown.find(row=>row.variable==='Vstd11')).toMatchObject({unit:'V',ci:12.5});
+    expect(result.breakdown.find(row=>row.variable==='Vstd13').ci).toBeCloseTo(-12.5,12);
+    expect(result.breakdown.find(row=>row.variable==='Vti21')).toMatchObject({unit:'V',ci:-12.5});
+    const phaseRows=point.components.filter(row=>row.variableSymbol==='Vstd11');
+    expect(phaseRows).toHaveLength(2);
+    expect(phaseRows.every(row=>row.unit_native==='V')).toBe(true);
+    if(model==='Y5020') {
+      expect(phaseRows.find(row=>!row.isResolution).value_native).toBeCloseTo(9.1e-6/2.58,12);
+      const phaseU=Math.hypot(9.1e-6/2.58,1e-7/Math.sqrt(12));
+      expect(computeUncertaintyForPoint(point,session).combined_uncertainty_absolute_base).toBeCloseTo(Math.hypot(100*phaseU,100*phaseU,2e-5,2e-5),10);
+    } else {
+      expect(result.breakdown.find(row=>row.variable==='Tstd')).toMatchObject({unit:'V',ci:10});
+      expect(result.breakdown.find(row=>row.variable==='Tti')).toMatchObject({unit:'V',ci:-10});
+    }
+  });
+  it('uses actual unequal phase voltages and eta in the editable equation after persistence',()=>{
+    const source=fixture();
+    source.points[0].readerPoints[0]={...source.points[0].readerPoints[0],eta_std:2,
+      phases:{...source.points[0].readerPoints[0].phases,std_ac_open:.19,std_ac_close:.21,std_dc_pos:.18,std_dc_neg:-.20}};
+    const session=JSON.parse(JSON.stringify(buildAcShuntBudget(source).session));
+    const point=session.testPoints[0];
+    const result=derivedResult(point,session);
+    expect(result.error).toBeNull();
+    expect(result.nominalResult).toBeCloseTo(10,12);
+    expect(result.breakdown.find(row=>row.variable==='Vstd11').ci).toBeCloseTo(10/2/2/.38,10);
+    expect(result.breakdown.find(row=>row.variable==='Vstd13').ci).toBeCloseTo(-10/2/2*.4/.38**2,10);
+    point.variableNominals.Vstd11.value+=1e-5;
+    const edited=derivedResult(point,session);
+    expect(edited.nominalResult-result.nominalResult).toBeCloseTo(1e-5*10/2/2/.38,10);
+  });
+  it('opens native voltage budgets and includes paired Type A exactly once in the final output',async()=>{
+    const {session}=buildAcShuntBudget(fixture());
+    const point=session.testPoints[0], components=resolvePointBudgetComponents(point,session);
+    const tmdeTolerances=[], onSave=()=>{};
+    const {result}=renderHook(()=>useUncertaintyCalculation(point,session,tmdeTolerances,point.uutTolerance,
+      point.testPointInfo.parameter,components,onSave));
+    await waitFor(()=>expect(result.current.calcResults?.is_detailed_uncertainty_calculated).toBe(true));
+    expect(result.current.calculationError).toBeNull();
+    const groups=result.current.calcResults.calculatedBudgetGroups;
+    expect(groups.filter(group=>group.kind==='input' && group.unit==='V')).toHaveLength(16);
+    const typeA=point.components.find(row=>row.type==='A');
+    const final=groups.find(group=>group.kind==='final');
+    expect(final.components.filter(row=>row.id===typeA.id)).toHaveLength(1);
+    expect(groups.filter(group=>group.kind==='input').every(group=>group.components.every(row=>row.id!==typeA.id))).toBe(true);
+    expect(result.current.calcResults.combined_uncertainty_absolute_base).toBeCloseTo(computeUncertaintyForPoint(point,session).combined_uncertainty_absolute_base,10);
+  });
+});
 
 describe('AC-shunt budget import',()=>{
   it.each(['Y5020','A40B'])('keeps frequency exclusively in qualifiers for %s instrument ranges',model=>{
@@ -46,15 +110,20 @@ describe('AC-shunt budget import',()=>{
     for (const row of point.components.filter(c=>c.type==='B')) {
       expect(row.tmdeBudgetSourceId).toBeTruthy();
       expect(row.tmdeBudgetRangeId).toBeTruthy();
-      expect(row.toleranceLimit_native).toBeGreaterThan(0);
+      expect(row.value_native).toBeGreaterThan(0);
+      if (!row.isResolution) expect(row.toleranceLimit_native).toBeGreaterThan(0);
+      expect(row.variableSymbol).toBeTruthy();
+      expect(row.tmdeTransferSources).toBeUndefined();
       expect(row.isInlineManual).not.toBe(true);
       expect(row.distribution).toMatch(/^(Normal|Rectangular)/);
       expect(row.distribution).not.toMatch(/^k\s*=/);
     }
     const risk=computePointRiskMetrics(point,session);
-    for (const key of ['tur','tar','pfa','pfr']) expect(Number.isFinite(risk[key]),key).toBe(true);
-    expect(risk.tmdeLimits.reason).toBeNull();
-    expect(getBudgetRangeWarnings({components:point.components,directNominal:point.testPointInfo.parameter,tmdes:session.tmdes})).toEqual({});
+    for (const key of ['tur','pfa','pfr']) expect(Number.isFinite(risk[key]),key).toBe(true);
+    expect(risk.tar).toBeUndefined();
+    expect(risk.tmdeLimits.reason).toMatch(/different physical units/);
+    const groups=Object.entries(point.variableMappings).map(([symbol,variableType])=>({kind:'input',variableType,nominalPoint:point.variableNominals[symbol]}));
+    expect(getBudgetRangeWarnings({components:point.components,measurementType:'derived',groups,tmdes:session.tmdes})).toEqual({});
     expect(risk.tur).toBeGreaterThan(0);
   });
   it('deduplicates repeated TVC and reader specs while retaining distinct frequency conditions',()=>{
@@ -103,7 +172,7 @@ describe('AC-shunt budget import',()=>{
     expect(rows[0]).toMatchObject({type:'A',value:2,dof:3});
     expect(rows[0].value_native).toBeCloseTo(.00002,12);
     expect(rows[1].value).toBe(2);
-    expect(rows).toHaveLength(6);
+    expect(rows).toHaveLength(34); // Type A, shunt, accuracy + resolution for 16 phase inputs.
     const uncertainty=computeUncertaintyForPoint(point,session);
     expect(uncertainty).not.toBeNull();
     expect(uncertainty.combined_uncertainty_absolute_base).toBeGreaterThan(.00002);
@@ -118,9 +187,13 @@ describe('AC-shunt budget import',()=>{
   it('does not reduce uncertainty for a shared reader or duplicate its identity',()=>{
     const {session}=buildAcShuntBudget(fixture('Y5020',true));
     expect(session.tmdes).toHaveLength(2);
-    const rows=session.testPoints[0].components.filter(c=>c.name.startsWith('Reader uncertainty'));
-    expect(rows).toHaveLength(1);
-    expect(rows[0].value).toBeCloseTo(4*(38+1.5/.2)/2.58);
+    const point=session.testPoints[0];
+    const rows=point.components.filter(c=>c.variableSymbol?.startsWith('V'));
+    expect(new Set(rows.map(row=>row.tmdeBudgetSourceId)).size).toBe(1);
+    expect(rows).toHaveLength(32);
+    expect(point.inputCorrelations[correlationKey(point.variableMappings.Vstd11,point.variableMappings.Vti11)]).toBe(-1);
+    const phaseUncertainty=Math.hypot((38e-6*.2+1.5e-6)/2.58,1e-7/Math.sqrt(12));
+    expect(computeUncertaintyForPoint(point,session).combined_uncertainty_absolute_base).toBeCloseTo(Math.hypot(200*phaseUncertainty,2e-5,2e-5),10);
   });
   it('retains missing sources as incomplete rows through calculation',()=>{
     const source=fixture();source.points[0].shuntSources=[null];
@@ -228,11 +301,11 @@ describe('repeat imports from the shared library',()=>{
     expect(result.riskCalculated).toBe(2);
     const reader=result.session.tmdes[1];
     const ac=reader.instrument.functions.find(fn=>fn.name==='AC Voltage');
-    const transfers=result.session.testPoints[0].components.find(row=>row.tmdeTransferSources)?.tmdeTransferSources;
-    expect(transfers[0].rangeId).toBe(ac.ranges.find(range=>range.max===.07).id);
+    const inputRange=point=>point.components.find(row=>row.variableSymbol==='Vstd11').tmdeBudgetRangeId;
+    expect(inputRange(result.session.testPoints[0])).toBe(ac.ranges.find(range=>range.max===.07).id);
     source.points[0].readerPoints.forEach(point=>point.rangeMode='.22');
     const selected=buildAcShuntBudget(source,{instruments:library});
-    expect(selected.session.testPoints[0].components.find(row=>row.tmdeTransferSources).tmdeTransferSources[0].rangeId).toBe(ac.ranges.find(range=>range.max===.22).id);
+    expect(inputRange(selected.session.testPoints[0])).toBe(ac.ranges.find(range=>range.max===.22).id);
   });
   it('includes additional shared shunt uncertainties and respects disabled reader resolutions',()=>{
     const source=fixture(),library=sharedDefinitions(source);
@@ -283,7 +356,7 @@ it('imports grouped frequency subranges, dedicated point fields and editable rea
   expect(session.testPoints.every(p=>p.section==='' && p.testPointInfo.parameter.value===10 && p.testPointInfo.qualifier.unit==='Hz')).toBe(true);
   expect(session.tmdes[1].instrument.functions[0].ranges[0]).toMatchObject({resolution:1e-7,resolutionUnit:'V',includeResolutionInBudget:true});
   const resolutions=session.testPoints[0].components.filter(c=>c.isResolution);
-  expect(resolutions).toHaveLength(2);
+  expect(resolutions).toHaveLength(16);
   expect(resolutions.every(c=>c.value_native>0 && !c.pendingReason)).toBe(true);
 });
 it('uses reader resolution appropriate to the saved filter and integration time',()=>{
