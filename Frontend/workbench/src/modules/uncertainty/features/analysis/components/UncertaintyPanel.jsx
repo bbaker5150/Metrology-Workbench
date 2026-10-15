@@ -9354,13 +9354,7 @@ const SummaryDashboard = ({
               onInsertAfter={(columnKey) => requestCustomColumn("uut", columnKey)}
             />
             <tbody>
-              {groupedUutRows.length === 0 ? (
-                <tr className="panel-empty-row">
-                  <td colSpan={getInstrumentColumnOrder("uut", customColumnsFor("uut"), uutTableColumns.qualifierEnabled).length}>
-                    <MeasurementAreaEmptyHint />
-                  </td>
-                </tr>
-              ) : (
+              {groupedUutRows.length === 0 ? null : (
                 groupedUutRows.map((row) => {
                   if (row.type === "function") {
                     return renderFunctionHeaderRow(
@@ -9839,6 +9833,7 @@ const SummaryDashboard = ({
           </table>
         </div>
         </InstrumentTableViewport>
+        {groupedUutRows.length === 0 && <MeasurementAreaEmptyHint />}
         <InstrumentTableHeightHandle kind="uut" sizing={uutTableHeight} />
       </div>}
 
@@ -9898,13 +9893,13 @@ const SummaryDashboard = ({
               <thead><tr><th data-instrument-column="description">Description</th><th className="cell-sync" data-instrument-column="sync">Sync</th></tr></thead>
             </>}
             <tbody>
-              {groupedTmdeRows.length === 0 ? (
+              {groupedTmdeRows.length === 0 ? (libraryMode ? (
                 <tr className="panel-empty-row">
                   <td colSpan={libraryMode && !libraryExpandedIds.length ? 2 : getInstrumentColumnOrder("tmde", customColumnsFor("tmde"), tmdeTableColumns.qualifierEnabled).length}>
-                    {libraryMode ? <span>No instruments match. Add an instrument or adjust your search.</span> : <MeasurementAreaEmptyHint />}
+                    <span>No instruments match. Add an instrument or adjust your search.</span>
                   </td>
                 </tr>
-              ) : (
+              ) : null) : (
                 groupedTmdeRows.map((row) => {
                   if (row.type === "function") {
                     return renderFunctionHeaderRow(
@@ -10427,6 +10422,7 @@ const SummaryDashboard = ({
           </table>
         </div>
         </InstrumentTableViewport>
+        {!libraryMode && groupedTmdeRows.length === 0 && <MeasurementAreaEmptyHint />}
         <InstrumentTableHeightHandle kind="tmde" sizing={tmdeTableHeight} />
       </div>
 
@@ -15711,13 +15707,7 @@ function DetailedView({
               onInsertAfter={(columnKey) => requestCustomColumn("uut", columnKey)}
             />
             <tbody>
-              {visibleDetailUutRows.length === 0 ? (
-                <tr className="panel-empty-row">
-                  <td colSpan={getInstrumentColumnOrder("uut", customColumnsFor("uut"), uutTableColumns.qualifierEnabled).length}>
-                    <MeasurementAreaEmptyHint />
-                  </td>
-                </tr>
-              ) : (
+              {visibleDetailUutRows.length === 0 ? null : (
                 visibleDetailUutRows.map((row) => {
                   if (row.type === "function") {
                     return renderFunctionHeaderRow(
@@ -16202,6 +16192,7 @@ function DetailedView({
           </table>
         </div>
         </InstrumentTableViewport>
+        {visibleDetailUutRows.length === 0 && <MeasurementAreaEmptyHint />}
         <InstrumentTableHeightHandle kind="uut" sizing={uutTableHeight} />
         </div>
 
@@ -16506,13 +16497,7 @@ function DetailedView({
                 onInsertAfter={(columnKey) => requestCustomColumn("tmde", columnKey)}
               />
               <tbody>
-                {visibleDetailTmdeRows.length === 0 ? (
-                  <tr className="panel-empty-row">
-                    <td colSpan={getInstrumentColumnOrder("tmde", customColumnsFor("tmde"), tmdeTableColumns.qualifierEnabled).length}>
-                      <MeasurementAreaEmptyHint />
-                    </td>
-                  </tr>
-                ) : (
+                {visibleDetailTmdeRows.length === 0 ? null : (
                   visibleDetailTmdeRows.map((row) => {
                     if (row.type === "function") {
                       return renderFunctionHeaderRow(
@@ -17180,6 +17165,7 @@ function DetailedView({
             </table>
           </div>
           </InstrumentTableViewport>
+          {visibleDetailTmdeRows.length === 0 && <MeasurementAreaEmptyHint />}
           <InstrumentTableHeightHandle kind="tmde" sizing={tmdeTableHeight} />
         </div>
       </div>

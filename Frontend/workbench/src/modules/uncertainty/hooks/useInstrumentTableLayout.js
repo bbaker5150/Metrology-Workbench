@@ -331,7 +331,9 @@ export default function useInstrumentTableLayout(containerRef) {
       }
       card?.style.removeProperty("--instrument-panel-width");
 
-      alignEmptyHintArrows(table);
+      // Area hints sit beside the scroller: their add button extends over the
+      // action rail, so an arrow inside the table would create scroll overflow.
+      alignEmptyHintArrows(card || table);
       syncHeaderOffset();
       updateInstrumentCellHighlights(table, hoveredRow, hoveredCell);
       syncActions();
@@ -374,7 +376,7 @@ export default function useInstrumentTableLayout(containerRef) {
     // the scroll event instead of deferring an entire table measurement a frame.
     const onScroll = event => {
       if (event.target !== document && event.target !== container && !scrollAncestors.includes(event.target)) return;
-      alignEmptyHintArrows(table);
+      alignEmptyHintArrows(card || table);
       syncHeaderOffset(); syncActions();
     };
     const refreshColumnControls = event => {

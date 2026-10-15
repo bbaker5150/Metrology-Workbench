@@ -45,6 +45,25 @@ const Harness = ({ viewMode, save, initialSession }) => {
 };
 
 describe.each(['session', 'point'])('independent Measurement Areas in %s view', viewMode => {
+  it('keeps the empty-area hint outside the scrolling table and replaces it when an area is added', async () => {
+    const save = vi.fn();
+    const { container } = render(<Harness viewMode={viewMode} save={save} initialSession={{
+      id:'empty', measurementAreaGroups:[], measurementAreas:[], uuts:[], tmdes:[], testPoints:[], uncReq:{},
+    }} />);
+    if (viewMode === 'point') for (const kind of ['UUT','TMDE']) fireEvent.click(screen.getByRole('button', {name:`Show all ${kind} measurement areas`}));
+    const hints=screen.getAllByText(/Click \+ to add a measurement area/);
+    expect(hints).toHaveLength(2);
+    for (const hint of hints) {
+      expect(hint.parentElement).toHaveClass('panel-card');
+      expect(hint.closest('.instrument-panel-table-container')).toBeNull();
+      expect(hint.querySelector('span')).toHaveTextContent('↑');
+    }
+    expect(container.querySelectorAll('.instrument-equipment-table thead')).toHaveLength(2);
+    fireEvent.change(screen.getByRole('textbox',{name:'New UUT measurement area name'}),{target:{value:'Electrical'}});
+    fireEvent.click(screen.getByRole('button',{name:'Add Measurement Area from UUT table'}));
+    await waitFor(()=>expect(screen.queryByText(/Click \+ to add a measurement area/)).not.toBeInTheDocument());
+    expect(container.querySelectorAll('.instrument-first-hint')).toHaveLength(2);
+  });
   it('adds an area directly from the inline UUT name field', async () => {
     const save = vi.fn();
     render(<Harness viewMode={viewMode} save={save} />);
