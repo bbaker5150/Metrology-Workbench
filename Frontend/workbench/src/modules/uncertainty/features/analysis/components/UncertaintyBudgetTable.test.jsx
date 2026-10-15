@@ -73,6 +73,30 @@ const derivedApproximationGroups = (finalOverrides = {}) => [
 ];
 
 describe("UncertaintyBudgetTable direct budget actions", () => {
+  it.each(['final', 'input'])('renders a saved %s budget with null original inputs and preserves its distribution controls', kind => {
+    // The session API serializes absent original_input fields as explicit null.
+    const components = JSON.parse(JSON.stringify([
+      { id: 'divisor-source', name: 'Saved divisor source', type: 'B', value_native: .1, unit_native: 'V',
+        originalInput: null, distributionDivisor: '2.000', distribution: 'Normal' },
+      { id: 'named-source', name: 'Saved named source', type: 'B', value_native: .2, unit_native: 'V',
+        originalInput: null, distribution: 'Triangular' },
+    ]));
+    const onComponentUpdate = vi.fn();
+    renderDirectBudget({ components, onComponentUpdate,
+      measurementType: kind === 'input' ? 'derived' : 'direct',
+      referencePoint: { value: 10, unit: 'V' },
+      calcResults: { calculatedBudgetGroups: [{ id: 'saved-budget', kind, label: 'Voltage Uncertainty Budget',
+        variable: 'v', variableType: 'Voltage', nominalPoint: { value: 10, unit: 'V' }, unit: 'V', components, results: {} }] },
+    });
+    const divisor = within(screen.getByText('Saved divisor source').closest('tr')).getByRole('combobox');
+    const named = within(screen.getByText('Saved named source').closest('tr')).getByRole('combobox');
+    expect(divisor).toHaveValue('2.000');
+    expect(named).toHaveValue('Triangular');
+    fireEvent.change(divisor, { target: { value: '1.732' } });
+    expect(onComponentUpdate).toHaveBeenCalledWith('divisor-source', { distribution: '1.732' }, expect.objectContaining({ originalInput: null }));
+    fireEvent.change(named, { target: { value: 'Rectangular' } });
+    expect(onComponentUpdate).toHaveBeenCalledWith('named-source', { distribution: 'Rectangular' }, expect.objectContaining({ originalInput: null }));
+  });
   it("always shows the final contribution chart even with an old hidden preference", async () => {
     const view = renderDirectBudget({ showContribution: false, calcResults: {
       combined_uncertainty: 1, expanded_uncertainty: 2, k_value: 2,

@@ -982,7 +982,9 @@ const UncertaintyBudgetTable = ({
       return <span>{component.distribution || "Normal"}</span>;
     }
 
-    if (component.originalInput !== undefined) {
+    // Saved sessions can return null for absent original inputs. In that case
+    // use the component's own divisor/distribution below, just as when omitted.
+    if (component.originalInput != null) {
       if (component.type === "A") {
         return <span>{component.distribution || "Normal"}</span>;
       }
