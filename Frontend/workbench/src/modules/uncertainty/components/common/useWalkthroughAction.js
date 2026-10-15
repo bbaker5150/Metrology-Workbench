@@ -47,8 +47,8 @@ export default function useWalkthroughAction({ isOpen, step, context, cardRef, v
       if (state.ready) completed.current.add(step.id);
       if (!state.ready) state.advancing = false;
       if (!state.initial && !wasReady && state.ready) {
-        state.advancing = true;
-        scheduleAdvance();
+        state.advancing = action.autoAdvance !== false;
+        if (state.advancing) scheduleAdvance();
       }
       const advancing = Boolean(state.advancing);
       setResult(previous => previous?.id === step.id && previous.ready === state.ready && previous.advancing === advancing ? previous : { id: step.id, ready: state.ready, advancing });

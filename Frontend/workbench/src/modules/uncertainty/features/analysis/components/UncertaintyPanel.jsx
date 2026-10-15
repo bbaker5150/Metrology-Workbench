@@ -1976,6 +1976,8 @@ const useInlineColumnDismiss = ({
     let dismissOnRelease = false;
     let scrolling = false;
     const handlePointerDown = (event) => {
+      if (rootRef.current?.closest('.instrument-library-window[hidden]')) return;
+      if (rootRef.current?.closest('.instrument-library-window') && event.target.closest?.('[data-library-toggle]')) return;
       const isPress = event.type === "pointerdown" || event.type === "mousedown";
       if (isPress) { dismissOnRelease = false; scrolling = isInstrumentScrollTarget(event.target); }
       if (scrolling || isInstrumentScrollTarget(event.target)) return;
@@ -1999,6 +2001,7 @@ const useInlineColumnDismiss = ({
       dismissOnRelease = false;
     };
     const handleKeyDown = (event) => {
+      if (rootRef.current?.closest('.instrument-library-window[hidden]')) return;
       if (event.key !== "Escape") return;
       onDismiss();
     };
@@ -2176,9 +2179,12 @@ export const EditableDescriptionCell = ({
       const next = e.target.value || "";
       const baseline = { make, model, name, nickname }[field] || "";
       if (next !== baseline) onCommit(field, next);
+      const minimizingLibrary = anchorRef.current?.closest('.instrument-library-window') &&
+        e.relatedTarget?.closest?.('[data-library-toggle], [aria-label="Close instrument library"]');
       // Delay so an onMouseDown pick on a dropdown row registers first.
       setTimeout(() => {
         const root = anchorRef.current;
+        if (minimizingLibrary || root?.closest('.instrument-library-window[hidden]')) return;
         if (!root || (!root.contains(document.activeElement) && !document.activeElement?.closest?.(".inline-desc-search"))) {
           setEditing(false);
           setOpen(false);
@@ -8131,11 +8137,12 @@ const SummaryDashboard = ({
   // user is interacting with that same instrument's range cells. Clicking a
   // different column, clicking elsewhere, or pressing Escape snaps it shut.
   useEffect(() => {
-    if (expandedRangeKeys.size === 0) return undefined;
+    if (expandedRangeKeys.size === 0 || !keyboardShortcutsEnabled) return undefined;
     const onMouseDownCapture = (e) => {
       rangeClickGroupRef.current = isInstrumentScrollTarget(e.target) ? { scrolling: true } : getRangeColumnClickContext(e.target);
     };
     const onDown = (e) => {
+      if (libraryMode && e.target?.closest?.('[data-library-toggle]')) return;
       // Resizing is a layout action, not a click-away from the active editor.
       if (isInstrumentScrollTarget(e.target) || rangeClickGroupRef.current?.scrolling) return;
       if (e.target?.closest?.(".instrument-size-control, .instrument-column-insert-button")) return;
@@ -8207,7 +8214,7 @@ const SummaryDashboard = ({
       document.removeEventListener("click", onDown, true);
       document.removeEventListener("keydown", onKeyDown, true);
     };
-  }, [expandedRangeKeys]);
+  }, [expandedRangeKeys, keyboardShortcutsEnabled, libraryMode]);
   const [pinnedInlineUutIds, setPinnedInlineUutIds] = useState([]);
   const [pinnedInlineTmdeIds, setPinnedInlineTmdeIds] = useState([]);
 
@@ -8882,6 +8889,7 @@ const SummaryDashboard = ({
   const [rowMenu, setRowMenu] = useState(null);
   const [selectedInstrumentArea, setSelectedInstrumentArea] = useState(null);
   useEffect(() => {
+    if (!keyboardShortcutsEnabled) return undefined;
     const deselectArea = event => {
       if (event.key !== "Escape") return;
       setSelectedInstrumentArea(null);
@@ -8890,8 +8898,9 @@ const SummaryDashboard = ({
     };
     window.addEventListener("keydown", deselectArea, true);
     return () => window.removeEventListener("keydown", deselectArea, true);
-  }, [selectedInstrumentArea]);
+  }, [selectedInstrumentArea, keyboardShortcutsEnabled]);
   useEffect(() => {
+    if (!keyboardShortcutsEnabled) return undefined;
     const clear = event => {
       if (event.detail?.owner !== "points") return;
       setSelectedUutIds([]); setSelectedTmdeIds([]); setSelectedRangeIds({});
@@ -8899,7 +8908,7 @@ const SummaryDashboard = ({
     };
     window.addEventListener(WORKSPACE_SELECTION_EVENT, clear);
     return () => window.removeEventListener(WORKSPACE_SELECTION_EVENT, clear);
-  }, []);
+  }, [keyboardShortcutsEnabled]);
   const pasteDestinationRef = useRef(null);
   const selectedInstrumentAreasRef = useRef({});
   const instrumentDragSelectionRef = useRef(null);

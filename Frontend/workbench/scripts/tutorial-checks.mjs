@@ -40,7 +40,8 @@ export async function checkTutorial({frame,page,until,check}) {
   await open();
   for(const step of steps.filter(step=>step.workflow!=='Derived measurement')) {
     await selectStep(step.id);
-    check(`tutorial ${step.id}: current control is available`,await until(async()=>await frame.locator(step.target).evaluateAll(nodes=>nodes.some(node=>{const r=node.getBoundingClientRect(),s=getComputedStyle(node);return r.width>0 && r.height>0 && s.visibility!=='hidden' && s.display!=='none';})) && await card.locator('.guided-walkthrough-waiting').count()===0 && await frame.locator('.guided-walkthrough-highlight').count()===1));
+    const target = step.id === 'uut-description' ? '[data-tour="uut-table"] .cell-description:has(.inline-desc-fields)' : step.target;
+    check(`tutorial ${step.id}: current control is available`,await until(async()=>await frame.locator(target).evaluateAll(nodes=>nodes.some(node=>{const r=node.getBoundingClientRect(),s=getComputedStyle(node);return r.width>0 && r.height>0 && s.visibility!=='hidden' && s.display!=='none';})) && await card.locator('.guided-walkthrough-waiting').count()===0 && await frame.locator('.guided-walkthrough-highlight').count()===(step.highlightAll ? 3 : 1)));
   }
   await selectStep('session-information');
   const next=card.locator('.guided-walkthrough-primary');
@@ -59,12 +60,12 @@ export async function checkTutorial({frame,page,until,check}) {
   check('completed actions pulse the highlighted region green',await frame.locator('.guided-walkthrough-highlight.is-action-complete').count()===1);
   check('completed actions also highlight the tutorial card green',await card.evaluate(node=>node.classList.contains('is-action-complete') && getComputedStyle(node).borderTopColor==='rgb(34, 197, 94)'));
   check('completed edits advance automatically',await until(()=>card.locator('h3').textContent().then(title=>title!==currentTitle)));
-  check('jumping starts the new action with its own completion state',await next.isDisabled());
+  check('risk defaults can be reviewed without forcing an edit',await next.isEnabled());
   await card.getByRole('button',{name:'Back',exact:true}).click();
   check('Back remembers a completed action without requiring another edit',await until(()=>next.isEnabled()));
   await selectStep('session-requirements');
   await card.getByRole('button',{name:'Skip',exact:true}).click();
-  check('Skip advances an incomplete step',await until(()=>card.locator('h3').textContent().then(title=>title==='Open Instrument Overview')));
+  check('Skip advances to Instrument Overview',await until(()=>card.locator('h3').textContent().then(title=>title==='Instrument Overview')));
   await close();
   await frame.locator('[data-tour="tab-notes"]').click();
   check('closing the tutorial restores ordinary tab interaction',await frame.locator('[data-tour="tab-notes"]').evaluate(node=>node.classList.contains('active')));

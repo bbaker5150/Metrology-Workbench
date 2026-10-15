@@ -16594,6 +16594,12 @@ body.theme-cyberpunk .industry-table tr.selected-row {
   background: rgba(5, 11, 24, 0.62);
 }
 
+.guided-walkthrough-multiple-dim { position: fixed; inset: 0; width: 100%; height: 100%; fill: rgba(5, 11, 24, 0.62); pointer-events: none; }
+.guided-walkthrough-highlight.is-multiple { box-shadow: 0 0 0 4px color-mix(in srgb, var(--primary-color) 24%, transparent) !important; }
+.guided-walkthrough-highlight.is-multiple.is-action-complete { box-shadow: 0 0 0 4px #22c55e40 !important; }
+.guided-walkthrough-inline-icon { display: inline-flex; gap: 3px; align-items: center; color: var(--primary-color); }
+.guided-walkthrough-hint.guided-walkthrough-note { color: var(--primary-color); }
+
 .guided-walkthrough-card {
   position: fixed;
   z-index: 12004;

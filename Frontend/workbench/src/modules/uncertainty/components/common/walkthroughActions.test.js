@@ -6,6 +6,21 @@ const context = session => ({session});
 const initial = context({testPoints:[],tmdes:[],uuts:[]});
 
 describe('tutorial action requirements', () => {
+  it('allows reviewing risk defaults and checks the active Overview tab', () => {
+    expect(actions['session-requirements']).toBeUndefined();
+    expect(actions['overview-tab'].complete({analysisMode:'overview'})).toBe(true);
+    expect(actions['overview-tab'].complete({analysisMode:'notes'})).toBe(false);
+  });
+  it('requires the new instrument identity while keeping Tag optional', () => {
+    const action=actions['uut-description'];
+    const existing={id:'old',name:'Old',instrument:{manufacturer:'Fluke',model:'8588A'}};
+    const created={id:'new',name:'',instrument:{manufacturer:'',model:''}};
+    const data=context({uuts:[existing,created]});
+    expect(action.complete(data)).toBe(false);
+    created.instrument.manufacturer='Keysight';created.instrument.model='34461A';
+    expect(action.complete(data)).toBe(false);
+    created.name='Reference meter';expect(action.complete(data)).toBe(true);
+  });
   it.each(['direct','derived'])('walks through %s creation, assignment and numeric value separately', mode => {
     const action=actions[mode==='direct'?'measurement-point':'derived-point'];
     const baseline=action.snapshot(initial);

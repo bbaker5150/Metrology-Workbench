@@ -1,4 +1,7 @@
-import { walkthroughActions } from "./walkthroughActions.js";
+import { createElement } from "react";
+import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
+import { faPlus, faTools } from "@fortawesome/free-solid-svg-icons";
+import { walkthroughActions, measurementAreaEntryTargets, walkthroughUutDescription } from "./walkthroughActions.js";
 // Keep these instructions tied to visible controls. No tutorial step edits analysis data.
 export const createWalkthroughSteps = (sessionCount) => {
   const step = (workflow, id, title, description, target, extra = {}) => ({ workflow, id, title, description, target, action: walkthroughActions[id], ...extra });
@@ -22,18 +25,23 @@ export const createWalkthroughSteps = (sessionCount) => {
       "Expand Session Info to name the analysis and enter the analyst, organization, document, and date. These details identify the analysis when you return to it or export it.",
       '[data-tour="session-information"]', { hint: "Switch between saved analyses using the session selector. Fields save as you edit." }),
     step("Session setup", "session-requirements", "Set the starting risk and mitigation inputs",
-      "Expand Risk & Mitigation Inputs. Set confidence, assumed end-of-period reliability (REOP), TUR needed, PFA required, REOP required, and the current calibration interval. These are the defaults for points in this session.",
+      "Review Risk & Mitigation Inputs: confidence, assumed end-of-period reliability (REOP), TUR needed, PFA required, REOP required, and the current calibration interval. These are the defaults for points in this session. The starting values are typically used; keep them and select Next workflow, or adjust them if needed.",
       '[data-tour="session-requirements"]', { hint: "Hover each label for its definition. Point-specific overrides are available through the measurement-point columns." }),
 
-    step("Instruments & Measurement Areas", "overview-tab", "Open Instrument Overview",
-      "The UUT table defines units under test and their tolerances. The TMDE table defines measuring equipment and its uncertainties. Build your session's instrument definitions here; each measurement point then chooses its own budget sources.",
+    step("Instruments & Measurement Areas", "overview-tab", "Instrument Overview",
+      context => context.analysisMode === 'overview'
+        ? "This is your Instrument Overview. Within this tab you have access to all your Measurement Areas and their corresponding instruments on the tables. The instrument tables are separated as either Unit Under Test (UUT) or Test, Measurement, and Diagnostic Equipment (TMDE). This is where you create a Measurement Area on the UUT or TMDE table and begin creating or importing instruments from the Instrument Library to use for that area. A Measurement Area is a simple way to organize your work. You can add a Measurement Area from either table and it will populate both. Click Next to proceed with creating your first Measurement Area."
+        : "Open the Instrument Overview tab to access your Measurement Areas and the UUT and TMDE instrument tables.",
       '[data-tour="tab-overview"]', overview),
     step("Instruments & Measurement Areas", "uut-function", "Create a Measurement Area",
-      "Type a name in Add Measurement Area and press Enter or +. You can do this from Measurement Points or either instrument table. New areas receive a random color; use the color dot to choose your own and click the area name to rename it.",
-      '[data-tour="uut-add-function"]', { ...overview, hint: "Areas organize work, not instrument compatibility. An area can contain instruments with different functions and units." }),
+      "Type a name in Add Measurement Area and press Enter or +. You can do this from either instrument table or the Measurement Point List. New Measurement Areas receive a random color, but you can use the color dot to choose your own. This color provides an intuitive way to organize your work. A single session can contain any number of budgets, organized by Measurement Area (for example, Flow, Torque, or Dimensional).",
+      measurementAreaEntryTargets, { ...overview, highlightAll: true, hint: "Whichever entry point you use, the new Measurement Area appears in both instrument tables and the Measurement Point List." }),
     step("Instruments & Measurement Areas", "uut-instrument", "Add the unit under test",
-      "Use + on the UUT area's header. Click Description to search the library by manufacturer, model, name, or function, then choose a result explicitly. You can also enter a new instrument definition.",
-      '[data-tour="uut-add-instrument"]', { ...overview, hint: "Use a tag or nickname to distinguish similar instruments. The empty-table arrow points to the add control." }),
+      createElement('span', null, 'Press the ', createElement('span', { 'aria-label': 'Add instrument', className: 'guided-walkthrough-inline-icon' }, createElement(FontAwesomeIcon, { icon: faPlus }), ' ', createElement(FontAwesomeIcon, { icon: faTools })), ' button to add a new UUT instrument to your newly created Measurement Area.'),
+      '[data-tour="uut-add-instrument"]', { ...overview, hint: "For this tutorial, create a fresh instrument. Next, enter its description, then define its ranges and corresponding specifications.", note: true }),
+    step("Instruments & Measurement Areas", "uut-description", "Describe your new instrument",
+      "Enter the Manufacturer, Model, Name, and an optional Tag (Nickname) for your new instrument.",
+      walkthroughUutDescription, { ...overview, activateTarget: '.inline-desc-combined', hint: "For this tutorial, enter a fresh instrument instead of choosing a library result. Tag is optional and helps distinguish similar instruments. Next, we will create ranges and their corresponding specifications.", note: true }),
     step("Instruments & Measurement Areas", "uut-columns", "Define ranges and specifications",
       "Click a Range cell to enter its limits or single value and unit. Use its + to add another range. Click Tolerance or Resolution to edit the specification. Choose symmetric ± or asymmetric +/− limits and double-sided (DS) or single-sided (SS) behavior as appropriate.",
       uut, { ...overview, hint: "Percent of indicated value (IV), percent of full scale (FS), absolute-unit, and dB terms describe different specifications. For % FS, enter the applicable full-scale value." }),

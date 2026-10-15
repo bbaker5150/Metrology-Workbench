@@ -146,16 +146,16 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
   useEffect(() => {
     const visible = new Set(visibleIds);
     setExpandedIds(previous => {
-      const next = isOpen ? previous.filter(id => visible.has(id)) : [];
+      const next = previous.filter(id => visible.has(id));
       return next.length === previous.length ? previous : next;
     });
-  }, [isOpen, visibleIds]);
+  }, [visibleIds]);
   useEffect(() => {
     if (!isOpen || (!selection.length && !expandedIds.length)) return;
     const collapseOutsideLibrary = event => {
       // Keep header dragging, table edits and portaled controls inside the
       // library interaction. Wait until click so blur-driven saves finish first.
-      if (windowRef.current?.contains(event.target) || event.target.closest?.("[data-theme-toggle]")) return;
+      if (windowRef.current?.contains(event.target) || event.target.closest?.("[data-theme-toggle], [data-library-toggle]")) return;
       if (event.target.closest?.(".inline-unit-menu, .inline-tolerance-shape-menu, .inline-tolerance-shape-backdrop, .inline-desc-search, .modal-overlay, [role='alertdialog'], [role='dialog']:not(.instrument-library-window)")) return;
       const active = document.activeElement;
       if (windowRef.current?.contains(active)) active.blur?.();
@@ -197,7 +197,9 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
     event.dataTransfer.setData(LIBRARY_INSTRUMENT_MIME, JSON.stringify(rows.map(definitionFor)));
     event.dataTransfer.setData("application/x-workbench-instruments", JSON.stringify({ source: "library", mode: "copy", items: rows.map(item => ({ kind: "tmde", item })) }));
   };
-  if (!isOpen) return null;
+  // Keep the table mounted while minimized so its editors, selection and
+  // scroll position survive reopening along with the floating position.
+  if (!isOpen && !hasOpened.current) return null;
   return ReactDOM.createPortal(<div ref={windowRef} className={`uncertainty-module instrument-library-window modal-content floating-window-content${!expandedIds.length ? " is-names-only" : ""}`} role="dialog" aria-label="Instrument library"
     onPointerDownCapture={event => {
       const id = event.target.closest?.('tr[data-instrument-id]')?.dataset.instrumentId;
@@ -210,8 +212,8 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
       }
       dragSelection.current = row ? { id: row.id, ids: selection.includes(row.id) ? [...selection] : [row.id] } : null;
     }}
-    data-scoped-zoom-key="instrument-library" data-zoom-level={zoom}
-    style={{ left: position.x, top: position.y, '--instrument-library-scale': zoom }}>
+    data-scoped-zoom-key="instrument-library" data-zoom-level={zoom} hidden={!isOpen} inert={!isOpen}
+    style={{ display: isOpen ? undefined : 'none', left: position.x, top: position.y, '--instrument-library-scale': zoom }}>
     <div className="scoped-zoom-content instrument-library-content" style={{ zoom }}>
     {error && <div className="instrument-library-save-error"><span role="alert">{error}</span><button onClick={() => [...failed.current.values()].forEach(enqueue)}>Retry save</button></div>}
     <UncertaintyPanel libraryMode testPointData={libraryPoint} sessionData={session}
@@ -233,7 +235,7 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
       libraryVisibleIds={visibleIds} onSessionSave={updateSession} instruments={instruments}
       onSaveInstrument={onSaveToLibrary} onDeleteLibraryInstrument={onDelete} onInstrumentSynced={onInstrumentSynced}
       setNotification={setNotification} currentTmdeSelection={selection} setCurrentTmdeSelection={setSelection}
-      onDeleteTmdeDefinition={remove} keyboardShortcutsEnabled
+      onDeleteTmdeDefinition={remove} keyboardShortcutsEnabled={isOpen}
       libraryToolbar={add => <div className="panel-card-header instrument-panel-card-header instrument-library-header" onMouseDown={event => {
         // Keep the focused draft and editor geometry intact throughout a drag.
         if (!event.target.closest("button, input, .no-drag")) event.preventDefault();

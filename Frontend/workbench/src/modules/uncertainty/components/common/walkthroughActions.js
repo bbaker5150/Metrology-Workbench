@@ -10,6 +10,8 @@ const settings = '[data-tour="function-settings"], [data-tour="function-settings
 const json = value => JSON.stringify(value ?? null);
 const session = context => context.session || {};
 const items = (context, kind) => session(context)[kind] || [];
+export const measurementAreaEntryTargets = '[data-tour="uut-add-function"], [data-tour="tmde-add-function"], .sidebar-add-area-controls';
+export const walkthroughUutDescription = context => `${uut} tr[data-instrument-id=${JSON.stringify(String(items(context, 'uuts').at(-1)?.id || ''))}] .cell-description`;
 const sources = context => items(context, 'tmdes').flatMap(item => item.instrument?.tmdeSecondaryUncertainties || []);
 const ranges = item => [...(item.ranges || []), ...(item.instrument?.ranges || []), ...(item.instrument?.functions || []).flatMap(fn => fn.ranges || [])];
 const definitions = context => items(context, 'tmdes').flatMap(item => [
@@ -63,9 +65,15 @@ export const walkthroughActions = {
   'session-information': changed('Edit a session information field.', '[data-tour="session-information"]', context => {
     const {name, analyst, organization, document, documentDate} = session(context); return {name, analyst, organization, document, documentDate};
   }),
-  'session-requirements': changed('Set one of the session risk or mitigation inputs.', '[data-tour="session-requirements"]', context => session(context).uncReq),
-  'uut-function': added('Enter an area name and add the Measurement Area.', '[data-tour="uut-add-function"], .sidebar-add-area-controls', context => items(context, 'measurementAreaGroups')),
+  'overview-tab': { label: 'Open Instrument Overview.', allowed: '[data-tour="tab-overview"]', autoAdvance: false, complete: context => context.analysisMode === 'overview' },
+  'uut-function': added('Enter an area name at any highlighted control and add the Measurement Area.', measurementAreaEntryTargets, context => items(context, 'measurementAreaGroups')),
   'uut-instrument': added('Use + to add a UUT to this area.', `${uut}, ${units}`, context => items(context, 'uuts')),
+  'uut-description': { label: 'Enter Manufacturer, Model, and Name; Tag is optional. Press Enter to finish.', allowed: `${uut} .cell-description, .inline-desc-search`, waitForCommit: true,
+    complete: context => {
+      const item = items(context, 'uuts').at(-1);
+      return !!item && [item.instrument?.manufacturer, item.instrument?.model, item.name || item.description || item.instrument?.description].every(value => String(value || '').trim());
+    },
+  },
   'uut-columns': changed('Enter or change a range or specification value.', `${uut}, ${units}`, context => items(context, 'uuts').map(ranges)),
   'instrument-units': { label: 'Open a unit or prefix menu and choose an option.', allowed: `${uut}, ${units}`,
     acceptEvent: event => event.type === 'click' && !!event.target.closest('.inline-unit-menu [role="option"]') && /unit|prefix/i.test(event.target.closest('[role="listbox"]')?.getAttribute('aria-label') || ''),

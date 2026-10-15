@@ -180,10 +180,15 @@ describe("UncertaintyApp", () => {
 
     const helpButton = await screen.findByRole("button", { name: "Open walkthrough" });
     expect(screen.queryByRole("dialog", { name: "Uncertalytics walkthrough" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button',{name:'Notes',exact:true}));
     fireEvent.click(helpButton);
     expect(
       screen.getByRole("dialog", { name: "Uncertalytics walkthrough" }),
     ).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Walkthrough workflow'),{target:{value:'Instruments & Measurement Areas'}});
+    await waitFor(()=>expect(screen.getByRole('button',{name:'Instrument Overview',exact:true})).toHaveClass('active'));
+    expect(screen.getByText(/This is your Instrument Overview/)).toBeInTheDocument();
+    expect(screen.getByRole('button',{name:'Next',exact:true})).toBeEnabled();
   });
 
   test("starts the walkthrough when the final existing session is deleted", async () => {

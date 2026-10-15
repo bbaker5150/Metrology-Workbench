@@ -82,6 +82,37 @@ it('keeps its dragged position and scale when toggled closed and open',()=>{
  expect(parseFloat(reopened.style.top)).toBe(top+30);
  expect(reopened.querySelector('.scoped-zoom-content').style.zoom).toBe('1.2');
 });
+it('preserves expanded instruments, editors, selection and scroll while minimized',async()=>{
+ const save=vi.fn();
+ function ToggleLibrary(){const [open,setOpen]=useState(true),[data,setData]=useState(()=>[definition('A'),definition('B')]);return <><button data-library-toggle onClick={()=>setOpen(value=>!value)}>Toggle library</button><InstrumentLibraryModal isOpen={open} instruments={data} onClose={()=>setOpen(false)} onSaveToLibrary={async value=>{save(value);setData(old=>old.map(item=>item.id===value.id?value:item));}}/><button>Workspace</button></>;}
+ render(<ToggleLibrary/>);
+ openInstrument('B');openInstrument('A');
+ const modal=screen.getByRole('dialog',{name:'Instrument library'});
+ fireEvent.click(within(modal.querySelector('tr[data-instrument-id="A"]')).getByTitle('Edit tolerance'));
+ const editor=modal.querySelector('.inline-tolerance-editor'), input=editor.querySelector('.inline-tolerance-input');
+ input.focus();fireEvent.change(input,{target:{value:'2.5'}});
+ const scroller=modal.querySelector('.instrument-table-scroll');scroller.scrollTop=80;
+ for(const close of [screen.getByRole('button',{name:'Toggle library'}),screen.getByRole('button',{name:'Close instrument library'})]){
+   fireEvent.pointerDown(close);fireEvent.mouseDown(close);fireEvent.mouseUp(close);fireEvent.click(close);
+   expect(screen.queryByRole('dialog',{name:'Instrument library'})).toBeNull();
+   fireEvent.blur(input);
+   fireEvent.click(screen.getByRole('button',{name:'Workspace'}));fireEvent.keyDown(window,{key:'Escape'});
+   fireEvent.click(screen.getByRole('button',{name:'Toggle library'}));
+   await waitFor(()=>expect(screen.getByRole('dialog',{name:'Instrument library'})).toBeVisible());
+   expect(modal.querySelector('.inline-tolerance-editor')).toBe(editor);
+   expect(modal.querySelectorAll('.instrument-library-specifications[aria-expanded="true"]')).toHaveLength(2);
+   expect(input).toHaveValue('2.5');
+   expect(scroller.scrollTop).toBe(80);
+   expect(modal.querySelector('tr[data-instrument-id="A"]')).toHaveClass('instrument-selected');
+ }
+ fireEvent.mouseDown(modal.querySelector('tr[data-instrument-id="A"] .inline-desc-combined'),{button:0});
+ const description=modal.querySelector('.inline-desc-fields');
+ const model=within(description).getByPlaceholderText('Model',{exact:true});model.focus();
+ const toggle=screen.getByRole('button',{name:'Toggle library'});
+ fireEvent.blur(model,{relatedTarget:toggle});fireEvent.click(toggle);fireEvent.click(toggle);
+ await new Promise(resolve=>setTimeout(resolve,180));
+ expect(modal.querySelector('.inline-desc-fields')).toBe(description);
+});
 it.each([['session','uut'],['session','tmde'],['point','uut'],['point','tmde']])('copies selected library instruments to an empty %s %s table', (viewMode, kind)=>{
  const save=vi.fn();
  render(<><Harness/><UncertaintyPanel testPointData={{id:'point',viewMode,testPointInfo:{parameter:{name:'Voltage',value:5,unit:'V'}},components:[],tmdeTolerances:[]}}

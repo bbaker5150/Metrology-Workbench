@@ -2352,7 +2352,8 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
     if (step?.id === "session-information") setIsSessionInfoOpen(true);
     if (["session-requirements", "risk-inputs"].includes(step?.id)) setIsRequirementsOpen(true);
     if (step?.workspace) {
-      setAnalysisMode({ budget: "uncertaintyTool", overview: "overview", notes: "notes" }[step.workspace]);
+      const destination = { budget: "uncertaintyTool", overview: "overview", notes: "notes" }[step.workspace];
+      if (analysisMode !== destination) setAnalysisMode(destination);
       // A topic in the right pane must also be reachable from full-width points.
       setWorkspacePane("split");
       setSidebarAutoFit(false);
@@ -6049,6 +6050,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
                     }}
                     title="Instrument Library"
                     aria-label="Instrument Library"
+                    data-library-toggle
                     data-ui-toggle
                     aria-expanded={isInstrumentBuilderOpen}
                   >

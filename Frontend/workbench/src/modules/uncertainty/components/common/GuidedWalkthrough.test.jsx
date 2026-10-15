@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from "vitest";
 import GuidedWalkthrough, {
   getWalkthroughCardPosition,
 } from "./GuidedWalkthrough";
+import { createWalkthroughSteps } from './walkthroughSteps';
 
 const steps = [
   {
@@ -21,6 +22,46 @@ const steps = [
 ];
 
 describe("GuidedWalkthrough", () => {
+  it('enables Next workflow immediately when reviewing risk defaults', () => {
+    const tutorial=createWalkthroughSteps(1);
+    render(<GuidedWalkthrough isOpen steps={tutorial} stepIndex={tutorial.findIndex(step=>step.id==='session-requirements')} onStepChange={vi.fn()} onClose={vi.fn()}/>);
+    expect(screen.getByRole('button',{name:'Next workflow'})).toBeEnabled();
+    expect(screen.getByText(/starting values are typically used/)).toBeInTheDocument();
+  });
+  it('waits for Next after navigating to the Instrument Overview introduction',async()=>{
+    const tutorial=createWalkthroughSteps(1),onStepChange=vi.fn();
+    const props={isOpen:true,steps:tutorial,stepIndex:tutorial.findIndex(step=>step.id==='overview-tab'),onStepChange,onClose:vi.fn()};
+    const {rerender}=render(<GuidedWalkthrough {...props} actionContext={{analysisMode:'notes'}}/>);
+    expect(screen.getByRole('button',{name:'Next',exact:true})).toBeDisabled();
+    rerender(<GuidedWalkthrough {...props} actionContext={{analysisMode:'overview'}}/>);
+    expect(screen.getByRole('button',{name:'Next',exact:true})).toBeEnabled();
+    await new Promise(resolve=>setTimeout(resolve,1000));
+    expect(onStepChange).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button',{name:'Next',exact:true}));
+    expect(onStepChange).toHaveBeenCalledWith(props.stepIndex+1);
+  });
+  it.each(['uut','tmde','points'])('highlights all three Measurement Area entries and completes from %s',async kind=>{
+    const rectSpy=vi.spyOn(HTMLElement.prototype,'getBoundingClientRect').mockReturnValue({top:40,left:40,right:200,bottom:70,width:160,height:30});
+    const tutorial=createWalkthroughSteps(1),onStepChange=vi.fn(),index=tutorial.findIndex(step=>step.id==='uut-function');
+    function Harness(){const [groups,setGroups]=React.useState([]);return <>{['uut','tmde','points'].map(entry=><div key={entry} data-tour={`${entry}-add-function`} className={entry==='points'?'sidebar-add-area-controls':''}><button onClick={()=>setGroups([{name:'Torque'}])}>Add {entry}</button></div>)}<GuidedWalkthrough isOpen steps={tutorial} stepIndex={index} onStepChange={onStepChange} onClose={vi.fn()} actionContext={{session:{measurementAreaGroups:groups}}}/></>;}
+    render(<Harness/>);
+    expect(document.querySelectorAll('.guided-walkthrough-highlight')).toHaveLength(3);
+    fireEvent.click(screen.getByRole('button',{name:`Add ${kind}`}));
+    await waitFor(()=>expect(document.querySelectorAll('.guided-walkthrough-highlight.is-action-complete')).toHaveLength(3));
+    await waitFor(()=>expect(onStepChange).toHaveBeenCalledWith(index+1));
+    rectSpy.mockRestore();
+  });
+  it('opens the new instrument description once, with the fresh-instrument note',()=>{
+    const rectSpy=vi.spyOn(HTMLElement.prototype,'getBoundingClientRect').mockReturnValue({top:40,left:40,right:200,bottom:70,width:160,height:30});
+    const tutorial=createWalkthroughSteps(1),open=vi.fn();
+    const context={session:{uuts:[{id:'new'}]}};
+    const view=<><div data-tour="uut-table"><table><tbody><tr data-instrument-id="new"><td className="cell-description"><button className="inline-desc-combined" onClick={open}>Description</button></td></tr></tbody></table></div><GuidedWalkthrough isOpen steps={tutorial} stepIndex={tutorial.findIndex(step=>step.id==='uut-description')} onStepChange={vi.fn()} onClose={vi.fn()} actionContext={context}/></>;
+    const {rerender}=render(view);rerender(view);
+    expect(open).toHaveBeenCalledOnce();
+    expect(screen.getByText(/instead of choosing a library result/)).toHaveClass('guided-walkthrough-note');
+    expect(screen.getByText(/4 of 9/)).toBeInTheDocument();
+    rectSpy.mockRestore();
+  });
   it("jumps directly between workflows and their steps without requiring setup", () => {
     const onStepChange = vi.fn();
     render(

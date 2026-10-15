@@ -120,6 +120,7 @@ const GuidedWalkthrough = ({
   actionContext = {},
 }) => {
   const step = steps[stepIndex];
+  const targetSelector = typeof step?.target === 'function' ? step.target(actionContext) : step?.target;
   const cardRef = useRef(null);
   const layerRef = useRef(null);
   const leaveStep = () => {
@@ -155,7 +156,7 @@ const GuidedWalkthrough = ({
     observer?.observe(cardRef.current);
     return () => observer?.disconnect();
   }, [isOpen, step]);
-  const [targetRect, setTargetRect] = useState(null);
+  const [targetRects, setTargetRects] = useState([]);
   const [hasTarget, setHasTarget] = useState(false);
   const [placementRect, setPlacementRect] = useState(null);
 
@@ -164,6 +165,7 @@ const GuidedWalkthrough = ({
 
     let frame = null;
     let scrolledTarget = null;
+    let activated = false;
     let observed = [];
     const resizeObserver = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(() => queueUpdate());
     const update = () => {
@@ -175,10 +177,15 @@ const GuidedWalkthrough = ({
         ancestorZoom *= (parseFloat(zoom) || 1) / (zoom.endsWith("%") ? 100 : 1);
       }
       if (layerRef.current) layerRef.current.style.zoom = String(1 / ancestorZoom);
-      const target = visibleTarget(step.target);
+      const targets = visibleTargets(targetSelector);
+      const target = targets[0];
+      if (target && step.activateTarget && !activated) {
+        activated = true;
+        target.querySelector(step.activateTarget)?.click();
+      }
       const revealed = visibleTargets(step.revealedTarget);
       const revealedSurface = revealed[0];
-      const nodes = [target, ...revealed].filter(Boolean);
+      const nodes = [...(step.highlightAll ? targets : [target]), ...revealed].filter(Boolean);
       if (nodes.length !== observed.length || nodes.some((node, index) => node !== observed[index])) {
         resizeObserver?.disconnect();
         nodes.forEach(node => resizeObserver?.observe(node));
@@ -191,12 +198,11 @@ const GuidedWalkthrough = ({
       }
       setHasTarget(Boolean(target || revealedSurface));
       setPlacementRect((revealedSurface || target)?.getBoundingClientRect() || null);
-      setTargetRect(
-        combineRects(
+      const combined = combineRects(
           target ? target.getBoundingClientRect() : null,
           ...revealed.map(node => node.getBoundingClientRect()),
-        ),
-      );
+        );
+      setTargetRects(step.highlightAll ? nodes.map(node => node.getBoundingClientRect()) : combined ? [combined] : []);
     };
     const queueUpdate = () => {
       if (frame != null) window.cancelAnimationFrame(frame);
@@ -219,7 +225,7 @@ const GuidedWalkthrough = ({
       window.removeEventListener("scroll", queueUpdate, true);
       if (frame != null) window.cancelAnimationFrame(frame);
     };
-  }, [isOpen, step]);
+  }, [isOpen, step, targetSelector]);
 
   const { complete: actionComplete, advancing } = useWalkthroughAction({
     isOpen, step, context: actionContext, cardRef, visibleTarget,
@@ -244,9 +250,13 @@ const GuidedWalkthrough = ({
 
   return createPortal(
     <div ref={layerRef} popover="manual" className="guided-walkthrough-layer" aria-live="polite">
-      {hasTarget && targetRect && (
+      {hasTarget && step.highlightAll && <svg className="guided-walkthrough-multiple-dim" aria-hidden="true">
+        <path fillRule="evenodd" d={`M0,0H${window.innerWidth}V${window.innerHeight}H0Z ${targetRects.map(rect => `M${rect.left - 6},${rect.top - 6}h${rect.width + 12}v${rect.height + 12}h-${rect.width + 12}Z`).join(' ')}`} />
+      </svg>}
+      {hasTarget && targetRects.map((targetRect, index) => (
         <div
-          className={`guided-walkthrough-highlight${advancing ? " is-action-complete" : ""}`}
+          key={index}
+          className={`guided-walkthrough-highlight${step.highlightAll ? " is-multiple" : ""}${advancing ? " is-action-complete" : ""}`}
           aria-hidden="true"
           style={{
             top: targetRect.top - 6,
@@ -255,7 +265,7 @@ const GuidedWalkthrough = ({
             height: targetRect.height + 12,
           }}
         />
-      )}
+      ))}
       {!hasTarget && (
         <div className="guided-walkthrough-dim" aria-hidden="true" />
       )}
@@ -319,7 +329,7 @@ const GuidedWalkthrough = ({
           </label>
         </div>
         <h3>{step.title}</h3>
-        <p>{step.description}</p>
+        <p>{typeof step.description === 'function' ? step.description(actionContext) : step.description}</p>
         {step.action && !actionComplete && (
           <div className="guided-walkthrough-hint" role="status" data-action-complete={actionComplete}>
             {`To continue: ${step.action.label}`}
@@ -332,7 +342,7 @@ const GuidedWalkthrough = ({
           </div>
         )}
         {step.hint && (
-          <div className="guided-walkthrough-hint">{step.hint}</div>
+          <div className={`guided-walkthrough-hint${step.note ? ' guided-walkthrough-note' : ''}`}>{step.hint}</div>
         )}
         <div className="guided-walkthrough-progress" aria-hidden="true">
           {workflowSteps.map((item, index) => (
