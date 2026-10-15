@@ -228,7 +228,7 @@ describe("GuidedWalkthrough", () => {
     );
   });
 
-  it("includes the revealed menu in the spotlight without elevating application containers", async () => {
+  it("keeps range unit menus undimmed during the specifications step and restores the table spotlight on dismissal", async () => {
     const rectSpy = vi
       .spyOn(HTMLElement.prototype, "getBoundingClientRect")
       .mockImplementation(function getRect() {
@@ -251,27 +251,19 @@ describe("GuidedWalkthrough", () => {
           height: 30,
         };
       });
-    const menuSteps = [
-      {
-        id: "menu",
-        title: "Open the menu",
-        description: "Use the menu.",
-        target: '[data-tour="target"]',
-        revealedTarget: '[data-tour="revealed-menu"]',
-      },
-    ];
+    const menuSteps = createWalkthroughSteps(1);
     const props = {
       steps: menuSteps,
-      stepIndex: 0,
+      stepIndex: menuSteps.findIndex(step => step.id === "uut-columns"),
       onStepChange: vi.fn(),
       onClose: vi.fn(),
     };
     const { rerender } = render(
       <>
-        <button type="button" data-tour="target">
+        <button type="button" data-tour="uut-table">
           Open
         </button>
-        <div role="menu" data-tour="revealed-menu">
+        <div role="menu" data-tour="revealed-menu" className="inline-unit-menu">
           Menu
         </div>
         <GuidedWalkthrough isOpen {...props} />
@@ -289,7 +281,7 @@ describe("GuidedWalkthrough", () => {
         height: "272px",
       }),
     );
-    expect(menu.className).toBe("");
+    expect(menu.className).toBe("inline-unit-menu");
     expect(
       document.querySelector(".guided-walkthrough-layer").parentElement,
     ).toBe(document.body);
@@ -297,17 +289,16 @@ describe("GuidedWalkthrough", () => {
 
     rerender(
       <>
-        <button type="button" data-tour="target">
+        <button type="button" data-tour="uut-table">
           Open
         </button>
-        <div role="menu" data-tour="revealed-menu">
-          Menu
-        </div>
-        <GuidedWalkthrough isOpen={false} {...props} />
+        <GuidedWalkthrough isOpen {...props} />
       </>,
     );
-    expect(screen.getByRole("menu")).not.toHaveClass(
-      "guided-walkthrough-elevated-surface",
+    await waitFor(() =>
+      expect(document.querySelector(".guided-walkthrough-highlight")).toHaveStyle({
+        top: "34px", left: "34px", width: "42px", height: "42px",
+      }),
     );
     rectSpy.mockRestore();
   });

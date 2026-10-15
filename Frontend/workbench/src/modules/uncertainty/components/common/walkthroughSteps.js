@@ -44,7 +44,7 @@ export const createWalkthroughSteps = (sessionCount) => {
       walkthroughUutDescription, { ...overview, activateTarget: '.inline-desc-combined', hint: "For this tutorial, enter a fresh instrument instead of choosing a library result. Tag is optional and helps distinguish similar instruments. Next, we will create ranges and their corresponding specifications.", note: true }),
     step("Instruments & Measurement Areas", "uut-columns", "Define ranges and specifications",
       "Click a Range cell to enter its limits or single value and unit. Use its + to add another range. Click Tolerance or Resolution to edit the specification. Choose symmetric ± or asymmetric +/− limits and double-sided (DS) or single-sided (SS) behavior as appropriate.",
-      uut, { ...overview, hint: "Percent of indicated value (IV), percent of full scale (FS), absolute-unit, and dB terms describe different specifications. For % FS, enter the applicable full-scale value." }),
+      uut, { ...overview, revealedTarget: ".inline-unit-menu", hint: "Percent of indicated value (IV), percent of full scale (FS), absolute-unit, and dB terms describe different specifications. For % FS, enter the applicable full-scale value." }),
     step("Instruments & Measurement Areas", "instrument-units", "Choose units, prefixes, and distributions",
       "Use the searchable unit menu and the separate prefix menu in inline editors. A prefix changes the displayed scale. TMDE Distribution converts an error limit into standard uncertainty; resolution has its own distribution setting.",
       uut, { ...overview, revealedTarget: ".inline-unit-menu", hint: "Units is the unset unit choice. Not Set means a field has not been configured; it does not establish a zero uncertainty." }),
