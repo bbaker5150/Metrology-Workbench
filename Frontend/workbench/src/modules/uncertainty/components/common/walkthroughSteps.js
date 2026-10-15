@@ -9,13 +9,18 @@ export const createWalkthroughSteps = (sessionCount) => {
   const budget = { workspace: "budget", prerequisite: "Create a measurement point, select its row, and open Uncertainty Budget." };
   const derived = { ...budget, prerequisite: "Choose Derived in Measurement Area Settings, create a new point, and select that point in Uncertainty Budget." };
   const points = '.measurement-point-list';
-  const tmde = '[data-tour="tmde-table"]';
+  const tmde = '[data-tour="tmde-table"]:not(.instrument-library-window *)';
   const uut = '[data-tour="uut-table"]';
   const addBudget = '[data-tour="budget-add-component"]';
   const budgetMenu = '[data-tour="budget-component-menu"]';
   const columns = '[data-tour="sidebar-columns"]';
   const settings = '[data-tour="function-settings"]';
   const settingsMenu = '[data-tour="function-settings-menu"]';
+  const library = '.instrument-library-window:not([hidden])';
+  const libraryOptions = { ...overview, library: true, revealedTarget: '.inline-unit-menu, .inline-tolerance-shape-menu', prerequisite: "Open the Instrument Library from the header. Add an instrument if the library is empty." };
+  const addInstrumentIcon = () => createElement('span', { 'aria-label': 'Add instrument', className: 'guided-walkthrough-inline-icon' }, createElement(FontAwesomeIcon, { icon: faPlus }), ' ', createElement(FontAwesomeIcon, { icon: faTools }));
+  const rangeInstructions = column => `Click a Range cell to enter its limits or a single value. Choose the unit (such as V) and its prefix (such as milli for mV); Base means no prefix. Use + to add another range. Click ${column} or Resolution to enter the specification. Choose symmetric ± or asymmetric +/− limits and double-sided (DS) or single-sided (SS) behavior as needed. Resolution has its own distribution setting, which describes how its rounding error is spread.`;
+  const specHint = "IV means indicated value; FS means full scale (enter its value). Specifications can also use absolute units or dB. Not Set means unconfigured, not zero. Sync shows session-only (red), local-library (yellow), or shared-library (green) status; hover its icon for the available action.";
   const steps = [
     step("Session setup", "new-session", "Start an analysis session",
       "Use + to create a session for your instruments, measurement points, budgets, requirements, and notes. Complete the highlighted action to advance after a green pulse. Use Skip, Workflow, or Jump to step to move ahead, and close the tutorial at any time.",
@@ -43,40 +48,40 @@ export const createWalkthroughSteps = (sessionCount) => {
       "Enter the Manufacturer, Model, Name, and an optional Tag (Nickname) for your new instrument.",
       walkthroughUutDescription, { ...overview, activateTarget: '.inline-desc-combined', hint: "For this tutorial, enter a fresh instrument instead of choosing a library result. Tag is optional and helps distinguish similar instruments. Next, we will create ranges and their corresponding specifications.", note: true }),
     step("Instruments & Measurement Areas", "uut-columns", "Define ranges and specifications",
-      "Click a Range cell to enter its limits or single value and unit. Use its + to add another range. Click Tolerance or Resolution to edit the specification. Choose symmetric ± or asymmetric +/− limits and double-sided (DS) or single-sided (SS) behavior as appropriate.",
-      uut, { ...overview, revealedTarget: ".inline-unit-menu", hint: "Percent of indicated value (IV), percent of full scale (FS), absolute-unit, and dB terms describe different specifications. For % FS, enter the applicable full-scale value." }),
-    step("Instruments & Measurement Areas", "instrument-units", "Choose units, prefixes, and distributions",
-      "Use the searchable unit menu and the separate prefix menu in inline editors. A prefix changes the displayed scale. TMDE Distribution converts an error limit into standard uncertainty; resolution has its own distribution setting.",
-      uut, { ...overview, revealedTarget: ".inline-unit-menu", hint: "Units is the unset unit choice. Not Set means a field has not been configured; it does not establish a zero uncertainty." }),
+      rangeInstructions('Tolerance'),
+      uut, { ...overview, revealedTarget: ".inline-unit-menu, .inline-tolerance-shape-menu", hint: specHint }),
     step("Instruments & Measurement Areas", "tmde-function", "Add measuring equipment",
-      "The Measurement Area you created in the UUT table already appears in the TMDE table. Use + on that same area header to add equipment. Search Description or enter a definition, then fill in Range, Uncertainty, Distribution, and Resolution.",
-      '[data-tour="tmde-add-instrument"]', { ...overview, prerequisite: "Create a Measurement Area once; it is shared by the point list, UUT table, and TMDE table.", hint: "Adding equipment here makes its sources available; it does not automatically put every source into every budget." }),
-    step("Instruments & Measurement Areas", "area-tools", "Select instruments or individual ranges",
-      "Click a Range cell to select that range. Clicking another column also highlights the instrument's shared Description and other shared cells. Ctrl/Cmd-click adds selections; Shift-click selects a span. Selected rows reveal their delete controls on hover.",
-      tmde, { ...overview, hint: "Right-click for the available actions. Drag instruments between areas to associate them with another area." }),
-    step("Instruments & Measurement Areas", "custom-columns", "Add custom instrument information",
+      createElement('span', null, "Let’s now proceed with adding an instrument as a TMDE. Press the ", addInstrumentIcon(), ' button to add an instrument.'),
+      '[data-tour="tmde-add-instrument"]', { ...overview, prerequisite: "Create a Measurement Area once; it is shared by the point list, UUT table, and TMDE table.", hint: "Adding equipment here makes each Error Source available; it does not automatically include it in a budget." }),
+    step("Instruments & Measurement Areas", "tmde-columns", "Define TMDE ranges and specifications",
+      `Enter the instrument’s Description first. ${rangeInstructions('Uncertainty')} TMDEs also have a Distribution column: choose how the uncertainty limit is spread so the app can convert it to standard uncertainty.`,
+      tmde, { ...overview, revealedTarget: '.inline-unit-menu, .inline-tolerance-shape-menu', hint: specHint }),
+    step("Advanced Features", "custom-columns", "Add custom instrument information",
       "Use the small + above a column divider to insert a custom column. Rename the heading and fill in its cells. Drag header dividers to resize columns; double-click a divider to reset its width.",
       uut, { ...overview, revealedTarget: '[data-tour="uut-table"] .instrument-column-insert-button, .inline-unit-menu', hint: "Custom columns store your supporting information alongside the instrument specifications." }),
 
-    step("Additional uncertainties", "instrument-sources", "Add a named uncertainty to an instrument",
+    step("Advanced Features", "instrument-sources", "Add a named uncertainty to an instrument",
       "Expand a TMDE Uncertainty cell and use + at its top right. A new row appears under ADD’L UNCERTAINTY. Click Not Set in the Range column to name it, then edit its Uncertainty value and set its distribution in the adjacent Distribution column. The + remains available from every expanded uncertainty editor.",
       tmde, { ...overview, revealedTarget: '.instrument-source-toolbar', hint: "Examples include temperature effects or alignment error. Each named source can be selected separately for a budget." }),
-    step("Additional uncertainties", "source-types", "Choose Manual, Table, or Equation",
+    step("Advanced Features", "source-types", "Choose Manual, Table, or Equation",
       "In an expanded uncertainty editor, use the gear to select Manual, Table, or Equation. Manual accepts specification terms; Table supplies uncertainty at matching points; Equation computes it from a formula. Choose the distribution in the adjacent Distribution column.",
       tmde, { ...overview, revealedTarget: '.instrument-source-settings', hint: "Changing type retains the distribution already selected. The type menu changes the source's input method, not its Type A/B classification." }),
-    step("Additional uncertainties", "source-table", "Enter a tabular uncertainty",
+    step("Advanced Features", "source-manual", "Enter a manual additional uncertainty",
+      "Open an additional uncertainty row’s Uncertainty cell and choose Manual from its gear menu. Enter a fixed limit with its unit, or a percentage of indicated value or full scale. For full scale, enter the scale value. Set symmetric or asymmetric limits as needed and press Enter to commit. Choose this Error Source’s distribution in the adjacent column.",
+      tmde, { ...overview, revealedTarget: '.instrument-source-settings, .inline-unit-menu, .inline-tolerance-shape-menu', hint: "Use a separate named Error Source for each distinct effect, such as temperature or alignment." }),
+    step("Advanced Features", "source-table", "Enter a tabular uncertainty",
       "A tabular uncertainty is a lookup table: each measurement value has its own uncertainty limit, such as values from a calibration certificate. Choose Table and set the uncertainty unit and prefix. Enter measurement points and their uncertainty values, using + Row for more entries. Use +/− when the limits are asymmetric. The selected point must have a matching table entry. Press Enter or Escape to collapse the editor when finished.",
-      tmde, { ...overview, revealedTarget: '[aria-label="Tabular uncertainty editor"]', hint: "A missing match leaves the budget unresolved; inspect its warning. Do not assume values are interpolated between rows." }),
-    step("Additional uncertainties", "source-equation", "Enter an uncertainty equation",
+      tmde, { ...overview, revealedTarget: '[aria-label="Tabular uncertainty editor"], .instrument-source-settings, .inline-unit-menu', hint: "A missing match leaves the budget unresolved; inspect its warning. Do not assume values are interpolated between rows." }),
+    step("Advanced Features", "source-equation", "Enter an uncertainty equation",
       "An equation uncertainty calculates an error limit that varies with the measurement value, such as a percentage term plus a fixed floor. First select a measurement point with a numeric Value and unit. Choose Equation, set the uncertainty unit, and enter a formula such as a * x + b. Name the variables and enter fixed values. Use a variable's link button to bind it to the measurement point instead of a fixed value. Press Enter or Escape to collapse the editor when finished.",
-      tmde, { ...budget, revealedTarget: '[aria-label="Equation uncertainty editor"], .inline-unit-menu', hint: "This formula calculates one source's uncertainty. A derived measurement equation calculates the measurement result itself." }),
-    step("Additional uncertainties", "source-distribution", "Set the additional source distribution",
+      tmde, { ...budget, revealedTarget: '[aria-label="Equation uncertainty editor"], .instrument-source-settings, .inline-unit-menu', hint: "This formula calculates one source's uncertainty. A derived measurement equation calculates the measurement result itself." }),
+    step("Advanced Features", "source-distribution", "Set the additional source distribution",
       "Click Distribution on the additional uncertainty row and choose the distribution supported by that source. It converts the entered limit into standard uncertainty. Use the adjacent column for Manual, Table, and Equation sources; changing the source type retains this choice.",
       '[data-tour="tmde-table"] .instrument-uncertainty-row .cell-distribution', { ...overview, revealedTarget: '.inline-unit-menu' }),
-    step("Additional uncertainties", "source-selection", "Select, delete, and budget individual sources",
+    step("Advanced Features", "source-selection", "Select, delete, and budget individual sources",
       "Select the source's name cell to highlight just its row to the right of ADD’L UNCERTAINTY. Click another column to include the shared instrument cells and label strip. The row's × appears on hover after selection. In a budget, choose each source separately under its instrument.",
       tmde, { ...overview, hint: "The budget picker lists ordinary ranges as Range | Uncertainty | Distribution, and additional sources as Name (Type) | Uncertainty | Distribution." }),
-    step("Additional uncertainties", "range-bias", "Record known bias at its source",
+    step("Advanced Features", "range-bias", "Record known bias at its source",
       "Find an ordinary instrument range row—the row with range limits, above ADD’L UNCERTAINTY. Click its UUT Tolerance or TMDE Uncertainty value, then enable Bias at the top of that editor. Additional Manual/Table/Equation rows do not have a Bias button. Enter the signed value and its unit or percentage basis. Bias shifts the error model; it is distinct from the uncertainty describing its spread.",
       '[data-tour="tmde-table"] tr[data-range-id]:not([data-uncertainty-source-id]) .cell-tolerance', { ...overview, revealedTarget: '.instrument-bias-editor', hint: "Check the sign and basis carefully. Review the risk breakdown after changing bias; do not count the same effect again as another source." }),
 
@@ -182,25 +187,36 @@ export const createWalkthroughSteps = (sessionCount) => {
       "Ctrl/Cmd+C copies selected points, Ctrl/Cmd+X cuts, and Ctrl/Cmd+V pastes into the selected destination. Ctrl/Cmd+B copies the single selected point's budget; use the destination's context menu to paste a budget. Ctrl/Cmd+Z undoes the last session change.",
       points, { hint: "After copying between areas, review UUT assignments, ranges, units, derived nominals, and budget contributors." }),
 
-    step("Library, tools & session files", "library-sync", "Review library synchronization",
-      "The Sync column shows an instrument's relationship to the shared library. Session edits can differ from the shared definition. Click Sync and review the confirmation before publishing local changes to the library.",
-      tmde, { ...overview, hint: "Review shared-library updates deliberately; they are different from editing only the current analysis." }),
-    step("Library, tools & session files", "instrument-builder", "Maintain reusable instruments",
-      "Open Instrument builder to search and maintain reusable instrument definitions and ranges. Use Reverse traceability to inspect where an instrument is used before deciding how to change a shared definition.",
-      '[aria-label="Instrument builder"]', { hint: "The session tables are the quickest place to edit the current analysis. The library tools help maintain definitions for reuse." }),
-    step("Library, tools & session files", "unit-converter", "Check a unit conversion",
+    step("Instrument Library", "instrument-library", "Open the Instrument Library",
+      "Open Instrument Library using the book icon in the app header. It holds reusable local and shared instrument definitions. Drag its header to move the window; closing and reopening it preserves your selection and open specifications.",
+      '[data-library-toggle]', { ...overview, revealedTarget: library }),
+    step("Instrument Library", "library-select", "Find and select an instrument",
+      "Search instruments by manufacturer, model, name, or measurement function. Click a Description row to select it without opening its specifications. Ctrl/Cmd-click toggles selections; Shift-click selects a span. If the library is empty, use its + button to create your first instrument.",
+      library, libraryOptions),
+    step("Instrument Library", "library-specs", "View or edit specifications",
+      "Hover an instrument row and click its specifications icon to expand that instrument. Edit Description, Range, Tolerance/Uncertainty, and Resolution just as in the instrument tables. Only custom columns belonging to expanded instruments appear. Click the same icon again to hide its specifications. Edits save to the library automatically.",
+      library, { ...libraryOptions, hint: "You can open specifications for multiple instruments. Moving or minimizing the library preserves open editors." }),
+    step("Instrument Library", "library-create", "Create a reusable instrument",
+      createElement('span', null, 'Use ', addInstrumentIcon(), ' beside Search instruments to create a fresh definition. Enter Manufacturer, Model, Name, and an optional Tag, then set ranges and specifications. Changes save automatically; check any save error before closing.'),
+      library, { ...libraryOptions, hint: "A library definition is reusable. Add an instance to a session by dragging it onto an instrument table." }),
+    step("Instrument Library", "library-drag", "Drag instruments onto UUT or TMDE",
+      "Drag an instrument’s Description row from the library onto either the UUT or TMDE table. Drop onto a Measurement Area to put it there. Select multiple instruments first to copy them together. Move the library by its header if it covers the destination table.",
+      `${library}, ${uut}, ${tmde}`, { ...libraryOptions, highlightAll: true, placementTarget: library, hint: "Dropping creates session instances and keeps the reusable definitions in the library." }),
+    step("Instrument Library", "library-sync", "Understand library synchronization",
+      "In Sync, yellow means local library and green means shared library. Hover the icon for its action. In session tables, red means session only. Click a local icon to review sharing; right-click a shared icon to make it local. Review any confirmation before changing scope. You do not need to share an instrument to finish this tutorial.",
+      library, { ...libraryOptions, hint: "Use Reverse traceability in the app header to inspect where a shared instrument is used before changing its definition." }),
+    step("Advanced Features", "unit-converter", "Check a unit conversion",
       "Open Unit converter from the header to check a conversion independently. When editing the analysis itself, choose units and prefixes in the field's own menus so the stored value and its meaning remain consistent.",
       '[aria-label="Unit converter"]'),
-    step("Library, tools & session files", "notes", "Document the analysis",
+    step("Advanced Features", "notes", "Document the analysis",
       "Use Notes to record the method, assumptions, supporting images, and conclusions. Include why you chose the uncertainty sources, distributions, correlations, bias, and risk inputs so another user can review the analysis.",
       '[data-tour="tab-notes"]', { workspace: "notes", prerequisite: "Create or select a session to open Notes." }),
-    step("Library, tools & session files", "session-files", "Export and restore a session",
+    step("Advanced Features", "session-files", "Export and restore a session",
       "Use Export session to PDF in the header to save the analysis, and Import session from PDF to load a previously exported session. Review warnings and the selected session before sharing. Reopen Help whenever you need a particular workflow.",
       '[aria-label="Import and export"]', { hint: "Import expects a session PDF exported by this app, not an arbitrary PDF report." }),
   ];
-  // Teach the basic point/budget workflows before advanced source definitions.
-  const advanced = steps.filter(step => step.workflow === "Additional uncertainties" || step.id === "budget-dynamic").map(step => ({ ...step, workflow: "Additional uncertainties" }));
+  // Keep advanced editing together after the basic measurement workflows.
+  const advanced = steps.filter(step => step.workflow === "Advanced Features" || step.id === "budget-dynamic").map(step => ({ ...step, workflow: "Advanced Features" }));
   const basic = steps.filter(step => !advanced.some(item => item.id === step.id));
-  const insertion = basic.findIndex(step => step.workflow === "Library, tools & session files");
-  return [...basic.slice(0, insertion), ...advanced, ...basic.slice(insertion)];
+  return [...basic, ...advanced];
 };

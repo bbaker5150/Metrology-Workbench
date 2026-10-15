@@ -22,6 +22,61 @@ const steps = [
 ];
 
 describe("GuidedWalkthrough", () => {
+  it('separates basic instrument setup, the current library, and advanced features', () => {
+    const tutorial=createWalkthroughSteps(1);
+    expect(tutorial.filter(step=>step.workflow==='Instruments & Measurement Areas').map(step=>step.id)).toEqual(['overview-tab','uut-function','uut-instrument','uut-description','uut-columns','tmde-function','tmde-columns']);
+    expect(tutorial.find(step=>step.id==='uut-columns').description).toMatch(/prefix/);
+    expect(tutorial.find(step=>step.id==='uut-columns').description).not.toMatch(/TMDE/);
+    expect(tutorial.find(step=>step.id==='tmde-columns').description).toMatch(/Distribution column/);
+    for (const id of ['custom-columns','source-manual','source-table','source-equation','range-bias','unit-converter','notes','session-files']) expect(tutorial.find(step=>step.id===id).workflow).toBe('Advanced Features');
+    expect(tutorial.filter(step=>step.workflow==='Instrument Library').map(step=>step.id)).toEqual(['instrument-library','library-select','library-specs','library-create','library-drag','library-sync']);
+  });
+  it('shows the actual add-instrument icon and Error Source footer for TMDE creation', () => {
+    const tutorial=createWalkthroughSteps(1);
+    render(<GuidedWalkthrough isOpen steps={tutorial} stepIndex={tutorial.findIndex(step=>step.id==='tmde-function')} onStepChange={vi.fn()} onClose={vi.fn()}/>);
+    expect(screen.getByLabelText('Add instrument').querySelectorAll('svg')).toHaveLength(2);
+    expect(screen.getByText(/makes each Error Source available/)).toBeInTheDocument();
+  });
+  it('ignores range normalization and waits for an open unit menu before advancing', async () => {
+    const rectSpy=vi.spyOn(HTMLElement.prototype,'getBoundingClientRect').mockReturnValue({top:40,left:40,right:200,bottom:70,width:160,height:30});
+    const tutorial=createWalkthroughSteps(1),onStepChange=vi.fn();
+    const index=tutorial.findIndex(step=>step.id==='uut-columns');
+    function Harness(){
+      const [range,setRange]=React.useState({max:10}),[open,setOpen]=React.useState(false);
+      return <><div data-tour="uut-table"><button onClick={()=>{setRange({...range,min:0});setOpen(true);}}>Open range editor</button></div>{open&&<div className="inline-unit-menu"><button role="option" onClick={()=>setRange({...range,unit:'V'})}>Volts</button><button onClick={()=>setOpen(false)}>Done choosing</button></div>}<GuidedWalkthrough isOpen steps={tutorial} stepIndex={index} onStepChange={onStepChange} onClose={vi.fn()} actionContext={{session:{uuts:[{ranges:[range]}]}}}/></>;
+    }
+    render(<Harness/>);
+    fireEvent.click(screen.getByText('Open range editor'));
+    expect(screen.getByRole('button',{name:'Next',exact:true})).toBeDisabled();
+    fireEvent.click(screen.getByRole('option',{name:'Volts'}));
+    await new Promise(resolve=>setTimeout(resolve,1100));
+    expect(onStepChange).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByText('Done choosing'));
+    await waitFor(()=>expect(onStepChange).toHaveBeenCalledWith(index+1));
+    rectSpy.mockRestore();
+  });
+  it('allows a library drop and advances only once the session instance is saved', async () => {
+    const rectSpy=vi.spyOn(HTMLElement.prototype,'getBoundingClientRect').mockReturnValue({top:40,left:40,right:200,bottom:70,width:160,height:30});
+    const tutorial=createWalkthroughSteps(1),onStepChange=vi.fn();
+    const props={isOpen:true,steps:tutorial,stepIndex:tutorial.findIndex(step=>step.id==='library-drag'),onStepChange,onClose:vi.fn()};
+    function Harness(){const [uuts,setUuts]=React.useState([]);return <><div className="instrument-library-window">Library</div><div data-tour="uut-table" onDrop={()=>setUuts([{id:'dropped'}])}>Drop here</div><GuidedWalkthrough {...props} actionContext={{session:{uuts,tmdes:[]}}}/></>;}
+    render(<Harness/>);
+    expect(screen.getByRole('button',{name:'Next',exact:true})).toBeDisabled();
+    fireEvent.drop(screen.getByText('Drop here'),{dataTransfer:{types:['application/x-workbench-library-instruments']}});
+    await waitFor(()=>expect(onStepChange).toHaveBeenCalledWith(props.stepIndex+1));
+    rectSpy.mockRestore();
+  });
+  it('positions drag instructions beside the library even when a workspace table comes first in the DOM', () => {
+    const rectSpy=vi.spyOn(HTMLElement.prototype,'getBoundingClientRect').mockImplementation(function(){
+      return this.classList.contains('instrument-library-window')
+        ? {left:20,right:400,top:100,bottom:200,width:380,height:100}
+        : {left:500,right:900,top:100,bottom:200,width:400,height:100};
+    });
+    const tutorial=createWalkthroughSteps(1);
+    render(<><div data-tour="uut-table">UUT</div><div className="instrument-library-window">Library</div><GuidedWalkthrough isOpen steps={tutorial} stepIndex={tutorial.findIndex(step=>step.id==='library-drag')} onStepChange={vi.fn()} onClose={vi.fn()}/></>);
+    expect(screen.getByRole('dialog')).toHaveStyle({left:'414px'});
+    rectSpy.mockRestore();
+  });
   it('enables Next workflow immediately when reviewing risk defaults', () => {
     const tutorial=createWalkthroughSteps(1);
     render(<GuidedWalkthrough isOpen steps={tutorial} stepIndex={tutorial.findIndex(step=>step.id==='session-requirements')} onStepChange={vi.fn()} onClose={vi.fn()}/>);
@@ -59,7 +114,7 @@ describe("GuidedWalkthrough", () => {
     const {rerender}=render(view);rerender(view);
     expect(open).toHaveBeenCalledOnce();
     expect(screen.getByText(/instead of choosing a library result/)).toHaveClass('guided-walkthrough-note');
-    expect(screen.getByText(/4 of 9/)).toBeInTheDocument();
+    expect(screen.getByText(/4 of 7/)).toBeInTheDocument();
     rectSpy.mockRestore();
   });
   it("jumps directly between workflows and their steps without requiring setup", () => {
@@ -142,6 +197,9 @@ describe("GuidedWalkthrough", () => {
     expect(unrelated).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole("button",{name:"Edit"}));
     expect(allowed).toHaveBeenCalledOnce();
+    screen.getByText('Unrelated').focus();
+    expect(screen.getByRole('dialog')).toHaveFocus();
+    expect(screen.getByRole('button',{name:'Close walkthrough'})).not.toHaveFocus();
     const workspaceKey=vi.fn();
     document.addEventListener('keydown',workspaceKey);
     expect(() => fireEvent.keyDown(window,{key:'Delete'})).not.toThrow();

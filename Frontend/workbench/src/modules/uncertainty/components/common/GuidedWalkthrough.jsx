@@ -197,7 +197,7 @@ const GuidedWalkthrough = ({
         if (rect.top < 8 || rect.bottom > window.innerHeight - 8) target.scrollIntoView({ behavior: "smooth", block: "center" });
       }
       setHasTarget(Boolean(target || revealedSurface));
-      setPlacementRect((revealedSurface || target)?.getBoundingClientRect() || null);
+      setPlacementRect((visibleTarget(step.placementTarget) || revealedSurface || target)?.getBoundingClientRect() || null);
       const combined = combineRects(
           target ? target.getBoundingClientRect() : null,
           ...revealed.map(node => node.getBoundingClientRect()),
@@ -273,6 +273,7 @@ const GuidedWalkthrough = ({
         ref={cardRef}
         className={`guided-walkthrough-card${advancing ? " is-action-complete" : ""}`}
         role="dialog"
+        tabIndex={-1}
         aria-modal="false"
         aria-label="Uncertalytics walkthrough"
         style={cardPosition}

@@ -2329,6 +2329,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
   const walkthroughAutoStartedRef = useRef(false);
 
   const walkthroughSteps = useMemo(() => createWalkthroughSteps(sessions.length), [sessions.length]);
+  const previousWalkthroughWorkflow = useRef(null);
 
   useEffect(() => {
     if (
@@ -2349,6 +2350,9 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
   useEffect(() => {
     if (!isWalkthroughOpen) return;
     const step = walkthroughSteps[walkthroughStepIndex];
+    if (step?.library) handleOpenLibrary();
+    else if (previousWalkthroughWorkflow.current === "Instrument Library" && step?.workflow !== "Instrument Library") setIsInstrumentBuilderOpen(false);
+    previousWalkthroughWorkflow.current = step?.workflow;
     if (step?.id === "session-information") setIsSessionInfoOpen(true);
     if (["session-requirements", "risk-inputs"].includes(step?.id)) setIsRequirementsOpen(true);
     if (step?.workspace) {
@@ -5891,6 +5895,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
             session: currentSessionData,
             point: currentTestPoints.find(point => String(point.id) === String(selectedTestPointId)),
             analysisMode,
+            instruments,
             layout: { workspacePane, sidebarWidth, sidebarAutoFit, instrumentAutoFit },
           }}
           steps={walkthroughSteps}

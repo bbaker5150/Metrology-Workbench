@@ -71,7 +71,7 @@ export async function checkTutorial({frame,page,until,check}) {
   check('closing the tutorial restores ordinary tab interaction',await frame.locator('[data-tour="tab-notes"]').evaluate(node=>node.classList.contains('active')));
   await frame.locator('[data-tour="tab-overview"]').click();
   await open();
-  await selectStep('instrument-units');
+  await selectStep('uut-columns');
   const uutTable=frame.locator('[data-tour="uut-table"]');
   await uutTable.locator('[data-range-cell] .inline-tolerance-summary').first().click();
   await uutTable.getByRole('button',{name:'Range unit prefix',exact:true}).first().click();
@@ -92,9 +92,10 @@ export async function checkTutorial({frame,page,until,check}) {
   check('spotlight tracks independent table scaling',await until(()=>highlightContains(uutTable)));
   await uutTable.evaluate(node=>{node.style.zoom='';});
 
-  await unitMenu.locator('[role="option"][aria-selected="true"]').first().click();
-  check('required action permits portal options and completes after selection',await until(()=>next.isEnabled()));
-  check('unit selection advances automatically',await until(()=>card.locator('h3').textContent().then(title=>title==='Add measuring equipment')));
+  await unitMenu.locator('[role="option"][aria-selected="false"]').first().click();
+  await uutTable.getByPlaceholder('min',{exact:true}).first().press('Enter');
+  check('required range action permits portal options and completes after a committed change',await until(()=>next.isEnabled()));
+  check('range specification advances to TMDE creation',await until(()=>card.locator('h3').textContent().then(title=>title==='Add measuring equipment')));
   await selectStep('custom-columns');
   check('custom-column plus buttons remain inside the expanded spotlight',await until(()=>uutTable.locator('.instrument-column-insert-button').evaluateAll(nodes=>{
     const h=document.querySelector('.guided-walkthrough-highlight').getBoundingClientRect();

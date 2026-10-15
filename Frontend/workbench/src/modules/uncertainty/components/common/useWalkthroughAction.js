@@ -26,7 +26,10 @@ export default function useWalkthroughAction({ isOpen, step, context, cardRef, v
       advanceTimer = setTimeout(() => {
         if (visit.current !== state) return;
         // Let the user finish an edit before changing its surrounding UI.
-        if (action.waitForCommit && document.activeElement?.matches('input, textarea, [contenteditable="true"]') && !cardRef.current?.contains(document.activeElement)) {
+        if (action.waitForCommit && (
+          (document.activeElement?.matches('input, textarea, [contenteditable="true"]') && !cardRef.current?.contains(document.activeElement)) ||
+          visibleTarget('.inline-unit-menu, .inline-tolerance-shape-menu, .instrument-source-settings')
+        )) {
           scheduleAdvance();
           return;
         }
@@ -83,9 +86,11 @@ export default function useWalkthroughAction({ isOpen, step, context, cardRef, v
       queue();
     };
     const focus = event => {
-      if (!state.ready && !allowed(event.target)) cardRef.current?.querySelector('button')?.focus();
+      // Redirect to the card, not Close: an Enter key that commits and blurs an
+      // editor must not activate a button that receives focus mid-keystroke.
+      if (!state.ready && !allowed(event.target)) cardRef.current?.focus();
     };
-    const events = ["pointerdown", "mousedown", "click", "dblclick", "contextmenu", "keydown", "input", "change"];
+    const events = ["pointerdown", "mousedown", "click", "dblclick", "contextmenu", "keydown", "input", "change", "drop"];
     events.forEach(name => window.addEventListener(name, guard, true));
     window.addEventListener("focusin", focus, true);
     const observer = new MutationObserver(records => {

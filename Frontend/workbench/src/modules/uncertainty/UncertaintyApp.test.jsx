@@ -189,6 +189,11 @@ describe("UncertaintyApp", () => {
     await waitFor(()=>expect(screen.getByRole('button',{name:'Instrument Overview',exact:true})).toHaveClass('active'));
     expect(screen.getByText(/This is your Instrument Overview/)).toBeInTheDocument();
     expect(screen.getByRole('button',{name:'Next',exact:true})).toBeEnabled();
+    fireEvent.change(screen.getByLabelText('Walkthrough workflow'),{target:{value:'Instrument Library'}});
+    fireEvent.change(screen.getByLabelText('Walkthrough step'),{target:{value: Array.from(screen.getByLabelText('Walkthrough step').options).find(option=>option.textContent.includes('View or edit specifications')).value}});
+    expect(await screen.findByRole('dialog',{name:'Instrument library',exact:true})).toBeVisible();
+    fireEvent.change(screen.getByLabelText('Walkthrough workflow'),{target:{value:'Advanced Features'}});
+    await waitFor(()=>expect(screen.queryByRole('dialog',{name:'Instrument library',exact:true})).not.toBeInTheDocument());
   });
 
   test("starts the walkthrough when the final existing session is deleted", async () => {

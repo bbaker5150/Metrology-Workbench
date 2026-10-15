@@ -1,9 +1,12 @@
 // Required actions are separate from explanatory copy. Creation/editing gates
 // inspect committed application state; opening an editor alone does not pass them.
 const uut = '[data-tour="uut-table"]';
-const tmde = '[data-tour="tmde-table"]';
+const tmde = '[data-tour="tmde-table"]:not(.instrument-library-window *)';
 const points = '.measurement-point-list';
 const units = '.inline-unit-menu';
+const specMenus = `${units}, .inline-tolerance-shape-menu, .inline-tolerance-shape-backdrop, .instrument-source-settings`;
+const library = '.instrument-library-window:not([hidden])';
+const libraryControls = `${library}, [data-library-toggle], ${specMenus}`;
 const budget = '.budget-stack, [data-tour="budget-component-menu"], .repeatability-modal';
 const columnMenu = '[data-tour="sidebar-columns"], .sidebar-filter-dropdown';
 const settings = '[data-tour="function-settings"], [data-tour="function-settings-menu"]';
@@ -27,6 +30,13 @@ const changed = (label, allowed, read) => ({ label, allowed, waitForCommit: true
   snapshot: context => json(read(context)),
   complete: (context, baseline) => json(read(context)) !== baseline,
 });
+const editedRanges = (kind, target, label) => {
+  const action = changed(label, `${target}, ${specMenus}`, context => items(context, kind).map(ranges));
+  return { ...action,
+    acceptEvent: event => ['input', 'change'].includes(event.type) || (event.type === 'click' && !!event.target.closest('[role="option"], [role="radio"], [aria-pressed]')),
+    complete: (context, baseline, ui) => ui.evidence && action.complete(context, baseline),
+  };
+};
 const opened = (label, allowed, selector) => ({ label, allowed,
   complete: (_context, _baseline, ui) => ui.visible(selector),
 });
@@ -52,7 +62,7 @@ const pointValue = { waitForCommit: true, label: 'Enter a numeric Value and pres
 const sourceKind = kind => ({
   waitForCommit: true,
   label: `Configure and save a ${kind === 'table' ? 'Table' : 'Equation'} uncertainty, then press Enter to finish editing.`,
-  allowed: `${tmde}, ${units}`,
+  allowed: `${tmde}, ${specMenus}`,
   snapshot: context => definitions(context).map(json),
   complete: (context, baseline) => definitions(context).some(definition =>
     !baseline.includes(json(definition)) && definition.kind === kind && (kind === 'table'
@@ -74,16 +84,13 @@ export const walkthroughActions = {
       return !!item && [item.instrument?.manufacturer, item.instrument?.model, item.name || item.description || item.instrument?.description].every(value => String(value || '').trim());
     },
   },
-  'uut-columns': changed('Enter or change a range or specification value.', `${uut}, ${units}`, context => items(context, 'uuts').map(ranges)),
-  'instrument-units': { label: 'Open a unit or prefix menu and choose an option.', allowed: `${uut}, ${units}`,
-    acceptEvent: event => event.type === 'click' && !!event.target.closest('.inline-unit-menu [role="option"]') && /unit|prefix/i.test(event.target.closest('[role="listbox"]')?.getAttribute('aria-label') || ''),
-    complete: (_context, _baseline, ui) => ui.evidence && !ui.visible('.inline-unit-menu'),
-  },
+  'uut-columns': editedRanges('uuts', uut, 'Enter or change a range or specification value.'),
+  'tmde-columns': editedRanges('tmdes', tmde, 'Enter or change a TMDE range, uncertainty, distribution, or resolution.'),
   'tmde-function': added('Use + to add a TMDE to this area.', `${tmde}, [data-tour="tmde-add-function"], ${units}`, context => items(context, 'tmdes')),
-  'area-tools': { label: 'Click a Range cell to select an individual range.', allowed: tmde, complete: (_context, _baseline, ui) => ui.visible(`${tmde} [data-selection-mode="range"] td[data-cell-selected]`) },
   'custom-columns': changed('Add a custom instrument column using the + above a divider.', `${uut}, .instrument-column-insert-button`, context => session(context).instrumentCustomColumns),
   'instrument-sources': added('Expand a TMDE uncertainty and use its + to add a source.', `${tmde}, ${units}`, sources),
-  'source-types': reviewed('Choose a type from the gear menu, then close the menu.', tmde, '.instrument-source-settings'),
+  'source-types': reviewed('Choose a type from the gear menu, then close the menu.', `${tmde}, .instrument-source-settings`, '.instrument-source-settings'),
+  'source-manual': changed('Enter and commit a Manual additional uncertainty value.', `${tmde}, ${specMenus}`, context => sources(context).filter(source => !source.kind || source.kind === 'parametric').map(source => source.tolerance)),
   'source-table': sourceKind('table'),
   'source-equation': sourceKind('equation'),
   'source-distribution': changed('Set the distribution in the additional source’s Distribution column.', `${tmde} .instrument-uncertainty-row .cell-distribution, ${units}`, context => sources(context).map(source => source.dynamicDefinition?.distribution || source.tolerance?.bandDistribution || source.tolerance?.floor?.distribution)),
@@ -121,6 +128,21 @@ export const walkthroughActions = {
   'column-defaults': reviewed('Review Reset Columns and Set as Default, then close the menu.', columnMenu, '.sidebar-filter-dropdown'),
   'layout': changed('Drag or double-click the workspace divider to change the layout.', '[aria-label="Resize measurement point list"]', context => context.layout),
   'point-selection': changed('Edit a point’s Section or Value field.', `${points}, ${units}`, context => items(context, 'testPoints').map(point => ({...pointFields({point}),section:point.section,info:point.testPointInfo}))),
-  'instrument-builder': opened('Open Instrument builder from the header.', '[aria-label="Instrument builder"], .instrument-builder-wrapper', '.instrument-builder-wrapper'),
+  'instrument-library': opened('Open Instrument Library from the book icon in the header.', libraryControls, library),
+  'library-select': opened('Select an instrument’s Description row; add one with + if the library is empty.', libraryControls, `${library} .instrument-library-name[aria-pressed="true"], ${library} .cell-description[data-cell-selected]`),
+  'library-specs': { label: 'Open an instrument’s specifications using its row icon, then select Next when finished.', allowed: libraryControls, autoAdvance: false,
+    complete: (_context, _baseline, ui) => {
+      if (ui.visible(`${library} .instrument-library-specifications[aria-expanded="true"]`)) ui.seen.add('specifications');
+      return ui.seen.has('specifications');
+    },
+  },
+  'library-create': { label: 'Create a new library instrument and enter Manufacturer, Model, and Name. Select Next when finished.', allowed: libraryControls, waitForCommit: true, autoAdvance: false,
+    snapshot: context => (context.instruments || []).map(item => item.id),
+    complete: (context, baseline) => (context.instruments || []).some(item => !baseline.includes(item.id) && item.scope !== 'session' && [item.manufacturer, item.model, item.description].every(value => String(value || '').trim())),
+  },
+  'library-drag': { ...added('Drag a library instrument onto either instrument table.', `${libraryControls}, ${uut}, ${tmde}`, context => [...items(context, 'uuts'), ...items(context, 'tmdes')]),
+    acceptEvent: event => event.type === 'drop' && event.dataTransfer?.types?.includes('application/x-workbench-library-instruments') && !event.target.closest(library) && !!event.target.closest(`${uut}, ${tmde}`),
+    complete: (context, baseline, ui) => ui.evidence && [...items(context, 'uuts'), ...items(context, 'tmdes')].some(item => !baseline.includes(item.id || item.name)),
+  },
   'unit-converter': opened('Open Unit converter from the header.', '[aria-label="Unit converter"], .converter-window', '.converter-window'),
 };

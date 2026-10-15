@@ -53,9 +53,51 @@ describe('tutorial action requirements', () => {
     const action=actions['uut-columns'];
     const before=context({uuts:[{instrument:{functions:[{ranges:[{min:0,max:1}]}]}}]});
     const after=context({uuts:[{instrument:{functions:[{ranges:[{min:0,max:2}]}]}}]});
-    expect(action.complete(after,action.snapshot(before))).toBe(true);
+    expect(action.complete(after,action.snapshot(before),{evidence:true})).toBe(true);
+    expect(action.complete(after,action.snapshot(before),{evidence:false})).toBe(false);
     const custom=actions['custom-columns'];
     expect(custom.complete(context({instrumentCustomColumns:{uut:[{id:'new'}]}}),custom.snapshot(initial))).toBe(true);
+  });
+  it('tracks TMDE specifications without treating UUT changes as TMDE edits', () => {
+    const action=actions['tmde-columns'];
+    const before=context({tmdes:[{instrument:{functions:[{ranges:[{min:0,max:10,tolerances:{bandDistribution:'1'}}]}]}}]});
+    const baseline=action.snapshot(before);
+    expect(action.complete({...before,session:{...before.session,uuts:[{ranges:[{max:20}]}]}},baseline,{evidence:true})).toBe(false);
+    const after=structuredClone(before);
+    after.session.tmdes[0].instrument.functions[0].ranges[0].tolerances.bandDistribution='1.732';
+    expect(action.complete(after,baseline,{evidence:true})).toBe(true);
+    expect(action.complete(after,baseline,{evidence:false})).toBe(false);
+  });
+  it('requires a newly saved, named library definition', () => {
+    const action=actions['library-create'], old={id:'old',manufacturer:'',model:'',description:''};
+    const baseline=action.snapshot({instruments:[old]});
+    const named={manufacturer:'Fluke',model:'8588A',description:'Reference meter',scope:'local'};
+    expect(action.complete({instruments:[{...old,...named}]},baseline)).toBe(false);
+    expect(action.complete({instruments:[{id:'new',...named,description:''}]},baseline)).toBe(false);
+    expect(action.complete({instruments:[{id:'new',...named}]},baseline)).toBe(true);
+    expect(action.autoAdvance).toBe(false);
+  });
+  it('allows continuing after viewing and hiding library specifications', () => {
+    const action=actions['library-specs'],ui={seen:new Set(),visible:()=>false};
+    expect(action.complete(initial,null,ui)).toBe(false);
+    ui.visible=()=>true;
+    expect(action.complete(initial,null,ui)).toBe(true);
+    ui.visible=()=>false;
+    expect(action.complete(initial,null,ui)).toBe(true);
+    expect(action.autoAdvance).toBe(false);
+  });
+  it.each(['uuts','tmdes'])('requires both a library drop and a new %s instance', kind => {
+    const action=actions['library-drag'], baseline=action.snapshot(initial);
+    const added=context({[kind]:[{id:'new'}]});
+    expect(action.complete(initial,baseline,{evidence:true})).toBe(false);
+    expect(action.complete(added,baseline,{evidence:false})).toBe(false);
+    expect(action.complete(added,baseline,{evidence:true})).toBe(true);
+    const table=document.createElement('table');table.dataset.tour=kind==='uuts'?'uut-table':'tmde-table';
+    const event={type:'drop',target:table,dataTransfer:{types:['application/x-workbench-library-instruments']}};
+    expect(action.acceptEvent(event)).toBe(true);
+    expect(action.acceptEvent({...event,dataTransfer:{types:['text/plain']}})).toBe(false);
+    const library=document.createElement('div');library.className='instrument-library-window';library.append(table);
+    expect(action.acceptEvent(event)).toBe(false);
   });
   it('requires table values rather than merely changing uncertainty type', () => {
     const action=actions['source-table'], baseline=action.snapshot(initial);
