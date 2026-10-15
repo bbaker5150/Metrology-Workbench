@@ -9907,7 +9907,7 @@ const SummaryDashboard = ({
                   const tmdeRowKey = row.rowKey ?? tmde.id;
                   const tmdeFnKey = row.functionKey ?? null;
                   if (libraryMode && !libraryExpandedIds.includes(tmde.id)) {
-                    const name = [tmde.instrument?.manufacturer, tmde.instrument?.model, tmde.name].filter(Boolean).join(" ") || "Untitled instrument";
+                    const name = formatInstrumentIdentity(tmde, "Untitled instrument");
                     return <React.Fragment key={tmdeRowKey}>
                       {renderInstrumentDeleteButton("tmde", tmde, tmdeFnKey)}
                       <tr data-instrument-id={tmde.id} data-measurement-area={tmdeFnKey} style={functionRowStyle(tmdeFnKey)} draggable onDragStart={event => onLibraryDragStart?.(event, tmde.id)} className={`instrument-function-row instrument-library-name-row${selectedTmdeIds.includes(tmde.id) ? " selected-row" : ""}`}>
@@ -10054,6 +10054,7 @@ const SummaryDashboard = ({
                             showRowActions={lastSelectionTarget === "range" && selectedRangeIds[itemStateKey("tmde", tmde.id)]?.includes(uncertaintyRowId(source.id))}
                             selected={selectedRangeIds[itemStateKey("tmde", tmde.id)]?.includes(uncertaintyRowId(source.id)) ?? isSelected}
                             rowProps={{
+                              "data-instrument-id": tmde.id,
                               "data-selection-key": itemStateKey("tmde", tmde.id),
                               "data-range-group": itemStateKey("tmde", tmdeRowKey),
                               "data-measurement-area": tmdeFnKey,
@@ -16696,6 +16697,7 @@ function DetailedView({
                             showRowActions={lastSelectionTarget === "range" && selectedRangeIds[itemStateKey("tmde", masterTmde.id)]?.includes(uncertaintyRowId(source.id))}
                             selected={selectedRangeIds[itemStateKey("tmde", masterTmde.id)]?.includes(uncertaintyRowId(source.id)) ?? isSelectedRow}
                             rowProps={{
+                              "data-instrument-id": masterTmde.id,
                               "data-selection-key": itemStateKey("tmde", masterTmde.id),
                               "data-range-group": itemStateKey("tmde", tmdeRowKey),
                               "data-measurement-area": tmdeFnKey,

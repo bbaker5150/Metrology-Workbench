@@ -121,8 +121,15 @@ export function createInstrumentSelectionOutline(container, table) {
         addRectangle(color, { left, top, right,
           bottom: top + rail.getBoundingClientRect().height / scale });
       });
+      // The 1.5px non-scaling stroke is centered on its path. At the table /
+      // action strip's outer edge, overflow clipping can remove that stroke
+      // entirely after fractional zoom rounding. Keep its full width inside
+      // the surface, after merging cells so shared seams still cancel exactly.
+      const rightEdge = bounds.width / scale;
+      const insideRightEdge = x => Math.abs(x - rightEdge) <= 1 / scale
+        ? snap(Math.min(x, rightEdge - 0.75 / scale)) : x;
       const paths = [...groups].map(([color, rectangles]) => ({ color,
-        d: selectionPerimeter(rectangles).map(([x1, y1, x2, y2]) => `M${x1},${y1}L${x2},${y2}`).join(' '),
+        d: selectionPerimeter(rectangles).map(([x1, y1, x2, y2]) => `M${insideRightEdge(x1)},${y1}L${insideRightEdge(x2)},${y2}`).join(' '),
       }));
       const geometry = actionLayer ? { left:0, top:0, width:bounds.width / scale, height:bounds.height / scale } : {
         left: (bounds.left - containerBounds.left) / scale + container.scrollLeft - container.clientLeft,

@@ -1,4 +1,4 @@
-import { useState, useLayoutEffect, useEffect } from 'react';
+import { useState, useLayoutEffect, useEffect, useRef } from 'react';
 
 /**
  * Hook to manage floating window state + dragging logic.
@@ -12,17 +12,21 @@ export const useFloatingWindow = ({
     isOpen,
     defaultWidth = 600,
     defaultHeight = 600,
-    initialPosition = null
+    initialPosition = null,
+    retainPosition = false
 } = {}) => {
     // State
     const [position, setPosition] = useState({ x: 0, y: 0 });
     const [isDragging, setIsDragging] = useState(false);
     const [dragOffset, setDragOffset] = useState({ x: 0, y: 0 });
+    const hasOpened = useRef(false);
 
     // Initialize in the true visible center. Clamp oversized defaults to a
     // small viewport margin so every popout starts fully reachable.
     useLayoutEffect(() => {
         if (isOpen) {
+            if (retainPosition && hasOpened.current) return;
+            hasOpened.current = true;
             if (initialPosition) {
                 setPosition(initialPosition);
             } else if (typeof window !== 'undefined') {

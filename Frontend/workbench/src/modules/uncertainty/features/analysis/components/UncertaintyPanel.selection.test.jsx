@@ -8,11 +8,11 @@ const instrument = (id, name) => ({
   instrument: { functions: [{ name: "Voltage", unit: "V", ranges: [{ id: `${id}-range`, min: 0, max: 10, unit: "V" }] }] },
 });
 
-const Harness = ({ viewMode, onDeleteUut, onDeleteTmdeDefinition, multiRange = false, showToast }) => {
+const Harness = ({ viewMode, onDeleteUut, onDeleteTmdeDefinition, multiRange = false, showToast, secondary = false }) => {
   const [session, setSession] = useState({
     id: "selection-test", name: "Selection test", measurementAreas: [],
     uuts: [instrument("u1", "First UUT"), instrument("u2", "Second UUT")].map(item => multiRange ? { ...item, instrument: { functions: [{ ...item.instrument.functions[0], ranges: [...item.instrument.functions[0].ranges, { id: item.id + "-second", min: 20, max: 30, unit: "V" }] }] } } : item),
-    tmdes: [instrument("t1", "First TMDE"), instrument("t2", "Second TMDE")],
+    tmdes: [instrument("t1", "First TMDE"), instrument("t2", "Second TMDE")].map(item => secondary ? {...item, instrument:{...item.instrument, tmdeSecondaryUncertainties:[{id:'thermal',name:'Thermal drift',kind:'manual',value:0.2,unit:'V'}]}} : item),
     testPoints: [], uncReq: {},
   });
   const [selected, setSelected] = useState([]);
@@ -26,6 +26,17 @@ const Harness = ({ viewMode, onDeleteUut, onDeleteTmdeDefinition, multiRange = f
 };
 
 describe.each(["session", "point"])("instrument selection in %s view", viewMode => {
+  it('keeps additional uncertainty rows in their instrument action group', () => {
+    render(<Harness viewMode={viewMode} secondary/>);
+    const source=document.querySelector('tr.instrument-uncertainty-row');
+    expect(source).not.toBeNull();
+    expect(source).toHaveAttribute('data-instrument-id','t1');
+    const primary=document.querySelector('tr[data-instrument-id="t1"]');
+    expect(source.dataset.measurementArea).toBe(primary.dataset.measurementArea);
+    expect(primary.querySelector('.cell-sync').rowSpan).toBe(2);
+    fireEvent.mouseDown(source.querySelector('td'));
+    expect(source).toHaveAttribute('data-range-selected','true');
+  });
   it('toggles repeated range clicks without changing other ranges', () => {
     render(<Harness viewMode={viewMode} multiRange />);
     const rows=[...document.querySelectorAll('tr[data-range-group="uut:u1"]')];

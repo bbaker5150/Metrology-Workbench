@@ -37,10 +37,10 @@ describe('selection perimeter', () => {
     const outline = createInstrumentSelectionOutline(container, table);
     table.dataset.selectionMode = 'range';
     outline.sync();
-    expect(container.querySelector('path').getAttribute('d')).toBe('M22,0L100,0 M22,20L100,20 M22,0L22,20 M100,0L100,20');
+    expect(container.querySelector('path').getAttribute('d')).toBe('M22,0L99.63,0 M22,20L99.63,20 M22,0L22,20 M99.63,0L99.63,20');
     table.dataset.selectionMode = 'instrument';
     outline.sync();
-    expect(container.querySelector('path').getAttribute('d')).toBe('M0,0L100,0 M0,20L100,20 M0,0L0,20 M100,0L100,20');
+    expect(container.querySelector('path').getAttribute('d')).toBe('M0,0L99.63,0 M0,20L99.63,20 M0,0L0,20 M99.63,0L99.63,20');
     outline.destroy();
   });
 
@@ -64,8 +64,8 @@ describe('selection perimeter', () => {
     outline.sync();
     const segments = [...container.querySelector('path').getAttribute('d').matchAll(/M([\d.-]+),([\d.-]+)L([\d.-]+),([\d.-]+)/g)].map(m=>m.slice(1).map(Number));
     expect(sorted(segments)).toEqual(sorted([
-      [0,0,20,0], [0,30,60,30], [20,10,42,10], [42,20,60,20],
-      [0,0,0,30], [20,0,20,10], [42,10,42,20], [60,20,60,30],
+      [0,0,20,0], [0,30,59.25,30], [20,10,42,10], [42,20,59.25,20],
+      [0,0,0,30], [20,0,20,10], [42,10,42,20], [59.25,20,59.25,30],
     ]));
     outline.destroy();
   });
@@ -109,15 +109,16 @@ describe('selection perimeter', () => {
     const segments = () => [...viewport.querySelector('path').getAttribute('d').matchAll(/M([\d.-]+),([\d.-]+)L([\d.-]+),([\d.-]+)/g)].map(m=>m.slice(1).map(Number));
     outline.sync();
     expect(viewport.querySelector('svg').style.clipPath).toBe('inset(20px 0 0px 0)');
+    const right = Math.round((128 - 0.75 / scale) * 100) / 100;
     expect(sorted(segments())).toEqual(sorted([
-      [0,20,128,20],[0,40,100,40],[100,60,128,60],[0,20,0,40],[100,40,100,60],[128,20,128,60],
+      [0,20,right,20],[0,40,100,40],[100,60,right,60],[0,20,0,40],[100,40,100,60],[right,20,right,60],
     ]));
     second.setAttribute('data-cell-selected','');
     first.getBoundingClientRect = () => bounds(-20,20,99.6,40);
     second.getBoundingClientRect = () => bounds(-20,40,99.6,60);
     container.clientHeight = 50;
     outline.sync();
-    expect(sorted(segments())).toEqual(sorted([[0,20,128,20],[0,50,128,50],[0,20,0,50],[128,20,128,50]]));
+    expect(sorted(segments())).toEqual(sorted([[0,20,right,20],[0,50,right,50],[0,20,0,50],[right,20,right,50]]));
     expect(container.querySelector('svg')).toBeNull();
     outline.destroy();
   });

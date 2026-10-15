@@ -101,6 +101,15 @@ describe("initial placement", () => {
 });
 
 describe("style output", () => {
+  it("retains a moved position on reopen when requested", () => {
+    const { result, rerender } = renderHook(({ isOpen }) => useFloatingWindow({ isOpen, retainPosition: true }), { initialProps: { isOpen: true } });
+    act(() => result.current.handleMouseDown(mouseEvent(300, 150)));
+    dispatchMove(420, 240);
+    dispatchUp();
+    rerender({ isOpen: false });
+    rerender({ isOpen: true });
+    expect(result.current.position).toEqual({ x: 420, y: 240 });
+  });
   it("exposes a fixed-position style bound to the current coordinates", () => {
     const { result } = renderHook(() =>
       useFloatingWindow({ isOpen: true, defaultWidth: 600, defaultHeight: 400 }),

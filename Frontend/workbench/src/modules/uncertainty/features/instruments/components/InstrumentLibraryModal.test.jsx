@@ -43,6 +43,28 @@ it('selects names without expansion and opens details from its row specification
  expect(screen.queryByText('Type B')).not.toBeInTheDocument();
  expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
 });
+it('uses the table identity including Tag without repeating manufacturer/model in the name',()=>{
+ const instrument={...definition('A'),nickname:'REF-12',description:'Example A reference meter'};
+ render(<Harness initial={[instrument]}/>);
+ expect(document.querySelector('.instrument-library-name')).toHaveTextContent('(REF-12) Example A reference meter');
+ expect(screen.getByRole('button',{name:'View or Edit Instrument Specifications (REF-12) Example A reference meter'})).toBeInTheDocument();
+ openInstrument('A');
+ expect(document.querySelector('.inline-desc-combined')).toHaveTextContent('(REF-12) Example A reference meter');
+});
+it('keeps its dragged position and scale when toggled closed and open',()=>{
+ const props={instruments:[definition('A')],onClose:vi.fn(),zoom:1.2};
+ const {rerender}=render(<InstrumentLibraryModal {...props} isOpen/>);
+ const modal=screen.getByRole('dialog',{name:'Instrument library'});
+ const left=parseFloat(modal.style.left),top=parseFloat(modal.style.top);
+ fireEvent.mouseDown(screen.getByRole('heading',{name:'Instrument Library'}),{clientX:400,clientY:100});
+ fireEvent.mouseMove(document,{clientX:440,clientY:130});fireEvent.mouseUp(document);
+ rerender(<InstrumentLibraryModal {...props} isOpen={false}/>);
+ rerender(<InstrumentLibraryModal {...props} isOpen/>);
+ const reopened=screen.getByRole('dialog',{name:'Instrument library'});
+ expect(parseFloat(reopened.style.left)).toBe(left+40);
+ expect(parseFloat(reopened.style.top)).toBe(top+30);
+ expect(reopened.querySelector('.scoped-zoom-content').style.zoom).toBe('1.2');
+});
 it.each([['session','uut'],['session','tmde'],['point','uut'],['point','tmde']])('copies selected library instruments to an empty %s %s table', (viewMode, kind)=>{
  const save=vi.fn();
  render(<><Harness/><UncertaintyPanel testPointData={{id:'point',viewMode,testPointInfo:{parameter:{name:'Voltage',value:5,unit:'V'}},components:[],tmdeTolerances:[]}}
@@ -289,6 +311,7 @@ it('adds, names, changes type and restores additional uncertainties in the libra
  const name=screen.getByRole('textbox',{name:'Uncertainty name'});
  fireEvent.change(name,{target:{value:'Thermal drift'}});fireEvent.keyDown(name,{key:'Enter'});
  const source=document.querySelector('.instrument-uncertainty-row');
+ expect(source).toHaveAttribute('data-instrument-id','A');
  fireEvent.click(within(source).getByRole('button',{name:'Change uncertainty type'}));
  fireEvent.click(within(source).getByRole('button',{name:'Equation',exact:true}));
  await waitFor(()=>expect(save.mock.calls.at(-1)?.[0].tmdeSecondaryUncertainties[0]).toMatchObject({name:'Thermal drift',kind:'equation'}));

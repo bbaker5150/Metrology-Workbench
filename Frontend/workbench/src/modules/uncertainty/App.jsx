@@ -637,6 +637,7 @@ const SCOPED_ZOOM_LABELS = {
   "budget-results": "Results tables",
   "budget-decision": "PFA / PFR",
   "budget-table": "Budget table",
+  "instrument-library": "Instrument library",
   "panel-table-container": "Table",
   "instrument-table-container": "Instrument table",
   "budget-section-table-wrap": "Budget table",
@@ -660,7 +661,7 @@ const getDefaultScopedZoom = (zoomKey) => {
 const getScopedZoomTarget = (eventTarget) => {
   if (!(eventTarget instanceof Element)) return null;
 
-  let surface = eventTarget.closest(SCOPED_ZOOM_SURFACE_SELECTOR);
+  let surface = eventTarget.closest('.instrument-library-window') || eventTarget.closest(SCOPED_ZOOM_SURFACE_SELECTOR);
   if (!surface) {
     const header = eventTarget.closest(
       ".panel-card-header, .budget-section-title-row",
@@ -678,6 +679,7 @@ const getScopedZoomTarget = (eventTarget) => {
   if (!surface) return null;
 
   if (
+    surface.classList.contains("instrument-library-window") ||
     surface.classList.contains("app-chrome-zoom-surface") ||
     surface.classList.contains("sidebar-session-info-zoom-surface") ||
     surface.classList.contains("measurement-points-zoom-surface") ||
@@ -5924,6 +5926,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
 
         {/* Global Library Modal (Instrument Manager) */}
         {instrumentModalConfig.mode === "library" ? <InstrumentLibraryModal
+          zoom={scopedZoomLevels['instrument-library'] || 1}
           isOpen={isInstrumentBuilderOpen}
           onClose={() => setIsInstrumentBuilderOpen(false)}
           instruments={instruments} onSaveToLibrary={async (instrument, options) => {

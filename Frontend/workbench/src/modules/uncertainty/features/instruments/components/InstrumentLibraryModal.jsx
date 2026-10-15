@@ -7,6 +7,7 @@ import UncertaintyPanel from "../../analysis/components/UncertaintyPanel";
 import NotificationModal from "../../../components/modals/NotificationModal";
 import { useFloatingWindow } from "../../../hooks/useFloatingWindow";
 import { instrumentMatchesSearch } from "../../../utils/functionGrouping";
+import { formatInstrumentIdentity } from "../../../utils/instrumentIdentity";
 import { useConfirmRecordDeletes } from "../../../contexts/RecordDeletePolicy";
 import { journalSession, acknowledgeSession } from "../../../utils/sessionRecovery";
 import "./InstrumentLibraryModal.css";
@@ -32,7 +33,7 @@ const InstrumentSpecificationsIcon = () => <svg viewBox="0 0 32 32" width="20" h
 
 // The library is an adapter around the actual overview instrument table. Range
 // rendering, editors, selection, clipboard and creation all stay in that table.
-export default function InstrumentLibraryModal({ isOpen, onClose, instruments = [], onSaveToLibrary, onDelete, onInstrumentSynced }) {
+export default function InstrumentLibraryModal({ isOpen, onClose, instruments = [], onSaveToLibrary, onDelete, onInstrumentSynced, zoom = 1 }) {
   const dragSelection = useRef(null);
   const [session, setSession] = useState(() => initialSession(instruments));
   const current = useRef(session);
@@ -49,7 +50,8 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
   const lastLibrary = useRef(instruments);
   const confirmDeletes = useConfirmRecordDeletes();
   const windowRef = useRef(null);
-  const { position, setPosition, handleMouseDown } = useFloatingWindow({ isOpen, defaultWidth: 560, defaultHeight: 440 });
+  const hasOpened = useRef(false);
+  const { position, setPosition, handleMouseDown } = useFloatingWindow({ isOpen, defaultWidth: 560, defaultHeight: 440, retainPosition: true });
   useLayoutEffect(() => {
     if (!isOpen) return;
     const collapse = event => {
@@ -62,7 +64,8 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
     return () => window.removeEventListener("keydown", collapse, true);
   }, [isOpen]);
   useLayoutEffect(() => {
-    if (!isOpen || !windowRef.current) return;
+    if (!isOpen || !windowRef.current || hasOpened.current) return;
+    hasOpened.current = true;
     const rect = windowRef.current.getBoundingClientRect();
     setPosition({ x: Math.max(16, (window.innerWidth - rect.width) / 2), y: Math.max(16, (window.innerHeight - rect.height) / 2) });
   }, [isOpen, setPosition]);
@@ -70,6 +73,11 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
     if (!isOpen || !windowRef.current || typeof ResizeObserver === "undefined") return;
     const keepVisible = () => {
       const rect = windowRef.current.getBoundingClientRect();
+      const scroller = windowRef.current.querySelector('.instrument-table-scroll');
+      if (scroller) {
+        const gutter = (scroller.offsetWidth - scroller.clientWidth) / 2;
+        windowRef.current.style.setProperty('--instrument-library-bottom-gap', `${gutter}px`);
+      }
       setPosition(previous => {
         const x = Math.max(16, Math.min(previous.x, window.innerWidth - rect.width - 16));
         const y = Math.max(16, Math.min(previous.y, window.innerHeight - rect.height - 16));
@@ -80,7 +88,7 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
     observer.observe(windowRef.current);
     window.addEventListener("resize", keepVisible);
     return () => { observer.disconnect(); window.removeEventListener("resize", keepVisible); };
-  }, [isOpen, setPosition]);
+  }, [isOpen, setPosition, zoom]);
   const replace = next => { current.current = next; setSession(next); };
   useEffect(() => {
     if (saving || error || lastLibrary.current === instruments) return;
@@ -202,14 +210,16 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
       }
       dragSelection.current = row ? { id: row.id, ids: selection.includes(row.id) ? [...selection] : [row.id] } : null;
     }}
-    style={{ left: position.x, top: position.y }}>
+    data-scoped-zoom-key="instrument-library" data-zoom-level={zoom}
+    style={{ left: position.x, top: position.y, '--instrument-library-scale': zoom }}>
+    <div className="scoped-zoom-content instrument-library-content" style={{ zoom }}>
     {error && <div className="instrument-library-save-error"><span role="alert">{error}</span><button onClick={() => [...failed.current.values()].forEach(enqueue)}>Retry save</button></div>}
     <UncertaintyPanel libraryMode testPointData={libraryPoint} sessionData={session}
       libraryExpandedIds={expandedIds} libraryActiveId={activeId} onLibraryExpand={id => { setActiveId(id); setExpandedIds(previous => previous.includes(id) ? previous : [...previous, id]); }}
       libraryRenderSpecifications={id => {
         const expanded = expandedIds.includes(id);
         const row = session.tmdes.find(item => item.id === id);
-        const name = [row?.instrument?.manufacturer, row?.instrument?.model, row?.name].filter(Boolean).join(" ") || "Untitled instrument";
+        const name = formatInstrumentIdentity(row, "Untitled instrument");
         const label = expanded ? "Hide Instrument Specifications" : "View or Edit Instrument Specifications";
         return <button type="button" className="icon-btn-ghost instrument-library-specifications" title={label} aria-label={`${label} ${name}`} aria-expanded={expanded}
           onClick={event => {
@@ -240,6 +250,7 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
         <button className="icon-btn-ghost" aria-label="Close instrument library" onClick={close}><FontAwesomeIcon icon={faTimes} /></button>
         </div>
       </div>} />
+    </div>
     <NotificationModal {...notification} isOpen={!!notification} onClose={() => setNotification(null)} />
   </div>, document.body);
 }

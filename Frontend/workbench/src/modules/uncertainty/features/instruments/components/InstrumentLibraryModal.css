@@ -1,16 +1,18 @@
 .instrument-library-window.modal-content {
-  position: fixed; z-index: 2100; width: min(var(--instrument-library-width, 1180px), calc(100vw - 32px)); height: auto;
-  min-width: min(480px, calc(100vw - 32px)); min-height: 0; resize: none; border-radius: 0;
-  max-width: calc(100vw - 32px); max-height: calc(100vh - 32px);
+  --instrument-library-width: 560px;
+  --instrument-library-scaled-width: calc(var(--instrument-library-width) * var(--instrument-library-scale, 1));
+  position: fixed; z-index: 2100; width: min(var(--instrument-library-scaled-width), calc(100vw - 32px)); height: auto;
+  min-width: min(calc(480px * var(--instrument-library-scale, 1)), calc(100vw - 32px)); min-height: 0; resize: none; border-radius: 0;
+  max-width: calc(100vw - 32px); max-height: min(var(--instrument-library-scaled-width), calc(100vw - 32px), calc(100vh - 32px));
   display: flex; flex-direction: column; align-items: stretch; justify-content: flex-start; padding: 0; margin: 0; overflow: hidden;
   background: var(--content-background-solid, #fff); border: 1px solid var(--border-color); box-shadow: 0 12px 40px #0005;
 }
-.instrument-library-window.modal-content.is-names-only { width: min(560px, calc(100vw - 32px)); }
+.instrument-library-content { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow: hidden; }
 .instrument-library-header { cursor: move; flex-shrink: 0; }
 .instrument-library-header .panel-card-actions { margin-left: auto; gap: 6px; }
 .instrument-library-window .configuration-panel { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow: hidden; padding: 0; }
 .instrument-library-window .icon-btn-ghost { flex: 0 0 32px; font-size: 14px; }
-.instrument-library-window .instrument-table-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable both-edges; }
+.instrument-library-window .instrument-table-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; overflow-x: hidden; scrollbar-gutter: stable both-edges; padding-bottom: var(--instrument-library-bottom-gap, 6px); }
 /* Keep symmetric scrollbar gutters around the table. Library delete controls
    share the real Sync cell so row borders and highlighting cannot drift. */
 .instrument-library-window .instrument-panel-table-container { height: auto !important; max-height: none !important; overflow-y: hidden !important; overflow-x: auto; resize: none; border-radius: 0; scrollbar-width: auto; scrollbar-color: auto; }

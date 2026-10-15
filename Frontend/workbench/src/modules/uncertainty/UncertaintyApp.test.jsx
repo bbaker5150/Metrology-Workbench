@@ -1854,6 +1854,7 @@ describe("UncertaintyApp", () => {
 
   test("zooms a table around the cursor without zooming the page when scale is unlocked", async () => {
     localStorage.setItem("workbench:ui-scale-lock", "false");
+    localStorage.setItem("uncertalytics.uiSizing.v1", JSON.stringify({scopedZoomLevels:{}}));
     render(
       <ThemeProvider>
         <NotificationProvider>
@@ -1938,6 +1939,20 @@ describe("UncertaintyApp", () => {
     });
     expect(resultsSurface.dataset.zoomLevel).toBe("1.1");
     expect(resultsContent.style.zoom).toBe("0.88");
+
+    // A portal library owns its complete scale, even over its nested table.
+    const library = document.createElement('div');
+    library.className = 'instrument-library-window';
+    library.dataset.scopedZoomKey = 'instrument-library';
+    library.innerHTML = '<div class="scoped-zoom-content"><div class="panel-table-container"><table><tbody><tr><td>Library</td></tr></tbody></table></div></div>';
+    document.body.appendChild(library);
+    fireEvent.wheel(library.querySelector('td'), {ctrlKey:true,deltaY:-100,clientX:10,clientY:10});
+    expect(library.dataset.zoomLevel).toBe('1.1');
+    expect(library.firstChild.style.zoom).toBe('1.1');
+    expect(library.querySelector('table').style.zoom || '').toBe('');
+    expect(surface.dataset.zoomLevel).toBe('1.1');
+    await waitFor(() => expect(JSON.parse(localStorage.getItem('uncertalytics.uiSizing.v1')).scopedZoomLevels['instrument-library']).toBe(1.1));
+    library.remove();
 
     window.localStorage.setItem(
       "uncertalytics:uut:instrument-column-widths:v2",
