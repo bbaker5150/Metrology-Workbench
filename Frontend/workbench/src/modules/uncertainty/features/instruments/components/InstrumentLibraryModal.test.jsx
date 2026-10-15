@@ -158,6 +158,39 @@ it('shows qualifiers and inserted columns only for the instrument being edited',
  openInstrument('B');
  expect(document.querySelector('th[data-instrument-column^="custom:"]')).not.toBeNull();
 });
+it('selects qualifier rows and shared/nested spans like the instrument tables',async()=>{
+ const qualified=definition('A');
+ qualified.functions[0].ranges=[0,1,2].map(index=>({
+   ...qualified.functions[0].ranges[0],id:`r${index}`,qualifierGroupId:'parent',
+   qualifier:{id:`q${index}`,text:index<2?'60 Hz':'400 Hz',qualifier:{id:`nested${index}`,text:index===1?'1 year':'90 days'}},
+ }));
+ render(<Harness initial={[qualified,definition('B')]}/>);
+ openInstrument('A');
+ const rows=[...document.querySelectorAll('tr[data-range-group="tmde:A"]')];
+ expect(rows).toHaveLength(3);
+ const shared=rows[0].querySelector('[data-qualifier-cell="1"]');
+ expect(shared).toHaveAttribute('rowspan','2');
+ const nested=rows[1].querySelector('[data-qualifier-cell="2"]');
+ fireEvent.mouseDown(nested);fireEvent.pointerMove(nested);
+ expect(rows.map(row=>row.dataset.rangeSelected)).toEqual(['false','true','false']);
+ await waitFor(()=>expect(nested).toHaveAttribute('data-cell-selected'));
+ expect(shared).toHaveAttribute('data-cell-selected');
+ expect(rows[1].querySelector('.cell-tolerance')).toHaveAttribute('data-cell-selected');
+ expect(rows[0].querySelector('.cell-tolerance')).not.toHaveAttribute('data-cell-selected');
+ expect(rows[2].querySelector('[data-qualifier-cell="1"]')).not.toHaveAttribute('data-cell-selected');
+ expect(nested).toHaveAttribute('data-actions-selected','true');
+ fireEvent.mouseDown(shared);
+ expect(rows.map(row=>row.dataset.rangeSelected)).toEqual(['true','true','false']);
+ const last=rows[2].querySelector('[data-qualifier-cell="2"]');
+ fireEvent.mouseDown(last,{ctrlKey:true});
+ expect(rows.every(row=>row.dataset.rangeSelected==='true')).toBe(true);
+ fireEvent.mouseDown(last,{ctrlKey:true});
+ expect(rows.map(row=>row.dataset.rangeSelected)).toEqual(['true','true','false']);
+ fireEvent.mouseDown(nested);
+ fireEvent.mouseDown(last,{shiftKey:true});
+ expect(rows.map(row=>row.dataset.rangeSelected)).toEqual(['false','true','true']);
+ expect(document.querySelector('tr[data-instrument-id="B"]')).not.toHaveClass('selected-row');
+});
 it('keeps multiple editors open independently of selection and internal action clicks',async()=>{
  const save=vi.fn();render(<Harness save={save}/>);
  openInstrument('A');openInstrument('C');

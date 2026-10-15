@@ -8264,9 +8264,11 @@ const SummaryDashboard = ({
   };
   const selectRangeRow = (event, kind, item, index, rangeId, stateItemId = item.id) => {
     if (event.button !== undefined && event.button !== 0) return;
-    if (libraryMode && kind === "tmde") {
+    if (libraryMode && kind === "tmde" && !event.target.closest('[data-qualifier-cell]')) {
       // Editing a selected instrument never toggles it off. Preserve the batch
       // on pointer-down so dragging any selected row transfers the whole set.
+      // Qualifier cells use the shared table selection below so only the rows
+      // covered by that qualifier (including nested qualifiers) are selected.
       if (event.ctrlKey || event.metaKey || event.shiftKey) handleTmdeClick(event, item.id, true);
       else if (!selectedTmdeIds.includes(item.id)) {
         setSelectedTmdeIds([item.id]); setSelectedRangeIds({});
