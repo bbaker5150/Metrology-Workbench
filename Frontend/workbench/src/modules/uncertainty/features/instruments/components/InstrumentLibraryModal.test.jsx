@@ -191,6 +191,34 @@ it('selects qualifier rows and shared/nested spans like the instrument tables',a
  expect(rows.map(row=>row.dataset.rangeSelected)).toEqual(['false','true','true']);
  expect(document.querySelector('tr[data-instrument-id="B"]')).not.toHaveClass('selected-row');
 });
+it.each(['.cell-tolerance','.cell-value:not([data-range-cell])','.cell-distribution'])('selects the corresponding qualifier when clicking %s in the library',async column=>{
+ const qualified=definition('A');
+ qualified.functions[0].ranges=[0,1,2].map(index=>({
+   ...qualified.functions[0].ranges[0],id:`r${index}`,qualifierGroupId:'parent',
+   qualifier:{id:`q${index}`,text:index<2?'60 Hz':'400 Hz',qualifier:{id:`n${index}`,text:index===1?'1 year':'90 days'}},
+ }));
+ render(<Harness initial={[qualified,definition('B')]}/>);
+ openInstrument('A');
+ const rows=[...document.querySelectorAll('tr[data-range-group="tmde:A"]')];
+ fireEvent.mouseDown(rows[1].querySelector(column));
+ fireEvent.pointerMove(rows[1].querySelector(column));
+ expect(rows.map(row=>row.dataset.rangeSelected)).toEqual(['false','true','false']);
+ await waitFor(()=>expect(rows[1].querySelector('[data-qualifier-cell="2"]')).toHaveAttribute('data-cell-selected'));
+ expect(rows[0].querySelector('[data-qualifier-cell="1"]')).toHaveAttribute('data-cell-selected');
+ expect(rows[0].querySelector('[data-range-cell]:not([data-qualifier-cell])')).toHaveAttribute('data-cell-selected');
+ expect(rows[0].querySelector('.cell-description')).toHaveAttribute('data-cell-selected');
+ expect(rows[0].querySelector('[data-qualifier-cell="2"]')).not.toHaveAttribute('data-cell-selected');
+ expect(rows[2].querySelector('[data-qualifier-cell="1"]')).not.toHaveAttribute('data-cell-selected');
+ expect(rows[0].querySelector(column)).not.toHaveAttribute('data-cell-selected');
+ expect(rows[2].querySelector(column)).not.toHaveAttribute('data-cell-selected');
+ fireEvent.mouseDown(rows[2].querySelector(column),{shiftKey:true});
+ expect(rows.map(row=>row.dataset.rangeSelected)).toEqual(['false','true','true']);
+ fireEvent.mouseDown(rows[1].querySelector(column),{ctrlKey:true});
+ expect(rows.map(row=>row.dataset.rangeSelected)).toEqual(['false','false','true']);
+ // Returning to Description restores whole-instrument selection for dragging.
+ fireEvent.mouseDown(rows[0].querySelector('.cell-description'));
+ expect(rows.every(row=>row.dataset.rangeSelected==='true')).toBe(true);
+});
 it('keeps multiple editors open independently of selection and internal action clicks',async()=>{
  const save=vi.fn();render(<Harness save={save}/>);
  openInstrument('A');openInstrument('C');
@@ -328,7 +356,7 @@ it('persists inline edits and keeps the shared original when making a local copy
  expect(updated.id).not.toBe('B');
  await waitFor(()=>expect(document.querySelectorAll('tr[data-instrument-id]')).toHaveLength(4));
  expect(new Set([...document.querySelectorAll('tr[data-instrument-id]')].map(row=>row.dataset.instrumentId)).size).toBe(4);
- expect(within(document.querySelector('tr[data-instrument-id="B"]')).getByPlaceholderText('Model')).toHaveValue('B');
+ await waitFor(()=>expect(within(document.querySelector('tr[data-instrument-id="B"]')).getByPlaceholderText('Model')).toHaveValue('B'));
 });
 it('keeps local library entries local while allowing shared entries to become local',async()=>{
  const remove=vi.fn(), save=vi.fn();render(<Harness remove={remove} save={save}/>);

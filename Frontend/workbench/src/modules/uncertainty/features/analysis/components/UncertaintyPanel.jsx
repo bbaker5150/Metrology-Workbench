@@ -8264,15 +8264,16 @@ const SummaryDashboard = ({
   };
   const selectRangeRow = (event, kind, item, index, rangeId, stateItemId = item.id) => {
     if (event.button !== undefined && event.button !== 0) return;
-    if (libraryMode && kind === "tmde" && !event.target.closest('[data-qualifier-cell]')) {
-      // Editing a selected instrument never toggles it off. Preserve the batch
-      // on pointer-down so dragging any selected row transfers the whole set.
-      // Qualifier cells use the shared table selection below so only the rows
-      // covered by that qualifier (including nested qualifiers) are selected.
+    if (libraryMode && event.target.closest('.inline-tolerance-editor, .inline-resolution-editor, .inline-range-editor.is-editing, .dynamic-budget-editor')) return;
+    if (libraryMode && kind === "tmde" && event.target.closest('.cell-description, .cell-sync')) {
+      // Keep whole-instrument selection for identity/sync cells and preserve
+      // the batch when dragging a description. Specification cells use the
+      // same row/span selection as the workspace tables, including qualifiers.
       if (event.ctrlKey || event.metaKey || event.shiftKey) handleTmdeClick(event, item.id, true);
       else if (!selectedTmdeIds.includes(item.id)) {
-        setSelectedTmdeIds([item.id]); setSelectedRangeIds({});
+        setSelectedTmdeIds([item.id]);
       }
+      setSelectedRangeIds({});
       setLastSelectionTarget("tmde");
       setTmdeRangeIndices(previous => Number.isInteger(index) ? { ...previous, [item.id]: index, [stateItemId]: index } : previous);
       return;
