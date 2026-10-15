@@ -61,7 +61,7 @@ export function readerSpec(model, voltage, frequency, rangeMode, isDc = false, s
 // Conservative bound on the existing (Vac/Vdc - 1)/eta measurement equation.
 // Sum absolute sensitivities: no assumed cancellation or averaging-down of
 // systematic reader errors across phases, cycles, directions, or shared readers.
-export function readerContribution(model, side, point, frequency) {
+export function readerTransferInputs(model, side, point) {
   const phaseNames = ['ac_open','ac_close','dc_pos','dc_neg'];
   const values = phaseNames.map(p => point.phases[`${side}_${p}`]);
   if (values.some(v => !valid(v))) throw new Error('Saved reader phase averages are incomplete.');
@@ -69,6 +69,15 @@ export function readerContribution(model, side, point, frequency) {
   const dc = (dp+dn)/2, av = (ao+ac)/2;
   const eta = Number(point[`eta_${side}`]);
   if (!dc || !Number.isFinite(eta) || eta <= 0) throw new Error('Saved DC voltage or sensitivity coefficient is missing.');
+  const sensitivities = [1/(2*eta*dc),1/(2*eta*dc),av/(2*eta*dc*dc),av/(2*eta*dc*dc)];
+  return { eta, voltages: values, sensitivities, direction: point.direction,
+    functionNames: values.map((_, i) => /34420/i.test(model || '') || i >= 2 ? 'DC Voltage' : 'AC Voltage'),
+    rangeMode: point.rangeMode };
+}
+
+export function readerContribution(model, side, point, frequency) {
+  const inputs = readerTransferInputs(model, side, point);
+  const { voltages: values, sensitivities } = inputs;
   const specs = values.map((v,i) => {
     const spec=readerSpec(model,v,frequency,point.rangeMode,i>=2,point);
     // Conservatively include the manual's +0.002% reading allowance for AC
@@ -79,7 +88,6 @@ export function readerContribution(model, side, point, frequency) {
     }
     return spec;
   });
-  const sensitivities = [1/(2*eta*dc),1/(2*eta*dc),av/(2*eta*dc*dc),av/(2*eta*dc*dc)];
   const standardPpm = specs.reduce((sum,s,i) => sum + sensitivities[i]*s.limitVolts/s.divisor*1e6,0);
-  return {standardPpm, specs, eta, voltages:values, sensitivities, direction:point.direction};
+  return {...inputs, standardPpm, specs};
 }

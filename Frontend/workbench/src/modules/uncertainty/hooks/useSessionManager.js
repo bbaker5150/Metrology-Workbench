@@ -878,7 +878,7 @@ const useSessionManager = () => {
   );
 
   const importSession = useCallback(
-    async (loadedSession, importedImages = new Map(), { requireSaved = false } = {}) => {
+    async (loadedSession, importedImages = new Map(), { requireSaved = false, reuseSharedInstruments = false } = {}) => {
       recordWorkspaceUndoSnapshot("workspace:import-session");
       const saves = [];
       const currentSession = sessions.find(
@@ -890,7 +890,9 @@ const useSessionManager = () => {
         loadedSession,
         sessions,
       );
-      const { session: importedSession } = reconcileImportedInstruments(prepared);
+      const { session: importedSession } = reconcileImportedInstruments(prepared, {
+        sharedInstruments: reuseSharedInstruments ? instruments : [],
+      });
       if (requireSaved && !(await persistSession(importedSession))) {
         throw new Error("The new budget could not be saved to the database. Your current session is unchanged.");
       }
@@ -915,6 +917,7 @@ const useSessionManager = () => {
       recordWorkspaceUndoSnapshot,
       replaceSessions,
       replaceInstruments,
+      instruments,
       selectedSessionId,
       sessions,
     ]

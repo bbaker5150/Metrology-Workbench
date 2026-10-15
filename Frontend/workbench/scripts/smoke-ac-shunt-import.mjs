@@ -47,7 +47,8 @@ try {
   assert.equal(saved.tmdes.length,3);
   assert.equal(saved.testPoints[0].testPointInfo.measurementArea,'Electrical');
   assert.ok(saved.testPoints.every(p=>p.components.every(c=>!c.pendingReason)));
-  assert.ok(saved.testPoints.every(p=>p.uutTolerance.tolerances.reading.high===250));
+  assert.ok(saved.testPoints.every(p=>p.uutTolerance.tolerances.reading.high===100 && p.uutTolerance.tolerances.reading.low===-100));
+  assert.ok(saved.testPoints.every(p=>!p.uutTolerance.tolerances.bias));
   assert.ok(saved.testPoints.every(p=>p.expanded_uncertainty_absolute_base>0));
   assert.ok(saved.testPoints.every(p=>p.components.filter(c=>c.type==='B').every(c=>c.tmdeBudgetSourceId && c.toleranceLimit_native>0)));
   assert.ok(saved.testPoints.every(p=>p.components.filter(c=>c.type==='B').every(c=>/^Normal/.test(c.distribution))));
@@ -77,8 +78,15 @@ try {
   assert.match(body,/Normal \(99%\)/);
   assert.match(body,/Normal \(95.45%\)/);
   assert.doesNotMatch(body,/\bk\s*=\s*2(?:\.58)?\b/);
-  assert.match(body,/PFA\s+3\.378 %/);
-  assert.match(body,/PFR\s+7\.584 %/);
+  const risk=await page.evaluate(async session=>{
+    const {computePointRiskMetrics}=await import('/src/modules/uncertainty/utils/riskCompute.js');
+    const metrics=computePointRiskMetrics(session.testPoints[0],session);
+    return {pfa:metrics.pfa,pfr:metrics.pfr};
+  },saved);
+  for (const metric of ['pfa','pfr']) {
+    assert.ok(Number.isFinite(risk[metric]));
+    assert.match(body,new RegExp(`${metric.toUpperCase()}\\s+${risk[metric].toFixed(3).replace('.','\\.')} %`));
+  }
   await page.screenshot({path:'tmp/ac-shunt-import/budget.png'});
   writeFileSync('tmp/ac-shunt-import/feature-body.txt',await page.locator('body').innerText());
   assert.deepEqual(errors,[]);

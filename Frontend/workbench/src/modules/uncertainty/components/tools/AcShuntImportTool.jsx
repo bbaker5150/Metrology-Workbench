@@ -4,15 +4,18 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faBolt, faTimes } from '@fortawesome/free-solid-svg-icons';
 import { UNCERTAINTY_API } from '../../constants/constants';
 import { buildAcShuntBudget } from '../../utils/acShuntBudget';
+import { sharedAcShuntInstruments } from '../../utils/acShuntLibrary';
 import './AcShuntImportTool.css';
 
-export default function AcShuntImportTool({ onImport }) {
+const EMPTY_INSTRUMENTS = [];
+export default function AcShuntImportTool({ onImport, instruments = EMPTY_INSTRUMENTS }) {
   const [open,setOpen] = useState(false);
   const [query,setQuery] = useState('');
   const [listing,setListing] = useState(null);
   const [selected,setSelected] = useState('');
   const [snapshot,setSnapshot] = useState(null);
   const [rocK,setRocK] = useState('2');
+  const [selections,setSelections] = useState({});
   const [error,setError] = useState('');
   const [loading,setLoading] = useState(false);
   const [saving,setSaving] = useState(false);
@@ -59,9 +62,9 @@ export default function AcShuntImportTool({ onImport }) {
   },[open,selected]);
   const preview = useMemo(()=>{
     if (!snapshot) return null;
-    try {return buildAcShuntBudget(snapshot,{rocK:Number(rocK)});}
+    try {return buildAcShuntBudget(snapshot,{rocK:Number(rocK),instruments,selections});}
     catch(e){return {error:e.message};}
-  },[snapshot,rocK]);
+  },[snapshot,rocK,instruments,selections]);
   const generate = async () => {
     if (!preview?.session || saving) return;
     setSaving(true); setError('');
@@ -77,22 +80,32 @@ export default function AcShuntImportTool({ onImport }) {
       onCancel={e=>{e.preventDefault();close();}} onClick={e=>{if(e.target===dialog.current)close();}}>
       <header><div><span className="ac-shunt-import-eyebrow">AC / DC</span><h2 id="ac-shunt-import-title">Build from a shunt session</h2></div>
         <button aria-label="Close AC/DC importer" onClick={close} disabled={saving}><FontAwesomeIcon icon={faTimes}/></button></header>
-      <p>Bring saved measurements, instruments and certificate uncertainties into a new Electrical budget.</p>
+      <p>Create a new Electrical budget from saved Type A results and measurement points. Matching shared instruments supply the specifications and error ranges.</p>
       <input autoFocus type="search" aria-label="Search AC-shunt sessions" placeholder="Search session, model or serial…" value={query}
         disabled={saving} onChange={e=>{setQuery(e.target.value);setSelected('');setSnapshot(null);}}/>
       <div className="ac-shunt-import-sessions" aria-label="AC-shunt sessions" aria-busy={loading}>
         {loading && <p role="status">Loading sessions…</p>}
         {!loading && listing?.sessions?.length===0 && <p>No matching sessions.</p>}
         {listing?.sessions?.map(s=><button key={s.id} disabled={saving} className={String(selected)===String(s.id)?'selected':''}
-          onClick={()=>{setSnapshot(null);setSelected(s.id);}} aria-pressed={String(selected)===String(s.id)}>
+          onClick={()=>{setSnapshot(null);setSelections({});setSelected(s.id);}} aria-pressed={String(selected)===String(s.id)}>
           <strong>{s.session_name}</strong><span>{s.test_instrument_model || 'Unknown model'} · {s.test_instrument_serial || 'No serial'}<time>{s.created_at?.slice(0,10)}</time></span></button>)}
       </div>
       {selected && !snapshot && !error && <p role="status">Reading measurements and certificates…</p>}
       {preview?.session && <section className="ac-shunt-import-preview" aria-label="Import preview">
         <strong>{preview.topology} · {preview.session.testPoints.length} points · {preview.session.tmdes.length} reference instruments</strong>
         <p role="status">Risk calculated for {preview.riskCalculated} of {preview.session.testPoints.length} points (TUR, PFA and PFR).</p>
-        <label>Certificate coverage factor (k)<input type="number" min="0.01" step="any" value={rocK} disabled={saving} onChange={e=>setRocK(e.target.value)}/></label>
-        <p>UUT limits: manufacturer current accuracy. Reader specs: 1 year. Certificate k is an import assumption; verify against the RoCs. Budget errors follow the selected TMDE ranges.</p>
+        <p>{preview.reusedInstruments} of {preview.bindings.length} instruments reused from the shared library.</p>
+        <details open={preview.reusedInstruments < preview.bindings.length}><summary>Instrument matches</summary>
+          {preview.bindings.map(role=><label key={role.key}>{role.label} · {role.serial || role.model || 'Unspecified'}
+            <select aria-label={`Shared instrument for ${role.label}`} disabled={saving} value={role.definition?.id || ''}
+              onChange={event=>setSelections(previous=>({...previous,[role.key]:event.target.value}))}>
+              <option value="">Generate for initial setup</option>
+              {sharedAcShuntInstruments(instruments).map(item=><option key={item.id} value={item.id}>{[item.manufacturer,item.model,item.description].filter(Boolean).join(' · ')}</option>)}
+            </select></label>)}
+          <p>Unmatched instruments are generated for initial setup. Share their completed definitions to reuse them on later imports.</p>
+        </details>
+        {preview.needsCertificates && <label>Certificate coverage factor (k)<input type="number" min="0.01" step="any" value={rocK} disabled={saving} onChange={e=>setRocK(e.target.value)}/></label>}
+        <p>{preview.topology==='Y5020' ? 'Y5020 UUT: Navy ±100 ppm of reading, with no bias.' : 'A40B UUT: shared limits, or manufacturer current accuracy for initial setup.'} Budget errors follow the matching instrument ranges.</p>
         <details><summary>Specification conditions and source notes</summary><p>{preview.session.notes}</p></details>
         {!!preview.warnings.length && <details open><summary>{preview.warnings.length} items to review</summary><ul>{preview.warnings.map(w=><li key={w}>{w}</li>)}</ul></details>}
       </section>}

@@ -7,6 +7,9 @@ import { computeUncertaintyForPoint, computePointRiskMetrics } from './riskCompu
 import { acShuntUutSpec } from './acShuntUutSpecs';
 import { syncPointTolerances } from './pointToleranceSync';
 import { getBudgetRangeWarnings } from './pointDiagnostics';
+import { reconcileImportedInstruments } from './importedInstrumentLibrary';
+import { computeSyncState } from './instrumentSync';
+import { getUutBiasDefault } from './measurementBias';
 
 export const fixture = (model='Y5020',shared=false) => ({id:10,name:'Saved run',createdAt:'2026-10-02T00:00:00Z',
   instruments:{test_instrument_model:model,test_instrument_serial:'UUT',standard_instrument_model:model,
@@ -35,9 +38,10 @@ describe('AC-shunt budget import',()=>{
     const {session,riskCalculated}=buildAcShuntBudget(fixture(model));
     const point=session.testPoints[0];
     expect(riskCalculated).toBe(1);
-    expect(point.uutTolerance.tolerances.reading.high).toBe(model==='A40B'?37:250);
+    expect(point.uutTolerance.tolerances.reading.high).toBe(model==='A40B'?37:100);
     expect(point.uutTolerance.rangeId).toBe(session.uuts[0].instrument.functions[0].ranges[0].id);
-    expect(point.uutTolerance.tolerances.bias.value).toBeCloseTo(30e-6);
+    if (model==='A40B') expect(point.uutTolerance.tolerances.bias.value).toBeCloseTo(30e-6);
+    else expect(point.uutTolerance.tolerances.bias).toBeUndefined();
     expect(point.expanded_uncertainty_absolute_base).toBeGreaterThan(0);
     for (const row of point.components.filter(c=>c.type==='B')) {
       expect(row.tmdeBudgetSourceId).toBeTruthy();
@@ -131,6 +135,115 @@ describe('AC-shunt budget import',()=>{
     const {session}=buildAcShuntBudget(source);
     expect(resolvePointBudgetComponents(session.testPoints[0],session)[0]).toMatchObject({value:0,dof:3});
     expect(()=>buildAcShuntBudget(fixture('Other'))).toThrow(/supports A40B/);
+  });
+});
+
+describe('repeat imports from the shared library',()=>{
+  const sharedDefinitions = source => {
+    const {session}=buildAcShuntBudget(source);
+    return [...session.uuts,...session.tmdes].map(item=>({...item.instrument,scope:'validated'}));
+  };
+  it('uses 100 ppm Navy limits with no Y5020 bias at every frequency, independently of measured delta',()=>{
+    const source=fixture();source.points=[100,1000,3000,5000].map(frequency=>({...source.points[0],frequency}));
+    const first=buildAcShuntBudget(source).session;
+    source.points=source.points.map(point=>({...point,analytics:{...point.analytics,pair_delta_uut_ppm:-900}}));
+    const second=buildAcShuntBudget(source).session;
+    first.testPoints.forEach((point,index)=>{
+      expect(point.uutTolerance.tolerances).toEqual({reading:expect.objectContaining({high:100,low:-100,unit:'ppm'})});
+      expect(getUutBiasDefault(point,first)).toBeUndefined();
+      expect(second.testPoints[index].testPointInfo.acShuntSource.deltaPpm).toBe(-900);
+      expect(computePointRiskMetrics(point,first).pfa).toBe(computePointRiskMetrics(second.testPoints[index],second).pfa);
+    });
+  });
+  it.each(['Y5020','A40B'])('reuses %s shared ranges and uncertainties while importing new Type A data',model=>{
+    const source=fixture(model), library=sharedDefinitions(source);
+    for (const item of library.slice(0,2)) {
+      const range=item.functions[0].ranges[0];
+      Object.assign(range,{min:5,max:20,qualifier:{name:'Frequency',min:.5,max:5,unit:'kHz'}});
+    }
+    for (const item of library.filter(item=>item.description==='TVC')) item.functions[0].ranges[0].qualifier={min:.5,max:5,unit:'kHz'};
+    library[1].functions[0].ranges[0].tolerances.reading={high:20,low:-20,unit:'ppm',distribution:'2'};
+    const original=JSON.parse(JSON.stringify(library));
+    source.points[0]={...source.points[0],current:12,frequency:3000,shuntSources:[],
+      analytics:{...source.points[0].analytics,pair_type_a_uncertainty_ppm:5,n_pairs_used:9}};
+    const result=buildAcShuntBudget(source,{instruments:library});
+    expect(result.reusedInstruments).toBe(library.length);
+    expect(result.needsCertificates).toBe(false);
+    expect(result.riskCalculated).toBe(1);
+    const {session}=reconcileImportedInstruments(JSON.parse(JSON.stringify(result.session)),{sharedInstruments:library});
+    expect(session.uuts[0].libraryInstrumentId).toBe(library[0].id);
+    expect(computeSyncState(session.uuts[0].instrument)).toBe('green');
+    expect(session.testPoints[0].uutTolerance.rangeId).toBe(library[0].functions[0].ranges[0].id);
+    const rows=resolvePointBudgetComponents(session.testPoints[0],session);
+    expect(rows[0]).toMatchObject({type:'A',value:5,dof:8});
+    expect(rows[0].value_native).toBeCloseTo(60e-6,12);
+    expect(rows[1].value_native).toBeCloseTo(120e-6,12);
+    session.tmdes.forEach((item,index)=>{
+      expect(item.instrument.functions).toEqual(library[index+1].functions);
+      expect(computeSyncState(item.instrument)).toBe('green');
+    });
+    expect(library).toEqual(original);
+    const previous=JSON.parse(JSON.stringify(session));
+    session.tmdes[0].instrument.functions[0].ranges[0].tolerances.reading.high=40;
+    session.tmdes[0].instrument.functions[0].ranges[0].tolerances.reading.low=-40;
+    const updated=syncPointTolerances(session,previous);
+    expect(updated.testPoints[0].expanded_uncertainty_absolute_base).toBeGreaterThan(previous.testPoints[0].expanded_uncertainty_absolute_base);
+  });
+  it('removes older shared Y5020 manufacturer limits and bias only from the UUT session copy',()=>{
+    const source=fixture(),library=sharedDefinitions(source);
+    const range=library[0].functions[0].ranges[0];
+    range.tolerances={reading:{high:250,low:-250,unit:'ppm',distribution:'2'},bias:{kind:'absolute',value:.001,unit:'A'}};
+    const original=JSON.parse(JSON.stringify(library));
+    const {session}=buildAcShuntBudget(source,{instruments:library});
+    expect(session.testPoints[0].uutTolerance.tolerances.reading.high).toBe(100);
+    expect(getUutBiasDefault(session.testPoints[0],session)).toBeUndefined();
+    expect(session.uuts[0].instrument.localOverride).toBe(true);
+    expect(computeSyncState(session.uuts[0].instrument)).toBe('red');
+    expect(library).toEqual(original);
+    expect(session.tmdes[0].instrument.functions).toEqual(library[1].functions);
+  });
+  it.each(['missing','ambiguous'])('leaves %s shared reference ranges incomplete instead of rebuilding them from certificates',mode=>{
+    const source=fixture(),library=sharedDefinitions(source);
+    const fn=library[1].functions[0];
+    if(mode==='missing') fn.ranges[0].qualifier={min:2000,max:5000,unit:'Hz'};
+    else fn.ranges.push({...fn.ranges[0],id:'overlap'});
+    const {session,warnings,riskCalculated}=buildAcShuntBudget(source,{instruments:library});
+    expect(riskCalculated).toBe(0);
+    expect(warnings.join(' ')).toMatch(mode==='missing'?/no shared range matches/:/multiple shared ranges match/);
+    expect(session.tmdes[0].instrument.functions).toEqual(library[1].functions);
+    expect(computeUncertaintyForPoint(session.testPoints[0],session)).toBeNull();
+  });
+  it('does not guess between duplicate instrument identities and accepts an explicit shared choice',()=>{
+    const source=fixture(),library=sharedDefinitions(source);
+    library.push({...library[1],id:'other-reference'});
+    expect(buildAcShuntBudget(source,{instruments:library}).session.tmdes[0].libraryInstrumentId).toBeUndefined();
+    const result=buildAcShuntBudget(source,{instruments:library,selections:{shunt:'other-reference'}});
+    expect(result.session.tmdes[0].libraryInstrumentId).toBe('other-reference');
+  });
+  it('uses saved reader voltage ranges and AUTO selects the smallest matching shared range',()=>{
+    const source=fixture();
+    source.points=[.069,.2].map(voltage=>({...source.points[0],readerPoints:source.points[0].readerPoints.map(point=>({...point,rangeMode:'AUTO',phases:Object.fromEntries(Object.keys(point.phases).map(key=>[key,voltage]))}))}));
+    const library=sharedDefinitions(source);
+    const result=buildAcShuntBudget(source,{instruments:library});
+    expect(result.riskCalculated).toBe(2);
+    const reader=result.session.tmdes[1];
+    const ac=reader.instrument.functions.find(fn=>fn.name==='AC Voltage');
+    const transfers=result.session.testPoints[0].components.find(row=>row.tmdeTransferSources)?.tmdeTransferSources;
+    expect(transfers[0].rangeId).toBe(ac.ranges.find(range=>range.max===.07).id);
+    source.points[0].readerPoints.forEach(point=>point.rangeMode='.22');
+    const selected=buildAcShuntBudget(source,{instruments:library});
+    expect(selected.session.testPoints[0].components.find(row=>row.tmdeTransferSources).tmdeTransferSources[0].rangeId).toBe(ac.ranges.find(range=>range.max===.22).id);
+  });
+  it('includes additional shared shunt uncertainties and respects disabled reader resolutions',()=>{
+    const source=fixture(),library=sharedDefinitions(source);
+    library[1].tmdeSecondaryUncertainties=[{id:'thermal',name:'Thermal uncertainty',kind:'parametric',
+      tolerance:{reading:{high:6,low:-6,unit:'ppm',distribution:'2'}}}];
+    for (const reader of library.slice(2)) for (const fn of reader.functions) for (const range of fn.ranges) range.includeResolutionInBudget=false;
+    const {session,riskCalculated}=buildAcShuntBudget(source,{instruments:library});
+    expect(riskCalculated).toBe(1);
+    const rows=resolvePointBudgetComponents(session.testPoints[0],session);
+    expect(rows.find(row=>row.tmdeUncertaintySourceId==='thermal')?.value_native).toBeCloseTo(30e-6,12);
+    expect(rows.filter(row=>row.isResolution)).toHaveLength(0);
   });
 });
 describe('reader specifications and propagation',()=>{

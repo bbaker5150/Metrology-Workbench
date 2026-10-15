@@ -3,6 +3,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import axios from 'axios';
 import AcShuntImportTool from './AcShuntImportTool';
+import { buildAcShuntBudget } from '../../utils/acShuntBudget';
 vi.mock('axios',()=>({default:{get:vi.fn()}}));
 
 const snapshot={id:1,name:'A40B calibration',createdAt:'2026-10-02',
@@ -28,6 +29,28 @@ it('loads only when opened, previews missing data, and saves a new budget',async
   await waitFor(()=>expect(onImport).toHaveBeenCalledTimes(1));
   expect(onImport.mock.calls[0][0]).toMatchObject({name:'A40B calibration · AC/DC budget'});
   await waitFor(()=>expect(screen.queryByText('Build from a shunt session')).toBeNull());
+});
+it('automatically reuses shared instruments, hides certificate setup, and allows reviewing the matches',async()=>{
+  const source={...snapshot,instruments:{test_instrument_model:'Y5020',test_instrument_serial:'UUT',standard_instrument_model:'Y5020',standard_instrument_serial:'REF',standard_reader_model:'5790B',standard_reader_serial:'R1',test_reader_model:'5790B',test_reader_serial:'R2'}};
+  const generated=buildAcShuntBudget(source).session;
+  const instruments=[...generated.uuts,...generated.tmdes].map(item=>({...item.instrument,scope:'validated'}));
+  axios.get.mockImplementation(url=>Promise.resolve({data:url.endsWith('/1/')?source:{available:true,sessions:[{id:1,session_name:'Saved Y5020 run'}],pages:1}}));
+  const onImport=vi.fn().mockResolvedValue({});
+  render(<AcShuntImportTool onImport={onImport} instruments={instruments}/>);
+  fireEvent.click(screen.getByRole('button',{name:'Import AC/DC shunt session'}));
+  fireEvent.click(await screen.findByRole('button',{name:'Saved Y5020 run Unknown model · No serial'}));
+  await screen.findByText('4 of 4 instruments reused from the shared library.');
+  expect(screen.queryByLabelText('Certificate coverage factor (k)')).not.toBeInTheDocument();
+  expect(screen.getByText(/Y5020 UUT: Navy ±100 ppm/)).toBeInTheDocument();
+  fireEvent.click(screen.getByText('Instrument matches'));
+  expect(screen.getByLabelText('Shared instrument for Reference shunt')).toHaveValue(instruments[1].id);
+  fireEvent.change(screen.getByLabelText('Shared instrument for Reference shunt'),{target:{value:''}});
+  expect(screen.getByText('3 of 4 instruments reused from the shared library.')).toBeInTheDocument();
+  expect(screen.getByLabelText('Certificate coverage factor (k)')).toBeInTheDocument();
+  fireEvent.change(screen.getByLabelText('Shared instrument for Reference shunt'),{target:{value:instruments[1].id}});
+  fireEvent.click(screen.getByRole('button',{name:'Create budget'}));
+  await waitFor(()=>expect(onImport).toHaveBeenCalledTimes(1));
+  expect(onImport.mock.calls[0][0].tmdes[0].libraryInstrumentId).toBe(instruments[1].id);
 });
 it('shows database failures and prevents creating an absent preview',async()=>{
   axios.get.mockRejectedValue(new Error('offline'));

@@ -6083,7 +6083,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
                   >
                     <FontAwesomeIcon icon={faRightLeft} />
                   </button>
-                  {AcShuntImportTool && <AcShuntImportTool onImport={async session => { await importSession(session, new Map(), { requireSaved: true }); setSidebarColumns(columns => ({...columns,value:true,qualifier:true})); }} />}
+                  {AcShuntImportTool && <AcShuntImportTool instruments={instruments} onImport={async session => { await importSession(session, new Map(), { requireSaved: true, reuseSharedInstruments: true }); setSidebarColumns(columns => ({...columns,value:true,qualifier:true})); }} />}
                 </div>
 
                 <span className="app-chrome-meta-sep" aria-hidden="true" />
