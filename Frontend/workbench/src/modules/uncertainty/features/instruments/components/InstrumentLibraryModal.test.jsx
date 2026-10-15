@@ -43,6 +43,23 @@ it('selects names without expansion and opens details from its row specification
  expect(screen.queryByText('Type B')).not.toBeInTheDocument();
  expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
 });
+it('clears the leftover name focus on pointer Shift-selection while preserving keyboard focus',()=>{
+ render(<Harness/>);
+ const names=[...document.querySelectorAll('.instrument-library-name')];
+ names[2].focus();fireEvent.click(names[2],{detail:1});
+ expect(names[2]).not.toHaveFocus();
+ // A keyboard-selected anchor may still own focus when Shift-click's
+ // prevented mouse-down leaves it on the previous row.
+ names[2].focus();fireEvent.click(names[0],{detail:1,shiftKey:true});
+ expect(names[2]).not.toHaveFocus();
+ expect(document.querySelectorAll('.instrument-library-name-row.selected-row')).toHaveLength(3);
+ names[1].focus();fireEvent.click(names[1],{detail:0});
+ expect(names[1]).toHaveFocus();
+ expect(names[1]).toHaveAttribute('aria-pressed','false');
+ fireEvent.click(names[1],{detail:0});
+ expect(names[1]).toHaveFocus();
+ expect(names[1]).toHaveAttribute('aria-pressed','true');
+});
 it('uses the table identity including Tag without repeating manufacturer/model in the name',()=>{
  const instrument={...definition('A'),nickname:'REF-12',description:'Example A reference meter'};
  render(<Harness initial={[instrument]}/>);

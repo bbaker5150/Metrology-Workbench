@@ -9913,7 +9913,14 @@ const SummaryDashboard = ({
                       <tr data-instrument-id={tmde.id} data-measurement-area={tmdeFnKey} style={functionRowStyle(tmdeFnKey)} draggable onDragStart={event => onLibraryDragStart?.(event, tmde.id)} className={`instrument-function-row instrument-library-name-row${selectedTmdeIds.includes(tmde.id) ? " selected-row" : ""}`}>
                       <td className="cell-description" colSpan={!libraryExpandedIds.length ? 1 : getInstrumentColumnOrder("tmde", customColumnsFor("tmde"), tmdeTableColumns.qualifierEnabled).length - 1}>
                         <div className="instrument-library-description">
-                          <button className="instrument-library-name" onClick={event => handleTmdeClick(event, tmde.id, true)} aria-pressed={selectedTmdeIds.includes(tmde.id)} aria-label={`Select instrument ${name}`}>{name}</button>
+                          <button className="instrument-library-name" onClick={event => {
+                            handleTmdeClick(event, tmde.id, true);
+                            // Shift can reveal the previous name button's keyboard
+                            // focus ring inside the shared selection perimeter.
+                            // Mouse selection uses that perimeter; keyboard clicks
+                            // (detail === 0) keep their focus and navigation cue.
+                            if (event.detail > 0) event.currentTarget.closest('table')?.querySelector('.instrument-library-name:focus')?.blur();
+                          }} aria-pressed={selectedTmdeIds.includes(tmde.id)} aria-label={`Select instrument ${name}`}>{name}</button>
                           {libraryRenderSpecifications?.(tmde.id)}
                         </div>
                       </td>
