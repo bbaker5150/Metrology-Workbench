@@ -624,8 +624,8 @@ def workbook_to_bytes(workbook) -> bytes:
 # column/row-count agnostic, so it comes back in correctly either way.
 RAW_DATA_COLUMNS = {
     "AC_SHUNT": [
-        ("Current", "(A)"), ("Frequency", "(Hz)"), ("Direction", ""),
-        ("ΔUUT", "(ppm)"), ("Expanded Unc.", "(ppm)"), ("k", ""),
+        ("Test Current", "(Amps)"), ("60 Hz", "(µA/A)"), ("300 Hz", "(µA/A)"),
+        ("1 kHz", "(µA/A)"), ("3 kHz", "(µA/A)"), ("5 kHz", "(µA/A)"),
     ],
     "RESISTANCE": [
         ("Calibration Point", ""), ("Nominal Resistance", "(Ω)"),
