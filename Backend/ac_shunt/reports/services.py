@@ -23,14 +23,16 @@ from . import area_registry
 
 AC_SHUNT_AREA_CODE = "AC_SHUNT"
 
-DATA_TABLE_COLUMNS = [
-    {"header": "Current", "unit": "(A)"},
-    {"header": "Frequency", "unit": "(Hz)"},
-    {"header": "Direction", "unit": ""},
-    {"header": "ΔUUT", "unit": "(ppm)"},
-    {"header": "Expanded Unc.", "unit": "(ppm)"},
-    {"header": "k", "unit": ""},
-]
+# Matches the lab's AC-Shunt ROC page 2 (e.g. the Y5020 workbook's ROC2
+# sheet): one row per test current, one column per frequency, each cell the
+# Forward/Reverse averaged AC-DC difference.
+CURRENT_COLUMN = {"header": "Test Current", "unit": "(Amps)"}
+AC_DC_UNIT = "(µA/A)"
+AC_DC_INTRO = (
+    "The TI was measured to determine its Ac-dc difference. In the following "
+    "table a positive sign indicates that more alternating current was "
+    "required to obtain the same emf output."
+)
 
 
 def list_ac_shunt_sessions(params=None):
@@ -88,25 +90,15 @@ def pull_ac_shunt_session(session_id):
 
     area = area_registry.get_area(AC_SHUNT_AREA_CODE)
 
-    rows = []
     try:
-        points = list(session.test_point_set.points.select_related().all())
+        points = list(session.test_point_set.points.select_related("results").all())
     except ObjectDoesNotExist:
         # No TestPointSet on this session yet (e.g. a session created but
         # never run) -- both the OneToOne reverse accessor's own
         # RelatedObjectDoesNotExist and TestPointSet.DoesNotExist subclass
         # this, so it's the correct single exception to catch here.
         points = []
-    for point in points:
-        results = getattr(point, "results", None)
-        rows.append([
-            str(point.current),
-            point.frequency,
-            point.direction,
-            _round_or_blank(getattr(results, "delta_uut_ppm_avg", None)),
-            _round_or_blank(getattr(results, "expanded_uncertainty", None)),
-            _round_or_blank(getattr(results, "k_value", None)),
-        ])
+    table = _ac_dc_difference_table(points)
 
     return {
         "area_code": area["area_code"] if area else AC_SHUNT_AREA_CODE,
@@ -131,16 +123,77 @@ def pull_ac_shunt_session(session_id):
         "metrologist_title": "",
         "approver_name": "",
         "approver_title": "",
-        "tables": (
-            [{
-                "title": "AC Shunt Calibration Data",
-                "intro_text": "",
-                "columns": DATA_TABLE_COLUMNS,
-                "rows": rows,
-            }]
-            if rows else []
-        ),
+        "tables": [table] if table else [],
     }
+
+
+def _ac_dc_difference_table(points):
+    """Pivot Forward/Reverse test points into Current x Frequency AC-DC
+    differences. Each cell is the pair-level mean (``pair_delta_uut_ppm``,
+    mirrored on both direction rows -- the headline value the AC-Shunt module
+    reports), falling back to the mean of the two legacy single-pass
+    ``delta_uut_ppm`` values, the same fallback its session Excel export uses."""
+    pairs = {}
+    for point in points:
+        pairs.setdefault((point.current, point.frequency), {})[point.direction] = getattr(point, "results", None)
+    if not pairs:
+        return None
+
+    currents = sorted({current for current, _ in pairs})
+    frequencies = sorted({frequency for _, frequency in pairs})
+    rows = []
+    for current in currents:
+        row = [_number(current)]
+        for frequency in frequencies:
+            row.append(_ac_dc_average(pairs.get((current, frequency), {})))
+        rows.append(row)
+
+    intro = [AC_DC_INTRO]
+    uncertainties = [
+        float(results.expanded_uncertainty)
+        for directions in pairs.values() for results in directions.values()
+        if results is not None and results.expanded_uncertainty is not None
+    ]
+    if uncertainties:
+        worst = round(max(uncertainties), 1)
+        verb = "is" if round(min(uncertainties), 1) == worst else "does not exceed"
+        intro.append(
+            f"The relative expanded uncertainty for the Ac-dc difference for all "
+            f"frequencies and currents {verb} {_number(worst)} µA/A."
+        )
+    intro.append(f"The maximum test current used was {_number(currents[-1])} amperes.")
+
+    return {
+        "title": "Ac-dc Difference Data",
+        "intro_text": " ".join(intro),
+        "columns": [CURRENT_COLUMN] + [
+            {"header": _frequency_label(frequency), "unit": AC_DC_UNIT} for frequency in frequencies
+        ],
+        "rows": rows,
+    }
+
+
+def _ac_dc_average(directions):
+    for direction in ("Forward", "Reverse"):
+        results = directions.get(direction)
+        if results is not None and results.pair_delta_uut_ppm is not None:
+            return round(float(results.pair_delta_uut_ppm), 1)
+    legacy = [getattr(directions.get(direction), "delta_uut_ppm", None) for direction in ("Forward", "Reverse")]
+    if all(value is not None for value in legacy):
+        return round((float(legacy[0]) + float(legacy[1])) / 2, 1)
+    return ""
+
+
+def _frequency_label(frequency):
+    if frequency >= 1000:
+        return f"{_number(frequency / 1000)} kHz"
+    return f"{_number(frequency)} Hz"
+
+
+def _number(value):
+    """Render 10.00000 / 1.0 as 10 / 1 while keeping real fractions."""
+    value = float(value)
+    return int(value) if value.is_integer() else value
 
 
 def _round_or_blank(value):

@@ -262,7 +262,32 @@ class ReportsAcShuntPullTests(TestCase):
         self.assertEqual(pull_response.status_code, 200)
         self.assertEqual(pull_response.data["serial_number"], "MOCK-UUT")
         self.assertEqual(len(pull_response.data["tables"]), 1)
-        self.assertEqual(len(pull_response.data["tables"][0]["rows"]), 10)  # 5 pairs x Forward/Reverse
+        table = pull_response.data["tables"][0]
+        # Y5020 ROC2 layout: one row per current, one AC-DC column per frequency,
+        # Forward/Reverse averaged -- no Direction or k columns.
+        self.assertEqual([c["header"] for c in table["columns"]],
+                         ["Test Current", "10 Hz", "20 Hz", "40 Hz", "60 Hz", "1 kHz"])
+        self.assertEqual({c["unit"] for c in table["columns"][1:]}, {"(µA/A)"})
+        self.assertEqual(len(table["rows"]), 1)
+        self.assertEqual(table["rows"][0][0], 1)
+        self.assertEqual(table["rows"][0][-1], 2.7)  # mean of 2.6 Fwd and 2.75 Rev
+        self.assertIn("for all frequencies and currents is 1.6 µA/A", table["intro_text"])
+        self.assertIn("maximum test current used was 1 amperes", table["intro_text"])
+
+    def test_pull_prefers_the_paired_ac_dc_average(self):
+        call_command("seed_mock_calibration_session")
+        from api.management.commands.seed_mock_calibration_session import MOCK_SESSION_NAME
+        from api.models import CalibrationResults
+        from .services import pull_ac_shunt_session
+
+        results = CalibrationResults.objects.filter(
+            test_point__test_point_set__session__session_name=MOCK_SESSION_NAME,
+            test_point__frequency=60,
+        )
+        results.update(pair_delta_uut_ppm=-9.04)
+        session_id = results.first().test_point.test_point_set.session_id
+        row = pull_ac_shunt_session(session_id)["tables"][0]["rows"][0]
+        self.assertEqual(row[4], -9.0)
 
     def test_session_search_reaches_older_history_and_paginates(self):
         from api.models import CalibrationSession
