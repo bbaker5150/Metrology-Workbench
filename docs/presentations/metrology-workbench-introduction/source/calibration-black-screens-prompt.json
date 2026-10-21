@@ -1,0 +1,9 @@
+{
+  "tool": "Built-in ImageGen",
+  "prompt": "Edit the supplied laboratory photograph (image 1, the real setup) into a restrained, natural-looking equipment photograph for the right half of a professional PowerPoint slide. Image 2 is the previous generated slide: use it only to identify the same equipment arrangement; discard its text, glow, globe, decorative lines and sci-fi treatment. Preserve the arrangement visible in the actual photo: stacked gray bench instruments on the left, two black rectangular shunt enclosures side by side toward the right above another bench instrument, an angled yellow unit and angled light-gray unit in the foreground, with natural cabling. ALL electronic display windows on EVERY instrument must be completely plain BLACK, powered off: no digits, symbols, waveforms, tiny blue text, colorful UI, red numerical readouts, status displays or simulated writing. Retain realistic physical buttons, knobs and sockets, but no invented legible branding or labels. Subtle real-world lighting, matte surfaces, ordinary neutral lab background, realistic proportions and restrained contrast. No exaggerated shine, no neon, no atmospheric haze, no cinematic lighting, no glowing outlines. Frame the full main equipment group in a landscape 4:3 composition with comfortable edges; no cropped equipment. Output the equipment image only, absolutely no slide headings, captions, icons, diagrams, border or other text. The purpose is an understated reference-based equipment illustration, not a spectacular AI render.",
+  "references": [
+    "User supplied Photo 1.jpg",
+    "Original Run Calibration slide artwork"
+  ],
+  "transparent_background": false
+}

@@ -1,17 +1,18 @@
-METROLOGY WORKBENCH DEMONSTRATION KIT
-Prepared 21 October 2026
+METROLOGY WORKBENCH DEMONSTRATION KIT - EDITABLE REVISION
 
-Sources: user-supplied Tasking.docx; user-supplied Photo 1.jpg; the local Metrology Workbench source at application commit 593a3b5.
+Sources: user-supplied Tasking.docx; user-supplied Photo 1.jpg; local Metrology Workbench application source at commit 593a3b5.
 
 slides/01.png: actual home screenshot with editable presentation annotations.
-slides/02.png, 04.png, 06.png: illustrated module introductions generated with ImageGen. The calibration artwork is based on the user's bench photo.
-slides/03.png, 05.png, 07.png: actual application screenshots with presentation headings.
-screenshots/: full views and focused crops captured directly from the browser.
-images/01-workbench-overview.png: alternate illustrated overview, not used as the main intro.
-videos/: actual silent browser recordings in WebM format. No hardware was operated.
+slides/02.png: native editable slide text and layout with a separate reference-based equipment illustration. Displays intentionally black.
+slides/04.png: native editable uncertainty process diagram and capability descriptions.
+slides/06.png: native editable report schematic, table and capability descriptions.
+slides/03.png, 05.png, 07.png: actual application screenshots with editable presentation headings.
+screenshots/: actual full views and focused browser captures.
+images/06-calibration-black-screens.png: ImageGen edit using the supplied laboratory photo and earlier artwork as references.
+images/01-workbench-overview.png through 04-report-of-calibration.png: original artwork retained as references; not used as the current module slides.
+images/05-calibration-workflow-transparent.png: separate generated workflow graphic.
+videos/: real silent browser recordings in WebM format using demonstration data.
 
-The calibration recording reviews the seeded [MOCK] UI Development session. The report recording previews DEMO-2026-001, imported from that mock session and explicitly marked demonstration only. The uncertainty recording uses a separate synthetic voltage budget; it does not depict an end-to-end shunt import. Do not use demonstration data for calibration decisions.
+The calibration recording reviews the seeded [MOCK] UI Development session. The report recording previews DEMO-2026-001, imported from that mock session and explicitly marked demonstration only. The uncertainty recording uses a separate synthetic voltage budget. No physical instruments were operated.
 
-PowerPoint slides 1, 3, 5 and 7 contain editable native text and screenshots. The illustrated capability slides are raster images. Recordings are separate files; use START-HERE.html for playback.
-
-Checks: seven slides exported and visually reviewed; PPTX package integrity and layout geometry passed; first-party import passed; video files decoded and representative frames reviewed. No release validation was performed.
+Checks: all seven slides rendered and reviewed; PPTX structure, layout, font and first-party import checks passed. Native text, diagram shapes and report table verified. Unchanged slides retained their native text and geometry. No release validation was performed.
