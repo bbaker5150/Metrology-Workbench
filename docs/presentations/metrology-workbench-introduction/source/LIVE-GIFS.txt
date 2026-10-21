@@ -1,4 +1,4 @@
-LIVE CALIBRATION GIFS
+LIVE CALIBRATION GIFS — ORIGINAL LIGHT-MODE SET
 
 01-live-overview-simulated.gif — combined acquisition display, 1440 x 1080 (4:3).
 02-live-charts-simulated.gif — standard and test reading charts, 1440 x 810 (16:9).
@@ -13,3 +13,14 @@ Configuration: 240 samples per stage, a 20-sample stability window, 0.5 PPM stab
 The GIFs loop continuously with a brief final-frame hold. Capture timing is preserved approximately from recorded frame arrival times. Each is about 0.2–1.1 MB. Matching PNG posters are included for static use. Full technical properties are in animations/manifest.json.
 
 To use: download and extract the package. In PowerPoint, insert a GIF as a picture from this device. Resize from a corner to retain its proportions. Play Slide Show to see the animation. The GIFs are separate files, not already embedded in the editable presentation. START-HERE.html previews all three.
+
+DARK-MODE ADDITIONS WITH THE GREEN GLOWING EMBLEM
+
+01-live-overview-dark-simulated.gif — both charts and stability cards, 1440 x 1080.
+02-live-charts-dark-simulated.gif — reading charts, 1440 x 810.
+03-live-stability-dark-simulated.gif — stability monitoring, 1440 x 810.
+04-ac-dc-statistics-dark-simulated.gif — cycle statistics updating, 1440 x 1080.
+
+The first three are approximately seven-second AC Close loops from a new live simulation with 160 samples per stage. The fourth follows forward-cycle statistics from one to three completed cycles. It uses 5x playback, explicitly labeled, to shorten the wait between updates. A single cycle cannot provide sample standard deviation or Type A uncertainty, so these fields first populate when the second result arrives. The displayed statistics describe forward cycles; they are not a final paired forward/reverse calibration result.
+
+All four include the actual 3D NAVAIR emblem and its green active-calibration glow, captured from the running app. The software uses its native dark theme. Real UI panels and emblem frames are cropped and arranged for presentation; no chart values or statistical results are retouched. The dark set was captured from app source at commit c60ebe2 with the isolated mock-instrument database. No physical instruments were operated. See animations/manifest-dark.json for verified dimensions, durations, frame counts and file sizes. The original light-mode files remain included.

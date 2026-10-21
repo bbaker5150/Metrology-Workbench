@@ -1,0 +1,44 @@
+[
+  {
+    "file": "01-live-overview-dark-simulated.gif",
+    "width": 1440,
+    "height": 1080,
+    "frames": 11,
+    "duration_seconds": 7.27,
+    "bytes": 868508,
+    "loop": 0
+  },
+  {
+    "file": "02-live-charts-dark-simulated.gif",
+    "width": 1440,
+    "height": 810,
+    "frames": 11,
+    "duration_seconds": 7.27,
+    "bytes": 868169,
+    "loop": 0
+  },
+  {
+    "file": "03-live-stability-dark-simulated.gif",
+    "width": 1440,
+    "height": 810,
+    "frames": 11,
+    "duration_seconds": 7.27,
+    "bytes": 297539,
+    "loop": 0
+  },
+  {
+    "file": "04-ac-dc-statistics-dark-simulated.gif",
+    "width": 1440,
+    "height": 1080,
+    "frames": 45,
+    "duration_seconds": 24.77,
+    "bytes": 970237,
+    "loop": 0,
+    "playback_speed": 5,
+    "cycles_observed": [
+      1,
+      2,
+      3
+    ]
+  }
+]
