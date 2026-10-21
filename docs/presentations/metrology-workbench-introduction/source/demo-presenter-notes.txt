@@ -1,0 +1,57 @@
+1. Metrology Workbench: suite overview
+
+The center of this slide is a real screenshot of the running Metrology Workbench home page, cropped to emphasize the emblem, title and three module launchers. The descriptions beneath the screenshot are presentation annotations. The screenshot has not been redrawn. Introduce the suite from left to right: acquire measurements, analyze uncertainty and decision risk, then prepare a report.
+
+1. Metrology Workbench
+
+Metrology Workbench brings three complementary tools into one home screen. Run Calibration handles supported Y5020 and A40B calibration workflows. Uncertainty Budget carries saved Type A results into a wider analysis of measurement uncertainty and decision risk. Report of Calibration imports saved calibration results into an editable report. Users review instrument definitions, analysis assumptions and report metadata as part of their work. The architecture supports additional modules and calibration capabilities in the future.
+
+Sources: user-supplied Tasking.docx; Frontend/workbench/src/app/HomeLauncher.jsx; Frontend/workbench/src/app/moduleRegistry.jsx. Home layout follows the image in Tasking.docx. Calibration artwork is an AI illustration based on user-supplied Photo 1.jpg. Other visual elements are illustrative. The distribution is conceptual; the simplified sum of variances assumes uncorrelated contributions expressed in common output units.
+
+
+2. Run Calibration
+
+2. Run Calibration
+
+The calibration workflow supports Y5020 and A40B shunts. A measurement session holds test points, instrument settings and cycle configuration. During a run, instrument status, stability and results provide visibility into measurement progress. Saved measurements and their statistical Type A uncertainty can support subsequent uncertainty analysis and reporting. Type A uncertainty is one contribution to an uncertainty budget, rather than the whole budget.
+
+Suggested demonstration: open Run Calibration, show session setup, then show a saved result with its Type A uncertainty.
+
+Sources: user-supplied Tasking.docx; Frontend/workbench/src/modules/ac-shunt/components/session/SessionSetup.jsx; components/calibration/Calibration.jsx, LiveStabilityTracker.jsx, CycleStatisticsTracker.jsx and CalibrationResults.jsx; Backend/ac_shunt/api/migrations/0021_calibrationresults_type_a_uncertainty_ppm_and_more.py. Artwork uses the arrangement in user-supplied Photo 1.jpg as a reference. It is a generated illustration, not a wiring diagram or an exact equipment photograph.
+
+
+3. Inspect the measurements behind a result
+
+Actual browser screenshot from Run Calibration. The sample is the isolated [MOCK] UI Development session. The walkthrough selects a saved 1 A, 1 kHz point, opens Results and switches between chart and table. No physical instruments were operated. The sample values demonstrate interface behavior, not an instrument performance claim. Video: videos/01-calibration-walkthrough.webm.
+
+
+4. Uncertainty Budget
+
+3. Uncertainty Budget
+
+Import a saved shunt session to create a new Electrical budget with its measurement points and Type A results. Match instruments to shared definitions so specifications and ranges can be reused. Review Type B contributions and the resulting uncertainty budget. Risk calculations include test uncertainty ratio, probability of false acceptance and probability of false rejection where the required input data are available. Guardband analysis explores acceptance limits against configured risk requirements. Review import warnings and instrument definitions before relying on results.
+
+Suggested demonstration: import a completed calibration, inspect contributors at one test point, then compare risk and guardband results.
+
+Sources: user-supplied Tasking.docx; Frontend/workbench/src/modules/uncertainty/components/tools/AcShuntImportTool.jsx; src/modules/uncertainty/App.jsx; src/modules/uncertainty/constants/constants.js; src/modules/uncertainty/features/analysis/utils/budgetUtils.manual.test.js. Distribution artwork is illustrative and does not depict measured results or imply that every input distribution is normal.
+
+
+5. See what contributes to uncertainty
+
+Actual browser screenshot from the Uncertainty Budget module (Uncertalytics). This separate synthetic voltage session contains three points and illustrative reference, repeatability and temperature contributions. Calculations shown are produced by the application. It is not the same dataset as the calibration recording and does not claim that an end-to-end shunt import was demonstrated. The contribution chart identifies the dominant term. PFA and PFR represent probability of false acceptance and false rejection under the configured assumptions. Video: videos/02-uncertainty-walkthrough.webm.
+
+
+6. Report of Calibration
+
+4. Report of Calibration
+
+Pull a completed calibration into an editable Report of Calibration. The current import maps instrument identity, environmental data and measurement results, including the stored expanded uncertainty and coverage factor, into the report. Review the uncertainty basis and complete customer, procedure, dates and personnel details as needed. Organize report sections and supporting statements, inspect the preview, then export a PDF or Excel workbook. Generation supports the reporting workflow; it does not replace technical review or approval.
+
+Suggested demonstration: select a saved session, show the imported measurement table, complete metadata, and open the report preview.
+
+Sources: user-supplied Tasking.docx; Backend/ac_shunt/reports/services.py; Frontend/workbench/src/modules/reports/components/AcShuntImport.jsx, ReportBuilder.jsx and PDFPreview.jsx. Report artwork is illustrative and is not an actual certificate.
+
+
+7. Review the report before export
+
+Actual browser screenshot from Report of Calibration. The demonstration report was populated from the saved mock AC-shunt session and labeled DEMONSTRATION ONLY. Metadata and procedure text were entered for the demonstration. The clip selects the saved record, opens Report Sections and scrolls the PDF preview. Export controls provide Excel and PDF. This sample is not a valid calibration certificate. Video: videos/03-report-walkthrough.webm.

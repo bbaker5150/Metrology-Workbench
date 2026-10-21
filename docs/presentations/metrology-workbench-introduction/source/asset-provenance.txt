@@ -1,0 +1,17 @@
+METROLOGY WORKBENCH DEMONSTRATION KIT
+Prepared 21 October 2026
+
+Sources: user-supplied Tasking.docx; user-supplied Photo 1.jpg; the local Metrology Workbench source at application commit 593a3b5.
+
+slides/01.png: actual home screenshot with editable presentation annotations.
+slides/02.png, 04.png, 06.png: illustrated module introductions generated with ImageGen. The calibration artwork is based on the user's bench photo.
+slides/03.png, 05.png, 07.png: actual application screenshots with presentation headings.
+screenshots/: full views and focused crops captured directly from the browser.
+images/01-workbench-overview.png: alternate illustrated overview, not used as the main intro.
+videos/: actual silent browser recordings in WebM format. No hardware was operated.
+
+The calibration recording reviews the seeded [MOCK] UI Development session. The report recording previews DEMO-2026-001, imported from that mock session and explicitly marked demonstration only. The uncertainty recording uses a separate synthetic voltage budget; it does not depict an end-to-end shunt import. Do not use demonstration data for calibration decisions.
+
+PowerPoint slides 1, 3, 5 and 7 contain editable native text and screenshots. The illustrated capability slides are raster images. Recordings are separate files; use START-HERE.html for playback.
+
+Checks: seven slides exported and visually reviewed; PPTX package integrity and layout geometry passed; first-party import passed; video files decoded and representative frames reviewed. No release validation was performed.
