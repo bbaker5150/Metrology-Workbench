@@ -1,0 +1,29 @@
+[
+  {
+    "file": "01-live-overview-simulated.gif",
+    "width": 1440,
+    "height": 1080,
+    "frames": 21,
+    "duration_seconds": 12.06,
+    "bytes": 1076419,
+    "loop": 0
+  },
+  {
+    "file": "02-live-charts-simulated.gif",
+    "width": 1440,
+    "height": 810,
+    "frames": 21,
+    "duration_seconds": 12.06,
+    "bytes": 1116028,
+    "loop": 0
+  },
+  {
+    "file": "03-live-stability-simulated.gif",
+    "width": 1440,
+    "height": 810,
+    "frames": 19,
+    "duration_seconds": 12.06,
+    "bytes": 206840,
+    "loop": 0
+  }
+]

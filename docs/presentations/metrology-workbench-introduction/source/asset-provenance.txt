@@ -16,3 +16,5 @@ videos/: real silent browser recordings in WebM format using demonstration data.
 The calibration recording reviews the seeded [MOCK] UI Development session. The report recording previews DEMO-2026-001, imported from that mock session and explicitly marked demonstration only. The uncertainty recording uses a separate synthetic voltage budget. No physical instruments were operated.
 
 Checks: all seven slides rendered and reviewed; PPTX structure, layout, font and first-party import checks passed. Native text, diagram shapes and report table verified. Unchanged slides retained their native text and geometry. No release validation was performed.
+
+Live GIF revision: animations/ contains three actual acquisition recordings, labeled simulated readings, captured from commit 2f9ba38 with MOCK_INSTRUMENTS=1 and an isolated demonstration database. Panels were cropped and arranged for slide readability; values and charts are unaltered. See source/LIVE-GIFS.txt. GIF frame count, loop settings, durations and dimensions verified. No application code changed and no release validation was performed.

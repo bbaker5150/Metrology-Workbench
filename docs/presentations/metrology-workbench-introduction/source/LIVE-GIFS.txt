@@ -1,0 +1,15 @@
+LIVE CALIBRATION GIFS
+
+01-live-overview-simulated.gif — combined acquisition display, 1440 x 1080 (4:3).
+02-live-charts-simulated.gif — standard and test reading charts, 1440 x 810 (16:9).
+03-live-stability-simulated.gif — detailed stability cards, 1440 x 810 (16:9).
+
+All three show the same continuous, approximately 12-second AC Close segment at 1 A and 1000 Hz. The real application's acquisition engine reads mock instruments. No physical instruments were operated. These are not generated interface images or measured hardware performance claims.
+
+Visible statistics include the live instrument voltages, rolling-window stability in PPM, accepted sample counts, per-stage sample standard deviation in PPM, reference means in volts, and AC Open-to-Close drift. The live window and whole-stage statistics use different sample populations, so they need not match exactly.
+
+Configuration: 240 samples per stage, a 20-sample stability window, 0.5 PPM stability threshold, isolated demonstration database, MOCK_INSTRUMENTS=1. The app was captured from the local source at commit 2f9ba38. Browser frames were cropped into status, chart and stability panels and resized. Labels outside the panels identify the simulation. No readings, plots or statistics were retouched or fabricated in the GIF conversion.
+
+The GIFs loop continuously with a brief final-frame hold. Capture timing is preserved approximately from recorded frame arrival times. Each is about 0.2–1.1 MB. Matching PNG posters are included for static use. Full technical properties are in animations/manifest.json.
+
+To use: download and extract the package. In PowerPoint, insert a GIF as a picture from this device. Resize from a corner to retain its proportions. Play Slide Show to see the animation. The GIFs are separate files, not already embedded in the editable presentation. START-HERE.html previews all three.
