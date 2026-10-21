@@ -8,7 +8,7 @@ from django.test import TestCase
 from openpyxl import Workbook, load_workbook
 from rest_framework.test import APIRequestFactory
 
-from . import area_registry, excel, importer, views
+from . import area_registry, cellmap, excel, importer, views
 from .models import ROCRecord
 
 
@@ -92,7 +92,9 @@ class ReportsExcelTests(TestCase):
         workbook = load_workbook(BytesIO(response.content))
         self.assertEqual(workbook.sheetnames, ["ROC1", "ROC2", "Data Entry"])
         self.assertEqual(workbook["ROC1"]["Z52"].value, "Page 1 of 2")
-        self.assertEqual(workbook["ROC2"]["A7"].value, "Data")  # table title (not tied)
+        # The table title, like everything else on ROC2, is tied to Data Entry.
+        self.assertEqual(workbook["ROC2"]["A7"].value, "=IF('Data Entry'!A60=\"\",\"\",'Data Entry'!A60)")
+        self.assertEqual(workbook["Data Entry"]["A60"].value, "Data")
         # ROC2's data cells are tied to Data Entry (a live formula, not a
         # duplicated literal) -- editing the number in Data Entry updates
         # the certificate's own copy of it in Excel.
@@ -226,6 +228,96 @@ class ReportsExcelTests(TestCase):
         self.assertEqual(response.data["roc_number"], record.roc_number)
         self.assertEqual(len(response.data["tables"]), len(record.tables))
         self.assertEqual(len(response.data["tables"][0]["rows"]), len(record.tables[0]["rows"]))
+
+    def _tied_payload(self):
+        return {
+            "area_code": "AC_SHUNT",
+            "roc_number": "2026-000777",
+            "nomenclature": "Current Shunt",
+            "serial_number": "SN-1",
+            "calibration_date": "2026-03-02",
+            "statements": [{"kind": "technical", "text": "Tech."}],
+            "tables": [{
+                "title": "Data",
+                "columns": [{"header": "Current", "unit": "(A)"}, {"header": "60 Hz", "unit": "(µA/A)"}],
+                "rows": [[1.0, 2.0], [3.0, 4.0]],
+            }],
+        }
+
+    def test_download_ties_every_roc2_value_to_data_entry(self):
+        workbook = excel.build_download_workbook(self._tied_payload())
+        roc2, data_entry = workbook["ROC2"], workbook["Data Entry"]
+        tie = '=IF(\'Data Entry\'!{0}="","",\'Data Entry\'!{0})'
+        # Page-2 header block points at the same Data Entry field cells as ROC1.
+        for name, cell_ref in cellmap.TEMPLATE["page2_fields"].items():
+            row = cellmap.data_entry_field_row(name)
+            if row is not None:
+                self.assertEqual(roc2[cell_ref].value, tie.format(f"B{row}"), name)
+        # Column headers are tied (renaming one in Data Entry renames it on ROC2).
+        self.assertEqual(roc2["A9"].value, tie.format("A61"))
+        self.assertEqual(data_entry["A61"].value, "Current\n(A)")
+        # Data Entry's blank padding rows below the real data are tied too,
+        # so a row added there shows up on the certificate -- without
+        # running into the page-2 footer.
+        self.assertEqual(roc2["A12"].value, tie.format("A64"))
+        self.assertIsNone(data_entry["A64"].value or None)
+        footer_row = roc2[cellmap.TEMPLATE["page2_fields"]["roc_number"]].row
+        tied_rows = [r for r in range(10, footer_row) if str(roc2.cell(row=r, column=1).value or "").startswith("=")]
+        self.assertLess(max(tied_rows), footer_row)
+        self.assertGreater(len(tied_rows), 2)
+        # Padding rows only get borders once they hold a value.
+        self.assertTrue(any(str(cf.sqref).startswith("A12:") for cf in roc2.conditional_formatting))
+        # The footer itself is still tied, not overwritten by padding.
+        self.assertEqual(roc2["E45"].value, tie.format(f"B{cellmap.data_entry_field_row('roc_number')}"))
+
+    def test_roc_parse_finds_data_entry_among_added_and_renamed_tabs(self):
+        workbook = excel.build_download_workbook(self._tied_payload())
+        workbook.create_sheet("My Notes", 0)["A1"] = "scratch"
+        workbook.create_sheet("Extra")
+        workbook["Data Entry"].title = "Data Entry (2)"
+        workbook.move_sheet("Data Entry (2)", offset=-2)
+        buffer = BytesIO()
+        workbook.save(buffer)
+
+        parsed = importer.parse_workbook(BytesIO(buffer.getvalue()))
+        self.assertEqual(parsed["roc_number"], "2026-000777")
+        self.assertEqual(parsed["serial_number"], "SN-1")
+        self.assertEqual([row[:2] for row in parsed["tables"][0]["rows"]], [[1.0, 2.0], [3.0, 4.0]])
+
+    def test_roc_parse_finds_data_entry_by_content_when_fully_renamed(self):
+        workbook = excel.build_download_workbook(self._tied_payload())
+        workbook["Data Entry"].title = "Inputs"
+        workbook["ROC1"].title = "Certificate"
+        buffer = BytesIO()
+        workbook.save(buffer)
+        parsed = importer.parse_workbook(BytesIO(buffer.getvalue()))
+        self.assertEqual(parsed["nomenclature"], "Current Shunt")
+        self.assertEqual(len(parsed["tables"]), 1)
+
+    def test_roc_parse_finds_lab_original_pages_among_added_tabs(self):
+        workbook = excel.build_workbook(self._tied_payload())  # literal values, no Data Entry
+        workbook.create_sheet("Cover", 0)
+        workbook["ROC1"].title = "Page 1"
+        buffer = BytesIO()
+        workbook.save(buffer)
+        parsed = importer.parse_workbook(BytesIO(buffer.getvalue()))
+        self.assertEqual(parsed["roc_number"], "2026-000777")
+        self.assertEqual(parsed["tables"][0]["rows"], [[1.0, 2.0], [3.0, 4.0]])
+
+    def test_roc_parse_keeps_values_typed_over_a_certificate_tie(self):
+        workbook = excel.build_download_workbook(self._tied_payload())
+        fields = cellmap.TEMPLATE["fields"]
+        workbook["ROC1"][fields["serial_number"]] = "SN-EDITED"
+        workbook["ROC1"][cellmap.TEMPLATE["statements"]["traceability"]] = "Typed on the certificate."
+        buffer = BytesIO()
+        workbook.save(buffer)
+        parsed = importer.parse_workbook(BytesIO(buffer.getvalue()))
+        self.assertEqual(parsed["serial_number"], "SN-EDITED")
+        self.assertEqual(parsed["nomenclature"], "Current Shunt")  # untouched ties still read from Data Entry
+        self.assertEqual(parsed["statements"], [
+            {"kind": "technical", "text": "Tech."},
+            {"kind": "traceability", "text": "Typed on the certificate."},
+        ])
 
     def test_roc_parse_rejects_an_unrecognized_file(self):
         workbook = Workbook()

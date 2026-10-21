@@ -24,6 +24,11 @@ is the one place a value is guaranteed to be real rather than a formula
 result. Only a workbook with no Data Entry sheet at all -- a genuine lab-
 original, or one hand-conformed to the certificate layout -- falls back to
 reading the certificate page and its own page-2 data table directly.
+(Values typed straight onto the certificate over a tie formula are the
+one exception -- see ``parse_workbook``.)
+
+Each of those tabs is located by name *or* content (``_find_sheet``), so a
+workbook the user has added, reordered, or renamed tabs in still imports.
 
 The measurement-data table(s) can't be read that way (see cellmap.py's
 ``table_start_row`` docstring: shape varies per instrument), so
@@ -37,6 +42,7 @@ shape, so a user can rename headers, add/remove columns, or add/remove rows
 freely and it still comes back correctly.
 """
 from datetime import date, datetime
+from io import BytesIO
 
 from openpyxl import load_workbook
 
@@ -213,11 +219,66 @@ def _parse_data_entry_sheet(ws):
     return {"fields": fields, "statements": statements, "inline_results": inline_results, "tables": tables}
 
 
+def _normalized_name(name):
+    return "".join(ch for ch in str(name).lower() if ch.isalnum())
+
+
+def _looks_like_data_entry(ws):
+    headers = cellmap.DATA_ENTRY_SECTION_HEADERS
+    return (_find_marker_row(ws, headers["fields"], max_row=min(ws.max_row, 30)) is not None
+            and _find_marker_row(ws, headers["calibration"]) is not None)
+
+
+def _looks_like_certificate(ws):
+    return any(str(ws.cell(row=r, column=1).value or "").strip() == "Report of Calibration"
+               for r in range(1, min(ws.max_row, 15) + 1))
+
+
+def _looks_like_data_page(ws):
+    footer = cellmap.TEMPLATE["page2_fields"]["roc_number"]
+    footer_label = ws.cell(row=ws[footer].row, column=1).value
+    return (str(ws["A1"].value or "").strip().startswith("Nomenclature")
+            and str(footer_label or "").strip().lower().startswith("roc #"))
+
+
+def _find_sheet(workbook, name, looks_right, exclude=()):
+    """The tab for one part of the ROC, wherever it sits among the
+    workbook's tabs: the expected name first (as long as its content
+    matches), then a renamed copy ("data entry", "Data Entry (2)"), then any
+    tab whose content matches -- so a user adding, reordering, or renaming
+    tabs doesn't stop Excel Import finding the one it needs."""
+    candidates = [ws for ws in workbook.worksheets if ws.title not in exclude]
+    wanted = _normalized_name(name)
+    by_name = [ws for ws in candidates if ws.title == name]
+    by_name += [ws for ws in candidates if ws.title != name and _normalized_name(ws.title).startswith(wanted)]
+    for ws in by_name:
+        if looks_right(ws):
+            return ws
+    for ws in candidates:
+        if looks_right(ws):
+            return ws
+    return None
+
+
+def _typed_over_tie(formula_ws, cell_ref):
+    """The value at cell_ref if the user typed it directly onto the
+    certificate page, replacing the generated Data Entry tie formula --
+    None when the cell is still a formula (or blank)."""
+    if formula_ws is None:
+        return None
+    value = formula_ws[cell_ref].value
+    if value in (None, "") or (isinstance(value, str) and value.startswith("=")):
+        return None
+    return value
+
+
 def parse_workbook(file_obj, area_hint=None):
     """file_obj: a file-like object (as from Django's request.FILES).
     Returns a ROC payload dict, or raises UnsupportedWorkbook."""
     try:
-        workbook = load_workbook(file_obj, data_only=True)
+        raw = file_obj.read()
+        workbook = load_workbook(BytesIO(raw), data_only=True)
+        formulas = load_workbook(BytesIO(raw))
     except Exception as exc:  # noqa: BLE001 - surfaced to the user as-is
         raise UnsupportedWorkbook(
             "Couldn't open this file as an Excel workbook (.xlsx/.xlsm only -- "
@@ -225,12 +286,16 @@ def parse_workbook(file_obj, area_hint=None):
         ) from exc
 
     area = cellmap.TEMPLATE
-    data_entry_ws = workbook["Data Entry"] if "Data Entry" in workbook.sheetnames else None
-    if area["page1_sheet"] not in workbook.sheetnames and data_entry_ws is None:
+    data_entry_ws = _find_sheet(workbook, "Data Entry", _looks_like_data_entry)
+    page1_ws = _find_sheet(workbook, area["page1_sheet"], _looks_like_certificate,
+                           exclude={data_entry_ws.title} if data_entry_ws else ())
+    if page1_ws is None and data_entry_ws is None:
         raise UnsupportedWorkbook(
-            f"This workbook doesn't look like a ROC template (expected a "
-            f"'{area['page1_sheet']}' or 'Data Entry' sheet)."
+            f"This workbook doesn't look like a ROC template (couldn't find a "
+            f"'{area['page1_sheet']}' certificate page or a 'Data Entry' sheet in any tab)."
         )
+    used = {ws.title for ws in (data_entry_ws, page1_ws) if ws is not None}
+    page2_ws = _find_sheet(workbook, area["page2_sheet"], _looks_like_data_page, exclude=used)
 
     area_code = area_hint or ""
     data = {"area_code": area_code, "area_name": area_code.replace("_", " ").title() if area_code else ""}
@@ -250,12 +315,34 @@ def parse_workbook(file_obj, area_hint=None):
         data["statements"] = form["statements"]
         data["inline_results"] = form["inline_results"]
         data["tables"] = form["tables"]
+
+        # The one exception: a value typed straight onto the certificate
+        # page over its tie formula (the tie is gone, so Data Entry never
+        # saw the edit) is the newer value -- keep it rather than dropping
+        # the user's edit.
+        for ws, cells in ((page1_ws, area["fields"]), (page2_ws, area["page2_fields"])):
+            if ws is None:
+                continue
+            for name, cell_ref in cells.items():
+                if cellmap.data_entry_field_row(name) is None:
+                    continue
+                value = _typed_over_tie(formulas[ws.title], cell_ref)
+                if value is not None:
+                    data[name] = _parse_date(value) if name in DATE_FIELDS else value
+        if page1_ws is not None:
+            statements = {s["kind"]: s for s in data["statements"]}
+            for kind, cell_ref in area["statements"].items():
+                text = _typed_over_tie(formulas[page1_ws.title], cell_ref)
+                if text is not None:
+                    statements[kind] = {"kind": kind, "text": str(text)}
+            order = [kind for kind, _label in cellmap.DATA_ENTRY_STATEMENTS]
+            data["statements"] = sorted(statements.values(), key=lambda s: order.index(s["kind"]))
     else:
         # A real lab-original workbook (or one hand-conformed to the
         # certificate layout) with no Data Entry sheet of its own -- read
         # the certificate page and its real page-2 data table(s) directly.
-        ws1 = workbook[area["page1_sheet"]]
-        ws2 = workbook[area["page2_sheet"]] if area["page2_sheet"] in workbook.sheetnames else None
+        ws1 = page1_ws
+        ws2 = page2_ws
         for name, cell_ref in area["fields"].items():
             value = ws1[cell_ref].value
             if name in DATE_FIELDS:

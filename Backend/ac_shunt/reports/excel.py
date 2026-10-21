@@ -25,6 +25,7 @@ from io import BytesIO
 from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
+from openpyxl.formatting.rule import FormulaRule
 from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
 from openpyxl.utils import get_column_letter
 
@@ -118,10 +119,12 @@ def _column_spans(n):
     return spans
 
 
-def _write_paragraph(ws, row, text):
+def _write_paragraph(ws, row, text, value=None):
+    """`value`, when given, is written instead of `text` (a Data Entry tie
+    formula); `text` still sizes the row."""
     if not text:
         return row
-    cell = ws.cell(row=row, column=1, value=text)
+    cell = ws.cell(row=row, column=1, value=value or text)
     cell.font = BODY_FONT
     cell.alignment = JUSTIFY
     ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=GRID_COLUMNS)
@@ -130,17 +133,26 @@ def _write_paragraph(ws, row, text):
     return row + 2
 
 
-def _write_table(ws, row, table, *, input_mode=False, tie_layout=None):
-    """`tie_layout` (from _build_data_entry_sheet's per-table return value:
-    {"data_start_row", "width"}), when given, ties each data cell to its
-    Data Entry counterpart instead of writing the value literally -- editing
-    the number in Data Entry updates the certificate page's own copy of it
-    in Excel. Only real columns (0..width-1) are tied; Data Entry's extra
+def _write_table(ws, row, table, *, input_mode=False, tie_layout=None, extra_tied_rows=0):
+    """`tie_layout` (from _build_data_entry_sheet's per-table return value),
+    when given, ties the intro, title, column headers, and each data cell to
+    their Data Entry counterparts instead of writing them literally --
+    editing Data Entry updates the certificate page's own copy in Excel.
+    Only real columns (0..width-1) are tied; Data Entry's extra
     "Additional N" growth columns have no certificate-page counterpart to
-    tie to."""
-    row = _write_paragraph(ws, row, table.get("intro_text"))
+    tie to.
+
+    `extra_tied_rows` also ties that many of Data Entry's blank padding rows
+    below the real data, so a row typed into Data Entry later shows up on
+    the certificate too. Their borders are conditional (only drawn once the
+    row has a value), so unused padding prints as blank page, not empty
+    boxes."""
+    tied = tie_layout is not None
+    intro_ref = f"A{tie_layout['intro_row']}" if tied and tie_layout.get("intro_row") else None
+    row = _write_paragraph(ws, row, table.get("intro_text"), _tie_formula(intro_ref) if intro_ref else None)
     if table.get("title"):
-        cell = ws.cell(row=row, column=1, value=table["title"])
+        title_value = _tie_formula(f"A{tie_layout['title_row']}") if tied else table["title"]
+        cell = ws.cell(row=row, column=1, value=title_value)
         cell.font = BOLD_BODY_FONT
         cell.alignment = CENTER
         ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=GRID_COLUMNS)
@@ -151,8 +163,10 @@ def _write_table(ws, row, table, *, input_mode=False, tie_layout=None):
         return row + 1
     spans = _column_spans(len(columns))
 
-    for (start, end), column in zip(spans, columns):
+    for col_index, ((start, end), column) in enumerate(zip(spans, columns)):
         header_text = "\n".join(filter(None, [column.get("header"), column.get("unit")]))
+        if tied and col_index < tie_layout["width"]:
+            header_text = _tie_formula(f"{get_column_letter(col_index + 1)}{tie_layout['header_row']}")
         cell = ws.cell(row=row, column=start, value=header_text)
         cell.font = HEADER_FONT
         cell.alignment = CENTER
@@ -179,7 +193,38 @@ def _write_table(ws, row, table, *, input_mode=False, tie_layout=None):
             _apply_border(ws, row, start, end)
         row += 1
 
+    if tied and extra_tied_rows > 0:
+        first_padding_row = row
+        first_de_row = tie_layout["data_start_row"] + len(table.get("rows") or [])
+        for offset in range(extra_tied_rows):
+            for col_index, (start, end) in enumerate(spans[:tie_layout["width"]]):
+                de_ref = f"{get_column_letter(col_index + 1)}{first_de_row + offset}"
+                cell = ws.cell(row=row, column=start, value=_tie_formula(de_ref))
+                cell.font = BODY_FONT
+                cell.alignment = CENTER
+                if end > start:
+                    ws.merge_cells(start_row=row, start_column=start, end_row=row, end_column=end)
+            row += 1
+        last_col = get_column_letter(spans[-1][1])
+        ws.conditional_formatting.add(
+            f"A{first_padding_row}:{last_col}{row - 1}",
+            FormulaRule(
+                formula=[f'COUNTIF($A{first_padding_row}:${last_col}{first_padding_row},"?*")'
+                         f'+COUNT($A{first_padding_row}:${last_col}{first_padding_row})>0'],
+                border=CELL_BORDER,
+            ),
+        )
+
     return row + 2
+
+
+def _table_row_count(table):
+    """Rows _write_table consumes for `table` with no extra tied rows."""
+    count = 2 if table.get("intro_text") else 0
+    count += 2 if table.get("title") else 0
+    if not table.get("columns"):
+        return count + 1
+    return count + 1 + len(table.get("rows") or []) + 2
 
 
 def _fit_to_one_page_wide(ws):
@@ -332,8 +377,11 @@ def build_workbook(data: dict, *, template_mode=False, with_data_entry_tie=False
 
     ws2 = wb[area["page2_sheet"]]
     for name, cell_ref in area["page2_fields"].items():
+        de_row = cellmap.data_entry_field_row(name)
         if name == "page_label":
             _set(ws2, cell_ref, f"Page 2 of {pages}")
+        elif de_row is not None and with_data_entry_tie:
+            ws2[cell_ref] = _tie_formula(f"B{de_row}")
         else:
             value = data.get(name)
             _set(ws2, cell_ref, _format_date(value) if name in DATE_FIELDS else value)
@@ -352,10 +400,22 @@ def build_workbook(data: dict, *, template_mode=False, with_data_entry_tie=False
             cell.border = Border()
             cell.fill = PatternFill(fill_type=None)
 
+    # Tied downloads also carry Data Entry's blank padding rows onto the
+    # certificate, as far as they fit above the page-2 footer, so rows added
+    # in Data Entry later still appear here.
+    spare_rows = 0
+    if table_layouts:
+        footer_row = ws2[area["page2_fields"]["roc_number"]].row
+        spare_rows = max(0, footer_row - area["table_start_row"] - sum(_table_row_count(t) for t in tables))
+
     row = area["table_start_row"]
     for index, table in enumerate(tables):
         layout = table_layouts[index] if table_layouts else None
-        row = _write_table(ws2, row, table, input_mode=template_mode, tie_layout=layout)
+        extra = 0
+        if layout and table.get("columns"):
+            extra = min(spare_rows, layout["height"] - len(table.get("rows") or []))
+            spare_rows -= extra
+        row = _write_table(ws2, row, table, input_mode=template_mode, tie_layout=layout, extra_tied_rows=extra)
 
     if template_mode:
         # Title, spacer, and header occupy the first three table rows.
@@ -448,19 +508,23 @@ def _write_calibration_table(ws, row, table, *, area_code="", extra_columns=5,
     total_width = width + extra_columns
     title_span = max(total_width, 12)
 
+    intro_row = None
     if table.get("intro_text"):
+        intro_row = row
         cell = ws.cell(row=row, column=1, value=table["intro_text"])
         cell.font = BODY_FONT
         cell.alignment = Alignment(wrap_text=True, vertical="top")
         ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=title_span)
         row += 1
 
+    title_row = row
     title_cell = ws.cell(row=row, column=1, value=table.get("title") or "Calibration Raw Data")
     title_cell.font = BOLD_BODY_FONT
     title_cell.alignment = CENTER
     ws.merge_cells(start_row=row, start_column=1, end_row=row, end_column=title_span)
     row += 1
 
+    header_row = row
     for col in range(1, total_width + 1):
         if col <= width:
             definition = columns[col - 1]
@@ -487,7 +551,10 @@ def _write_calibration_table(ws, row, table, *, area_code="", extra_columns=5,
             cell.border = CELL_BORDER
         row += 1
 
-    layout = {"data_start_row": data_start_row, "width": width}
+    layout = {
+        "intro_row": intro_row, "title_row": title_row, "header_row": header_row,
+        "data_start_row": data_start_row, "width": width, "height": height,
+    }
     return row + 1, layout  # blank spacer row before the next table
 
 
