@@ -1,0 +1,23 @@
+[
+  {
+    "voltage_V": 2.0,
+    "reference_accuracy_bound_V": 0.00012000000000000002,
+    "resolution_V": 0.001,
+    "combined_uncertainty_V": 0.0002970993099958329,
+    "expanded_uncertainty_95_V": 0.0005823039474235332
+  },
+  {
+    "voltage_V": 5.0,
+    "reference_accuracy_bound_V": 0.00022500000000000002,
+    "resolution_V": 0.001,
+    "combined_uncertainty_V": 0.0003167696323829038,
+    "expanded_uncertainty_95_V": 0.0006208570708664842
+  },
+  {
+    "voltage_V": 9.0,
+    "reference_accuracy_bound_V": 0.00036500000000000004,
+    "resolution_V": 0.01,
+    "combined_uncertainty_V": 0.0028944561377456275,
+    "expanded_uncertainty_95_V": 0.005673029784812335
+  }
+]

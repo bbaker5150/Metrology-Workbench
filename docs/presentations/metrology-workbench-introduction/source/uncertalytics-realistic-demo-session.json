@@ -1,0 +1,1864 @@
+{
+  "id": 1792600000000,
+  "name": "DEMO | Fluke 87V DC voltage",
+  "analyst": "Demonstration",
+  "organization": "Metrology Workbench",
+  "document": "DEMO-DCV-87V",
+  "documentDate": "2026-10-21",
+  "notes": "DEMONSTRATION ONLY. Fluke 87V normal 6000-count mode against Agilent 34401A reference in fixed 10 V range. Manufacturer DC voltage accuracy specifications, one year at 23 +/- 5 C. Illustrative comparison-method model: reference specification bound and UUT resolution, plus assumed source residual stability +/-20 uV and thermal EMF +/-2 uV. Rectangular distributions. Reference resolution/noise covered by reference accuracy specification; no separate noise row. Uncorrelated terms; results are not a calibration certificate. Sources and assumptions accompany this example.",
+  "uutDescription": "",
+  "uutTolerance": {},
+  "functionGroups": [],
+  "measurementAreaGroups": [
+    {
+      "name": "Voltage",
+      "color": "#267ea8"
+    }
+  ],
+  "instrumentOnboarding": {
+    "uut": {
+      "firstAreaKey": "voltage",
+      "completed": true
+    },
+    "tmde": {
+      "firstAreaKey": "voltage",
+      "completed": true
+    }
+  },
+  "detailSectionOrder": [],
+  "detailCollapsedSections": [
+    "instruments"
+  ],
+  "qualifierColumnNames": {},
+  "uncReq": {
+    "uncertaintyConfidence": 95,
+    "reliability": 85,
+    "calInt": 12,
+    "measRelCalcAssumed": 85,
+    "neededTUR": 4,
+    "reqPFA": 2,
+    "guardBandMultiplier": 1
+  },
+  "measurementAreas": [
+    {
+      "id": "voltage",
+      "name": "Voltage",
+      "color": "",
+      "hiddenFromSidebar": false
+    }
+  ],
+  "uuts": [
+    {
+      "measurementAreaNames": [
+        "Voltage"
+      ],
+      "id": "uut",
+      "name": "Fluke 87V",
+      "description": "True RMS digital multimeter",
+      "measurementArea": "Voltage",
+      "measurementAreaId": "voltage",
+      "measurementAreaColor": "",
+      "instrument": {
+        "id": "demo-fluke-87v",
+        "manufacturer": "Fluke",
+        "model": "87V",
+        "description": "True RMS digital multimeter",
+        "functions": [
+          {
+            "id": "voltage-fn",
+            "name": "DC Voltage",
+            "unit": "V",
+            "ranges": [
+              {
+                "id": "fluke-87v-6v",
+                "min": 0,
+                "max": 6,
+                "resolution": 0.001,
+                "unit": "V",
+                "resolutionUnit": "V",
+                "includeResolutionInBudget": true,
+                "tolerances": {
+                  "reading": {
+                    "high": 0.05,
+                    "low": -0.05,
+                    "unit": "%",
+                    "symmetric": true,
+                    "distribution": "1.732"
+                  },
+                  "floor": {
+                    "high": 0.001,
+                    "low": -0.001,
+                    "unit": "V",
+                    "symmetric": true,
+                    "distribution": "1.732"
+                  }
+                }
+              },
+              {
+                "id": "fluke-87v-60v",
+                "min": 6,
+                "max": 60,
+                "resolution": 0.01,
+                "unit": "V",
+                "resolutionUnit": "V",
+                "includeResolutionInBudget": true,
+                "tolerances": {
+                  "reading": {
+                    "high": 0.05,
+                    "low": -0.05,
+                    "unit": "%",
+                    "symmetric": true,
+                    "distribution": "1.732"
+                  },
+                  "floor": {
+                    "high": 0.01,
+                    "low": -0.01,
+                    "unit": "V",
+                    "symmetric": true,
+                    "distribution": "1.732"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "tmdes": [
+    {
+      "measurementAreaNames": [
+        "Voltage"
+      ],
+      "id": "reference",
+      "name": "Agilent 34401A",
+      "quantity": 1,
+      "assetId": "",
+      "isInstrumentBased": true,
+      "instrument": {
+        "id": "demo-agilent-34401a",
+        "manufacturer": "Agilent",
+        "model": "34401A",
+        "description": "6.5-digit reference multimeter",
+        "functions": [
+          {
+            "id": "voltage-fn",
+            "name": "DC Voltage",
+            "unit": "V",
+            "ranges": [
+              {
+                "id": "agilent-34401a-10v",
+                "min": 0,
+                "max": 10,
+                "unit": "V",
+                "resolution": 0.00001,
+                "resolutionUnit": "V",
+                "includeResolutionInBudget": false,
+                "tolerances": {
+                  "reading": {
+                    "high": 0.0035,
+                    "low": -0.0035,
+                    "unit": "%",
+                    "symmetric": true,
+                    "distribution": "1.732"
+                  },
+                  "range": {
+                    "high": 0.0005,
+                    "low": -0.0005,
+                    "unit": "%",
+                    "symmetric": true,
+                    "distribution": "1.732",
+                    "value": 10
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ],
+  "testPoints": [
+    {
+      "id": "dcv-2",
+      "section": "",
+      "tmdeDescription": "",
+      "measurementAreaId": "voltage",
+      "associatedUutIds": [
+        "uut"
+      ],
+      "specifications": {},
+      "components": [
+        {
+          "id": "ref-2",
+          "name": "34401A reference accuracy",
+          "type": "B",
+          "value": null,
+          "value_native": null,
+          "unit_native": "",
+          "dof": null,
+          "distribution": "",
+          "isCore": false,
+          "sourcePointLabel": "",
+          "variableType": "",
+          "originalInput": null,
+          "savedInputs": null,
+          "tmdeBudgetSourceId": "reference",
+          "tmdeBudgetRangeId": "agilent-34401a-10v",
+          "tmdeBudgetComponentKind": "Accuracy"
+        },
+        {
+          "id": "stab-2",
+          "name": "Source stability (demo)",
+          "type": "B",
+          "value": 5.773502691896259,
+          "value_native": 0.000011547005383792517,
+          "unit_native": "V",
+          "dof": null,
+          "distribution": "Rectangular",
+          "isCore": false,
+          "sourcePointLabel": "Manual",
+          "variableType": "",
+          "originalInput": {
+            "inputMode": "tolerance",
+            "unit": "V",
+            "errorDistributionDivisor": "1.732",
+            "tolerance": {
+              "floor": {
+                "high": 0.00002,
+                "low": -0.00002,
+                "unit": "V",
+                "symmetric": true,
+                "distribution": "1.732"
+              }
+            },
+            "useFiniteDof": false
+          },
+          "savedInputs": null,
+          "distributionDivisor": "1.732",
+          "isManual": true,
+          "isInlineManual": true,
+          "inlineDraft": false,
+          "manualInputMode": "tolerance",
+          "manualRawValue": 0.00002,
+          "manualUnit": "V",
+          "isBaseUnitValue": false,
+          "inlineValidation": null,
+          "pendingReason": null
+        },
+        {
+          "id": "emf-2",
+          "name": "Thermal EMF (demo)",
+          "type": "B",
+          "value": 0.5773502691896257,
+          "value_native": 0.0000011547005383792516,
+          "unit_native": "V",
+          "dof": null,
+          "distribution": "Rectangular",
+          "isCore": false,
+          "sourcePointLabel": "Manual",
+          "variableType": "",
+          "originalInput": {
+            "inputMode": "tolerance",
+            "unit": "V",
+            "errorDistributionDivisor": "1.732",
+            "tolerance": {
+              "floor": {
+                "high": 0.000002,
+                "low": -0.000002,
+                "unit": "V",
+                "symmetric": true,
+                "distribution": "1.732"
+              }
+            },
+            "useFiniteDof": false
+          },
+          "savedInputs": null,
+          "distributionDivisor": "1.732",
+          "isManual": true,
+          "isInlineManual": true,
+          "inlineDraft": false,
+          "manualInputMode": "tolerance",
+          "manualRawValue": 0.000002,
+          "manualUnit": "V",
+          "isBaseUnitValue": false,
+          "inlineValidation": null,
+          "pendingReason": null
+        }
+      ],
+      "is_detailed_uncertainty_calculated": true,
+      "measurementType": "direct",
+      "equationString": "",
+      "equationName": "",
+      "variableMappings": {},
+      "variableNominals": {},
+      "inputCorrelations": {},
+      "testPointInfo": {
+        "measurementArea": "Voltage",
+        "parameter": {
+          "name": "Voltage",
+          "value": "2",
+          "unit": "V"
+        }
+      },
+      "uutTolerance": {
+        "id": "fluke-87v-6v",
+        "min": 0,
+        "max": 6,
+        "resolution": 0.001,
+        "unit": "V",
+        "resolutionUnit": "V",
+        "includeResolutionInBudget": true,
+        "tolerances": {
+          "reading": {
+            "high": 0.05,
+            "low": -0.05,
+            "unit": "%",
+            "symmetric": true,
+            "distribution": "1.732"
+          },
+          "floor": {
+            "high": 0.001,
+            "low": -0.001,
+            "unit": "V",
+            "symmetric": true,
+            "distribution": "1.732"
+          }
+        },
+        "functionId": "voltage-fn",
+        "functionName": "DC Voltage",
+        "functionUnit": "V",
+        "rangeId": "fluke-87v-6v",
+        "_index": 0,
+        "reading": {
+          "high": 0.05,
+          "low": -0.05,
+          "unit": "%",
+          "symmetric": true,
+          "distribution": "1.732"
+        },
+        "floor": {
+          "high": 0.001,
+          "low": -0.001,
+          "unit": "V",
+          "symmetric": true,
+          "distribution": "1.732"
+        },
+        "source": "function"
+      },
+      "tmdeTolerances": [],
+      "combined_uncertainty": 148.54965499791643,
+      "combined_uncertainty_absolute_base": 0.0002970993099958329,
+      "combined_uncertainty_inputs_native": 0,
+      "combined_uncertainty_inputs_base": 0,
+      "effective_dof": null,
+      "k_value": 1.9599639845400538,
+      "coverageFactorMode": "auto",
+      "coverageFactorOverride": null,
+      "expanded_uncertainty": 291.15197371176663,
+      "expanded_uncertainty_absolute_base": 0.0005823039474235332,
+      "calculatedNominalValue": null,
+      "calculatedBudgetComponents": [
+        {
+          "id": "ref-2",
+          "name": "Agilent 34401A - TMDE Error",
+          "type": "B",
+          "value": 34.641016151377556,
+          "value_native": 0.00006928203230275511,
+          "unit_native": "V",
+          "dof": null,
+          "distribution": "Rectangular",
+          "isCore": false,
+          "sourcePointLabel": "Manual",
+          "variableType": "",
+          "originalInput": {
+            "toleranceLimit": 0.00011999647994837185,
+            "errorDistributionDivisor": "1.732",
+            "unit": "V"
+          },
+          "savedInputs": null,
+          "tmdeBudgetSourceId": "reference",
+          "tmdeBudgetRangeId": "agilent-34401a-10v",
+          "tmdeBudgetComponentKind": "Accuracy",
+          "pendingReason": null,
+          "authoredTolerance": {
+            "id": "agilent-34401a-10v",
+            "min": 0,
+            "max": 10,
+            "unit": "V",
+            "resolution": 0.00001,
+            "resolutionUnit": "V",
+            "includeResolutionInBudget": false,
+            "tolerances": {
+              "reading": {
+                "high": 0.0035,
+                "low": -0.0035,
+                "unit": "%",
+                "symmetric": true,
+                "distribution": "1.732"
+              },
+              "range": {
+                "high": 0.0005,
+                "low": -0.0005,
+                "unit": "%",
+                "symmetric": true,
+                "distribution": "1.732",
+                "value": 10
+              }
+            },
+            "functionId": "voltage-fn",
+            "functionName": "DC Voltage",
+            "functionUnit": "V",
+            "rangeId": "agilent-34401a-10v",
+            "_index": 0,
+            "reading": {
+              "high": 0.0035,
+              "low": -0.0035,
+              "unit": "%",
+              "symmetric": true,
+              "distribution": "1.732"
+            },
+            "range": {
+              "high": 0.0005,
+              "low": -0.0005,
+              "unit": "%",
+              "symmetric": true,
+              "distribution": "1.732",
+              "value": 10
+            },
+            "source": "function"
+          },
+          "toleranceLimit_native": 0.00012000000000000002,
+          "isBaseUnitValue": false,
+          "distributionDivisor": "1.732",
+          "contribution": 0.00006928203230275511
+        },
+        {
+          "id": "stab-2",
+          "name": "Source stability (demo)",
+          "type": "B",
+          "value": 5.773502691896258,
+          "value_native": 0.000011547005383792516,
+          "unit_native": "V",
+          "dof": null,
+          "distribution": "Rectangular",
+          "isCore": false,
+          "sourcePointLabel": "Manual",
+          "variableType": "",
+          "originalInput": {
+            "inputMode": "tolerance",
+            "unit": "V",
+            "errorDistributionDivisor": "1.732",
+            "tolerance": {
+              "floor": {
+                "high": 0.00002,
+                "low": -0.00002,
+                "unit": "V",
+                "symmetric": true,
+                "distribution": "1.732"
+              }
+            },
+            "useFiniteDof": false,
+            "toleranceLimit": 0.00002,
+            "standardUncertainty": ""
+          },
+          "savedInputs": null,
+          "distributionDivisor": "1.732",
+          "isManual": true,
+          "isInlineManual": true,
+          "inlineDraft": false,
+          "manualInputMode": "tolerance",
+          "manualRawValue": 0.00002,
+          "manualUnit": "V",
+          "isBaseUnitValue": false,
+          "inlineValidation": null,
+          "pendingReason": null,
+          "contribution": 0.000011547005383792516
+        },
+        {
+          "id": "emf-2",
+          "name": "Thermal EMF (demo)",
+          "type": "B",
+          "value": 0.5773502691896258,
+          "value_native": 0.0000011547005383792518,
+          "unit_native": "V",
+          "dof": null,
+          "distribution": "Rectangular",
+          "isCore": false,
+          "sourcePointLabel": "Manual",
+          "variableType": "",
+          "originalInput": {
+            "inputMode": "tolerance",
+            "unit": "V",
+            "errorDistributionDivisor": "1.732",
+            "tolerance": {
+              "floor": {
+                "high": 0.000002,
+                "low": -0.000002,
+                "unit": "V",
+                "symmetric": true,
+                "distribution": "1.732"
+              }
+            },
+            "useFiniteDof": false,
+            "toleranceLimit": 0.000002,
+            "standardUncertainty": ""
+          },
+          "savedInputs": null,
+          "distributionDivisor": "1.732",
+          "isManual": true,
+          "isInlineManual": true,
+          "inlineDraft": false,
+          "manualInputMode": "tolerance",
+          "manualRawValue": 0.000002,
+          "manualUnit": "V",
+          "isBaseUnitValue": false,
+          "inlineValidation": null,
+          "pendingReason": null,
+          "contribution": 0.0000011547005383792518
+        },
+        {
+          "id": "uut_resolution",
+          "pendingReason": null,
+          "componentId": "UUT Resolution",
+          "name": "UUT Resolution",
+          "type": "B",
+          "value": 144.33756729740645,
+          "isBaseUnitValue": false,
+          "value_native": 0.0002886751345948129,
+          "unit_native": "V",
+          "dof": null,
+          "isCore": true,
+          "distribution": "Rectangular (resolution)",
+          "distributionDivisor": "3.464",
+          "isResolution": true,
+          "resolution": 0.001,
+          "resolutionUnit": "V",
+          "sourcePointLabel": "0.001 V LSD",
+          "quantity": 1,
+          "contribution": 0.0002886751345948129
+        }
+      ],
+      "calculatedBudgetGroups": [
+        {
+          "id": "final_budget",
+          "kind": "final",
+          "label": "Voltage Uncertainty Budget",
+          "unit": "V",
+          "components": [
+            {
+              "id": "ref-2",
+              "name": "Agilent 34401A - TMDE Error",
+              "type": "B",
+              "value": 34.641016151377556,
+              "value_native": 0.00006928203230275511,
+              "unit_native": "V",
+              "dof": null,
+              "distribution": "Rectangular",
+              "isCore": false,
+              "sourcePointLabel": "Manual",
+              "variableType": "",
+              "originalInput": {
+                "toleranceLimit": 0.00011999647994837185,
+                "errorDistributionDivisor": "1.732",
+                "unit": "V"
+              },
+              "savedInputs": null,
+              "tmdeBudgetSourceId": "reference",
+              "tmdeBudgetRangeId": "agilent-34401a-10v",
+              "tmdeBudgetComponentKind": "Accuracy",
+              "pendingReason": null,
+              "authoredTolerance": {
+                "id": "agilent-34401a-10v",
+                "min": 0,
+                "max": 10,
+                "unit": "V",
+                "resolution": 0.00001,
+                "resolutionUnit": "V",
+                "includeResolutionInBudget": false,
+                "tolerances": {
+                  "reading": {
+                    "high": 0.0035,
+                    "low": -0.0035,
+                    "unit": "%",
+                    "symmetric": true,
+                    "distribution": "1.732"
+                  },
+                  "range": {
+                    "high": 0.0005,
+                    "low": -0.0005,
+                    "unit": "%",
+                    "symmetric": true,
+                    "distribution": "1.732",
+                    "value": 10
+                  }
+                },
+                "functionId": "voltage-fn",
+                "functionName": "DC Voltage",
+                "functionUnit": "V",
+                "rangeId": "agilent-34401a-10v",
+                "_index": 0,
+                "reading": {
+                  "high": 0.0035,
+                  "low": -0.0035,
+                  "unit": "%",
+                  "symmetric": true,
+                  "distribution": "1.732"
+                },
+                "range": {
+                  "high": 0.0005,
+                  "low": -0.0005,
+                  "unit": "%",
+                  "symmetric": true,
+                  "distribution": "1.732",
+                  "value": 10
+                },
+                "source": "function"
+              },
+              "toleranceLimit_native": 0.00012000000000000002,
+              "isBaseUnitValue": false,
+              "distributionDivisor": "1.732",
+              "contribution": 0.00006928203230275511
+            },
+            {
+              "id": "stab-2",
+              "name": "Source stability (demo)",
+              "type": "B",
+              "value": 5.773502691896258,
+              "value_native": 0.000011547005383792516,
+              "unit_native": "V",
+              "dof": null,
+              "distribution": "Rectangular",
+              "isCore": false,
+              "sourcePointLabel": "Manual",
+              "variableType": "",
+              "originalInput": {
+                "inputMode": "tolerance",
+                "unit": "V",
+                "errorDistributionDivisor": "1.732",
+                "tolerance": {
+                  "floor": {
+                    "high": 0.00002,
+                    "low": -0.00002,
+                    "unit": "V",
+                    "symmetric": true,
+                    "distribution": "1.732"
+                  }
+                },
+                "useFiniteDof": false,
+                "toleranceLimit": 0.00002,
+                "standardUncertainty": ""
+              },
+              "savedInputs": null,
+              "distributionDivisor": "1.732",
+              "isManual": true,
+              "isInlineManual": true,
+              "inlineDraft": false,
+              "manualInputMode": "tolerance",
+              "manualRawValue": 0.00002,
+              "manualUnit": "V",
+              "isBaseUnitValue": false,
+              "inlineValidation": null,
+              "pendingReason": null,
+              "contribution": 0.000011547005383792516
+            },
+            {
+              "id": "emf-2",
+              "name": "Thermal EMF (demo)",
+              "type": "B",
+              "value": 0.5773502691896258,
+              "value_native": 0.0000011547005383792518,
+              "unit_native": "V",
+              "dof": null,
+              "distribution": "Rectangular",
+              "isCore": false,
+              "sourcePointLabel": "Manual",
+              "variableType": "",
+              "originalInput": {
+                "inputMode": "tolerance",
+                "unit": "V",
+                "errorDistributionDivisor": "1.732",
+                "tolerance": {
+                  "floor": {
+                    "high": 0.000002,
+                    "low": -0.000002,
+                    "unit": "V",
+                    "symmetric": true,
+                    "distribution": "1.732"
+                  }
+                },
+                "useFiniteDof": false,
+                "toleranceLimit": 0.000002,
+                "standardUncertainty": ""
+              },
+              "savedInputs": null,
+              "distributionDivisor": "1.732",
+              "isManual": true,
+              "isInlineManual": true,
+              "inlineDraft": false,
+              "manualInputMode": "tolerance",
+              "manualRawValue": 0.000002,
+              "manualUnit": "V",
+              "isBaseUnitValue": false,
+              "inlineValidation": null,
+              "pendingReason": null,
+              "contribution": 0.0000011547005383792518
+            },
+            {
+              "id": "uut_resolution",
+              "pendingReason": null,
+              "componentId": "UUT Resolution",
+              "name": "UUT Resolution",
+              "type": "B",
+              "value": 144.33756729740645,
+              "isBaseUnitValue": false,
+              "value_native": 0.0002886751345948129,
+              "unit_native": "V",
+              "dof": null,
+              "isCore": true,
+              "distribution": "Rectangular (resolution)",
+              "distributionDivisor": "3.464",
+              "isResolution": true,
+              "resolution": 0.001,
+              "resolutionUnit": "V",
+              "sourcePointLabel": "0.001 V LSD",
+              "quantity": 1,
+              "contribution": 0.0002886751345948129
+            }
+          ],
+          "results": {
+            "combined": 0.0002970993099958329,
+            "effective_dof": null,
+            "k_value": 1.9599639845400538,
+            "expanded": 0.0005823039474235332
+          }
+        }
+      ],
+      "budgetPropagationMethod": "linear",
+      "monteCarloTrials": 10000,
+      "risk8MonteCarloResult": null,
+      "riskMetrics": null
+    },
+    {
+      "id": "dcv-5",
+      "section": "",
+      "tmdeDescription": "",
+      "measurementAreaId": "voltage",
+      "associatedUutIds": [
+        "uut"
+      ],
+      "specifications": {},
+      "components": [
+        {
+          "id": "ref-5",
+          "name": "34401A reference accuracy",
+          "type": "B",
+          "value": null,
+          "value_native": null,
+          "unit_native": "",
+          "dof": null,
+          "distribution": "",
+          "isCore": false,
+          "sourcePointLabel": "",
+          "variableType": "",
+          "originalInput": null,
+          "savedInputs": null,
+          "tmdeBudgetSourceId": "reference",
+          "tmdeBudgetRangeId": "agilent-34401a-10v",
+          "tmdeBudgetComponentKind": "Accuracy"
+        },
+        {
+          "id": "stab-5",
+          "name": "Source stability (demo)",
+          "type": "B",
+          "value": 2.3094010767585034,
+          "value_native": 0.000011547005383792517,
+          "unit_native": "V",
+          "dof": null,
+          "distribution": "Rectangular",
+          "isCore": false,
+          "sourcePointLabel": "Manual",
+          "variableType": "",
+          "originalInput": {
+            "inputMode": "tolerance",
+            "unit": "V",
+            "errorDistributionDivisor": "1.732",
+            "tolerance": {
+              "floor": {
+                "high": 0.00002,
+                "low": -0.00002,
+                "unit": "V",
+                "symmetric": true,
+                "distribution": "1.732"
+              }
+            },
+            "useFiniteDof": false
+          },
+          "savedInputs": null,
+          "distributionDivisor": "1.732",
+          "isManual": true,
+          "isInlineManual": true,
+          "inlineDraft": false,
+          "manualInputMode": "tolerance",
+          "manualRawValue": 0.00002,
+          "manualUnit": "V",
+          "isBaseUnitValue": false,
+          "inlineValidation": null,
+          "pendingReason": null
+        },
+        {
+          "id": "emf-5",
+          "name": "Thermal EMF (demo)",
+          "type": "B",
+          "value": 0.2309401076758503,
+          "value_native": 0.0000011547005383792516,
+          "unit_native": "V",
+          "dof": null,
+          "distribution": "Rectangular",
+          "isCore": false,
+          "sourcePointLabel": "Manual",
+          "variableType": "",
+          "originalInput": {
+            "inputMode": "tolerance",
+            "unit": "V",
+            "errorDistributionDivisor": "1.732",
+            "tolerance": {
+              "floor": {
+                "high": 0.000002,
+                "low": -0.000002,
+                "unit": "V",
+                "symmetric": true,
+                "distribution": "1.732"
+              }
+            },
+            "useFiniteDof": false
+          },
+          "savedInputs": null,
+          "distributionDivisor": "1.732",
+          "isManual": true,
+          "isInlineManual": true,
+          "inlineDraft": false,
+          "manualInputMode": "tolerance",
+          "manualRawValue": 0.000002,
+          "manualUnit": "V",
+          "isBaseUnitValue": false,
+          "inlineValidation": null,
+          "pendingReason": null
+        }
+      ],
+      "is_detailed_uncertainty_calculated": true,
+      "measurementType": "direct",
+      "equationString": "",
+      "equationName": "",
+      "variableMappings": {},
+      "variableNominals": {},
+      "inputCorrelations": {},
+      "testPointInfo": {
+        "measurementArea": "Voltage",
+        "parameter": {
+          "name": "Voltage",
+          "value": "5",
+          "unit": "V"
+        }
+      },
+      "uutTolerance": {
+        "id": "fluke-87v-6v",
+        "min": 0,
+        "max": 6,
+        "resolution": 0.001,
+        "unit": "V",
+        "resolutionUnit": "V",
+        "includeResolutionInBudget": true,
+        "tolerances": {
+          "reading": {
+            "high": 0.05,
+            "low": -0.05,
+            "unit": "%",
+            "symmetric": true,
+            "distribution": "1.732"
+          },
+          "floor": {
+            "high": 0.001,
+            "low": -0.001,
+            "unit": "V",
+            "symmetric": true,
+            "distribution": "1.732"
+          }
+        },
+        "functionId": "voltage-fn",
+        "functionName": "DC Voltage",
+        "functionUnit": "V",
+        "rangeId": "fluke-87v-6v",
+        "_index": 0,
+        "reading": {
+          "high": 0.05,
+          "low": -0.05,
+          "unit": "%",
+          "symmetric": true,
+          "distribution": "1.732"
+        },
+        "floor": {
+          "high": 0.001,
+          "low": -0.001,
+          "unit": "V",
+          "symmetric": true,
+          "distribution": "1.732"
+        },
+        "source": "function"
+      },
+      "tmdeTolerances": [],
+      "combined_uncertainty": 63.35392647658076,
+      "combined_uncertainty_absolute_base": 0.0003167696323829038,
+      "combined_uncertainty_inputs_native": 0,
+      "combined_uncertainty_inputs_base": 0,
+      "effective_dof": null,
+      "k_value": 1.9599639845400538,
+      "coverageFactorMode": "auto",
+      "coverageFactorOverride": null,
+      "expanded_uncertainty": 124.17141417329684,
+      "expanded_uncertainty_absolute_base": 0.0006208570708664842,
+      "calculatedNominalValue": null,
+      "calculatedBudgetComponents": [
+        {
+          "id": "ref-5",
+          "name": "Agilent 34401A - TMDE Error",
+          "type": "B",
+          "value": 25.980762113533164,
+          "value_native": 0.0001299038105676658,
+          "unit_native": "V",
+          "dof": null,
+          "distribution": "Rectangular",
+          "isCore": false,
+          "sourcePointLabel": "Manual",
+          "variableType": "",
+          "originalInput": {
+            "toleranceLimit": 0.0002249933999031972,
+            "errorDistributionDivisor": "1.732",
+            "unit": "V"
+          },
+          "savedInputs": null,
+          "tmdeBudgetSourceId": "reference",
+          "tmdeBudgetRangeId": "agilent-34401a-10v",
+          "tmdeBudgetComponentKind": "Accuracy",
+          "pendingReason": null,
+          "authoredTolerance": {
+            "id": "agilent-34401a-10v",
+            "min": 0,
+            "max": 10,
+            "unit": "V",
+            "resolution": 0.00001,
+            "resolutionUnit": "V",
+            "includeResolutionInBudget": false,
+            "tolerances": {
+              "reading": {
+                "high": 0.0035,
+                "low": -0.0035,
+                "unit": "%",
+                "symmetric": true,
+                "distribution": "1.732"
+              },
+              "range": {
+                "high": 0.0005,
+                "low": -0.0005,
+                "unit": "%",
+                "symmetric": true,
+                "distribution": "1.732",
+                "value": 10
+              }
+            },
+            "functionId": "voltage-fn",
+            "functionName": "DC Voltage",
+            "functionUnit": "V",
+            "rangeId": "agilent-34401a-10v",
+            "_index": 0,
+            "reading": {
+              "high": 0.0035,
+              "low": -0.0035,
+              "unit": "%",
+              "symmetric": true,
+              "distribution": "1.732"
+            },
+            "range": {
+              "high": 0.0005,
+              "low": -0.0005,
+              "unit": "%",
+              "symmetric": true,
+              "distribution": "1.732",
+              "value": 10
+            },
+            "source": "function"
+          },
+          "toleranceLimit_native": 0.00022500000000000002,
+          "isBaseUnitValue": false,
+          "distributionDivisor": "1.732",
+          "contribution": 0.0001299038105676658
+        },
+        {
+          "id": "stab-5",
+          "name": "Source stability (demo)",
+          "type": "B",
+          "value": 2.309401076758504,
+          "value_native": 0.000011547005383792519,
+          "unit_native": "V",
+          "dof": null,
+          "distribution": "Rectangular",
+          "isCore": false,
+          "sourcePointLabel": "Manual",
+          "variableType": "",
+          "originalInput": {
+            "inputMode": "tolerance",
+            "unit": "V",
+            "errorDistributionDivisor": "1.732",
+            "tolerance": {
+              "floor": {
+                "high": 0.00002,
+                "low": -0.00002,
+                "unit": "V",
+                "symmetric": true,
+                "distribution": "1.732"
+              }
+            },
+            "useFiniteDof": false,
+            "toleranceLimit": 0.00002,
+            "standardUncertainty": ""
+          },
+          "savedInputs": null,
+          "distributionDivisor": "1.732",
+          "isManual": true,
+          "isInlineManual": true,
+          "inlineDraft": false,
+          "manualInputMode": "tolerance",
+          "manualRawValue": 0.00002,
+          "manualUnit": "V",
+          "isBaseUnitValue": false,
+          "inlineValidation": null,
+          "pendingReason": null,
+          "contribution": 0.000011547005383792519
+        },
+        {
+          "id": "emf-5",
+          "name": "Thermal EMF (demo)",
+          "type": "B",
+          "value": 0.2309401076758503,
+          "value_native": 0.0000011547005383792516,
+          "unit_native": "V",
+          "dof": null,
+          "distribution": "Rectangular",
+          "isCore": false,
+          "sourcePointLabel": "Manual",
+          "variableType": "",
+          "originalInput": {
+            "inputMode": "tolerance",
+            "unit": "V",
+            "errorDistributionDivisor": "1.732",
+            "tolerance": {
+              "floor": {
+                "high": 0.000002,
+                "low": -0.000002,
+                "unit": "V",
+                "symmetric": true,
+                "distribution": "1.732"
+              }
+            },
+            "useFiniteDof": false,
+            "toleranceLimit": 0.000002,
+            "standardUncertainty": ""
+          },
+          "savedInputs": null,
+          "distributionDivisor": "1.732",
+          "isManual": true,
+          "isInlineManual": true,
+          "inlineDraft": false,
+          "manualInputMode": "tolerance",
+          "manualRawValue": 0.000002,
+          "manualUnit": "V",
+          "isBaseUnitValue": false,
+          "inlineValidation": null,
+          "pendingReason": null,
+          "contribution": 0.0000011547005383792516
+        },
+        {
+          "id": "uut_resolution",
+          "pendingReason": null,
+          "componentId": "UUT Resolution",
+          "name": "UUT Resolution",
+          "type": "B",
+          "value": 57.735026918962575,
+          "isBaseUnitValue": false,
+          "value_native": 0.0002886751345948129,
+          "unit_native": "V",
+          "dof": null,
+          "isCore": true,
+          "distribution": "Rectangular (resolution)",
+          "distributionDivisor": "3.464",
+          "isResolution": true,
+          "resolution": 0.001,
+          "resolutionUnit": "V",
+          "sourcePointLabel": "0.001 V LSD",
+          "quantity": 1,
+          "contribution": 0.0002886751345948129
+        }
+      ],
+      "calculatedBudgetGroups": [
+        {
+          "id": "final_budget",
+          "kind": "final",
+          "label": "Voltage Uncertainty Budget",
+          "unit": "V",
+          "components": [
+            {
+              "id": "ref-5",
+              "name": "Agilent 34401A - TMDE Error",
+              "type": "B",
+              "value": 25.980762113533164,
+              "value_native": 0.0001299038105676658,
+              "unit_native": "V",
+              "dof": null,
+              "distribution": "Rectangular",
+              "isCore": false,
+              "sourcePointLabel": "Manual",
+              "variableType": "",
+              "originalInput": {
+                "toleranceLimit": 0.0002249933999031972,
+                "errorDistributionDivisor": "1.732",
+                "unit": "V"
+              },
+              "savedInputs": null,
+              "tmdeBudgetSourceId": "reference",
+              "tmdeBudgetRangeId": "agilent-34401a-10v",
+              "tmdeBudgetComponentKind": "Accuracy",
+              "pendingReason": null,
+              "authoredTolerance": {
+                "id": "agilent-34401a-10v",
+                "min": 0,
+                "max": 10,
+                "unit": "V",
+                "resolution": 0.00001,
+                "resolutionUnit": "V",
+                "includeResolutionInBudget": false,
+                "tolerances": {
+                  "reading": {
+                    "high": 0.0035,
+                    "low": -0.0035,
+                    "unit": "%",
+                    "symmetric": true,
+                    "distribution": "1.732"
+                  },
+                  "range": {
+                    "high": 0.0005,
+                    "low": -0.0005,
+                    "unit": "%",
+                    "symmetric": true,
+                    "distribution": "1.732",
+                    "value": 10
+                  }
+                },
+                "functionId": "voltage-fn",
+                "functionName": "DC Voltage",
+                "functionUnit": "V",
+                "rangeId": "agilent-34401a-10v",
+                "_index": 0,
+                "reading": {
+                  "high": 0.0035,
+                  "low": -0.0035,
+                  "unit": "%",
+                  "symmetric": true,
+                  "distribution": "1.732"
+                },
+                "range": {
+                  "high": 0.0005,
+                  "low": -0.0005,
+                  "unit": "%",
+                  "symmetric": true,
+                  "distribution": "1.732",
+                  "value": 10
+                },
+                "source": "function"
+              },
+              "toleranceLimit_native": 0.00022500000000000002,
+              "isBaseUnitValue": false,
+              "distributionDivisor": "1.732",
+              "contribution": 0.0001299038105676658
+            },
+            {
+              "id": "stab-5",
+              "name": "Source stability (demo)",
+              "type": "B",
+              "value": 2.309401076758504,
+              "value_native": 0.000011547005383792519,
+              "unit_native": "V",
+              "dof": null,
+              "distribution": "Rectangular",
+              "isCore": false,
+              "sourcePointLabel": "Manual",
+              "variableType": "",
+              "originalInput": {
+                "inputMode": "tolerance",
+                "unit": "V",
+                "errorDistributionDivisor": "1.732",
+                "tolerance": {
+                  "floor": {
+                    "high": 0.00002,
+                    "low": -0.00002,
+                    "unit": "V",
+                    "symmetric": true,
+                    "distribution": "1.732"
+                  }
+                },
+                "useFiniteDof": false,
+                "toleranceLimit": 0.00002,
+                "standardUncertainty": ""
+              },
+              "savedInputs": null,
+              "distributionDivisor": "1.732",
+              "isManual": true,
+              "isInlineManual": true,
+              "inlineDraft": false,
+              "manualInputMode": "tolerance",
+              "manualRawValue": 0.00002,
+              "manualUnit": "V",
+              "isBaseUnitValue": false,
+              "inlineValidation": null,
+              "pendingReason": null,
+              "contribution": 0.000011547005383792519
+            },
+            {
+              "id": "emf-5",
+              "name": "Thermal EMF (demo)",
+              "type": "B",
+              "value": 0.2309401076758503,
+              "value_native": 0.0000011547005383792516,
+              "unit_native": "V",
+              "dof": null,
+              "distribution": "Rectangular",
+              "isCore": false,
+              "sourcePointLabel": "Manual",
+              "variableType": "",
+              "originalInput": {
+                "inputMode": "tolerance",
+                "unit": "V",
+                "errorDistributionDivisor": "1.732",
+                "tolerance": {
+                  "floor": {
+                    "high": 0.000002,
+                    "low": -0.000002,
+                    "unit": "V",
+                    "symmetric": true,
+                    "distribution": "1.732"
+                  }
+                },
+                "useFiniteDof": false,
+                "toleranceLimit": 0.000002,
+                "standardUncertainty": ""
+              },
+              "savedInputs": null,
+              "distributionDivisor": "1.732",
+              "isManual": true,
+              "isInlineManual": true,
+              "inlineDraft": false,
+              "manualInputMode": "tolerance",
+              "manualRawValue": 0.000002,
+              "manualUnit": "V",
+              "isBaseUnitValue": false,
+              "inlineValidation": null,
+              "pendingReason": null,
+              "contribution": 0.0000011547005383792516
+            },
+            {
+              "id": "uut_resolution",
+              "pendingReason": null,
+              "componentId": "UUT Resolution",
+              "name": "UUT Resolution",
+              "type": "B",
+              "value": 57.735026918962575,
+              "isBaseUnitValue": false,
+              "value_native": 0.0002886751345948129,
+              "unit_native": "V",
+              "dof": null,
+              "isCore": true,
+              "distribution": "Rectangular (resolution)",
+              "distributionDivisor": "3.464",
+              "isResolution": true,
+              "resolution": 0.001,
+              "resolutionUnit": "V",
+              "sourcePointLabel": "0.001 V LSD",
+              "quantity": 1,
+              "contribution": 0.0002886751345948129
+            }
+          ],
+          "results": {
+            "combined": 0.0003167696323829038,
+            "effective_dof": null,
+            "k_value": 1.9599639845400538,
+            "expanded": 0.0006208570708664842
+          }
+        }
+      ],
+      "budgetPropagationMethod": "linear",
+      "monteCarloTrials": 10000,
+      "risk8MonteCarloResult": null,
+      "riskMetrics": null
+    },
+    {
+      "id": "dcv-9",
+      "section": "",
+      "tmdeDescription": "",
+      "measurementAreaId": "voltage",
+      "associatedUutIds": [
+        "uut"
+      ],
+      "specifications": {},
+      "components": [
+        {
+          "id": "ref-9",
+          "name": "34401A reference accuracy",
+          "type": "B",
+          "value": null,
+          "value_native": null,
+          "unit_native": "",
+          "dof": null,
+          "distribution": "",
+          "isCore": false,
+          "sourcePointLabel": "",
+          "variableType": "",
+          "originalInput": null,
+          "savedInputs": null,
+          "tmdeBudgetSourceId": "reference",
+          "tmdeBudgetRangeId": "agilent-34401a-10v",
+          "tmdeBudgetComponentKind": "Accuracy"
+        },
+        {
+          "id": "stab-9",
+          "name": "Source stability (demo)",
+          "type": "B",
+          "value": 1.2830005981991686,
+          "value_native": 0.000011547005383792517,
+          "unit_native": "V",
+          "dof": null,
+          "distribution": "Rectangular",
+          "isCore": false,
+          "sourcePointLabel": "Manual",
+          "variableType": "",
+          "originalInput": {
+            "inputMode": "tolerance",
+            "unit": "V",
+            "errorDistributionDivisor": "1.732",
+            "tolerance": {
+              "floor": {
+                "high": 0.00002,
+                "low": -0.00002,
+                "unit": "V",
+                "symmetric": true,
+                "distribution": "1.732"
+              }
+            },
+            "useFiniteDof": false
+          },
+          "savedInputs": null,
+          "distributionDivisor": "1.732",
+          "isManual": true,
+          "isInlineManual": true,
+          "inlineDraft": false,
+          "manualInputMode": "tolerance",
+          "manualRawValue": 0.00002,
+          "manualUnit": "V",
+          "isBaseUnitValue": false,
+          "inlineValidation": null,
+          "pendingReason": null
+        },
+        {
+          "id": "emf-9",
+          "name": "Thermal EMF (demo)",
+          "type": "B",
+          "value": 0.12830005981991682,
+          "value_native": 0.0000011547005383792516,
+          "unit_native": "V",
+          "dof": null,
+          "distribution": "Rectangular",
+          "isCore": false,
+          "sourcePointLabel": "Manual",
+          "variableType": "",
+          "originalInput": {
+            "inputMode": "tolerance",
+            "unit": "V",
+            "errorDistributionDivisor": "1.732",
+            "tolerance": {
+              "floor": {
+                "high": 0.000002,
+                "low": -0.000002,
+                "unit": "V",
+                "symmetric": true,
+                "distribution": "1.732"
+              }
+            },
+            "useFiniteDof": false
+          },
+          "savedInputs": null,
+          "distributionDivisor": "1.732",
+          "isManual": true,
+          "isInlineManual": true,
+          "inlineDraft": false,
+          "manualInputMode": "tolerance",
+          "manualRawValue": 0.000002,
+          "manualUnit": "V",
+          "isBaseUnitValue": false,
+          "inlineValidation": null,
+          "pendingReason": null
+        }
+      ],
+      "is_detailed_uncertainty_calculated": true,
+      "measurementType": "direct",
+      "equationString": "",
+      "equationName": "",
+      "variableMappings": {},
+      "variableNominals": {},
+      "inputCorrelations": {},
+      "testPointInfo": {
+        "measurementArea": "Voltage",
+        "parameter": {
+          "name": "Voltage",
+          "value": "9",
+          "unit": "V"
+        }
+      },
+      "uutTolerance": {
+        "id": "fluke-87v-60v",
+        "min": 6,
+        "max": 60,
+        "resolution": 0.01,
+        "unit": "V",
+        "resolutionUnit": "V",
+        "includeResolutionInBudget": true,
+        "tolerances": {
+          "reading": {
+            "high": 0.05,
+            "low": -0.05,
+            "unit": "%",
+            "symmetric": true,
+            "distribution": "1.732"
+          },
+          "floor": {
+            "high": 0.01,
+            "low": -0.01,
+            "unit": "V",
+            "symmetric": true,
+            "distribution": "1.732"
+          }
+        },
+        "functionId": "voltage-fn",
+        "functionName": "DC Voltage",
+        "functionUnit": "V",
+        "rangeId": "fluke-87v-60v",
+        "_index": 1,
+        "reading": {
+          "high": 0.05,
+          "low": -0.05,
+          "unit": "%",
+          "symmetric": true,
+          "distribution": "1.732"
+        },
+        "floor": {
+          "high": 0.01,
+          "low": -0.01,
+          "unit": "V",
+          "symmetric": true,
+          "distribution": "1.732"
+        },
+        "source": "function"
+      },
+      "tmdeTolerances": [],
+      "combined_uncertainty": 321.60623752729197,
+      "combined_uncertainty_absolute_base": 0.0028944561377456275,
+      "combined_uncertainty_inputs_native": 0,
+      "combined_uncertainty_inputs_base": 0,
+      "effective_dof": null,
+      "k_value": 1.9599639845400538,
+      "coverageFactorMode": "auto",
+      "coverageFactorOverride": null,
+      "expanded_uncertainty": 630.3366427569262,
+      "expanded_uncertainty_absolute_base": 0.005673029784812335,
+      "calculatedNominalValue": null,
+      "calculatedBudgetComponents": [
+        {
+          "id": "ref-9",
+          "name": "Agilent 34401A - TMDE Error",
+          "type": "B",
+          "value": 23.414760917134824,
+          "value_native": 0.00021073284825421344,
+          "unit_native": "V",
+          "dof": null,
+          "distribution": "Rectangular",
+          "isCore": false,
+          "sourcePointLabel": "Manual",
+          "variableType": "",
+          "originalInput": {
+            "toleranceLimit": 0.00036498929317629766,
+            "errorDistributionDivisor": "1.732",
+            "unit": "V"
+          },
+          "savedInputs": null,
+          "tmdeBudgetSourceId": "reference",
+          "tmdeBudgetRangeId": "agilent-34401a-10v",
+          "tmdeBudgetComponentKind": "Accuracy",
+          "pendingReason": null,
+          "authoredTolerance": {
+            "id": "agilent-34401a-10v",
+            "min": 0,
+            "max": 10,
+            "unit": "V",
+            "resolution": 0.00001,
+            "resolutionUnit": "V",
+            "includeResolutionInBudget": false,
+            "tolerances": {
+              "reading": {
+                "high": 0.0035,
+                "low": -0.0035,
+                "unit": "%",
+                "symmetric": true,
+                "distribution": "1.732"
+              },
+              "range": {
+                "high": 0.0005,
+                "low": -0.0005,
+                "unit": "%",
+                "symmetric": true,
+                "distribution": "1.732",
+                "value": 10
+              }
+            },
+            "functionId": "voltage-fn",
+            "functionName": "DC Voltage",
+            "functionUnit": "V",
+            "rangeId": "agilent-34401a-10v",
+            "_index": 0,
+            "reading": {
+              "high": 0.0035,
+              "low": -0.0035,
+              "unit": "%",
+              "symmetric": true,
+              "distribution": "1.732"
+            },
+            "range": {
+              "high": 0.0005,
+              "low": -0.0005,
+              "unit": "%",
+              "symmetric": true,
+              "distribution": "1.732",
+              "value": 10
+            },
+            "source": "function"
+          },
+          "toleranceLimit_native": 0.00036500000000000004,
+          "isBaseUnitValue": false,
+          "distributionDivisor": "1.732",
+          "contribution": 0.00021073284825421344
+        },
+        {
+          "id": "stab-9",
+          "name": "Source stability (demo)",
+          "type": "B",
+          "value": 1.2830005981991686,
+          "value_native": 0.000011547005383792517,
+          "unit_native": "V",
+          "dof": null,
+          "distribution": "Rectangular",
+          "isCore": false,
+          "sourcePointLabel": "Manual",
+          "variableType": "",
+          "originalInput": {
+            "inputMode": "tolerance",
+            "unit": "V",
+            "errorDistributionDivisor": "1.732",
+            "tolerance": {
+              "floor": {
+                "high": 0.00002,
+                "low": -0.00002,
+                "unit": "V",
+                "symmetric": true,
+                "distribution": "1.732"
+              }
+            },
+            "useFiniteDof": false,
+            "toleranceLimit": 0.00002,
+            "standardUncertainty": ""
+          },
+          "savedInputs": null,
+          "distributionDivisor": "1.732",
+          "isManual": true,
+          "isInlineManual": true,
+          "inlineDraft": false,
+          "manualInputMode": "tolerance",
+          "manualRawValue": 0.00002,
+          "manualUnit": "V",
+          "isBaseUnitValue": false,
+          "inlineValidation": null,
+          "pendingReason": null,
+          "contribution": 0.000011547005383792517
+        },
+        {
+          "id": "emf-9",
+          "name": "Thermal EMF (demo)",
+          "type": "B",
+          "value": 0.12830005981991685,
+          "value_native": 0.0000011547005383792518,
+          "unit_native": "V",
+          "dof": null,
+          "distribution": "Rectangular",
+          "isCore": false,
+          "sourcePointLabel": "Manual",
+          "variableType": "",
+          "originalInput": {
+            "inputMode": "tolerance",
+            "unit": "V",
+            "errorDistributionDivisor": "1.732",
+            "tolerance": {
+              "floor": {
+                "high": 0.000002,
+                "low": -0.000002,
+                "unit": "V",
+                "symmetric": true,
+                "distribution": "1.732"
+              }
+            },
+            "useFiniteDof": false,
+            "toleranceLimit": 0.000002,
+            "standardUncertainty": ""
+          },
+          "savedInputs": null,
+          "distributionDivisor": "1.732",
+          "isManual": true,
+          "isInlineManual": true,
+          "inlineDraft": false,
+          "manualInputMode": "tolerance",
+          "manualRawValue": 0.000002,
+          "manualUnit": "V",
+          "isBaseUnitValue": false,
+          "inlineValidation": null,
+          "pendingReason": null,
+          "contribution": 0.0000011547005383792518
+        },
+        {
+          "id": "uut_resolution",
+          "pendingReason": null,
+          "componentId": "UUT Resolution",
+          "name": "UUT Resolution",
+          "type": "B",
+          "value": 320.7501495497921,
+          "isBaseUnitValue": false,
+          "value_native": 0.002886751345948129,
+          "unit_native": "V",
+          "dof": null,
+          "isCore": true,
+          "distribution": "Rectangular (resolution)",
+          "distributionDivisor": "3.464",
+          "isResolution": true,
+          "resolution": 0.01,
+          "resolutionUnit": "V",
+          "sourcePointLabel": "0.01 V LSD",
+          "quantity": 1,
+          "contribution": 0.002886751345948129
+        }
+      ],
+      "calculatedBudgetGroups": [
+        {
+          "id": "final_budget",
+          "kind": "final",
+          "label": "Voltage Uncertainty Budget",
+          "unit": "V",
+          "components": [
+            {
+              "id": "ref-9",
+              "name": "Agilent 34401A - TMDE Error",
+              "type": "B",
+              "value": 23.414760917134824,
+              "value_native": 0.00021073284825421344,
+              "unit_native": "V",
+              "dof": null,
+              "distribution": "Rectangular",
+              "isCore": false,
+              "sourcePointLabel": "Manual",
+              "variableType": "",
+              "originalInput": {
+                "toleranceLimit": 0.00036498929317629766,
+                "errorDistributionDivisor": "1.732",
+                "unit": "V"
+              },
+              "savedInputs": null,
+              "tmdeBudgetSourceId": "reference",
+              "tmdeBudgetRangeId": "agilent-34401a-10v",
+              "tmdeBudgetComponentKind": "Accuracy",
+              "pendingReason": null,
+              "authoredTolerance": {
+                "id": "agilent-34401a-10v",
+                "min": 0,
+                "max": 10,
+                "unit": "V",
+                "resolution": 0.00001,
+                "resolutionUnit": "V",
+                "includeResolutionInBudget": false,
+                "tolerances": {
+                  "reading": {
+                    "high": 0.0035,
+                    "low": -0.0035,
+                    "unit": "%",
+                    "symmetric": true,
+                    "distribution": "1.732"
+                  },
+                  "range": {
+                    "high": 0.0005,
+                    "low": -0.0005,
+                    "unit": "%",
+                    "symmetric": true,
+                    "distribution": "1.732",
+                    "value": 10
+                  }
+                },
+                "functionId": "voltage-fn",
+                "functionName": "DC Voltage",
+                "functionUnit": "V",
+                "rangeId": "agilent-34401a-10v",
+                "_index": 0,
+                "reading": {
+                  "high": 0.0035,
+                  "low": -0.0035,
+                  "unit": "%",
+                  "symmetric": true,
+                  "distribution": "1.732"
+                },
+                "range": {
+                  "high": 0.0005,
+                  "low": -0.0005,
+                  "unit": "%",
+                  "symmetric": true,
+                  "distribution": "1.732",
+                  "value": 10
+                },
+                "source": "function"
+              },
+              "toleranceLimit_native": 0.00036500000000000004,
+              "isBaseUnitValue": false,
+              "distributionDivisor": "1.732",
+              "contribution": 0.00021073284825421344
+            },
+            {
+              "id": "stab-9",
+              "name": "Source stability (demo)",
+              "type": "B",
+              "value": 1.2830005981991686,
+              "value_native": 0.000011547005383792517,
+              "unit_native": "V",
+              "dof": null,
+              "distribution": "Rectangular",
+              "isCore": false,
+              "sourcePointLabel": "Manual",
+              "variableType": "",
+              "originalInput": {
+                "inputMode": "tolerance",
+                "unit": "V",
+                "errorDistributionDivisor": "1.732",
+                "tolerance": {
+                  "floor": {
+                    "high": 0.00002,
+                    "low": -0.00002,
+                    "unit": "V",
+                    "symmetric": true,
+                    "distribution": "1.732"
+                  }
+                },
+                "useFiniteDof": false,
+                "toleranceLimit": 0.00002,
+                "standardUncertainty": ""
+              },
+              "savedInputs": null,
+              "distributionDivisor": "1.732",
+              "isManual": true,
+              "isInlineManual": true,
+              "inlineDraft": false,
+              "manualInputMode": "tolerance",
+              "manualRawValue": 0.00002,
+              "manualUnit": "V",
+              "isBaseUnitValue": false,
+              "inlineValidation": null,
+              "pendingReason": null,
+              "contribution": 0.000011547005383792517
+            },
+            {
+              "id": "emf-9",
+              "name": "Thermal EMF (demo)",
+              "type": "B",
+              "value": 0.12830005981991685,
+              "value_native": 0.0000011547005383792518,
+              "unit_native": "V",
+              "dof": null,
+              "distribution": "Rectangular",
+              "isCore": false,
+              "sourcePointLabel": "Manual",
+              "variableType": "",
+              "originalInput": {
+                "inputMode": "tolerance",
+                "unit": "V",
+                "errorDistributionDivisor": "1.732",
+                "tolerance": {
+                  "floor": {
+                    "high": 0.000002,
+                    "low": -0.000002,
+                    "unit": "V",
+                    "symmetric": true,
+                    "distribution": "1.732"
+                  }
+                },
+                "useFiniteDof": false,
+                "toleranceLimit": 0.000002,
+                "standardUncertainty": ""
+              },
+              "savedInputs": null,
+              "distributionDivisor": "1.732",
+              "isManual": true,
+              "isInlineManual": true,
+              "inlineDraft": false,
+              "manualInputMode": "tolerance",
+              "manualRawValue": 0.000002,
+              "manualUnit": "V",
+              "isBaseUnitValue": false,
+              "inlineValidation": null,
+              "pendingReason": null,
+              "contribution": 0.0000011547005383792518
+            },
+            {
+              "id": "uut_resolution",
+              "pendingReason": null,
+              "componentId": "UUT Resolution",
+              "name": "UUT Resolution",
+              "type": "B",
+              "value": 320.7501495497921,
+              "isBaseUnitValue": false,
+              "value_native": 0.002886751345948129,
+              "unit_native": "V",
+              "dof": null,
+              "isCore": true,
+              "distribution": "Rectangular (resolution)",
+              "distributionDivisor": "3.464",
+              "isResolution": true,
+              "resolution": 0.01,
+              "resolutionUnit": "V",
+              "sourcePointLabel": "0.01 V LSD",
+              "quantity": 1,
+              "contribution": 0.002886751345948129
+            }
+          ],
+          "results": {
+            "combined": 0.0028944561377456275,
+            "effective_dof": null,
+            "k_value": 1.9599639845400538,
+            "expanded": 0.005673029784812335
+          }
+        }
+      ],
+      "budgetPropagationMethod": "linear",
+      "monteCarloTrials": 10000,
+      "risk8MonteCarloResult": null,
+      "riskMetrics": null
+    }
+  ],
+  "noteImages": []
+}

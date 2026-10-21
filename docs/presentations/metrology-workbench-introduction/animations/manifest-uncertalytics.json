@@ -1,0 +1,35 @@
+[
+  {
+    "file": "05-uncertalytics-instruments-dark-demo.gif",
+    "width": 1600,
+    "height": 900,
+    "frames": 30,
+    "duration_seconds": 10.5,
+    "bytes": 299725,
+    "loop": 0,
+    "content": "Actual local Uncertalytics UI with demonstration data",
+    "branding": "Actual animated app emblem with green presentation-frame halo"
+  },
+  {
+    "file": "06-uncertalytics-contributions-dark-demo.gif",
+    "width": 1600,
+    "height": 900,
+    "frames": 48,
+    "duration_seconds": 16.8,
+    "bytes": 352140,
+    "loop": 0,
+    "content": "Actual local Uncertalytics UI with demonstration data",
+    "branding": "Actual animated app emblem with green presentation-frame halo"
+  },
+  {
+    "file": "07-uncertalytics-confidence-dark-demo.gif",
+    "width": 1600,
+    "height": 900,
+    "frames": 40,
+    "duration_seconds": 14.0,
+    "bytes": 323221,
+    "loop": 0,
+    "content": "Actual local Uncertalytics UI with demonstration data",
+    "branding": "Actual animated app emblem with green presentation-frame halo"
+  }
+]

@@ -1,0 +1,27 @@
+UNCERTALYTICS — REALISTIC INSTRUMENT DEMONSTRATION
+
+Three separate dark-mode GIFs, 1600 x 900 (16:9), looping continuously:
+05-uncertalytics-instruments-dark-demo.gif — review instrument ranges and specifications, open the reference accuracy editor, then view the calculated budget.
+06-uncertalytics-contributions-dark-demo.gif — select 2 V, 5 V, 9 V and 5 V. The budget, relative contribution bars and numerical results update in the actual application.
+07-uncertalytics-confidence-dark-demo.gif — at 5 V, change confidence from 95% to 99%, then restore 95%. Coverage factor and expanded uncertainty recalculate.
+
+These are real UI captures from Metrology Workbench source commit 7790748. No physical instruments were connected or operated. Uncertalytics performs analysis in these clips; it is not acquiring hardware readings. Hold times are paced for a presentation, not an app-performance benchmark. Screens are cropped and resized, with titles and demonstration labels added. Values and graphs are not retouched. The moving NAVAIR emblem is captured from the actual app. A green halo is added around it in the presentation frame as branding; it is not an instrument-acquisition status indicator.
+
+INSTRUMENTS AND MODEL
+UUT: Fluke 87V digital multimeter, normal 6000-count mode. DC accuracy +/- (0.05% of reading + 1 count). 6 V range has 0.001 V resolution; 60 V range has 0.01 V resolution. The example uses the 6 V range at 2 V and 5 V, then the 60 V range at 9 V.
+Reference: Agilent 34401A 6.5-digit DMM (manufacturer documentation now hosted by Keysight), fixed 10 V DC range. One-year accuracy at 23 +/- 5 deg C: +/- (0.0035% of reading + 0.0005% of range). Range resolution 0.00001 V. This is a manufacturer specification, not a fabricated calibration-certificate uncertainty.
+
+Primary sources:
+Fluke 80 Series V Users Manual, detailed specifications and Table 12:
+https://assets.fluke.com/manuals/80v_____umeng0200.pdf
+Keysight 34401A data sheet, DC characteristics / one-year accuracy:
+https://www.keysight.com/us/en/assets/7018-06774/data-sheets/5968-0162.pdf
+
+Illustrative reference-comparison method: both meters observe a stabilized DC source. The reference specification is modeled as a rectangular bound. UUT resolution contributes one step divided by sqrt(12). Assumed residual source instability is +/-20 microvolts and thermal EMF is +/-2 microvolts, both rectangular. These two lab terms are illustrative assumptions, not manufacturer claims. Reference resolution/noise is covered by its stated accuracy and not added separately. Terms are assumed uncorrelated with effectively infinite degrees of freedom. This simplified demonstration model is not a completed laboratory uncertainty evaluation or certificate.
+
+At 5 V, the 34401A accuracy bound is 225 microvolts. Combined standard uncertainty is approximately 316.77 microvolts. Expanded uncertainty changes from approximately 620.86 microvolts at 95% confidence (k=1.960) to 815.94 microvolts at 99% (k=2.576). Independent arithmetic checks for all points are in uncertalytics-numeric-checks.json. Risk and TUR values are the application's own outputs using its resolution-aware tolerance handling; they should not be inferred from unrounded instrument accuracy alone.
+
+Risk assumptions: 85% assumed end-of-period reliability, 12-month interval, required TUR 4, required PFA 2%, required REOP 85%. These are demo targets, not a recommended laboratory policy. At 9 V the coarser UUT resolution reduces measurement capability, which is intentionally visible.
+
+USING THE FILES
+Download and extract the complete ZIP. Insert any GIF into PowerPoint as a picture and use Slide Show to play it. Matching PNG posters are included. The GIFs are supplied separately, not inserted into the existing editable presentation. START-HERE.html previews the animations. The example session JSON is included for reproduction; import only into a separate demonstration workspace. It contains no real calibration results.
