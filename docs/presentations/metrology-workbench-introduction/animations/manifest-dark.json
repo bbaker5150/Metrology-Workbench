@@ -2,11 +2,12 @@
   {
     "file": "01-live-overview-dark-simulated.gif",
     "width": 1440,
-    "height": 1080,
+    "height": 1125,
     "frames": 11,
     "duration_seconds": 7.27,
-    "bytes": 868508,
-    "loop": 0
+    "bytes": 711482,
+    "loop": 0,
+    "presentation": "Native application capture; no added headers, badges, footers or rearranged panels"
   },
   {
     "file": "02-live-charts-dark-simulated.gif",
@@ -29,16 +30,17 @@
   {
     "file": "04-ac-dc-statistics-dark-simulated.gif",
     "width": 1440,
-    "height": 1080,
-    "frames": 45,
+    "height": 743,
+    "frames": 11,
     "duration_seconds": 24.77,
-    "bytes": 970237,
+    "bytes": 715479,
     "loop": 0,
     "playback_speed": 5,
     "cycles_observed": [
       1,
       2,
       3
-    ]
+    ],
+    "presentation": "Native application capture; no added headers, badges, footers or rearranged panels"
   }
 ]
