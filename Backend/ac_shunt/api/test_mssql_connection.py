@@ -5,6 +5,7 @@ The ODBC transport is simulated; no credentials or database server are needed.
 from datetime import datetime
 from unittest import TestCase
 from unittest.mock import Mock, patch
+from uuid import uuid4
 
 from django.db import models
 
@@ -21,6 +22,10 @@ class SingleResultConnection:
     """Reject overlapping statements as a real non-MARS connection would."""
     def __init__(self):
         self.active = None
+        self.statements = []
+
+    def add_output_converter(self, *args):
+        pass
 
     def getinfo(self, code):
         return "MSODBCSQL18.DLL"
@@ -35,10 +40,24 @@ class SingleResultCursor:
         self.rows = []
         self.closed = False
 
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        self.close()
+
     def execute(self, sql, params=()):
         if self.connection.active not in (None, self):
             raise AssertionError("Connection is busy with results for another command")
-        self.rows = [(1,), (2,), (3,), (4,), (5,)] if sql.startswith("SELECT") else []
+        self.connection.statements.append(sql)
+        if "SERVERPROPERTY('ProductVersion')" in sql:
+            self.rows = [("17.0.5005.3", 3)]
+        elif "SYSDATETIME()" in sql:
+            self.rows = [(datetime(2026, 1, 1),)]
+        elif "@@TRANCOUNT" in sql:
+            self.rows = [(0,)]
+        else:
+            self.rows = [(1,), (2,), (3,), (4,), (5,)] if sql.startswith("SELECT") else []
         self.connection.active = self if self.rows else None
         return self
 
@@ -63,15 +82,30 @@ class MSSQLConnectionTests(TestCase):
         wrapper = DatabaseWrapper({
             "NAME": "test", "HOST": "test.invalid", "USER": "test",
             "PASSWORD": "a;MARS_Connection=yes;b}c", "PORT": "",
+            "AUTOCOMMIT": True, "CONN_HEALTH_CHECKS": False,
+            "CONN_MAX_AGE": 0, "TIME_ZONE": None,
             "OPTIONS": {"driver": "ODBC Driver 18 for SQL Server",
                         "mars_enabled": enabled, "connection_timeout": 10,
                         "extra_params": "Encrypt=yes;TrustServerCertificate=yes;MARS_Connection=yes"},
-        })
-        wrapper.connection = SingleResultConnection()
-        wrapper.get_system_datetime = datetime(2026, 1, 1)
-        wrapper.sql_server_version = 2025
-        wrapper.init_connection_state()
+        }, alias="mars_test_" + uuid4().hex)
+        # A fresh alias forces actual backend metadata discovery. Pre-populating
+        # sql_server_version/get_system_datetime hid a cold-start failure.
+        with patch("mssql.base.Database.connect", return_value=SingleResultConnection()):
+            wrapper.ensure_connection()
         return wrapper
+
+    def test_cold_start_discovers_server_properties_without_preseeded_cache(self):
+        for enabled in (False, True):
+            with self.subTest(mars_enabled=enabled):
+                wrapper = self.backend(enabled)
+                self.assertEqual(wrapper.sql_server_version, 2025)
+                self.assertFalse(wrapper.to_azure_sql_db)
+                self.assertEqual(wrapper.get_system_datetime, datetime(2026, 1, 1))
+                statements = wrapper.connection.statements
+                self.assertEqual(sum("SERVERPROPERTY('ProductVersion')" in sql
+                                     for sql in statements), 1)
+                self.assertTrue(any("SYSDATETIME()" in sql for sql in statements))
+                self.assertIsNone(wrapper.connection.active)
 
     def test_transport_receives_one_mars_option_without_changing_tls_or_password(self):
         wrapper = self.backend()

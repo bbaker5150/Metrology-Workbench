@@ -18,6 +18,12 @@ class MicrosoftCursorWrapper(CursorWrapper):
 
 
 class DatabaseWrapper(MSSQLDatabaseWrapper):
+    # mssql-django 1.7.2 reads these descriptors via type(self).__dict__ in
+    # _fetch_server_properties(), bypassing normal inheritance. Bind the original
+    # descriptors here so both metadata caches remain available on cold startup.
+    sql_server_version = MSSQLDatabaseWrapper.sql_server_version
+    to_azure_sql_db = MSSQLDatabaseWrapper.to_azure_sql_db
+
     @property
     def mars_enabled(self):
         return self.settings_dict.get("OPTIONS", {}).get("mars_enabled", False)
