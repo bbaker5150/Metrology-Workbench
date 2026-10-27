@@ -161,8 +161,17 @@ export default function ManualInputForm({ data, onChange }) {
       ...data,
       area_code: code,
       nomenclature: data.nomenclature || area.default_nomenclature,
+      manufacturer: data.manufacturer || area.default_manufacturer || "",
+      model_number: data.model_number || area.default_model_number || "",
+      procedure_used: data.procedure_used || area.default_procedure_used || "",
       submitted_label: area.submitted_label || "Submitted by:",
       statements: area.statements.map((statement) => ({ kind: statement.kind, text: statement.text })),
+      inline_results: data.inline_results?.length ? data.inline_results : (area.inline_results || []),
+      tables: data.tables?.length ? data.tables : (area.tables || []).map((table) => ({
+        ...table,
+        columns: table.columns.map((column) => ({ ...column })),
+        rows: table.rows.map((row) => [...row]),
+      })),
     });
   };
 
