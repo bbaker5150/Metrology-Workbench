@@ -126,9 +126,12 @@ else:
     print("SKIPPING MSSQL: Missing credentials files in Documents/Portal.")
 
 if USE_MSSQL:
+    print('MSSQL MARS: ' + ('enabled' if os.environ.get('AC_SHUNT_MARS_ENABLED') == '1' else 'disabled'))
     db_options = {
         'driver': active_driver,
         'connection_timeout': 10,
+        # Rollback switch; a full backend restart opens connections in this mode.
+        'mars_enabled': os.environ.get('AC_SHUNT_MARS_ENABLED', '0') == '1',
     }
     
     # Only append the extra parameter if we are using Driver 18
@@ -137,7 +140,7 @@ if USE_MSSQL:
 
     DATABASES = {
         'default': {
-            'ENGINE': 'mssql',
+            'ENGINE': 'ac_shunt.db.backends.mssql',
             'NAME': MSSQL_NAME,
             'USER': MSSQL_USER,
             'PASSWORD': MSSQL_PASS,

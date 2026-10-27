@@ -11,6 +11,8 @@ from pathlib import Path
 from django.core.management.base import BaseCommand, CommandError
 from django.db import connections
 
+from ac_shunt.db.backends.mssql.options import with_mars
+
 
 def readings_sql(session_id):
     if not isinstance(session_id, int) or not 0 < session_id < 2**63:
@@ -68,41 +70,12 @@ def package_versions():
     return result
 
 
-def with_mars(connection_string, enabled):
-    """Replace the MARS keyword without touching semicolons in braced secrets."""
-    parts = []
-    start = index = 0
-    braced = False
-    while index < len(connection_string):
-        char = connection_string[index]
-        if braced:
-            if char == "}":
-                if connection_string[index:index + 2] == "}}":
-                    index += 2
-                    continue
-                braced = False
-        elif char == "{":
-            prefix = connection_string[start:index].partition("=")
-            if prefix[1] and not prefix[2].strip():
-                braced = True
-        elif char == ";":
-            parts.append(connection_string[start:index])
-            start = index + 1
-        index += 1
-    if braced:
-        raise ValueError("Unterminated braced ODBC value.")
-    parts.append(connection_string[start:])
-    aliases = {"mars_connection", "multipleactiveresultsets"}
-    preserved = [part for part in parts if part.strip()
-                 and part.partition("=")[0].strip().lower() not in aliases]
-    preserved.append("MARS_Connection=" + ("yes" if enabled else "no"))
-    return ";".join(preserved)
-
-
 def run_mars_trial(connection, sql, enabled):
     # Use a private wrapper, preserving backend converters, initialization and
     # all existing authentication/TLS/driver options. Never mutate the live alias.
-    private = type(connection)(deepcopy(connection.settings_dict), alias="sql_fetch_comparison")
+    private_settings = deepcopy(connection.settings_dict)
+    private_settings.setdefault("OPTIONS", {})["mars_enabled"] = enabled
+    private = type(connection)(private_settings, alias="sql_fetch_comparison")
     try:
         build = private._build_connection_string
         private._build_connection_string = lambda *a, **kw: with_mars(build(*a, **kw), enabled)

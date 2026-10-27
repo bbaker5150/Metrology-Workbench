@@ -137,5 +137,56 @@ running application. Each private connection is closed after its trial.
 Send the new JSON file printed by the command. A large, repeatable improvement
 with MARS off would identify a connection-mode-dependent problem worth addressing;
 it would not by itself distinguish a driver bug from a server/network interaction.
-Do not apply MARS-off to the whole application based only on this test: nested
-queries and streaming behavior need checking before adopting that configuration.
+
+## Application MARS setting and speed test
+
+The application now disables MARS by default on its Microsoft ODBC connection.
+The controlled workstation test returned the same 24 rows and 2,885,666 text
+characters in every trial: fetches took 10.17/13.04 seconds with MARS on and
+53.60/50.14 milliseconds with it off. This establishes a MARS-dependent delay
+in that environment, not which part of the server/driver/network caused it.
+
+After pulling the change, stop and restart the Django backend completely using
+your normal launch command. Keep the frontend running to load the session.
+No dependency upgrade or database migration is needed for this change.
+The backend startup should report `MSSQL MARS: disabled` and successful MSSQL
+connectivity; a SQLite fallback is not a valid comparison.
+
+For a clean speed comparison, remove profiling and any MARS rollback override
+in the PowerShell window used to restart the backend:
+
+```powershell
+Remove-Item Env:AC_SHUNT_MARS_ENABLED -ErrorAction SilentlyContinue
+Remove-Item Env:AC_SHUNT_PROFILE_REQUESTS -ErrorAction SilentlyContinue
+```
+
+Open session 100 three times and record the Network timings for `test_points/`
+and `information/`. Also exercise normal session navigation and save/reload a
+disposable test session to check nested reads and writes. Share the timings and
+any errors. The full endpoints do more work than the isolated fetch, so a
+50 ms query does not imply a 50 ms page load.
+
+The small custom backend replaces MARS keywords after mssql-django constructs
+the connection string, preserving authentication and encryption. Version 1.7.2
+otherwise adds a conflicting Windows default. With MARS off, Django buffers
+ORM results before yielding them, so nested queries can reuse the connection.
+This can increase memory use for large `QuerySet.iterator()` calls. Raw cursor
+callers must still finish or close their result before issuing another query.
+The adapter preserves repeated `fetchone()` calls without discarding rows.
+
+To restore the previous connection mode, stop the backend, set this variable in
+its launch window, and restart:
+
+```powershell
+$env:AC_SHUNT_MARS_ENABLED = "1"
+```
+
+Remove that variable and restart again to return to MARS off. The standalone
+`--compare-mars` diagnostic continues to test private on/off connections in
+either application mode.
+
+Related references (similar behavior, not proof of an identical Hyper-V bug):
+
+- [Microsoft's MARS performance guidance for its PHP SQL drivers](https://github.com/microsoft/msphpsql/wiki/Recommendations-for-improving-the-performance-of-PDO_SQLSRV-and-SQLSRV)
+- [SqlClient report of MARS-related slowdowns on Linux VMs](https://github.com/dotnet/SqlClient/issues/422)
+- [Microsoft's mssql-django connection options and MARS compatibility notes](https://learn.microsoft.com/en-us/sql/connect/python/mssql-django/connection-options?view=sql-server-ver17)

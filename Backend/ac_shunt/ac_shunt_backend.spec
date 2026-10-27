@@ -22,6 +22,7 @@ a = Analysis(
         # --- MSSQL Backend Modules (CRITICAL FIX) ---
         'mssql',
         'mssql.base',
+        'ac_shunt.db.backends.mssql.base',
         'mssql.compiler',
         'mssql.features',
         'mssql.introspection',
