@@ -85,3 +85,35 @@ Remove-Item Env:AC_SHUNT_DIAGNOSTICS_DIR -ErrorAction SilentlyContinue
 ```
 
 The mode is disabled by default. Logs remain in the temporary directory for review.
+
+## Compare the SSMS query through Django and raw ODBC
+
+With the backend's virtual environment active, run from the repository root:
+
+```powershell
+python Backend/ac_shunt/manage.py diagnose_sql_fetch --session 100
+```
+
+This standalone command needs no frontend and does not depend on the profiling
+environment variables. Use the same environment and credentials as the backend.
+It skips application startup outbox migration and workstation-claim cleanup,
+refuses a SQLite fallback, and only reads the chosen session. Normal settings
+startup still checks connectivity.
+
+The command runs the same `SELECT r.*` readings query used in SSMS, with the same
+literal session ID, through both Django's cursor and the underlying ODBC cursor
+on the same connection. It runs each twice in reversed order, consumes every row
+in batches of 100, and reports execution, fetch, close and total times. It does
+not change connection options or driver selection. SSMS can still use different
+session options and a different client library.
+
+Send the `ac-shunt-sql-comparison-*.json` file whose complete path the command
+prints. It is saved under the Windows temporary directory. It contains timings,
+row/text-character counts and package/driver versions, with no reading values,
+SQL text or connection credentials. Text-character counts are not wire-byte counts.
+Four slow trials may take a couple of minutes; progress prints before each one.
+
+If both cursor paths are slow, investigate the ODBC/connection/large-value
+retrieval path. If only Django's cursor is slow, focus on its backend wrapper.
+If both are fast, compare the actual ORM query and request context next. These
+comparisons guide investigation; no single result proves a root cause.
