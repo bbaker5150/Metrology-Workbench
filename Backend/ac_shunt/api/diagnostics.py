@@ -75,6 +75,7 @@ class DiagnosticASGI:
             return await self.application(scope, receive, send)
         began = time.monotonic()
         request_id = uuid.uuid4().hex[:12]
+        scope = {**scope, "ac_shunt_request_id": request_id}
         headers = dict(scope.get("headers", []))
         details = {"request_id": request_id, "path": str(scope.get("path", ""))[:300],
                    "peer": scope.get("client"), "method": scope.get("method"),

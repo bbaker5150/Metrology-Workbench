@@ -229,6 +229,13 @@ MIDDLEWARE = [
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]
 
+# Temporary, local diagnostics for slow session loads. Disabled by default.
+PROFILE_SESSION_REQUESTS = os.environ.get("AC_SHUNT_PROFILE_REQUESTS", "").strip().lower() in {
+    "1", "true", "yes", "on"
+}
+if PROFILE_SESSION_REQUESTS:
+    MIDDLEWARE.insert(0, 'api.request_latency.RequestLatencyMiddleware')
+
 ROOT_URLCONF = 'ac_shunt.urls'
 
 TEMPLATES = [
