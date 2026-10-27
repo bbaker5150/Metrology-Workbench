@@ -22,7 +22,7 @@ export function instrumentRowSelectionFromEvent(event, previous, previousMode, a
   const elements = [...table.querySelectorAll("tr[data-selection-key][data-range-id]")];
   const rows = elements.map(node => ({ key: node.dataset.selectionKey, rangeId: node.dataset.rangeId }));
   return nextInstrumentCellSelection({ rows, clickedIndex: elements.indexOf(row), span: event.target.closest("td")?.rowSpan || 1,
-    rangeTarget: Boolean(event.target.closest("[data-range-cell]:not([data-qualifier-cell])")), previous, previousMode,
+    rangeTarget: Boolean(event.target.closest("[data-range-cell]")), previous, previousMode,
     anchor: anchor?.table === table ? anchor.index : null, shift: event.shiftKey, additive: event.ctrlKey || event.metaKey });
 }
 // Logical columns cannot use cellIndex: row-spanned Description/Sync/custom

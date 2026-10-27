@@ -38,9 +38,9 @@ it.each(['session','point'])('adds and merges qualifier sub-ranges in %s view',a
  fireEvent.mouseDown(rows[1].querySelector('[data-qualifier-cell]'));
  expect(rows[0].dataset.rangeSelected).toBe('false');
  expect(rows[1].dataset.rangeSelected).toBe('true');
- expect(table.dataset.selectionMode).toBe('instrument');
+ expect(table.dataset.selectionMode).toBe('range');
  fireEvent.pointerMove(rows[1].querySelector('[data-qualifier-cell]'));
- await waitFor(()=>expect(rows[0].querySelector('.cell-description')).toHaveAttribute('data-cell-selected'));
+ await waitFor(()=>expect(rows[0].querySelector('.cell-description')).not.toHaveAttribute('data-cell-selected'));
  expect(rows[0].querySelector('[data-range-cell]')).toHaveAttribute('data-cell-selected');
  const state=JSON.parse(screen.getByTestId('state').textContent);
  expect(state.uuts[0].instrument.functions[0].ranges).toHaveLength(2);
@@ -129,7 +129,7 @@ it.each(['session','point'])('uses existing shared-cell selection and highlighti
  expect(shared).toHaveAttribute('data-actions-selected','true');
  expect(nested).toHaveAttribute('data-actions-selected','true');
  expect(rows.every(row=>row.dataset.rangeSelected==='true')).toBe(true);
- expect(first.closest('table').dataset.selectionMode).toBe('instrument');
+ expect(first.closest('table').dataset.selectionMode).toBe('range');
  fireEvent.mouseDown(shared);
  expect(rows.every(row=>row.dataset.rangeSelected==='false')).toBe(true);
  expect(shared).not.toHaveAttribute('data-actions-selected');

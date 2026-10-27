@@ -4,6 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import UncertaintyBudgetTable from './UncertaintyBudgetTable';
 import { normalizeInlineManualComponent } from '../utils/manualComponentUtils';
 import { createDynamicDefinition, createDynamicComponent } from '../../../utils/dynamicBudgetComponents';
+import { getBudgetComponentsFromTolerance } from '../utils/budgetUtils';
 
 const components = [{ id: 'reader', name: 'Reader uncertainty', type: 'B', isCore: true,
   value_native: .00002, unit_native: 'A', distribution: 'Normal', distributionDivisor: 2 }];
@@ -17,6 +18,27 @@ function Budget({ initialMode = 'absolute', value = 10, measurementType = 'direc
 }
 
 describe('direct budget display selection', () => {
+  it('automatically displays an all-ppm budget in ppm, retaining an explicit absolute override', () => {
+    const rows = [35, 5].flatMap((value, index) => getBudgetComponentsFromTolerance({ id: `source${index}`,
+      floor: { high: value, low: -value, unit: 'ppm', distribution: '1.960' } }, { value: 10, unit: 'A' }));
+    expect(rows).toHaveLength(2);
+    const combined = Math.hypot(...rows.map(row => row.value_native));
+    const results = { ...calcResults, combined_uncertainty: combined, expanded_uncertainty: combined * 1.96, k_value: 1.96 };
+    const { container } = render(<Budget initialMode="auto" components={rows} calcResults={results} riskResults={{ pfa: 2.263, pfr: 3.636, tur: 4 }} />);
+    expect(screen.getByRole('option', { name: 'Auto (ppm)' })).toBeInTheDocument();
+    expect(within(container.querySelector('.budget-results-card')).getByText('18.038438 ppm')).toBeInTheDocument();
+    const riskBefore = container.querySelector('.budget-decision-zoom-surface').textContent;
+    fireEvent.change(screen.getByLabelText('Uncertainty display'), { target: { value: 'absolute' } });
+    expect(within(container.querySelector('.budget-results-card')).getByText('0.00018038438 A')).toBeInTheDocument();
+    expect(container.querySelector('.budget-decision-zoom-surface').textContent).toBe(riskBefore);
+  });
+  it('uses absolute display automatically for mixed source units', () => {
+    const manual = normalizeInlineManualComponent({ component: { id: 'ppm' }, referencePoint: { value: 10, unit: 'A' },
+      draft: { name: 'Relative source', type: 'A', inputMode: 'standard', standardUncertainty: 2, unit: 'ppm' } });
+    const { container } = render(<Budget initialMode="auto" components={[manual, ...components]} />);
+    expect(screen.getByRole('option', { name: 'Auto (absolute)' })).toBeInTheDocument();
+    expect(within(container.querySelector('.budget-results-card')).getByText('0.00002 A')).toBeInTheDocument();
+  });
   it('converts manual and equation-based standard uncertainties without modifying their definitions', () => {
     const point = { value: 10, unit: 'A' };
     const manual = normalizeInlineManualComponent({ component: { id: 'manual' }, referencePoint: point,

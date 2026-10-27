@@ -1,6 +1,6 @@
 import { InstrumentTableViewport, InstrumentDeleteAction } from "./InstrumentTableActions";
 import { consecutiveCellGroup } from "../../../utils/consecutiveCellGroup";
-import { formatQualifierValue, formatQualifierPath, editQualifierRange, instrumentQualifierDepth, instrumentQualifierNames, qualifierAt, qualifierGroupKey, qualifierRowSpan } from "../../../utils/qualifierRanges";
+import { cutQualifierRows, formatQualifierValue, formatQualifierPath, editQualifierRange, instrumentQualifierDepth, instrumentQualifierNames, qualifierAt, qualifierDepth, qualifierGroupKey, qualifierRowSpan } from "../../../utils/qualifierRanges";
 import { measurementPreview } from '../../../utils/measurementPreview';
 import { newMeasurementAreaColor } from "../../../utils/measurementAreaGrouping";
 import MeasurementAreaEmptyHint from "../../../components/common/MeasurementAreaEmptyHint";
@@ -1266,10 +1266,20 @@ export const removeParentRangeFromItem = (item, rangeId) => {
 
 // Deep-clone a range for the range clipboard / paste, with a fresh id so the
 // pasted copy is an independent duplicate.
-const cloneRangeForPaste = (range = {}) => {
+const cloneRangeForPaste = (range = {}, identities = new Map()) => {
   const clone = JSON.parse(JSON.stringify(range || {}));
   clone.id = uuidv4();
-  if (clone.qualifier) clone.qualifierGroupId = uuidv4();
+  const identity = key => {
+    if (!identities.has(key)) identities.set(key, uuidv4());
+    return identities.get(key);
+  };
+  if (clone.qualifier) clone.qualifierGroupId = identity(`group:${qualifierGroupKey(range)}`);
+  let node = clone.qualifier;
+  while (node) {
+    if (node.id) node.id = identity(`qualifier:${node.id}`);
+    if (node.qualifierGroupId) node.qualifierGroupId = identity(`group:${node.qualifierGroupId}`);
+    node = node.qualifier;
+  }
   if (clone.rangeId !== undefined) clone.rangeId = clone.id;
   delete clone._id;
   return clone;
@@ -1277,10 +1287,10 @@ const cloneRangeForPaste = (range = {}) => {
 
 // Append a pasted (cloned) range next to the active range, mirroring
 // addRangeToItem's function/array placement. Returns { item, newRangeId }.
-export const pasteRangeIntoItem = (item, activeRangeId, clipRange) => {
+export const pasteRangeIntoItem = (item, activeRangeId, clipRange, identities) => {
   item = { ...item, rangeOrderMode: "manual" };
   const inst = item?.instrument || {};
-  const newRange = cloneRangeForPaste(clipRange);
+  const newRange = cloneRangeForPaste(clipRange, identities);
   if (Array.isArray(item.ranges) && item.ranges.length > 0) {
     return { item: { ...item, ranges: insertAfterId(item.ranges, newRange, activeRangeId, rangeIdOf) }, newRangeId: newRange.id };
   }
@@ -1307,6 +1317,86 @@ export const pasteRangeIntoItem = (item, activeRangeId, clipRange) => {
     item: { ...item, instrument: { ...inst, functions: [{ id: uuidv4(), name: "", ranges: [newRange] }] } },
     newRangeId: newRange.id,
   };
+};
+
+// Clipboard rows are leaves, but a range is the whole qualifier tree. Preserve
+// its shared identities across one paste, and allocate new ones on each paste.
+export const collectRangeClipboard = (sources, depth = 0) => {
+  const rows = [], seen = new Set(), selection = {};
+  for (const { kind, source, id } of sources) {
+    const ranges = getInstrumentRangeRows(source);
+    const selected = ranges.find(range => sameId(rangeIdOf(range), id));
+    const covered = depth === 0 && selected?.qualifier
+      ? ranges.filter(range => qualifierGroupKey(range) === qualifierGroupKey(selected)) : [selected];
+    for (const resolved of covered.filter(Boolean)) {
+      const rangeId = rangeIdOf(resolved), key = `${kind}:${source.id}`;
+      if (seen.has(`${key}:${rangeId}`)) continue;
+      const raw = findItemRange(source, rangeId);
+      if (!raw || (depth && !qualifierAt(raw, depth))) continue;
+      seen.add(`${key}:${rangeId}`);
+      (selection[key] ||= []).push(String(rangeId));
+      const range = JSON.parse(JSON.stringify({ ...raw, unit: raw.unit || resolved.unit || '' }));
+      // Namespace IDs so independent instruments cannot merge on paste.
+      if (range.qualifier) range.qualifierGroupId = `${key}:${qualifierGroupKey(resolved)}`;
+      let node = range.qualifier;
+      while (node) { if (node.id) node.id = `${key}:${node.id}`; node = node.qualifier; }
+      rows.push({ range, customFields: { ...(source.rangeCustomFields?.[rangeId] || source.customFields || {}) } });
+    }
+  }
+  return { ranges: rows, range: rows[0]?.range, depth, selection };
+};
+
+export const pasteRangeClipboard = (item, activeRangeId, clip, targetDepth = 1) => {
+  const identities = new Map();
+  let updated = item, newRangeId = activeRangeId;
+  const target = findItemRange(item, activeRangeId);
+  const rows = getInstrumentRangeRows(item);
+  if (clip.depth && !target) return { item, newRangeId: activeRangeId };
+  const destinationGroup = target?.qualifierGroupId || uuidv4();
+  const depth = Math.min(Math.max(1, targetDepth), qualifierDepth(target) + 1);
+  // Insert after the entire destination branch, never inside a shared cell.
+  if (target?.qualifier) {
+    const resolvedTarget = rows.find(row => sameId(rangeIdOf(row), activeRangeId)) || target;
+    const group = rows.filter(row => qualifierGroupKey(row) === qualifierGroupKey(resolvedTarget));
+    const branch = clip.depth && depth > 1 ? group.filter(row =>
+      Array.from({ length: depth - 1 }, (_, i) => i + 1).every(level => {
+        const a = qualifierAt(row, level), b = qualifierAt(target, level);
+        return a?.id && b?.id ? a.id === b.id : formatQualifierValue(a) === formatQualifierValue(b);
+      })) : group;
+    newRangeId = rangeIdOf(branch.at(-1)) || activeRangeId;
+    if (clip.depth && !target.qualifierGroupId) {
+      for (const row of group) updated = applyItemRangePatch(updated, rangeIdOf(row), { qualifierGroupId: destinationGroup });
+    }
+  }
+  for (const entry of clip.ranges || [{ range: clip.range }]) {
+    let range = entry.range;
+    if (clip.depth && target) {
+      const subtree = qualifierAt(range, clip.depth);
+      if (!subtree) continue;
+      range = { ...range };
+      // The destination owns current/range and all ancestor qualifiers; the
+      // copied branch owns its limits, distribution, and nested qualifiers.
+      for (const key of ['min','max','value','unit','unitless','isSingleValue','functionId','functionName','functionUnit']) {
+        delete range[key];
+        if (target[key] !== undefined) range[key] = target[key];
+      }
+      const graft = (parent, level) => level === 1 ? { ...parent, qualifier: subtree }
+        : { ...parent, qualifier: graft(parent.qualifier || {}, level - 1) };
+      range.qualifier = graft(target, depth).qualifier;
+      range.qualifierGroupId = destinationGroup;
+      identities.set(`group:${destinationGroup}`, destinationGroup);
+      let ancestor = target.qualifier;
+      for (let level = 1; level < depth && ancestor; level++, ancestor = ancestor.qualifier) {
+        if (ancestor.id) identities.set(`qualifier:${ancestor.id}`, ancestor.id);
+        if (ancestor.qualifierGroupId) identities.set(`group:${ancestor.qualifierGroupId}`, ancestor.qualifierGroupId);
+      }
+    }
+    const result = pasteRangeIntoItem(updated, newRangeId, range, identities);
+    updated = result.item; newRangeId = result.newRangeId;
+    if (entry.customFields) updated = { ...updated, rangeCustomFields: { ...updated.rangeCustomFields, [newRangeId]: { ...entry.customFields } } };
+  }
+  if (clip.depth && target && !target.qualifier && newRangeId !== activeRangeId) updated = removeRangeFromItem(updated, activeRangeId);
+  return { item: updated, newRangeId };
 };
 
 export const uncertaintyRowId = id => `uncertainty:${id}`;
@@ -7733,14 +7823,14 @@ const SummaryDashboard = ({
       setPendingRangeEditKey(`${itemStateKey(kind, item.id)}:${newRangeId}`);
     }
   };
-  const handleDeleteSelectedRanges = (selection = selectedRangeIds) => {
+  const handleDeleteSelectedRanges = (selection = selectedRangeIds, qualifierDepth = 0) => {
     if (!onSessionSave) return;
     const next = { ...latestSessionDataRef.current };
     for (const kind of ["uut", "tmde"]) {
       const list = kind === "uut" ? "uuts" : "tmdes";
       next[list] = (next[list] || []).map(item => {
         const ids = selection[itemStateKey(kind, item.id)];
-        return ids?.length ? removeSelectedRangesFromItem(item, ids) : item;
+        return ids?.length ? (qualifierDepth ? cutQualifierRows(item, ids, qualifierDepth) : removeSelectedRangesFromItem(item, ids)) : item;
       });
     }
     latestSessionDataRef.current = next;
@@ -8086,6 +8176,7 @@ const SummaryDashboard = ({
     }
   }, [libraryMode, selectedTmdeIds]);
   const rangeSelectionAnchorRef = useRef(null);
+  const clipboardDepthRef = useRef(0);
   const [lastSelectionTarget, setLastSelectionTarget] = useState(null);
   const uutSelectionAnchorRef = useRef(null);
   const tmdeSelectionAnchorRef = useRef(null);
@@ -8282,6 +8373,7 @@ const SummaryDashboard = ({
     if (event.target.closest('input, select, textarea, .range-row-add, .range-row-delete, .range-qualifier-add, .instrument-row-tools button, .instrument-order-controls')) return;
     pasteDestinationRef.current = { kind, areaKey: pasteAreaFromEvent(event, item), targetId: item.id };
     selectedInstrumentAreasRef.current[`${kind}:${item.id}`] = pasteAreaFromEvent(event, item);
+    clipboardDepthRef.current = Number(event.target.closest("[data-qualifier-cell]")?.dataset.qualifierCell || 0);
     const next = instrumentRowSelectionFromEvent(event, selectedRangeIds, lastSelectionTarget === "range" ? "range" : "instrument", rangeSelectionAnchorRef.current);
     rangeSelectionAnchorRef.current = { table: event.currentTarget.closest("table"), index: next.anchor };
     setSelectedRangeIds(next.ranges);
@@ -8449,7 +8541,7 @@ const SummaryDashboard = ({
           if (!rowSpan) return <React.Fragment key={depth}>{custom}</React.Fragment>;
           const actionsSelected = getInstrumentRangeRows(item).slice(rangeIndex, rangeIndex + rowSpan)
             .some(row => (selectedRangeIds[itemStateKey(kind, item.id)] || []).some(id => sameId(id, rangeIdOf(row))));
-          return <React.Fragment key={depth}><td rowSpan={rowSpan} colSpan={qualifier.qualifier || splitQualifierCells ? 1 : Number(qualifierEnabled) - depth + 1} data-range-cell="true" data-qualifier-cell={depth} data-actions-selected={actionsSelected || undefined} className="cell-value qualifier-range-cell">
+          return <React.Fragment key={depth}><td rowSpan={rowSpan} colSpan={qualifier.qualifier || splitQualifierCells ? 1 : Number(qualifierEnabled) - depth + 1} data-range-cell="true" data-qualifier-cell={depth} data-actions-selected={actionsSelected || undefined} className="cell-value qualifier-range-cell" onContextMenu={event => openRangeRowMenu(event, kind, item, range, rangeIndex)}>
             <div className="range-row-cell">
               <RangeCell ranges={[qualifier]} activeIndex={0} activeRange={{ ...qualifier, id: `${rangeKey}:qualifier:${depth}` }} editable textMode
                 closeKey={Boolean(qualifier.qualifier)}
@@ -9059,37 +9151,28 @@ const SummaryDashboard = ({
   };
 
   // --- Range-row clipboard (copy/cut/paste a single range) ---
-  const copyRange = (kind, item, rangeId, mode = "copy") => {
-    const selected = lastSelectionTarget === "range" && hasSelectedRangeIds(selectedRangeIds)
+  const copyRange = (kind, item, rangeId, mode = "copy", depth = clipboardDepthRef.current, selection = selectedRangeIds) => {
+    const selected = selection[itemStateKey(kind, item.id)]?.includes(String(rangeId))
       ? [["uut", sessionData.uuts || []], ["tmde", sessionData.tmdes || []]].flatMap(([role, items]) => items.flatMap(source =>
-        (selectedRangeIds[itemStateKey(role, source.id)] || []).map(id => ({ source, id }))))
-      : [{ source: item, id: rangeId }];
-    const ranges = selected.flatMap(({ source, id }) => {
-      const raw = findItemRange(source, id);
-      if (!raw) return [];
-      const resolved = getInstrumentRangeRows(source).find(range => sameId(range.rangeId ?? range.id, id));
-      return [{ range: JSON.parse(JSON.stringify({ ...raw, unit: raw.unit || resolved?.unit || "" })), customFields: source.rangeCustomFields?.[id] || source.customFields || {} }];
-    });
-    if (!ranges.length) return;
+        (selection[itemStateKey(role, source.id)] || []).map(id => ({ kind: role, source, id }))))
+      : [{ kind, source: item, id: rangeId }];
+    const clip = collectRangeClipboard(selected, depth);
+    if (!clip.ranges.length) return null;
     instrumentClipboard = null;
     claimWorkspaceClipboard("range");
-    rangeClipboard = { kind, range: ranges[0].range, ranges };
-    showToast?.(`${ranges.length} Range${ranges.length === 1 ? "" : "s"} ${mode === "cut" ? "cut" : "copied"} to clipboard`);
+    rangeClipboard = { kind, ...clip };
+    const count = depth ? new Set(clip.ranges.map(entry => JSON.stringify(qualifierAt(entry.range, depth)))).size
+      : new Set(clip.ranges.map(entry => entry.range.qualifierGroupId || entry.range.id)).size;
+    showToast?.(`${count} ${depth ? "Qualifier" : "Range"}${count === 1 ? "" : "s"} ${mode === "cut" ? "cut" : "copied"} to clipboard`);
+    return clip;
   };
-  const cutRange = (kind, item, range) => {
-    const rangeId = rangeIdOf(range);
-    copyRange(kind, item, rangeId, "cut");
-    if (hasSelectedRangeIds(selectedRangeIds) && lastSelectionTarget === "range") handleDeleteSelectedRanges();
-    else if (rangeId) handleRemoveRange(kind, item, rangeId);
+  const cutRange = (kind, item, range, depth = clipboardDepthRef.current, selection = selectedRangeIds) => {
+    const clip = copyRange(kind, item, rangeIdOf(range), "cut", depth, selection);
+    if (clip) handleDeleteSelectedRanges(clip.selection, depth);
   };
   const pasteRange = (kind, item, activeRangeId) => {
     if (!onSessionSave || !currentRangeClipboard()) return;
-    let updated = item, newRangeId = activeRangeId;
-    for (const entry of rangeClipboard.ranges || [{ range: rangeClipboard.range }]) {
-      const result = pasteRangeIntoItem(updated, newRangeId, entry.range);
-      updated = result.item; newRangeId = result.newRangeId;
-      if (entry.customFields) updated = { ...updated, rangeCustomFields: { ...updated.rangeCustomFields, [newRangeId]: { ...entry.customFields } } };
-    }
+    const { item: updated, newRangeId } = pasteRangeClipboard(item, activeRangeId, rangeClipboard, clipboardDepthRef.current || 1);
     persistItem(kind, updated);
     const setIdx = kind === "uut" ? setLocalRangeIndices : setTmdeRangeIndices;
     const resolved = resolveUutRangeHelper(updated, {}, null, null).ranges || [];
@@ -9138,29 +9221,32 @@ const SummaryDashboard = ({
     setIdx((previous) => ({ ...previous, [item.id]: index }));
     setLastSelectionTarget("range");
     const rangeId = rangeIdOf(range);
-    setSelectedRangeIds(
-      rangeId
-        ? { [itemStateKey(kind, item.id)]: [String(rangeId)] }
-        : {},
-    );
+    const depth = Number(e.target.closest("[data-qualifier-cell]")?.dataset.qualifierCell || 0);
+    clipboardDepthRef.current = depth;
+    const selection = lastSelectionTarget === "range" && selectedRangeIds[itemStateKey(kind, item.id)]?.includes(String(rangeId))
+      ? selectedRangeIds : { [itemStateKey(kind, item.id)]: depth
+        ? getInstrumentRangeRows(item).slice(index, index + (e.target.closest('td')?.rowSpan || 1)).map(row => String(rangeIdOf(row)))
+        : [String(rangeId)] };
+    setSelectedRangeIds(selection);
+    const noun = depth ? "Qualifier" : "Range";
     const canPaste = !!currentRangeClipboard();
     const canDelete = Boolean(rangeId);
     const items = [
       { label: "Copy Instrument", icon: faCopy, action: () => copyInstrument(kind, item, "copy") },
-      { label: "Copy Range", icon: faCopy, action: () => copyRange(kind, item, rangeId) },
+      { label: `Copy ${noun}`, icon: faCopy, action: () => copyRange(kind, item, rangeId, "copy", depth, selection) },
       ...(currentInstrumentClipboard() ? [{ label: "Paste Instrument", icon: faPaste,
         action: () => pasteInstrument(kind, pasteAreaFromEvent(e, item), item.id) }] : []),
     ];
     if (canDelete) {
       items.push({
-        label: "Cut Range",
+        label: `Cut ${noun}`,
         icon: faScissors,
-        action: () => cutRange(kind, item, range),
+        action: () => cutRange(kind, item, range, depth, selection),
       });
     }
     if (canPaste) {
       items.push({
-        label: "Paste Range",
+        label: currentRangeClipboard()?.depth ? "Paste Qualifiers" : "Paste Range",
         icon: faPaste,
         action: () => pasteRange(kind, item, rangeId),
       });
@@ -9168,10 +9254,10 @@ const SummaryDashboard = ({
     if (canDelete) {
       items.push({ type: "divider" });
       items.push({
-        label: "Delete Range",
+        label: `Delete ${noun}`,
         icon: faTrashAlt,
         className: "destructive",
-        action: () => deleteRange(kind, item, rangeId),
+        action: () => depth ? handleDeleteSelectedRanges(selection, depth) : deleteRange(kind, item, rangeId),
       });
     }
     items.push({ type: "divider" });
@@ -9221,8 +9307,8 @@ const SummaryDashboard = ({
           if (key === "c" || key === "x") {
             e.preventDefault();
             e.stopImmediatePropagation();
-            copyRange(kind, target.item, rangeIdOf(target.activeRange), key === "x" ? "cut" : "copy");
-            if (key === "x") handleDeleteSelectedRanges();
+            if (key === "x") cutRange(kind, target.item, target.activeRange);
+            else copyRange(kind, target.item, rangeIdOf(target.activeRange));
             return;
           }
           if (key === "v" && currentRangeClipboard()) {
@@ -10621,6 +10707,7 @@ function DetailedView({
   const [selectedTmdeIds, setSelectedTmdeIds] = useState([]);
   const [selectedRangeIds, setSelectedRangeIds] = useState({});
   const rangeSelectionAnchorRef = useRef(null);
+  const clipboardDepthRef = useRef(0);
   const [lastSelectionTarget, setLastSelectionTarget] = useState(null);
   const uutSelectionAnchorRef = useRef(null);
   const tmdeSelectionAnchorRef = useRef(null);
@@ -11128,37 +11215,28 @@ function DetailedView({
   };
 
   // --- Range-row clipboard (copy/cut/paste a single range) ---
-  const copyRange = (kind, item, rangeId, mode = "copy") => {
-    const selected = lastSelectionTarget === "range" && hasSelectedRangeIds(selectedRangeIds)
+  const copyRange = (kind, item, rangeId, mode = "copy", depth = clipboardDepthRef.current, selection = selectedRangeIds) => {
+    const selected = selection[itemStateKey(kind, item.id)]?.includes(String(rangeId))
       ? [["uut", sessionData.uuts || []], ["tmde", sessionData.tmdes || []]].flatMap(([role, items]) => items.flatMap(source =>
-        (selectedRangeIds[itemStateKey(role, source.id)] || []).map(id => ({ source, id }))))
-      : [{ source: item, id: rangeId }];
-    const ranges = selected.flatMap(({ source, id }) => {
-      const raw = findItemRange(source, id);
-      if (!raw) return [];
-      const resolved = getInstrumentRangeRows(source).find(range => sameId(range.rangeId ?? range.id, id));
-      return [{ range: JSON.parse(JSON.stringify({ ...raw, unit: raw.unit || resolved?.unit || "" })), customFields: source.rangeCustomFields?.[id] || source.customFields || {} }];
-    });
-    if (!ranges.length) return;
+        (selection[itemStateKey(role, source.id)] || []).map(id => ({ kind: role, source, id }))))
+      : [{ kind, source: item, id: rangeId }];
+    const clip = collectRangeClipboard(selected, depth);
+    if (!clip.ranges.length) return null;
     instrumentClipboard = null;
     claimWorkspaceClipboard("range");
-    rangeClipboard = { kind, range: ranges[0].range, ranges };
-    showToast?.(`${ranges.length} Range${ranges.length === 1 ? "" : "s"} ${mode === "cut" ? "cut" : "copied"} to clipboard`);
+    rangeClipboard = { kind, ...clip };
+    const count = depth ? new Set(clip.ranges.map(entry => JSON.stringify(qualifierAt(entry.range, depth)))).size
+      : new Set(clip.ranges.map(entry => entry.range.qualifierGroupId || entry.range.id)).size;
+    showToast?.(`${count} ${depth ? "Qualifier" : "Range"}${count === 1 ? "" : "s"} ${mode === "cut" ? "cut" : "copied"} to clipboard`);
+    return clip;
   };
-  const cutRange = (kind, item, range) => {
-    const rangeId = rangeIdOf(range);
-    copyRange(kind, item, rangeId, "cut");
-    if (hasSelectedRangeIds(selectedRangeIds) && lastSelectionTarget === "range") handleDeleteSelectedRanges();
-    else if (rangeId) handleRemoveRangeDetail(kind, item, rangeId);
+  const cutRange = (kind, item, range, depth = clipboardDepthRef.current, selection = selectedRangeIds) => {
+    const clip = copyRange(kind, item, rangeIdOf(range), "cut", depth, selection);
+    if (clip) handleDeleteSelectedRanges(clip.selection, depth);
   };
   const pasteRange = (kind, item, activeRangeId) => {
     if (!onSessionSave || !currentRangeClipboard()) return;
-    let updated = item, newRangeId = activeRangeId;
-    for (const entry of rangeClipboard.ranges || [{ range: rangeClipboard.range }]) {
-      const result = pasteRangeIntoItem(updated, newRangeId, entry.range);
-      updated = result.item; newRangeId = result.newRangeId;
-      if (entry.customFields) updated = { ...updated, rangeCustomFields: { ...updated.rangeCustomFields, [newRangeId]: { ...entry.customFields } } };
-    }
+    const { item: updated, newRangeId } = pasteRangeClipboard(item, activeRangeId, rangeClipboard, clipboardDepthRef.current || 1);
     persistInlineItemDetail(kind, updated);
     const setIdx = kind === "uut" ? setLocalRangeIndices : setTmdeRangeIndices;
     const resolved = resolveUutRangeHelper(updated, {}, null, null).ranges || [];
@@ -11200,29 +11278,32 @@ function DetailedView({
     setIdx((previous) => ({ ...previous, [item.id]: index }));
     setLastSelectionTarget("range");
     const rangeId = rangeIdOf(range);
-    setSelectedRangeIds(
-      rangeId
-        ? { [itemStateKey(kind, item.id)]: [String(rangeId)] }
-        : {},
-    );
+    const depth = Number(e.target.closest("[data-qualifier-cell]")?.dataset.qualifierCell || 0);
+    clipboardDepthRef.current = depth;
+    const selection = lastSelectionTarget === "range" && selectedRangeIds[itemStateKey(kind, item.id)]?.includes(String(rangeId))
+      ? selectedRangeIds : { [itemStateKey(kind, item.id)]: depth
+        ? getInstrumentRangeRows(item).slice(index, index + (e.target.closest('td')?.rowSpan || 1)).map(row => String(rangeIdOf(row)))
+        : [String(rangeId)] };
+    setSelectedRangeIds(selection);
+    const noun = depth ? "Qualifier" : "Range";
     const canPaste = !!currentRangeClipboard();
     const canDelete = Boolean(rangeId);
     const items = [
       { label: "Copy Instrument", icon: faCopy, action: () => copyInstrument(kind, item, "copy") },
-      { label: "Copy Range", icon: faCopy, action: () => copyRange(kind, item, rangeId) },
+      { label: `Copy ${noun}`, icon: faCopy, action: () => copyRange(kind, item, rangeId, "copy", depth, selection) },
       ...(currentInstrumentClipboard() ? [{ label: "Paste Instrument", icon: faPaste,
         action: () => pasteInstrument(kind, pasteAreaFromEvent(e, item), item.id) }] : []),
     ];
     if (canDelete) {
       items.push({
-        label: "Cut Range",
+        label: `Cut ${noun}`,
         icon: faScissors,
-        action: () => cutRange(kind, item, range),
+        action: () => cutRange(kind, item, range, depth, selection),
       });
     }
     if (canPaste) {
       items.push({
-        label: "Paste Range",
+        label: currentRangeClipboard()?.depth ? "Paste Qualifiers" : "Paste Range",
         icon: faPaste,
         action: () => pasteRange(kind, item, rangeId),
       });
@@ -11230,10 +11311,10 @@ function DetailedView({
     if (canDelete) {
       items.push({ type: "divider" });
       items.push({
-        label: "Delete Range",
+        label: `Delete ${noun}`,
         icon: faTrashAlt,
         className: "destructive",
-        action: () => deleteRangeDetail(kind, item, rangeId),
+        action: () => depth ? handleDeleteSelectedRanges(selection, depth) : deleteRangeDetail(kind, item, rangeId),
       });
     }
     items.push({ type: "divider" });
@@ -11282,8 +11363,8 @@ function DetailedView({
           if (key === "c" || key === "x") {
             e.preventDefault();
             e.stopImmediatePropagation();
-            copyRange(kind, target.item, rangeIdOf(target.activeRange), key === "x" ? "cut" : "copy");
-            if (key === "x") handleDeleteSelectedRanges();
+            if (key === "x") cutRange(kind, target.item, target.activeRange);
+            else copyRange(kind, target.item, rangeIdOf(target.activeRange));
             return;
           }
           if (key === "v" && currentRangeClipboard()) {
@@ -11896,14 +11977,14 @@ function DetailedView({
       setPendingRangeEditKey(`${itemStateKey(kind, item.id)}:${newRangeId}`);
     }
   };
-  const handleDeleteSelectedRanges = (selection = selectedRangeIds) => {
+  const handleDeleteSelectedRanges = (selection = selectedRangeIds, qualifierDepth = 0) => {
     if (!onSessionSave) return;
     const next = { ...latestSessionDataRef.current };
     for (const kind of ["uut", "tmde"]) {
       const list = kind === "uut" ? "uuts" : "tmdes";
       next[list] = (next[list] || []).map(item => {
         const ids = selection[itemStateKey(kind, item.id)];
-        return ids?.length ? removeSelectedRangesFromItem(item, ids) : item;
+        return ids?.length ? (qualifierDepth ? cutQualifierRows(item, ids, qualifierDepth) : removeSelectedRangesFromItem(item, ids)) : item;
       });
     }
     latestSessionDataRef.current = next;
@@ -12105,6 +12186,7 @@ function DetailedView({
     if (event.target.closest('input, select, textarea, .range-row-add, .range-row-delete, .range-qualifier-add, .instrument-row-tools button, .instrument-order-controls')) return;
     pasteDestinationRef.current = { kind, areaKey: pasteAreaFromEvent(event, item), targetId: item.id };
     selectedInstrumentAreasRef.current[`${kind}:${item.id}`] = pasteAreaFromEvent(event, item);
+    clipboardDepthRef.current = Number(event.target.closest("[data-qualifier-cell]")?.dataset.qualifierCell || 0);
     const next = instrumentRowSelectionFromEvent(event, selectedRangeIds, lastSelectionTarget === "range" ? "range" : "instrument", rangeSelectionAnchorRef.current);
     rangeSelectionAnchorRef.current = { table: event.currentTarget.closest("table"), index: next.anchor };
     setSelectedRangeIds(next.ranges);
@@ -12266,7 +12348,7 @@ function DetailedView({
           if (!rowSpan) return <React.Fragment key={depth}>{custom}</React.Fragment>;
           const actionsSelected = getInstrumentRangeRows(item).slice(rangeIndex, rangeIndex + rowSpan)
             .some(row => (selectedRangeIds[itemStateKey(kind, item.id)] || []).some(id => sameId(id, rangeIdOf(row))));
-          return <React.Fragment key={depth}><td rowSpan={rowSpan} colSpan={qualifier.qualifier || splitQualifierCells ? 1 : Number(qualifierEnabled) - depth + 1} data-range-cell="true" data-qualifier-cell={depth} data-actions-selected={actionsSelected || undefined} className="cell-value qualifier-range-cell">
+          return <React.Fragment key={depth}><td rowSpan={rowSpan} colSpan={qualifier.qualifier || splitQualifierCells ? 1 : Number(qualifierEnabled) - depth + 1} data-range-cell="true" data-qualifier-cell={depth} data-actions-selected={actionsSelected || undefined} className="cell-value qualifier-range-cell" onContextMenu={event => openRangeRowMenu(event, kind, item, range, rangeIndex)}>
             <div className="range-row-cell">
               <RangeCell ranges={[qualifier]} activeIndex={0} activeRange={{ ...qualifier, id: `${rangeKey}:qualifier:${depth}` }} editable textMode
                 closeKey={Boolean(qualifier.qualifier)}
@@ -17259,7 +17341,7 @@ function DetailedView({
               onOpenCorrelation={onOpenCorrelation}
               setNotification={setNotification}
               onBudgetSettingsChange={onUpdateTestPoint}
-              uncertaintyDisplayMode={testPointData.testPointInfo?.uncertaintyDisplayMode || 'absolute'}
+              uncertaintyDisplayMode={testPointData.testPointInfo?.uncertaintyDisplayMode || 'auto'}
               onUncertaintyDisplayModeChange={uncertaintyDisplayMode => onUpdateTestPoint({
                 testPointInfo: { ...testPointData.testPointInfo, uncertaintyDisplayMode },
               })}

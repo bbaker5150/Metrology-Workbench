@@ -83,6 +83,33 @@ const qualifierGroupRows = (rows, range, depth) => {
 const replaceAt = (range, depth, transform) => depth === 0 ? transform(range) : { ...range, qualifier: replaceAt(range.qualifier, depth - 1, transform) };
 const blankQualifier = (source = {}) => ({ id: uuid(), name: source.name || "Qualifier", min: "", max: "", unit: source.unit || "" });
 
+export function cutQualifierRows(item, ids, depth = 1) {
+  const selected = new Set(ids.map(String));
+  const transform = (ranges = []) => {
+    const remainingParents = new Set(ranges.filter(row => !selected.has(idOf(row))).map(row => branchKey(row, depth - 1)));
+    const retained = new Set();
+    return ranges.flatMap(row => {
+      if (!selected.has(idOf(row))) return [row];
+      const parent = branchKey(row, depth - 1);
+      if (remainingParents.has(parent) || retained.has(parent)) return [];
+      retained.add(parent);
+      // Cutting the last child leaves its current/range and ancestors editable.
+      return [{ ...replaceAt(row, depth - 1, node => {
+        const { qualifier, qualifierGroupId, ...rest } = node;
+        return rest;
+      }), tolerances: {}, tolerance: {} }];
+    });
+  };
+  const inst = item.instrument;
+  return { ...item,
+    ...(item.ranges ? { ranges: transform(item.ranges) } : {}),
+    ...(inst ? { instrument: { ...inst,
+      ...(inst.ranges ? { ranges: transform(inst.ranges) } : {}),
+      ...(inst.functions ? { functions: inst.functions.map(fn => ({ ...fn, ranges: transform(fn.ranges) })) } : {}),
+    } } : {}),
+  };
+}
+
 // Each leaf retains its own uncertainty. Ancestor IDs merge cells and keep
 // edits to a shared ancestor consistent across all of its descendants.
 export function editQualifierRange(item, rangeId, action, patch = {}, depth = 1) {

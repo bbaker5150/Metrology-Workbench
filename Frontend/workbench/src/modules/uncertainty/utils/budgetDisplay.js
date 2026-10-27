@@ -2,6 +2,20 @@ import { unitSystem } from './uncertaintyMath';
 
 const unitInfo = unit => unitSystem.units[unit] || unitSystem.units[unit?.replace(/^[µμ]/, 'u')];
 
+export function isPpmBudget(components = []) {
+  return components.length > 0 && components.every(component => {
+    if (component.pendingReason || component.isPropagationSummary) return false;
+    if (component.dynamicDefinition) return component.dynamicDefinition.outputUnit === 'ppm';
+    const tolerance = component.authoredTolerance || component.originalInput?.tolerance;
+    if (tolerance) {
+      const terms = ['reading', 'range', 'floor', 'readings_iv', 'db'].map(key => tolerance[key]).filter(term =>
+        term && ['value', 'high', 'low'].some(field => term[field] != null && term[field] !== '' && Number.isFinite(Number(term[field]))));
+      if (terms.length) return terms.every(term => term.unit === 'ppm');
+    }
+    return (component.originalInput?.unit || component.manualUnit || component.unit_native || component.unit) === 'ppm';
+  });
+}
+
 // Display-only scaling. Uncertainty magnitudes use scale factors, never offsets.
 export function canDisplayRelativeUncertainty(point) {
   const value = point?.value;
