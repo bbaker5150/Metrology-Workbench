@@ -4688,6 +4688,23 @@ body.dark-mode .symbol-popout .symbol-button:hover {
   gap: 10px;
 }
 
+.budget-uncertainty-display {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.budget-uncertainty-display select {
+  width: auto;
+}
+
+.budget-display-note {
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
 .budget-propagation-control {
   display: inline-flex;
   align-items: center;

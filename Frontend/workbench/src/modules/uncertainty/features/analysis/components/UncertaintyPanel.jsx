@@ -17259,6 +17259,10 @@ function DetailedView({
               onOpenCorrelation={onOpenCorrelation}
               setNotification={setNotification}
               onBudgetSettingsChange={onUpdateTestPoint}
+              uncertaintyDisplayMode={testPointData.testPointInfo?.uncertaintyDisplayMode || 'absolute'}
+              onUncertaintyDisplayModeChange={uncertaintyDisplayMode => onUpdateTestPoint({
+                testPointInfo: { ...testPointData.testPointInfo, uncertaintyDisplayMode },
+              })}
               useEffectiveDofByGroup={
                 testPointData.useEffectiveDofByGroup || {}
               }

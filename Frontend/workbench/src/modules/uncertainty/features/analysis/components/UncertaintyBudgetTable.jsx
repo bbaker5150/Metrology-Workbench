@@ -2,6 +2,7 @@ import { FLUSH_EDITORS } from "../../../hooks/usePageExitRecovery";
 import { readEditorDraft, saveEditorDraft, clearEditorDraft } from "../../../utils/editorRecovery";
 import { budgetDragProps } from "../../../utils/instrumentBudgetComponents";
 import { rawDecimal } from "../../../utils/rawDecimal";
+import { budgetUncertaintyDisplay, canDisplayRelativeUncertainty } from "../../../utils/budgetDisplay";
 import GrowingNumericInput from "../../../components/common/GrowingNumericInput";
 import InlineMenuSelect from "../../../components/common/InlineMenuSelect";
 import InlineSourceNameEditor from "../../../components/common/InlineSourceNameEditor";
@@ -298,7 +299,7 @@ const DeviationFlag = ({ component }) => {
 // Inline editor for a manual Type-B component's entered magnitude. Commits the
 // raw value (in its own unit) back through onComponentUpdate, which prompts the
 // user to keep the change for this point or the whole session.
-const ManualValueCell = ({ component, onCommit, suffix }) => {
+const ManualValueCell = ({ component, onCommit, suffix, displayText }) => {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const original =
@@ -320,15 +321,14 @@ const ManualValueCell = ({ component, onCommit, suffix }) => {
     return (
       <span
         className="budget-editable-value"
-        title="Edit value"
+        title={`Edit value${suffix ? ` in ${suffix}` : ""}`}
         onClick={begin}
         style={{
           cursor: "pointer",
           borderBottom: "1px dotted var(--border-color)",
         }}
       >
-        {original ? `± ${original}` : "—"}
-        {suffix ? ` ${suffix}` : ""}
+        {displayText ?? <>{original ? `± ${original}` : "—"}{suffix ? ` ${suffix}` : ""}</>}
       </span>
     );
   }
@@ -360,6 +360,7 @@ const ManualValueCell = ({ component, onCommit, suffix }) => {
 export const InlineManualComponentRow = ({
   component,
   referencePoint,
+  displayUncertainty = value => value,
   showDof,
   sigFigs,
   ToleranceEditorComponent,
@@ -467,7 +468,7 @@ export const InlineManualComponentRow = ({
       }),
     [component, draft, referencePoint],
   );
-  const std = getComponentStdUncertainty(preview, referencePoint?.unit);
+  const std = displayUncertainty(getComponentStdUncertainty(preview, referencePoint?.unit));
   const inputMode =
     "tolerance";
   const toleranceDistribution = String(
@@ -881,6 +882,8 @@ const UncertaintyBudgetTable = ({
   formatToleranceSummary,
   onOpenCorrelation,
   onBudgetSettingsChange,
+  uncertaintyDisplayMode = 'absolute',
+  onUncertaintyDisplayModeChange,
   useEffectiveDofByGroup = {},
   budgetPropagationMethod,
   monteCarloTrials = 10000,
@@ -906,6 +909,15 @@ const UncertaintyBudgetTable = ({
   const derivedUnit = referencePoint?.unit || "Units";
   const derivedName = referencePoint?.name || "Derived";
   const isDirect = measurementType === "direct";
+  const relativeAvailable = canDisplayRelativeUncertainty(referencePoint);
+  const displayMode = isDirect && uncertaintyDisplayMode === 'ppm' && relativeAvailable ? 'ppm' : 'absolute';
+  const displayUncertainty = magnitude => budgetUncertaintyDisplay(magnitude, referencePoint, isDirect && displayMode === 'ppm' ? 'ppm' : null);
+  const displayResults = group => {
+    if (!isDirect || group.kind !== 'final') return group.results;
+    // Final result magnitudes are already expressed in the point's unit.
+    const convert = value => displayUncertainty({ value, unit: derivedUnit }).value;
+    return { ...group.results, combined: convert(group.results?.combined), expanded: convert(group.results?.expanded) };
+  };
   const [uiSigFigs] = useState(4);
   const [switchedComponentId, setSwitchedComponentId] = useState(null);
   // Per-(sub)budget sig figs are no longer user-configurable — the tables render
@@ -1143,7 +1155,7 @@ const UncertaintyBudgetTable = ({
     >
       <tbody className="component-group-tbody">
         {labeledComponents.map((component, componentIndex) => {
-          if (component.dynamicDefinitionId) return <DynamicBudgetComponentRow key={`${component.id}:${component.dynamicDefinition?.kind}`} component={component} referencePoint={manualReferencePoint} measurementPoint={manualReferencePoint} showDof={showDof}
+          if (component.dynamicDefinitionId) return <DynamicBudgetComponentRow key={`${component.id}:${component.dynamicDefinition?.kind}`} component={component} referencePoint={manualReferencePoint} measurementPoint={manualReferencePoint} showDof={showDof} displayUncertainty={displayUncertainty}
             UnitSelectComponent={UnitSelectComponent} autoEdit={component.id === newDynamicComponentId || component.id === switchedComponentId} onEditorOpened={onDynamicEditorOpened}
             onKindChange={!component.tmdeUncertaintySourceId && !component.sourceTmdeId && !component.tmdeBudgetSourceId ? (kind, typeDraft) => { setSwitchedComponentId(component.id); onComponentUpdate?.(component.id,
               { uncertaintyKind: kind, typeDraft, referencePoint: manualReferencePoint }, component); } : undefined}
@@ -1155,6 +1167,7 @@ const UncertaintyBudgetTable = ({
                 key={component.id}
                 component={component}
                 referencePoint={manualReferencePoint}
+                displayUncertainty={displayUncertainty}
                 showDof={showDof}
                 sigFigs={getGroupSigFigs(group)}
                 ToleranceEditorComponent={ToleranceEditorComponent}
@@ -1179,8 +1192,9 @@ const UncertaintyBudgetTable = ({
               />
             );
           }
-          const std = getComponentStdUncertainty(component, group.unit);
-          const tolLimit = getComponentToleranceLimit(component, std);
+          const nativeStd = getComponentStdUncertainty(component, group.unit);
+          const std = displayUncertainty(nativeStd);
+          const tolLimit = getComponentToleranceLimit(component, nativeStd);
           const displayName = displayNames[componentIndex];
           const isStdEntry = isStandardUncertaintyEntry(component);
           // The entered magnitude of a manual Type-B is editable inline. A
@@ -1234,7 +1248,7 @@ const UncertaintyBudgetTable = ({
               <td>
                 {isRepeatabilityComponent(component) ? (
                   <button type="button" className="inline-tolerance-summary" aria-label="Edit repeatability measurements" onClick={event => onEdit?.(event, component)}>
-                    {`± ${formatNumber(std.value, getGroupSigFigs(group))} ${getUnitDisplayLabel(std.unit)}`.trim()}
+                    {`± ${formatNumber(nativeStd.value, getGroupSigFigs(group))} ${getUnitDisplayLabel(nativeStd.unit)}`.trim()}
                   </button>
                 ) : editableTolerance ? (
                   <ManualValueCell
@@ -1262,7 +1276,8 @@ const UncertaintyBudgetTable = ({
                   <ManualValueCell
                     component={component}
                     onCommit={commitManualValue}
-                    suffix={getUnitDisplayLabel(component.manualUnit || std.unit)}
+                    suffix={getUnitDisplayLabel(component.manualUnit || nativeStd.unit)}
+                    displayText={`± ${formatNumber(std.value, getGroupSigFigs(group))} ${getUnitDisplayLabel(std.unit)}`}
                   />
                 ) : (
                   `± ${formatNumber(std.value, getGroupSigFigs(group))} ${getUnitDisplayLabel(std.unit)}`
@@ -1649,6 +1664,17 @@ const UncertaintyBudgetTable = ({
                   ? <>{simplifyBudgetLabel(group.label).replace(/\s+uncertainty budget$/i, "")} <span className="budget-heading-suffix">Uncertainty Budget</span></>
                   : simplifyBudgetLabel(group.label)}</h4>
                 <div className="budget-section-title-actions">
+                  {isDirect && group.kind === 'final' && (
+                    <label className="budget-uncertainty-display" title={relativeAvailable ? `Relative uncertainty is referenced to |${referencePoint.value} ${getUnitDisplayLabel(referencePoint.unit)}|. Error limits retain their entered units.` : 'Relative display requires a finite, nonzero measurement point with a known unit.'}>
+                      <span>Display</span>
+                      <select className="mini-select" aria-label="Uncertainty display" value={displayMode}
+                        onChange={event => onUncertaintyDisplayModeChange?.(event.target.value)}>
+                        <option value="absolute">Absolute</option>
+                        <option value="ppm" disabled={!relativeAvailable}>Relative (ppm)</option>
+                      </select>
+                      {!relativeAvailable && <span className="budget-display-note">Relative unavailable at zero or an unset point</span>}
+                    </label>
+                  )}
                   {group.kind === "equation" && propagationWarnings.length > 0 && (
                     <span className="budget-range-warning" tabIndex={0} role="img"
                       aria-label={`Calculation warning: ${propagationWarnings.join(" ")}`}
@@ -1729,8 +1755,8 @@ const UncertaintyBudgetTable = ({
               <div className="scoped-zoom-content">
                 <ResultsCard
                   title={group === groups.at(-1) ? "Final Results" : "Results"}
-                  results={group.results}
-                  unit={group.kind === "final" ? derivedUnit : group.unit || derivedUnit}
+                  results={displayResults(group)}
+                  unit={isDirect && group.kind === 'final' && displayMode === 'ppm' ? 'ppm' : group.kind === "final" ? derivedUnit : group.unit || derivedUnit}
                   sigFigs={getGroupSigFigs(group)}
                   isFinal={group === groups.at(-1)}
                   useEffectiveDof={

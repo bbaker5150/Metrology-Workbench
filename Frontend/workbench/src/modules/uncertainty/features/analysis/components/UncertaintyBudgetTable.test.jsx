@@ -1015,7 +1015,7 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
 
     expect(screen.getByText("Head Pressure")).toBeInTheDocument();
     expect(screen.getByText("Rectangular (resolution)")).toBeInTheDocument();
-    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    expect(within(screen.getByText("Head Pressure").closest('tr')).queryByRole("combobox")).not.toBeInTheDocument();
     expect(screen.queryByTitle("Edit Component")).not.toBeInTheDocument();
     expect(screen.getByTitle("Remove Component")).toBeInTheDocument();
   });
@@ -1056,7 +1056,7 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
 
     const row = screen.getByText("F-Class Weight - TMDE Error").closest("tr");
     expect(within(row).getAllByText("Not Set")).toHaveLength(2);
-    expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+    expect(within(row).queryByRole("combobox")).not.toBeInTheDocument();
   });
 
   it("authors a new manual component directly in an expanded budget row", async () => {
