@@ -1,15 +1,21 @@
 import asyncio
+import cProfile
 import json
 import sys
+import threading
 from unittest import TestCase
 from unittest.mock import patch
 
+from asgiref.sync import ThreadSensitiveContext
 from django.db import connection
 from django.http import JsonResponse
 from django.test import AsyncClient, RequestFactory, override_settings
 from django.urls import path
 
-from .request_latency import QuerySummary, RequestLatencyMiddleware
+from .request_latency import DatabaseIO, QuerySummary, RequestLatencyMiddleware, TimedCursor
+
+
+_overlap_barrier = None
 
 
 def latency_view(request, session_id):
@@ -17,6 +23,8 @@ def latency_view(request, session_id):
         for _ in range(session_id):
             cursor.execute("SELECT %s", ["private-measurement"])
             cursor.fetchone()
+        if _overlap_barrier is not None:
+            _overlap_barrier.wait(timeout=5)
     return JsonResponse({"session": session_id})
 
 
@@ -52,12 +60,16 @@ class RequestLatencyTests(TestCase):
         self.assertIn("dbexec;dur=", response["Server-Timing"])
         self.assertEqual(data["sql"]["calls"], 2)
         self.assertEqual(data["sql"]["most_repeated_groups"][0]["calls"], 2)
-        self.assertTrue(data["profile"]["connection_and_fetch"])
+        fetch = next(r for r in data["database_io"] if r["operation"] == "fetchone")
+        self.assertEqual(fetch["calls"], 2)
+        self.assertEqual(fetch["rows"], 2)
         self.assertEqual(data["response_bytes"], len(response.content))
         serialized = json.dumps(data)
         for forbidden in ("private-measurement", "private-token", "SELECT", "token="):
             self.assertNotIn(forbidden, serialized)
         self.assertEqual(connection.execute_wrappers, [])
+        self.assertNotIn("create_cursor", connection.__dict__)
+        self.assertNotIn("get_new_connection", connection.__dict__)
         self.assertIsNone(sys.getprofile())
 
     def test_exception_cleans_up_instrumentation(self):
@@ -70,6 +82,8 @@ class RequestLatencyTests(TestCase):
         self.assertEqual(log.call_args.kwargs["sql"]["errors"], 1)
         self.assertNotIn("missing_private_table", str(log.call_args))
         self.assertEqual(connection.execute_wrappers, [])
+        self.assertNotIn("create_cursor", connection.__dict__)
+        self.assertNotIn("get_new_connection", connection.__dict__)
         self.assertIsNone(sys.getprofile())
 
     def test_existing_profiler_is_not_replaced(self):
@@ -79,9 +93,44 @@ class RequestLatencyTests(TestCase):
             with override_settings(PROFILE_SESSION_REQUESTS=True), patch("api.request_latency.event") as log:
                 RequestLatencyMiddleware(lambda r: JsonResponse({}))(self.request())
             self.assertIs(sys.getprofile(), hook)
-            self.assertTrue(log.call_args.kwargs["profile_skipped"])
+            self.assertEqual(log.call_args.kwargs["schema_version"], 2)
         finally:
             sys.setprofile(None)
+
+    def test_active_cprofile_does_not_break_request(self):
+        # Reproduces the real Python 3.13 conflict missed by sys.getprofile().
+        with cProfile.Profile(), override_settings(PROFILE_SESSION_REQUESTS=True), \
+                patch("api.request_latency.event"):
+            response = RequestLatencyMiddleware(lambda r: latency_view(r, 2))(self.request())
+        self.assertEqual(response.status_code, 200)
+
+    def test_cursor_fetch_timing_and_delegation(self):
+        class Cursor:
+            arraysize = 10
+            def __iter__(self):
+                return iter([(1,), (2,)])
+            def fetchmany(self, size):
+                return [("private-reading",)] * size
+            def fetchone(self):
+                raise ValueError("private-error")
+        raw = Cursor()
+        io = DatabaseIO()
+        cursor = TimedCursor(raw, io, "default")
+        cursor.arraysize = 20
+        self.assertEqual(raw.arraysize, 20)
+        with patch("api.request_latency.time.perf_counter", side_effect=[1.0, 1.25]):
+            self.assertEqual(len(cursor.fetchmany(3)), 3)
+        result = io.report()[0]
+        self.assertEqual(result["elapsed_ms"], 250.0)
+        self.assertEqual(result["rows"], 3)
+        with self.assertRaises(ValueError):
+            cursor.fetchone()
+        self.assertEqual(io.report()[1]["errors"], 1)
+        self.assertNotIn("private", json.dumps(io.report()))
+        self.assertEqual(list(cursor), [(1,), (2,)])
+        iteration = next(r for r in io.report() if r["operation"] == "next")
+        self.assertEqual(iteration["rows"], 2)
+        self.assertEqual(iteration["errors"], 0)
 
     def test_log_failure_does_not_break_response(self):
         with override_settings(PROFILE_SESSION_REQUESTS=True), patch("api.request_latency.event", side_effect=OSError):
@@ -97,13 +146,17 @@ class RequestLatencyTests(TestCase):
         self.assertEqual(len(queries.groups), 100)
 
     def test_asgi_concurrent_requests_keep_query_counts_separate(self):
+        async def request(n):
+            # AsyncClient bypasses ASGIHandler.__call__, which normally supplies
+            # this per-request context. Force real overlap using the barrier.
+            async with ThreadSensitiveContext():
+                return await AsyncClient().get(f"/api/calibration_sessions/{n}/test_points/")
+
         async def run():
-            client = AsyncClient()
-            return await asyncio.gather(*[
-                client.get(f"/api/calibration_sessions/{n}/test_points/") for n in (2, 5)
-            ])
+            return await asyncio.gather(*[request(n) for n in (2, 5)])
         with override_settings(PROFILE_SESSION_REQUESTS=True, ROOT_URLCONF=__name__,
                                MIDDLEWARE=["api.request_latency.RequestLatencyMiddleware"]), \
+                patch(__name__ + "._overlap_barrier", threading.Barrier(2)), \
                 patch("api.request_latency.event") as log:
             responses = asyncio.run(run())
         self.assertEqual([r.status_code for r in responses], [200, 200])
@@ -111,5 +164,6 @@ class RequestLatencyTests(TestCase):
         for n in (2, 5):
             report = reports[f"/api/calibration_sessions/{n}/test_points/"]
             self.assertEqual(report["sql"]["calls"], n)
-            self.assertIsNotNone(report["profile"])
+            fetch = next(r for r in report["database_io"] if r["operation"] == "fetchone")
+            self.assertEqual(fetch["calls"], n)
         self.assertNotEqual(responses[0]["X-AC-Shunt-Request-ID"], responses[1]["X-AC-Shunt-Request-ID"])

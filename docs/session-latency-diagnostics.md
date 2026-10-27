@@ -1,6 +1,6 @@
-# Collect a slow-session profile
+# Collect slow-session timings
 
-This optional mode profiles only GET requests to a session's `test_points/` and
+This optional mode measures only GET requests to a session's `test_points/` and
 `information/` endpoints. It needs no SQL Server monitoring permissions. It uses
 the running application's existing database connection and does not issue extra
 diagnostic queries or change endpoint behavior. The existing information endpoint
@@ -44,29 +44,36 @@ Send that file plus the small/large session IDs and approximate reproduction tim
 If it is empty, verify that the restarted backend inherited the environment
 variables and that you loaded one of the two target endpoints.
 
-## What it measures
+## What it measures (schema version 2)
 
 - App duration, response size, request ID, database vendor (including an unexpected
   SQLite fallback), and whether each connection was already open.
 - SQL execute count/time/errors and the most repeated and slowest query templates,
   represented by hashes. Parameters and SQL text are not recorded.
-- Function call counts, self time and cumulative time, including connection/fetch
-  functions, serializer work, pair analytics and JSON rendering when encountered.
+- Direct elapsed time, call count, error count and row count for cursor fetches;
+  elapsed time for opening connections, creating cursors and closing cursors.
+  Instrumentation is scoped to each request's Django connection objects.
 
-Function timings are elapsed time, not CPU usage. Cumulative times overlap: do not
-add them together or add them to SQL timing. `dbexec` excludes later fetches,
-connection setup and Python processing; time outside it is **not automatically
-Python CPU time**. Driver execution can itself include network waits or fetching.
-Profiles cover the synchronous request worker, not background threads. Time before
+These are elapsed times, not CPU usage or pure SQL Server execution time.
+`dbexec` excludes later fetches, connection setup and Python processing; time
+outside it is **not automatically Python CPU time**. Driver calls can include
+network waits, server work and conversion of returned values. Connection setup
+can itself call cursor operations, so do not blindly sum all categories.
+Timings cover the synchronous request worker, not background threads. Time before
 that worker starts and browser transfer are outside `app`; compare browser timing
 and the existing `http_finished` record using the request ID. Streaming bodies are
-not profiled, although these two endpoints normally render JSON before returning.
+not measured, although these two endpoints normally render JSON before returning.
 
-Profiling adds overhead. Compare patterns and call counts, and disable it before
-comparing final latency with the baseline. A debugger's existing profiler is left
-intact; those records say `profile_skipped`. Query groups and profile lists are
-bounded. Logs contain session paths and code function names, but no request bodies,
-SQL text, query parameters, credentials or measurement values in latency records.
+Instrumentation adds some overhead. Compare patterns and call counts, and disable
+it before comparing final latency with the baseline. Query groups are bounded.
+Latency records contain session paths, but no request bodies, SQL text, query
+parameters, credentials or measurement values.
+
+Version 1 used cProfile. On the captured Python 3.13 setup it conflicted with
+simultaneous requests ("Another profiling tool is already active") and could mix
+function timings across threads. Discard its function profiles. Version 2 removes
+cProfile entirely, including when a debugger or external profiler is active.
+Existing version 1 records may remain in the log; new records have `schema_version: 2`.
 
 ## Disable
 
