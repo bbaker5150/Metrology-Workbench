@@ -3,6 +3,7 @@ import json
 import sys
 import tempfile
 import time
+from copy import deepcopy
 from datetime import datetime, timezone
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
@@ -67,6 +68,53 @@ def package_versions():
     return result
 
 
+def with_mars(connection_string, enabled):
+    """Replace the MARS keyword without touching semicolons in braced secrets."""
+    parts = []
+    start = index = 0
+    braced = False
+    while index < len(connection_string):
+        char = connection_string[index]
+        if braced:
+            if char == "}":
+                if connection_string[index:index + 2] == "}}":
+                    index += 2
+                    continue
+                braced = False
+        elif char == "{":
+            prefix = connection_string[start:index].partition("=")
+            if prefix[1] and not prefix[2].strip():
+                braced = True
+        elif char == ";":
+            parts.append(connection_string[start:index])
+            start = index + 1
+        index += 1
+    if braced:
+        raise ValueError("Unterminated braced ODBC value.")
+    parts.append(connection_string[start:])
+    aliases = {"mars_connection", "multipleactiveresultsets"}
+    preserved = [part for part in parts if part.strip()
+                 and part.partition("=")[0].strip().lower() not in aliases]
+    preserved.append("MARS_Connection=" + ("yes" if enabled else "no"))
+    return ";".join(preserved)
+
+
+def run_mars_trial(connection, sql, enabled):
+    # Use a private wrapper, preserving backend converters, initialization and
+    # all existing authentication/TLS/driver options. Never mutate the live alias.
+    private = type(connection)(deepcopy(connection.settings_dict), alias="sql_fetch_comparison")
+    try:
+        build = private._build_connection_string
+        private._build_connection_string = lambda *a, **kw: with_mars(build(*a, **kw), enabled)
+        started = time.perf_counter()
+        private.ensure_connection()
+        connected_ms = round((time.perf_counter() - started) * 1000, 3)
+        result = run_trial(private.connection.cursor, sql)
+        return {"mars_requested": enabled, "ensure_connection_ms": connected_ms, **result}
+    finally:
+        private.close()
+
+
 class Command(BaseCommand):
     help = "Read one session's stored readings through Django and raw ODBC; save timings only."
     requires_system_checks = []
@@ -74,6 +122,8 @@ class Command(BaseCommand):
 
     def add_arguments(self, parser):
         parser.add_argument("--session", type=int, required=True)
+        parser.add_argument("--compare-mars", action="store_true",
+                            help="Compare MARS on/off on private connections; leave application settings unchanged.")
 
     def handle(self, *args, **options):
         try:
@@ -83,7 +133,8 @@ class Command(BaseCommand):
         connection = connections["default"]
         if connection.vendor != "microsoft":
             raise CommandError("Default database is not MSSQL. Check the startup connection message; no test was run.")
-        report = {"event": "sql_fetch_comparison", "schema_version": 1,
+        report = {"event": "sql_fetch_comparison", "schema_version": 2,
+                  "comparison": "mars" if options.get("compare_mars") else "cursor",
                   "captured_utc": datetime.now(timezone.utc).isoformat(),
                   "session_id": options["session"], "versions": package_versions(), "trials": []}
         try:
@@ -101,10 +152,13 @@ class Command(BaseCommand):
             factories = {"django_cursor": connection.cursor,
                          "raw_odbc_cursor": connection.connection.cursor}
             # Reverse the order for the second pair to reduce first-run bias.
-            for index, mode in enumerate(("django_cursor", "raw_odbc_cursor", "raw_odbc_cursor", "django_cursor"), 1):
+            modes = (("mars_on", "mars_off", "mars_off", "mars_on") if options.get("compare_mars")
+                     else ("django_cursor", "raw_odbc_cursor", "raw_odbc_cursor", "django_cursor"))
+            for index, mode in enumerate(modes, 1):
                 self.stdout.write(f"Trial {index}/4: {mode} (fetching all readings)...")
                 self.stdout.flush()
-                result = run_trial(factories[mode], sql)
+                result = (run_mars_trial(connection, sql, mode == "mars_on") if options.get("compare_mars")
+                          else run_trial(factories[mode], sql))
                 report["trials"].append({"trial": index, "mode": mode, **result})
                 self.stdout.write(json.dumps(report["trials"][-1]))
         except Exception as exc:

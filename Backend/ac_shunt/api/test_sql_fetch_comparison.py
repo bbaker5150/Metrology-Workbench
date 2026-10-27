@@ -10,10 +10,48 @@ from unittest.mock import Mock, patch
 
 from django.core.management.base import CommandError
 
-from .management.commands.diagnose_sql_fetch import Command, readings_sql, run_trial
+from .management.commands.diagnose_sql_fetch import Command, readings_sql, run_trial, run_mars_trial, with_mars
 
 
 class SQLFetchComparisonTests(TestCase):
+    def test_mars_override_preserves_escaped_secrets_and_security_options(self):
+        original = "DRIVER={ODBC Driver 18 for SQL Server};PWD={a;MARS_Connection=yes;b}}c};Encrypt=yes;TrustServerCertificate=yes;MARS_Connection=yes; MultipleActiveResultSets = yes"
+        expected = "DRIVER={ODBC Driver 18 for SQL Server};PWD={a;MARS_Connection=yes;b}}c};Encrypt=yes;TrustServerCertificate=yes;MARS_Connection=no"
+        self.assertEqual(with_mars(original, False), expected)
+        self.assertEqual(with_mars("PWD=a{b;MARS_Connection=no", True), "PWD=a{b;MARS_Connection=yes")
+        with self.assertRaises(ValueError):
+            with_mars("PWD={unfinished", False)
+
+    def test_mars_trial_uses_private_settings_and_closes_on_failure(self):
+        opened = []
+        instances = []
+        class Backend:
+            def __init__(self, settings_dict, alias):
+                self.settings_dict = settings_dict
+                self.connection = Mock()
+                self.closed = False
+                instances.append(self)
+            def _build_connection_string(self):
+                return "DRIVER={ODBC Driver 18 for SQL Server};Encrypt=yes;MARS_Connection=yes"
+            def ensure_connection(self):
+                opened.append(self._build_connection_string())
+                self.settings_dict["OPTIONS"]["private_test"] = True
+            def close(self):
+                self.closed = True
+        original = Backend({"OPTIONS": {"driver": "ODBC Driver 18 for SQL Server"}}, "default")
+        with patch("api.management.commands.diagnose_sql_fetch.run_trial", return_value={"rows": 24}):
+            result = run_mars_trial(original, "SELECT 1", False)
+        self.assertFalse(result["mars_requested"])
+        self.assertTrue(opened[0].endswith("MARS_Connection=no"))
+        self.assertIn("Encrypt=yes", opened[0])
+        self.assertNotIn("private_test", original.settings_dict["OPTIONS"])
+        self.assertFalse(original.closed)
+        self.assertTrue(instances[-1].closed)
+        with patch("api.management.commands.diagnose_sql_fetch.run_trial", side_effect=ValueError):
+            with self.assertRaises(ValueError):
+                run_mars_trial(original, "SELECT 1", True)
+        self.assertTrue(instances[-1].closed)
+
     def test_fetches_every_batch_without_retaining_values(self):
         database = sqlite3.connect(":memory:")
         try:

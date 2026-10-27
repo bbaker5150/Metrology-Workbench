@@ -117,3 +117,25 @@ If both cursor paths are slow, investigate the ODBC/connection/large-value
 retrieval path. If only Django's cursor is slow, focus on its backend wrapper.
 If both are fast, compare the actual ORM query and request context next. These
 comparisons guide investigation; no single result proves a root cause.
+
+### Compare MARS on and off
+
+When both Django and raw ODBC fetch slowly, isolate Multiple Active Result Sets
+(MARS), which mssql-django 1.7.2 enables by default for Microsoft drivers on Windows:
+
+```powershell
+python Backend/ac_shunt/manage.py diagnose_sql_fetch --session 100 --compare-mars
+```
+
+This runs four raw-ODBC trials in on/off/off/on order using private connections.
+Only the MARS connection keyword changes; the driver, authentication, encryption,
+backend converters, initialization and query remain the same. It replaces MARS
+keywords instead of appending a conflicting duplicate, preserving braced values
+such as passwords containing semicolons. It does not edit settings or change the
+running application. Each private connection is closed after its trial.
+
+Send the new JSON file printed by the command. A large, repeatable improvement
+with MARS off would identify a connection-mode-dependent problem worth addressing;
+it would not by itself distinguish a driver bug from a server/network interaction.
+Do not apply MARS-off to the whole application based only on this test: nested
+queries and streaming behavior need checking before adopting that configuration.
