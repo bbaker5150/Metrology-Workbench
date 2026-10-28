@@ -3,9 +3,9 @@ from uncertainty.ac_shunt_instruments import seed_ac_shunt_references, seed_ac_s
 
 
 class Command(BaseCommand):
-    help = 'Create missing Uncertalytics reference and TI instruments from saved AC-shunt data; preserve existing definitions.'
+    help = 'Create missing shunt standards and TIs, and apply the conventional library names once; preserve uncertainty definitions.'
 
     def handle(self, *args, **options):
         count = seed_ac_shunt_references()
         ti_count = seed_ac_shunt_test_instruments()
-        self.stdout.write(self.style.SUCCESS(f'Created {count} reference instruments and {ti_count} TIs; existing definitions preserved.'))
+        self.stdout.write(self.style.SUCCESS(f'Created {count} standard instruments and {ti_count} TIs; library names updated and uncertainty definitions preserved.'))

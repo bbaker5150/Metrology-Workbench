@@ -32,6 +32,26 @@ const buildAcShuntBudget = (source, options = {}) => buildBudget(source, {
 });
 
 describe('simple AC-shunt measurement import', () => {
+  it('matches conventional library names by saved identity and physical range without changing uncertainties', () => {
+    const source = snapshot();
+    source.instruments.shuntRange = 20;
+    source.instruments.test_instrument_model = 'Fluke Y5020';
+    const ti = {...testInstrument(source),model:'Y5020',description:'TI 20 A CHECK STD',
+      acShuntIdentity:{model:'Y5020',serial:'TI',shuntRange:20,standardType:'CHECK STD'}};
+    const ref = {...reference,model:'Y5020',description:'REF 20 A NIST',
+      acShuntIdentity:{model:'Y5020',serial:'REF',shuntRange:20,standardType:'NIST'}};
+    const otherRange = {...ref,id:'ref-10',description:'REF 10 A NIST',acShuntIdentity:{...ref.acShuntIdentity,shuntRange:10}};
+    const {session,referenceId} = buildBudget(source,{instruments:[ti,ref,otherRange]});
+    expect(referenceId).toBe('ref');
+    expect(formatInstrumentIdentity(session.uuts[0])).toBe('Fluke Y5020 TI 20 A CHECK STD');
+    expect(formatInstrumentIdentity(session.tmdes[0])).toBe('Fluke Y5020 REF 20 A NIST');
+    expect(session.testPoints[0].uutTolerance.tolerances.reading.high).toBe(100);
+    expect(resolvePointBudgetComponents(session.testPoints[0],session)[2].value).toBeCloseTo(35/1.96,7);
+    expect(buildBudget({...source,instruments:{...source.instruments,shuntRange:null}}, {instruments:[ti,ref,otherRange]}).referenceId).toBe('');
+    const pending = buildBudget(source,{instruments:[ti,{...ref,functions:[]} ]});
+    expect(pending.referenceId).toBe('ref');
+    expect(pending.session.testPoints[0].components[2].pendingReason).toMatch(/no shared range matches/);
+  });
   it('links the actual library TI with make, model, serial and library range IDs without modifying it', () => {
     const source = snapshot();
     const ti = testInstrument(source);

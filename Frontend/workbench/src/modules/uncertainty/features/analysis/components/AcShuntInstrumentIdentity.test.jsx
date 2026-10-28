@@ -16,10 +16,12 @@ it.each([
   expect(onCommit).not.toHaveBeenCalled();
 });
 
-it.each(['session','point'].flatMap(viewMode => ['new','legacy','edited'].map(state => ({viewMode,state}))))
+it.each(['session','point'].flatMap(viewMode => ['new','legacy','edited','conventional'].map(state => ({viewMode,state}))))
   ('uses the same identity format for UUT and TMDE in $viewMode view ($state budget)', ({viewMode,state}) => {
     const instrument = (type, serial, description) => ({id:serial,type,scope:'validated',manufacturer:'Fluke',
-      model:`Y5020 · ${serial}`,description,functions:[{id:`${serial}-current`,name:'Current',unit:'A',ranges:[{
+      model:state==='conventional'?'Y5020':`Y5020 · ${serial}`,
+      description:state==='conventional'?`${serial} 20 A ${type==='uut'?'CHECK STD':'NIST'}`:description,
+      acShuntIdentity:{model:'Y5020',serial,shuntRange:20},functions:[{id:`${serial}-current`,name:'Current',unit:'A',ranges:[{
         id:`${serial}-range`,min:10,max:10,unit:'A',qualifier:{value:1000,min:1000,max:1000,unit:'Hz',isSingleValue:true},
         tolerances:{reading:{high:100,low:-100,unit:'ppm',symmetric:true,distribution:type==='uut'?'not_set':'1.960'}}}]}]});
     const {session} = buildAcShuntBudget({id:1,name:'Identity check',instruments:{
@@ -37,8 +39,8 @@ it.each(['session','point'].flatMap(viewMode => ['new','legacy','edited'].map(st
       uutNominal={session.testPoints[0].testPointInfo.parameter} />);
     const uutLabel = container.querySelector(`[data-range-group="uut:${uut.id}"] .inline-desc-combined`);
     const tmdeLabel = container.querySelector(`[data-range-group="tmde:${tmde.id}"] .inline-desc-combined`);
-    expect(uutLabel).toHaveTextContent(`Fluke Y5020 · 3845014 ${state==='edited'?'Custom TI description':'AC shunt TI · Lab ±100 ppm'}`);
-    expect(tmdeLabel).toHaveTextContent('Fluke Y5020 · 5965004 NIST reference AC shunt · 20 A');
-    expect(uutLabel.textContent.match(/Fluke Y5020 · 3845014/g)).toHaveLength(1);
+    expect(uutLabel).toHaveTextContent(state==='conventional'?'Fluke Y5020 3845014 20 A CHECK STD':`Fluke Y5020 · 3845014 ${state==='edited'?'Custom TI description':'AC shunt TI · Lab ±100 ppm'}`);
+    expect(tmdeLabel).toHaveTextContent(state==='conventional'?'Fluke Y5020 5965004 20 A NIST':'Fluke Y5020 · 5965004 NIST reference AC shunt · 20 A');
+    expect(uutLabel.textContent.match(/Fluke Y5020/g)).toHaveLength(1);
     expect(onSessionSave).not.toHaveBeenCalled();
   });

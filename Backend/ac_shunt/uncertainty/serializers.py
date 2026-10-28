@@ -453,7 +453,7 @@ def save_instrument(data):
         "functions": data.get("functions") or [],
         "column_metadata": {
             **(existing.column_metadata if existing else {}),
-            **{key: data[key] for key in ("qualifierColumnNames", "customColumns", "customFields", "rangeCustomFields") if key in data},
+            **{key: data[key] for key in ("qualifierColumnNames", "customColumns", "customFields", "rangeCustomFields", "acShuntIdentity") if key in data},
         },
         "type_b_components": data.get("typeBComponents") or [],
         "scope": scope,

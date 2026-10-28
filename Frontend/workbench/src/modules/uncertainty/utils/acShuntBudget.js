@@ -14,8 +14,8 @@ export function buildAcShuntBudget(snapshot, { instruments = [] } = {}) {
   if (!snapshot.points?.length) throw new Error('This session has no measurement points.');
   const meta = snapshot.instruments || {};
   const shared = sharedAcShuntInstruments(instruments);
-  const definition = matchAcShuntInstrument({ kind: 'shunt', model: meta.standard_instrument_model, serial: meta.standard_instrument_serial }, shared);
-  const uutDefinition = matchAcShuntInstrument({ kind: 'uut', model: meta.test_instrument_model, serial: meta.test_instrument_serial }, shared);
+  const definition = matchAcShuntInstrument({ kind: 'shunt', model: meta.standard_instrument_model, serial: meta.standard_instrument_serial, shuntRange: meta.shuntRange }, shared);
+  const uutDefinition = matchAcShuntInstrument({ kind: 'uut', model: meta.test_instrument_model, serial: meta.test_instrument_serial, shuntRange: meta.shuntRange }, shared);
   if (!uutDefinition) throw new Error(`Could not automatically match TI ${[meta.test_instrument_model, meta.test_instrument_serial].filter(Boolean).join(' · ')}. Check its model and serial in the instrument library, then retry.`);
   const areaId = uuid(), uutId = uuid();
   const warnings = [];

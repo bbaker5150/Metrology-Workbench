@@ -1,37 +1,106 @@
-"""Initial Uncertalytics reference definitions from the saved shunt catalog.
+"""Uncertalytics instruments from the saved shunt catalog and sessions.
 
-This setup is separate from measurement import. Stable identities and
-get_or_create preserve subsequent user edits, including certificate updates.
+This setup is separate from measurement import. Names are upgraded once;
+stable identities preserve uncertainty definitions and subsequent user edits.
 """
 import math
+import re
 from hashlib import sha256
 
 from api.models import CalibrationSession, Shunt, resolve_active_report
 from .models import Instrument
 
 
-def seed_ac_shunt_references():
-    existing = list(Instrument.objects.filter(scope=Instrument.SCOPE_VALIDATED))
-    created = 0
+def shunt_model(value):
+    value = str(value or '')
+    match = re.search(r'(A40B|Y5020)', value or '', re.I)
+    if match:
+        return match.group(1).upper()
+    # The AC-shunt corrections UI uses A40B for legacy generic catalog rows.
+    return 'A40B' if not value or value.strip().lower() == 'shunt' else value.strip()
+
+
+def positive(value):
+    try:
+        return value is not None and math.isfinite(float(value)) and float(value) > 0
+    except (ValueError, TypeError):
+        return False
+
+
+def standard_type(shunt, report):
+    # A Check STD can itself be traceable to NIST. Prefer its device label.
+    for text in (shunt.remark, shunt.model_name, getattr(report, 'notes', ''), getattr(report, 'report_number', '')):
+        if re.search(r'\bcheck[\s_-]*(?:std|standard)\b', text or '', re.I):
+            return 'CHECK STD'
+        if re.search(r'\bNIST\b', text or '', re.I):
+            return 'NIST'
+    return ''
+
+
+def shunt_catalog():
     seen = set()
     for shunt in Shunt.objects.prefetch_related('reports__corrections').order_by('-is_manual', 'id'):
-        if not any(model in shunt.model_name.upper() for model in ('A40B', 'Y5020')):
-            continue
-        identity = (shunt.serial_number.strip(), shunt.range)
-        if identity in seen:
+        model = shunt_model(shunt.model_name)
+        identity = (shunt.serial_number.strip().casefold(), shunt.range)
+        if model not in ('A40B', 'Y5020') or not identity[0] or not positive(shunt.range) or identity in seen:
             continue
         seen.add(identity)
         report = resolve_active_report(shunt.reports.all())
-        if not report:
-            continue
+        yield shunt, model, report, standard_type(shunt, report)
+
+
+def instrument_identity(model, serial, shunt_range, label):
+    if positive(shunt_range):
+        range_text = f'{shunt_range:g} A' if shunt_range >= 1 else f'{shunt_range * 1000:g} mA'
+    else:
+        range_text = ''
+    return {'manufacturer': 'Fluke' if model in ('A40B', 'Y5020') else '', 'model': model,
+            'description': ' '.join(part for part in (serial, range_text, label) if part)}
+
+
+def source_identity(model, serial, shunt_range, label, role):
+    return {'model': model, 'serial': serial, 'shuntRange': shunt_range,
+            'standardType': label, 'role': role, 'namingVersion': 1}
+
+
+def matches_instrument(item, model, serial, shunt_range=None):
+    sources = [(item.column_metadata or {}).get('acShuntIdentity', {})]
+    sources += [r.get('acShuntSource', {}) for fn in item.functions or [] for r in fn.get('ranges', [])]
+    matching_sources = [source for source in sources if str(source.get('serial', '')).casefold() == serial.casefold()
+                        and shunt_model(source.get('model')) == model]
+    if matching_sources:
+        return any(shunt_range is None or source.get('shuntRange') is None
+                   or (positive(source['shuntRange']) and math.isclose(float(source['shuntRange']), shunt_range))
+                   for source in matching_sources)
+    return (item.model.casefold() in (serial.casefold(), f'{model} · {serial}'.casefold())
+            and model.casefold() in f'{item.model} {item.description}'.casefold())
+
+
+def rename_instrument_once(item, model, serial, shunt_range, label, role):
+    metadata = item.column_metadata or {}
+    if metadata.get('acShuntIdentity', {}).get('namingVersion') == 1:
+        return
+    for field, value in instrument_identity(model, serial, shunt_range, label).items():
+        setattr(item, field, value)
+    item.column_metadata = {**metadata, 'acShuntIdentity': source_identity(model, serial, shunt_range, label, role)}
+    item.save(update_fields=['manufacturer', 'model', 'description', 'column_metadata', 'updated_at'])
+
+
+def seed_ac_shunt_references():
+    existing = list(Instrument.objects.filter(scope=Instrument.SCOPE_VALIDATED).exclude(instrument_type='uut'))
+    created = 0
+    for shunt, model, report, label in shunt_catalog():
+        identity = (shunt.serial_number.strip(), shunt.range)
         key = 'ac-shunt-ref-' + sha256(repr(identity).encode()).hexdigest()[:32]
-        # Earlier imports used serial in model and the model in description.
-        # Also recognize previously seeded definitions by their stable ID.
-        if any(item.id == key or (item.model == identity[0] and shunt.model_name.lower() in item.description.lower())
-               for item in existing):
+        matches = [item for item in existing if item.id == key or matches_instrument(item, model, identity[0], shunt.range)]
+        if matches:
+            for item in matches:
+                rename_instrument_once(item, model, identity[0], shunt.range, label, 'tmde')
+            continue
+        if not report and not label:
             continue
         ranges = []
-        for correction in sorted(report.corrections.all(), key=lambda c: (c.current, c.frequency)):
+        for correction in sorted(report.corrections.all() if report else [], key=lambda c: (c.current, c.frequency)):
             if not math.isfinite(correction.current) or correction.current <= 0 or correction.frequency <= 0:
                 continue
             uncertainty = correction.uncertainty
@@ -48,15 +117,15 @@ def seed_ac_shunt_references():
                     'unit': 'ppm', 'symmetric': True, 'distribution': '1.960'}} if valid else {},
                 'source': f'Reference report {report.report_number}',
                 'notes': 'Initial reference uncertainty: Normal (95%). Review against the certificate.',
-                'acShuntSource': {'serial': identity[0], 'model': shunt.model_name,
+                'acShuntSource': {'serial': identity[0], 'model': model, 'standardType': label,
                     'shuntRange': shunt.range, 'reportId': report.pk, 'reportNumber': report.report_number,
                     'reportDate': str(report.calibration_date or '')},
             })
-        if not ranges:
+        if not ranges and not label:
             continue
         _, was_created = Instrument.objects.get_or_create(id=key, defaults={
-            'manufacturer': 'Fluke', 'model': f'{shunt.model_name} · {identity[0]}',
-            'description': f'NIST reference AC shunt · {shunt.range:g} A',
+            **instrument_identity(model, identity[0], shunt.range, label),
+            'column_metadata': {'acShuntIdentity': source_identity(model, identity[0], shunt.range, label, 'tmde')},
             'measurement_area': 'Current', 'measurement_area_color': '#5aa6d9',
             'instrument_type': 'tmde', 'scope': Instrument.SCOPE_VALIDATED,
             'functions': [{'id': f'{key}-current', 'name': 'Current', 'unit': 'A', 'ranges': ranges}],
@@ -73,14 +142,25 @@ def seed_ac_shunt_test_instruments():
     """
     existing = list(Instrument.objects.filter(scope=Instrument.SCOPE_VALIDATED).exclude(instrument_type='tmde'))
     grouped = {}
-    sessions = CalibrationSession.objects.select_related('test_point_set').prefetch_related('test_point_set__points')
+    catalog = list(shunt_catalog())
+    sessions = CalibrationSession.objects.select_related('test_point_set', 'calibration__configurations').prefetch_related('test_point_set__points')
     for session in sessions:
-        model = (session.test_instrument_model or '').strip()
+        model = shunt_model(session.test_instrument_model)
         serial = (session.test_instrument_serial or '').strip()
-        if not model or not serial:
+        if not session.test_instrument_model or not serial:
             continue
         identity = (model.casefold(), serial.casefold())
-        record = grouped.setdefault(identity, {'model': model, 'serial': serial, 'points': set()})
+        record = grouped.setdefault(identity, {'model': model, 'serial': serial, 'points': set(), 'physicalRanges': set(), 'labels': set()})
+        config = getattr(getattr(session, 'calibration', None), 'configurations', None)
+        configured_range = getattr(config, 'ac_shunt_range', None)
+        matching_shunts = [(shunt, label) for shunt, family, _, label in catalog
+                           if shunt.serial_number.strip().casefold() == serial.casefold() and family == model
+                           and (not positive(configured_range) or math.isclose(shunt.range, configured_range))]
+        if positive(configured_range):
+            record['physicalRanges'].add(float(configured_range))
+        elif len(matching_shunts) == 1:
+            record['physicalRanges'].add(matching_shunts[0][0].range)
+        record['labels'].update(label for _, label in matching_shunts if label)
         point_set = getattr(session, 'test_point_set', None)
         for point in point_set.points.all() if point_set else []:
             if math.isfinite(float(point.current)) and point.current > 0 and point.frequency > 0:
@@ -89,14 +169,14 @@ def seed_ac_shunt_test_instruments():
     for identity, record in grouped.items():
         key = 'ac-shunt-ti-' + sha256(repr(identity).encode()).hexdigest()[:32]
         model, serial = record['model'], record['serial']
-        def matches(item):
-            sources = [r.get('acShuntSource', {}) for fn in item.functions for r in fn.get('ranges', [])]
-            return item.id == key or any(
-                str(source.get('serial', '')).casefold() == identity[1]
-                and str(source.get('model', '')).casefold() == identity[0] for source in sources
-            ) or (item.model.casefold() in (serial.casefold(), f'{model} · {serial}'.casefold())
-                  and model.casefold() in f'{item.model} {item.description}'.casefold())
-        if not record['points'] or any(matches(item) for item in existing):
+        shunt_range = next(iter(record['physicalRanges'])) if len(record['physicalRanges']) == 1 else None
+        label = next(iter(record['labels'])) if len(record['labels']) == 1 else ''
+        matches = [item for item in existing if item.id == key or matches_instrument(item, model, serial)]
+        if matches:
+            for item in matches:
+                rename_instrument_once(item, model, serial, shunt_range, label, 'uut')
+            continue
+        if not record['points']:
             continue
         ranges = []
         for current, frequency in sorted(record['points']):
@@ -108,10 +188,11 @@ def seed_ac_shunt_test_instruments():
                 'tolerances': {'reading': {'high': 100, 'low': -100, 'unit': 'ppm',
                                           'symmetric': True, 'distribution': 'not_set'}},
                 'source': 'Lab TI requirement',
-                'acShuntSource': {'model': model, 'serial': serial, 'role': 'uut'}})
+                'acShuntSource': {'model': model, 'serial': serial, 'role': 'uut',
+                                  'shuntRange': shunt_range, 'standardType': label}})
         _, was_created = Instrument.objects.get_or_create(id=key, defaults={
-            'manufacturer': 'Fluke' if any(name in model.upper() for name in ('Y5020', 'A40B')) else '',
-            'model': f'{model} · {serial}', 'description': 'AC shunt TI · Lab ±100 ppm',
+            **instrument_identity(model, serial, shunt_range, label),
+            'column_metadata': {'acShuntIdentity': source_identity(model, serial, shunt_range, label, 'uut')},
             'measurement_area': 'Current', 'measurement_area_color': '#5aa6d9',
             'instrument_type': 'uut', 'scope': Instrument.SCOPE_VALIDATED,
             'functions': [{'id': f'{key}-current', 'name': 'Current', 'unit': 'A', 'ranges': ranges}]})

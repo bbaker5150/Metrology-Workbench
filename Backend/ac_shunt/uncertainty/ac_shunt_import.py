@@ -9,7 +9,7 @@ from api.models import CalibrationSession
 
 
 def session_snapshot(session_id):
-    session = CalibrationSession.objects.filter(pk=session_id).first()
+    session = CalibrationSession.objects.select_related('calibration__configurations').filter(pk=session_id).first()
     if not session:
         return None
     point_set = getattr(session, 'test_point_set', None)
@@ -36,6 +36,8 @@ def session_snapshot(session_id):
             "stabilityFailed": any(p.is_stability_failed for p in pair)})
     fields = ('standard_instrument_model', 'standard_instrument_serial',
               'test_instrument_model', 'test_instrument_serial')
+    config = getattr(getattr(session, 'calibration', None), 'configurations', None)
     return {"id": session.pk, "name": session.session_name, "createdAt": session.created_at.isoformat(),
-            "instruments": {field: getattr(session, field) for field in fields},
+            "instruments": {**{field: getattr(session, field) for field in fields},
+                            "shuntRange": getattr(config, 'ac_shunt_range', None)},
             "points": result_points}

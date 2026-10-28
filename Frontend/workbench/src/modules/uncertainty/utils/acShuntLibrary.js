@@ -4,6 +4,7 @@ import { assessRangeCompatibility } from './tmdeCompatibility';
 import { unitSystem } from './uncertaintyMath';
 
 const normalized = value => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+const shuntModel = value => normalized(String(value || '').match(/A40B|Y5020/i)?.[0] || value);
 export const sharedAcShuntInstruments = instruments => instruments.filter(item => item.scope === 'validated');
 
 export function acShuntInstrumentRoles(snapshot) {
@@ -27,10 +28,12 @@ export function matchAcShuntInstrument(role, instruments) {
   const candidates = sharedAcShuntInstruments(instruments).filter(item => {
     if (role.kind === 'uut' && item.type === 'tmde') return false;
     if (role.kind === 'shunt' && item.type === 'uut') return false;
-    const sources = (item.functions || []).flatMap(fn => (fn.ranges || []).map(range => range.acShuntSource).filter(Boolean));
+    const sources = [item.acShuntIdentity, ...(item.functions || []).flatMap(fn => (fn.ranges || []).map(range => range.acShuntSource))].filter(Boolean);
+    const physicalRanges = sources.map(source => source.shuntRange).filter(value => Number(value) > 0).map(Number);
+    if (Number(role.shuntRange) > 0 && physicalRanges.length && !physicalRanges.some(value => Math.abs(value - Number(role.shuntRange)) < 1e-12)) return false;
     const serials = [item.serialNumber, item.assetId, item.model, ...sources.map(source => source.serial)].map(normalized);
     return (serials.includes(normalized(role.serial)) || normalized(item.model) === normalized(`${role.model} ${role.serial}`)) &&
-      [item.model, item.description].some(value => normalized(value).includes(normalized(role.model))) && Boolean(role.model);
+      [item.model, item.description, ...sources.map(source => source.model)].some(value => normalized(value).includes(shuntModel(role.model))) && Boolean(role.model);
   });
   return candidates.length === 1 ? candidates[0] : null;
 }

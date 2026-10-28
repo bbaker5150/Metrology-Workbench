@@ -4,7 +4,7 @@ from api.models import (CalibrationSession, Calibration, CalibrationConfiguratio
     TestPointSet, TestPoint, CalibrationResults, CalibrationResultsCycle,
     CalibrationSettings, Shunt, ShuntReport, ShuntCorrection, TVC, TVCReport, TVCCorrection)
 from .ac_shunt_import import session_snapshot
-from .serializers import save_session, session_to_dict
+from .serializers import save_session, session_to_dict, save_instrument, instrument_to_dict
 from .ac_shunt_instruments import seed_ac_shunt_references, seed_ac_shunt_test_instruments
 from .models import Instrument
 
@@ -43,6 +43,7 @@ class AcShuntImportTests(TestCase):
         snapshot = session_snapshot(self.session.pk)
         self.assertEqual(len(snapshot['points']),1)
         point = snapshot['points'][0]
+        self.assertEqual(snapshot['instruments']['shuntRange'], 10)
         self.assertEqual(point['analytics']['n_pairs_used'],3)
         self.assertAlmostEqual(point['analytics']['pair_type_a_uncertainty_ppm'],1/(3**.5))
         self.assertEqual(point['analytics']['pair_delta_uut_ppm'],3)
@@ -156,7 +157,7 @@ class AcShuntReferenceSetupTests(TestCase):
     databases = {'default', 'uncertainty'}
 
     def setUp(self):
-        self.shunt = Shunt.objects.create(model_name='Y5020', serial_number='NIST-10', range=10)
+        self.shunt = Shunt.objects.create(model_name='Y5020', serial_number='NIST-10', range=10, remark='NIST')
         self.report = ShuntReport.objects.create(shunt=self.shunt, report_number='NIST-2026', calibration_date='2026-01-01')
         for frequency, uncertainty in [(60,38),(1000,35),(6000,None)]:
             ShuntCorrection.objects.create(report=self.report, current=10, frequency=frequency, uncertainty=uncertainty)
@@ -166,6 +167,7 @@ class AcShuntReferenceSetupTests(TestCase):
         instrument = Instrument.objects.get()
         ranges = instrument.functions[0]['ranges']
         self.assertEqual(instrument.scope, 'validated')
+        self.assertEqual((instrument.manufacturer, instrument.model, instrument.description), ('Fluke', 'Y5020', 'NIST-10 10 A NIST'))
         self.assertEqual(instrument.functions[0]['name'], 'Current')
         self.assertEqual(len({r['qualifierGroupId'] for r in ranges}), 1)
         self.assertEqual([r['qualifier']['value'] for r in ranges], [60,1000,6000])
@@ -182,13 +184,13 @@ class AcShuntReferenceSetupTests(TestCase):
         self.assertEqual(instrument.functions[0]['ranges'][0]['tolerances']['reading']['high'], 99)
 
     def test_distinct_standards_keep_their_individual_uncertainties(self):
-        other = Shunt.objects.create(model_name='Y5020', serial_number='NIST-20', range=20)
+        other = Shunt.objects.create(model_name='Y5020', serial_number='NIST-20', range=20, remark='NIST')
         report = ShuntReport.objects.create(shunt=other, report_number='OTHER')
         ShuntCorrection.objects.create(report=report,current=20,frequency=1000,uncertainty=46)
         self.assertEqual(seed_ac_shunt_references(), 2)
-        definitions = {item.model: item for item in Instrument.objects.all()}
-        self.assertEqual(definitions['Y5020 · NIST-20'].functions[0]['ranges'][0]['tolerances']['reading']['high'],46)
-        self.assertEqual(definitions['Y5020 · NIST-10'].functions[0]['ranges'][1]['tolerances']['reading']['high'],35)
+        definitions = {item.description: item for item in Instrument.objects.all()}
+        self.assertEqual(definitions['NIST-20 20 A NIST'].functions[0]['ranges'][0]['tolerances']['reading']['high'],46)
+        self.assertEqual(definitions['NIST-10 10 A NIST'].functions[0]['ranges'][1]['tolerances']['reading']['high'],35)
 
     def test_reuses_existing_authored_identity_and_prefers_manual_registry_entry(self):
         Instrument.objects.create(id='authored', model='NIST-10', description='Y5020', functions=[])
@@ -201,6 +203,67 @@ class AcShuntReferenceSetupTests(TestCase):
         self.assertEqual(seed_ac_shunt_references(),1)
         self.assertEqual(Instrument.objects.get().functions[0]['ranges'][0]['tolerances']['reading']['high'],42)
 
+    def test_adds_check_standards_from_catalog_without_saved_sessions(self):
+        check = Shunt.objects.create(model_name='Shunt', serial_number='CHECK-1', range=.01, remark='Check Standard')
+        report = ShuntReport.objects.create(shunt=check, report_number='LAB-2026', notes='Traceable to NIST')
+        ShuntCorrection.objects.create(report=report, current=.005, frequency=1000, uncertainty=12)
+        self.assertEqual(seed_ac_shunt_references(), 2)
+        item = Instrument.objects.get(description='CHECK-1 10 mA CHECK STD')
+        self.assertEqual((item.manufacturer, item.model), ('Fluke', 'A40B'))
+        self.assertEqual(item.column_metadata['acShuntIdentity']['standardType'], 'CHECK STD')
+        self.assertEqual(item.functions[0]['ranges'][0]['tolerances']['reading']['high'], 12)
+        self.assertFalse(CalibrationSession.objects.exists())
+        self.assertEqual(seed_ac_shunt_references(), 0)
+
+    def test_adds_labeled_check_standard_with_missing_certificate_without_inventing_uncertainty(self):
+        Shunt.objects.create(model_name='A40B-10mA CHECK STD', serial_number='CHECK-EMPTY', range=.01)
+        self.assertEqual(seed_ac_shunt_references(), 2)
+        item = Instrument.objects.get(description='CHECK-EMPTY 10 mA CHECK STD')
+        self.assertEqual(item.model, 'A40B')
+        self.assertEqual(item.functions[0]['ranges'], [])
+
+    def test_renames_previous_library_entry_once_preserving_specs_ids_and_later_edits(self):
+        functions = [{'id':'authored-current','name':'Current','ranges':[{'id':'authored-range',
+            'min':10,'max':10,'unit':'A','tolerances':{'reading':{'high':99,'unit':'ppm'}},
+            'acShuntSource':{'serial':'NIST-10','model':'Y5020','shuntRange':10}}]}]
+        item = Instrument.objects.create(id='previous-seed', manufacturer='Fluke', model='Y5020 · NIST-10',
+            description='NIST reference AC shunt · 10 A', instrument_type='tmde', functions=functions,
+            column_metadata={'customFields':{'note':'Retain me'}})
+        self.assertEqual(seed_ac_shunt_references(), 0)
+        item.refresh_from_db()
+        self.assertEqual(item.description, 'NIST-10 10 A NIST')
+        self.assertEqual(item.functions, functions)
+        self.assertEqual(item.column_metadata['customFields'], {'note':'Retain me'})
+        data = instrument_to_dict(item)
+        self.assertEqual(data['acShuntIdentity']['serial'], 'NIST-10')
+        data['description'] = 'User renamed this instrument'
+        save_instrument(data)
+        self.assertEqual(seed_ac_shunt_references(), 0)
+        item.refresh_from_db()
+        self.assertEqual(item.description, 'User renamed this instrument')
+        self.assertEqual(item.functions, functions)
+        local = save_instrument({**data, 'id':'local-copy', 'scope':'local', 'owner':'bench-1', 'sourceId':item.id})
+        self.assertEqual(instrument_to_dict(local)['acShuntIdentity'], data['acShuntIdentity'])
+
+    def test_same_serial_at_different_ratings_does_not_rename_the_wrong_entry(self):
+        second = Shunt.objects.create(model_name='Y5020', serial_number='NIST-10', range=20, remark='NIST')
+        report = ShuntReport.objects.create(shunt=second, report_number='NIST-20A')
+        ShuntCorrection.objects.create(report=report, current=18, frequency=1000, uncertainty=46)
+        Instrument.objects.create(id='existing-20', model='Y5020 · NIST-10', description='Old 20 A reference', instrument_type='tmde',
+            functions=[{'ranges':[{'acShuntSource':{'serial':'NIST-10','model':'Y5020','shuntRange':20}}]}])
+        self.assertEqual(seed_ac_shunt_references(), 1)
+        self.assertEqual(Instrument.objects.count(), 2)
+        self.assertEqual(Instrument.objects.get(pk='existing-20').description, 'NIST-10 20 A NIST')
+        self.assertTrue(Instrument.objects.filter(description='NIST-10 10 A NIST').exists())
+
+    def test_does_not_assume_unlabeled_records_are_nist(self):
+        self.shunt.remark = ''
+        self.shunt.save()
+        self.report.report_number = 'LAB-2026'
+        self.report.save()
+        seed_ac_shunt_references()
+        self.assertEqual(Instrument.objects.get().description, 'NIST-10 10 A')
+
 
 class AcShuntTestInstrumentSetupTests(TestCase):
     databases = {'default', 'uncertainty'}
@@ -208,6 +271,7 @@ class AcShuntTestInstrumentSetupTests(TestCase):
     def make_session(self, serial='TI-10', points=((10, 60), (10, 1000))):
         session = CalibrationSession.objects.create(session_name=f'TI setup {CalibrationSession.objects.count()}',
             test_instrument_model='Y5020', test_instrument_serial=serial)
+        CalibrationConfigurations.objects.create(calibration=Calibration.objects.create(session=session), ac_shunt_range=20)
         point_set = TestPointSet.objects.create(session=session)
         for current, frequency in points:
             for direction in ('Forward', 'Reverse'):
@@ -220,7 +284,7 @@ class AcShuntTestInstrumentSetupTests(TestCase):
         self.make_session(points=((20, 1000), (10, 1000)))
         self.make_session(serial='TI-20')
         self.assertEqual(seed_ac_shunt_test_instruments(), 2)
-        item = Instrument.objects.get(model='Y5020 · TI-10')
+        item = Instrument.objects.get(description='TI-10 20 A')
         self.assertEqual((item.manufacturer, item.instrument_type, item.scope), ('Fluke', 'uut', 'validated'))
         ranges = item.functions[0]['ranges']
         self.assertEqual([(r['value'], r['qualifier']['value']) for r in ranges], [(10, 60), (10, 1000), (20, 1000)])
@@ -246,6 +310,17 @@ class AcShuntTestInstrumentSetupTests(TestCase):
         Instrument.objects.create(id='authored-ti', model='Y5020 · TI-10', instrument_type='uut', functions=[])
         self.assertEqual(seed_ac_shunt_test_instruments(), 0)
         self.assertEqual(Instrument.objects.get(pk='authored-ti').functions, [])
+
+    def test_ti_uses_actual_rating_and_catalog_label_and_migrates_existing_name(self):
+        self.make_session(points=((10, 1000), (18, 1000)))
+        Shunt.objects.create(model_name='Y5020', serial_number='TI-10', range=20, remark='CHECK STD')
+        item = Instrument.objects.create(id='existing-ti', manufacturer='Fluke', model='Y5020 · TI-10',
+            description='AC shunt TI · Lab ±100 ppm', instrument_type='uut', functions=[])
+        self.assertEqual(seed_ac_shunt_test_instruments(), 0)
+        item.refresh_from_db()
+        self.assertEqual((item.model, item.description), ('Y5020', 'TI-10 20 A CHECK STD'))
+        self.assertEqual(item.column_metadata['acShuntIdentity']['shuntRange'], 20)
+        self.assertEqual(item.functions, [])
 
     def test_skips_sessions_without_identity_or_points(self):
         CalibrationSession.objects.create(session_name='Empty', test_instrument_model='Y5020', test_instrument_serial='EMPTY')
