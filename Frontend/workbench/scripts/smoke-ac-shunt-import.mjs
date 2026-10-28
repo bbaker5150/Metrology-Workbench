@@ -47,8 +47,7 @@ try {
   await button.click();
   await page.getByRole('button',{name:/Y5020 import smoke/}).click();
   await page.getByText('3 measurement points',{exact:true}).waitFor();
-  assert.equal(await page.getByLabel('Reference instrument').inputValue(),'nist-reference');
-  assert.equal(await page.getByLabel('Test instrument (TI)').inputValue(),'library-ti');
+  assert.equal(await page.locator('dialog.ac-shunt-import select').count(),0);
   mkdirSync('tmp/ac-shunt-import',{recursive:true});
   await page.screenshot({path:'tmp/ac-shunt-import/preview.png'});
   await page.getByRole('button',{name:'Create budget',exact:true}).click();
@@ -58,6 +57,7 @@ try {
   assert.equal(saved.testPoints[0].components[0].dof,4);
   assert.equal(saved.tmdes.length,1);
   assert.equal(saved.tmdes[0].libraryInstrumentId,'nist-reference');
+  assert.equal(saved.tmdes[0].name,'NIST reference');
   assert.equal(saved.uuts[0].libraryInstrumentId,'library-ti');
   assert.equal(saved.uuts[0].instrument.sourceId,'library-ti');
   assert.equal(saved.uuts[0].instrument.model,'Y5020 · TEST-20');

@@ -4,6 +4,7 @@ import { computeUncertaintyForPoint, computePointRiskMetrics } from './riskCompu
 import { resolvePointBudgetComponents } from './resolvePointBudgetComponents';
 import { getInlineManualDraft, normalizeInlineManualComponent } from '../features/analysis/utils/manualComponentUtils';
 import { isPpmBudget } from './budgetDisplay';
+import { formatInstrumentIdentity } from './instrumentIdentity';
 
 const snapshot = (points = [{ current: 10, frequency: 1000 }]) => ({
   id: 10, name: 'Saved run', createdAt: '2026-10-02',
@@ -48,11 +49,10 @@ describe('simple AC-shunt measurement import', () => {
   it('requires a TI library match and never substitutes another serial or a reference', () => {
     const source = snapshot();
     const ti = testInstrument(source);
-    expect(() => buildBudget(source)).toThrow(/Choose the library TI/);
-    expect(() => buildBudget(source, { instruments: [{ ...ti, model: 'Y5020 · OTHER' }] })).toThrow(/Choose the library TI/);
-    expect(() => buildBudget(source, { instruments: [{ ...ti, type: 'tmde' }] })).toThrow(/Choose the library TI/);
-    expect(() => buildBudget(source, { instruments: [ti, { ...ti, id: 'duplicate' }] })).toThrow(/Choose the library TI/);
-    expect(buildBudget(source, { instruments: [ti, { ...ti, id: 'duplicate' }], uutInstrumentId: 'duplicate' }).uutInstrumentId).toBe('duplicate');
+    expect(() => buildBudget(source)).toThrow(/Could not automatically match TI/);
+    expect(() => buildBudget(source, { instruments: [{ ...ti, model: 'Y5020 · OTHER' }] })).toThrow(/Could not automatically match TI/);
+    expect(() => buildBudget(source, { instruments: [{ ...ti, type: 'tmde' }] })).toThrow(/Could not automatically match TI/);
+    expect(() => buildBudget(source, { instruments: [ti, { ...ti, id: 'duplicate' }] })).toThrow(/Could not automatically match TI/);
   });
   it('preserves the screenshot signed mean and full-precision standard Type A as separate quantities', () => {
     const source = snapshot();
@@ -152,10 +152,18 @@ describe('simple AC-shunt measurement import', () => {
     expect(session.testPoints[0].components[0].pendingReason).toMatch(/two accepted/);
     expect(computeUncertaintyForPoint(session.testPoints[0],session)).toBeNull();
   });
-  it('allows an explicit reference choice without guessing among duplicate identities', () => {
+  it.each(['NIST reference AC shunt · 20 A', 'Fluke Y5020 · REF NIST reference AC shunt · 20 A'])('keeps the TMDE description separate from make/model: %s', description => {
+    const {session} = buildAcShuntBudget(snapshot(), {instruments:[{...reference,description}]});
+    expect(session.tmdes[0].name).toBe(description);
+    expect(formatInstrumentIdentity(session.tmdes[0])).toBe('Fluke Y5020 · REF NIST reference AC shunt · 20 A');
+    const rows = resolvePointBudgetComponents(session.testPoints[0],session);
+    expect(rows[2].name.match(/Fluke Y5020 · REF/g)).toHaveLength(1);
+    expect(session.tmdes[0].libraryInstrumentId).toBe('ref');
+  });
+  it('does not guess among duplicate reference identities', () => {
     const duplicate = { ...reference, id:'other' };
     expect(buildAcShuntBudget(snapshot(),{instruments:[reference,duplicate]}).referenceId).toBe('');
-    expect(buildAcShuntBudget(snapshot(),{instruments:[reference,duplicate],referenceId:'other'}).referenceId).toBe('other');
+    expect(buildAcShuntBudget(snapshot(),{instruments:[reference,duplicate]}).warnings.join(' ')).toContain('Add your reference instrument');
   });
   it('rejects missing points and invalid point coordinates', () => {
     expect(()=>buildAcShuntBudget(snapshot([]))).toThrow(/no measurement points/);

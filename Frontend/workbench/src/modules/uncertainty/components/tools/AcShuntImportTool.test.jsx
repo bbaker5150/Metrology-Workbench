@@ -36,11 +36,12 @@ it('loads only when opened, previews missing data, and saves a new budget',async
   expect(onImport.mock.calls[0][0].uuts[0]).toMatchObject({libraryInstrumentId:'shared-ti',instrument:{manufacturer:'Fluke',model:'A40B · UUT',sourceId:'shared-ti'}});
   await waitFor(()=>expect(screen.queryByText('Import shunt measurements')).toBeNull());
 });
-it('shows the measurement values and only an existing reference choice',async()=>{
-  const source={...snapshot,points:[{...snapshot.points[0],analytics:{pair_delta_uut_ppm:-3,pair_type_a_uncertainty_ppm:2,n_pairs_used:4}}]};
+it('automatically matches both instruments without selectors while showing the measurement values',async()=>{
+  const source={...snapshot,instruments:{...snapshot.instruments,standard_instrument_model:'A40B',standard_instrument_serial:'REF'},
+    points:[{...snapshot.points[0],analytics:{pair_delta_uut_ppm:-3,pair_type_a_uncertainty_ppm:2,n_pairs_used:4}}]};
   axios.get.mockImplementation(url=>Promise.resolve({data:url.endsWith('/1/')?source:{available:true,sessions:[{id:1,session_name:'Saved run'}],pages:1}}));
   const onImport=vi.fn().mockResolvedValue({});
-  render(<AcShuntImportTool onImport={onImport} instruments={[{id:'reference',scope:'validated',model:'NIST reference',functions:[]}]}/>);
+  render(<AcShuntImportTool onImport={onImport} instruments={[{...ti,id:'reference',type:'tmde',model:'A40B · REF',description:'NIST reference'}]}/>);
   fireEvent.click(screen.getByRole('button',{name:'Import AC/DC shunt session'}));
   fireEvent.click(await screen.findByRole('button',{name:/Saved run/}));
   await screen.findByText('1 measurement points');
@@ -50,10 +51,14 @@ it('shows the measurement values and only an existing reference choice',async()=
   expect(screen.getByText('2 ppm')).toBeInTheDocument();
   expect(screen.queryByLabelText('Certificate coverage factor (k)')).not.toBeInTheDocument();
   expect(screen.queryByText('Instrument matches')).not.toBeInTheDocument();
-  fireEvent.change(screen.getByLabelText('Reference instrument'),{target:{value:'reference'}});
+  expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+  expect(screen.queryByLabelText('Reference instrument')).not.toBeInTheDocument();
+  expect(screen.queryByLabelText('Test instrument (TI)')).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button',{name:'Create budget'}));
   await waitFor(()=>expect(onImport).toHaveBeenCalledTimes(1));
   expect(onImport.mock.calls[0][0].tmdes[0].libraryInstrumentId).toBe('reference');
+  expect(onImport.mock.calls[0][0].tmdes[0].name).toBe('NIST reference');
+  expect(onImport.mock.calls[0][0].uuts[0].libraryInstrumentId).toBe('shared-ti');
 });
 it('shows database failures and prevents creating an absent preview',async()=>{
   axios.get.mockRejectedValue(new Error('offline'));
@@ -62,15 +67,13 @@ it('shows database failures and prevents creating an absent preview',async()=>{
   expect(await screen.findByRole('alert')).toHaveTextContent('Could not load');
   expect(screen.getByRole('button',{name:'Create budget'})).toBeDisabled();
 });
-it('keeps the TI selector available when automatic matching is ambiguous',async()=>{
+it('reports ambiguous automatic matching without introducing instrument selectors',async()=>{
   render(<AcShuntImportTool onImport={vi.fn()} instruments={[{...ti,id:'other'}]}/>);
   fireEvent.click(screen.getByRole('button',{name:'Import AC/DC shunt session'}));
   fireEvent.click(await screen.findByRole('button',{name:/A40B calibration/}));
-  expect(await screen.findByRole('alert')).toHaveTextContent('Choose the library TI');
+  expect(await screen.findByRole('alert')).toHaveTextContent('Could not automatically match TI');
   expect(screen.getByRole('button',{name:'Create budget'})).toBeDisabled();
-  fireEvent.change(screen.getByLabelText('Test instrument (TI)'),{target:{value:'other'}});
-  await screen.findByText('1 measurement points');
-  expect(screen.getByRole('button',{name:'Create budget'})).toBeEnabled();
+  expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
 });
 it('keeps the dialog open when saving fails',async()=>{
   render(<AcShuntImportTool onImport={vi.fn().mockRejectedValue(new Error('Save failed'))}/>);

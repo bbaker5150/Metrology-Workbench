@@ -12,7 +12,16 @@ export const formatInstrumentIdentity = (source = {}, fallback = "Instrument") =
   let identity = parts.join(" ");
   const name = parts.at(-1) || "";
   const prefix = parts.slice(0, -1).join(" ");
-  if (prefix && name.toLowerCase().startsWith(prefix.toLowerCase())) identity = name;
+  if (prefix) {
+    // Older imports put the complete identity in Name, sometimes more than
+    // once. Display its make/model only once without rewriting saved labels.
+    let description = name;
+    while (description.toLowerCase() === prefix.toLowerCase() ||
+           description.toLowerCase().startsWith(`${prefix.toLowerCase()} `)) {
+      description = description.slice(prefix.length).trim();
+    }
+    identity = [prefix, description].filter(Boolean).join(' ');
+  }
   const tag = String(source.nickname || source.tag || instrument.nickname || instrument.tag || "").trim();
   return [tag ? `(${tag})` : "", identity].filter(Boolean).join(" ") || fallback;
 };

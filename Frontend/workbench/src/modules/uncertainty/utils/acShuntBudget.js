@@ -3,23 +3,20 @@ import { normalizeInlineManualComponent } from '../features/analysis/utils/manua
 import { getBudgetComponentsFromTolerance } from '../features/analysis/utils/budgetUtils';
 import { matchAcShuntInstrument, linkAcShuntDefinition, matchAcShuntRange, sharedAcShuntInstruments } from './acShuntLibrary';
 import { recalculatePointUncertaintyFields } from './riskCompute';
+import { formatInstrumentIdentity } from './instrumentIdentity';
 
 const finite = n => n !== null && n !== undefined && n !== '' && Number.isFinite(Number(n));
 const qualifier = value => ({ name: 'Frequency', min: value, max: value, value, isSingleValue: true, unit: 'Hz' });
 
 // Only observations come from the session. Reference uncertainties come from
 // the existing library, independently of the one-time reference setup.
-export function buildAcShuntBudget(snapshot, { instruments = [], referenceId, uutInstrumentId } = {}) {
+export function buildAcShuntBudget(snapshot, { instruments = [] } = {}) {
   if (!snapshot.points?.length) throw new Error('This session has no measurement points.');
   const meta = snapshot.instruments || {};
   const shared = sharedAcShuntInstruments(instruments);
-  const definition = referenceId !== undefined
-    ? shared.find(item => item.type !== 'uut' && String(item.id) === String(referenceId))
-    : matchAcShuntInstrument({ kind: 'shunt', model: meta.standard_instrument_model, serial: meta.standard_instrument_serial }, shared);
-  const uutDefinition = uutInstrumentId !== undefined
-    ? shared.find(item => item.type !== 'tmde' && String(item.id) === String(uutInstrumentId))
-    : matchAcShuntInstrument({ kind: 'uut', model: meta.test_instrument_model, serial: meta.test_instrument_serial }, shared);
-  if (!uutDefinition) throw new Error(`Choose the library TI for ${[meta.test_instrument_model, meta.test_instrument_serial].filter(Boolean).join(' · ')}. Restart the backend to create library TIs from saved AC-shunt sessions if needed.`);
+  const definition = matchAcShuntInstrument({ kind: 'shunt', model: meta.standard_instrument_model, serial: meta.standard_instrument_serial }, shared);
+  const uutDefinition = matchAcShuntInstrument({ kind: 'uut', model: meta.test_instrument_model, serial: meta.test_instrument_serial }, shared);
+  if (!uutDefinition) throw new Error(`Could not automatically match TI ${[meta.test_instrument_model, meta.test_instrument_serial].filter(Boolean).join(' · ')}. Check its model and serial in the instrument library, then retry.`);
   const areaId = uuid(), uutId = uuid();
   const warnings = [];
   const importedAt = new Date().toISOString();
@@ -27,8 +24,9 @@ export function buildAcShuntBudget(snapshot, { instruments = [], referenceId, uu
     measurementAreaId: areaId, measurementArea: 'Current', measurementAreaNames: ['Current'],
   }, uutDefinition);
   const reference = definition ? linkAcShuntDefinition({ id: uuid(),
-    name: [definition.manufacturer, definition.model, definition.description].filter(Boolean).join(' '),
+    name: definition.description || '',
     quantity: 1, isInstrumentBased: true, measurementAreaNames: ['Current'] }, definition) : null;
+  const referenceIdentity = reference ? formatInstrumentIdentity(reference) : '';
   const testPoints = snapshot.points.map(point => {
     if (!finite(point.current) || Number(point.current) <= 0 || !finite(point.frequency) || Number(point.frequency) <= 0) {
       throw new Error('Each AC-shunt point must have a positive current and frequency.');
@@ -66,12 +64,12 @@ export function buildAcShuntBudget(snapshot, { instruments = [], referenceId, uu
         if (!errors.length) throw new Error('The reference range has no uncertainty.');
         for (const error of errors) {
           const id = uuid();
-          components.push({ id, componentId: id, name: reference.name, type: 'B', isCore: true, isBudgetInstance: true, quantity: 1,
+          components.push({ id, componentId: id, name: referenceIdentity, type: 'B', isCore: true, isBudgetInstance: true, quantity: 1,
             sourceTmdeId: reference.id, tmdeBudgetSourceId: reference.id, tmdeBudgetRange: range,
             tmdeBudgetRangeId: range.rangeId, tmdeBudgetFunctionId: range.functionId, tmdeBudgetFunctionName: range.functionName,
             tmdeBudgetComponentKind: error.isResolution ? 'Resolution' : String(error.name || '').split(' - ').slice(1).join(' - ') || 'TMDE Error',
             tmdeUncertaintySourceId: error.tmdeUncertaintySourceId, tmdeUncertaintyComponentKind: error.tmdeUncertaintyComponentKind,
-            ...(error.isResolution ? { isResolution: true } : {}), tmdeIdentity: reference.name,
+            ...(error.isResolution ? { isResolution: true } : {}), tmdeIdentity: referenceIdentity,
             originalInput: { inputMode: 'tolerance', useFiniteDof: false } });
         }
       } catch (error) {
