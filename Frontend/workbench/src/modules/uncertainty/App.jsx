@@ -287,6 +287,12 @@ const normalizedGroupedCellValue = (value) => {
   return String(value).trim();
 };
 
+export const formatPointQualifier = (qualifier) => {
+  const value = normalizedGroupedCellValue(qualifier?.value);
+  const unit = normalizedGroupedCellValue(qualifier?.unit);
+  return value && unit && !value.endsWith(unit) ? `${value} ${unit}` : value;
+};
+
 export const getConsecutiveSidebarCellGroup = (
   points = [],
   index,
@@ -492,6 +498,21 @@ export const normalizeSidebarColumnOrder = (order) => {
     if (!normalized.includes(key)) normalized.push(key);
   });
   return normalized;
+};
+
+export const getSessionPointColumns = (session, defaults = {}, preferences = {}) => {
+  const isAcShunt = session?.testPoints?.some(point => point.testPointInfo?.acShuntSource);
+  const order = normalizeSidebarColumnOrder(defaults.order);
+  if (isAcShunt) {
+    order.splice(order.indexOf('qualifier'), 1);
+    order.splice(order.indexOf('value') + 1, 0, 'qualifier');
+  }
+  return {
+    columns: { ...DEFAULT_SIDEBAR_COLUMNS, ...defaults.columns,
+      ...(isAcShunt ? { section: false, value: true, qualifier: true } : {}),
+      ...preferences.sidebarColumns },
+    order: normalizeSidebarColumnOrder(preferences.sidebarColumnOrder || order),
+  };
 };
 
 const getVisibleSidebarColumnOrder = (visibleColumns, columnOrder) =>
@@ -994,14 +1015,14 @@ export const SidebarPointItem = ({
     } else if (editingField === "qualifier") {
       const prevInfo = point.testPointInfo || {};
       const prevQual = prevInfo.qualifier || {};
+      const qualifier = {
+        name: prevQual.name || "Qualifier", unit: prevQual.unit || "", ...prevQual, value: tempValue,
+        ...(prevQual.isSingleValue ? { min: tempValue, max: tempValue } : {}),
+      };
       const newInfo = {
         ...prevInfo,
-        qualifier: {
-          name: prevQual.name || "Qualifier",
-          unit: prevQual.unit || "",
-          ...prevQual,
-          value: tempValue,
-        },
+        qualifier,
+        ...(prevInfo.parameter?.qualifier ? { parameter: { ...prevInfo.parameter, qualifier } } : {}),
       };
       if (String(prevQual.value ?? "") !== String(tempValue)) onSave({ ...point, testPointInfo: newInfo });
     }
@@ -1589,7 +1610,7 @@ export const SidebarPointItem = ({
                 editingField === "qualifier" ? " point-qualifier--editing" : ""
               }${groupedCellClass(cellGroups.qualifier, "qualifier")}`}
               data-run={groupedCellRunKey(cellGroups.qualifier, "qualifier")}
-              title={normalizedGroupedCellValue(point.testPointInfo?.qualifier?.value) || "-"}
+              title={formatPointQualifier(point.testPointInfo?.qualifier) || "-"}
             >
               {wrapGroupedCellContent(
                 cellGroups.qualifier,
@@ -1627,7 +1648,7 @@ export const SidebarPointItem = ({
                       }}
                     >
                     <span className="point-grouped-cell-label">
-                      {normalizedGroupedCellValue(point.testPointInfo?.qualifier?.value) || (
+                      {formatPointQualifier(point.testPointInfo?.qualifier) || (
                         <span className="point-placeholder">-</span>
                       )}
                     </span>
@@ -4828,14 +4849,9 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
         String(currentSessionData?.id) !== String(selectedSessionId)) return;
     const preferences = readUiPreferences(selectedSessionId);
     const sizingPreferences = readUiSizingPreferences();
-    setSidebarColumns({
-      ...DEFAULT_SIDEBAR_COLUMNS,
-      ...readPointColumnDefaults().columns,
-      ...(preferences.sidebarColumns || {}),
-    });
-    setSidebarColumnOrder(
-      normalizeSidebarColumnOrder(preferences.sidebarColumnOrder || readPointColumnDefaults().order),
-    );
+    const pointColumns = getSessionPointColumns(currentSessionData, readPointColumnDefaults(), preferences);
+    setSidebarColumns(pointColumns.columns);
+    setSidebarColumnOrder(pointColumns.order);
     setSidebarWidth(
       Number.isFinite(sizingPreferences.sidebarWidth)
         ? sizingPreferences.sidebarWidth
@@ -5284,7 +5300,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
       qualifier: getConsecutiveSidebarCellGroupDuringEdit(
         points,
         index,
-        (point) => point.testPointInfo?.qualifier?.value ?? "",
+        (point) => formatPointQualifier(point.testPointInfo?.qualifier),
         "qualifier",
         pendingSharedFieldEdit,
       ),
@@ -6083,7 +6099,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
                   >
                     <FontAwesomeIcon icon={faRightLeft} />
                   </button>
-                  {AcShuntImportTool && <AcShuntImportTool instruments={instruments} onImport={async session => { await importSession(session, new Map(), { requireSaved: true, reuseSharedInstruments: true }); setSidebarColumns(columns => ({...columns,value:true,qualifier:true})); }} />}
+                  {AcShuntImportTool && <AcShuntImportTool instruments={instruments} onImport={async session => { await importSession(session, new Map(), { requireSaved: true, reuseSharedInstruments: true }); }} />}
                 </div>
 
                 <span className="app-chrome-meta-sep" aria-hidden="true" />

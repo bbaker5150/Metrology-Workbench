@@ -5,7 +5,7 @@ from api.models import (CalibrationSession, Calibration, CalibrationConfiguratio
     CalibrationSettings, Shunt, ShuntReport, ShuntCorrection, TVC, TVCReport, TVCCorrection)
 from .ac_shunt_import import session_snapshot
 from .serializers import save_session, session_to_dict
-from .ac_shunt_instruments import seed_ac_shunt_references
+from .ac_shunt_instruments import seed_ac_shunt_references, seed_ac_shunt_test_instruments
 from .models import Instrument
 
 
@@ -80,6 +80,21 @@ class AcShuntImportTests(TestCase):
         point = session_snapshot(self.session.pk)['points'][0]
         self.assertEqual(point['analytics'], {'pair_delta_uut_ppm': -7,
             'pair_type_a_uncertainty_ppm': 2, 'n_pairs_used': 4, 'persistedOnly': True})
+
+    def test_screenshot_mean_and_standard_type_a_remain_distinct(self):
+        CalibrationResultsCycle.objects.all().delete()
+        CalibrationSettings.objects.update(n_cycles=5)
+        expected_u = 0.6150070189859945
+        for result in CalibrationResults.objects.all():
+            # ABBA pairs Forward i with Reverse N+1-i.
+            sign = -1 if result.test_point.direction == 'Reverse' else 1
+            for index, offset in enumerate([-2, -1, 0, 1, 2], 1):
+                CalibrationResultsCycle.objects.create(results=result, cycle_index=index,
+                    delta_uut_ppm=-0.070 + sign * offset * expected_u * 2**.5)
+        analytics = session_snapshot(self.session.pk)['points'][0]['analytics']
+        self.assertAlmostEqual(analytics['pair_delta_uut_ppm'], -0.070)
+        self.assertAlmostEqual(analytics['pair_type_a_uncertainty_ppm'], expected_u)
+        self.assertEqual(analytics['n_pairs_used'], 5)
 
     def test_snapshot_does_not_read_certificate_tables(self):
         from django.db import connections
@@ -185,3 +200,54 @@ class AcShuntReferenceSetupTests(TestCase):
         ShuntCorrection.objects.create(report=report,current=10,frequency=1000,uncertainty=42)
         self.assertEqual(seed_ac_shunt_references(),1)
         self.assertEqual(Instrument.objects.get().functions[0]['ranges'][0]['tolerances']['reading']['high'],42)
+
+
+class AcShuntTestInstrumentSetupTests(TestCase):
+    databases = {'default', 'uncertainty'}
+
+    def make_session(self, serial='TI-10', points=((10, 60), (10, 1000))):
+        session = CalibrationSession.objects.create(session_name=f'TI setup {CalibrationSession.objects.count()}',
+            test_instrument_model='Y5020', test_instrument_serial=serial)
+        point_set = TestPointSet.objects.create(session=session)
+        for current, frequency in points:
+            for direction in ('Forward', 'Reverse'):
+                TestPoint.objects.create(test_point_set=point_set, current=current,
+                    frequency=frequency, direction=direction)
+        return session
+
+    def test_creates_one_shared_ti_per_serial_with_combined_current_frequency_ranges(self):
+        self.make_session()
+        self.make_session(points=((20, 1000), (10, 1000)))
+        self.make_session(serial='TI-20')
+        self.assertEqual(seed_ac_shunt_test_instruments(), 2)
+        item = Instrument.objects.get(model='Y5020 · TI-10')
+        self.assertEqual((item.manufacturer, item.instrument_type, item.scope), ('Fluke', 'uut', 'validated'))
+        ranges = item.functions[0]['ranges']
+        self.assertEqual([(r['value'], r['qualifier']['value']) for r in ranges], [(10, 60), (10, 1000), (20, 1000)])
+        self.assertEqual(ranges[0]['qualifierGroupId'], ranges[1]['qualifierGroupId'])
+        self.assertNotEqual(ranges[1]['qualifierGroupId'], ranges[2]['qualifierGroupId'])
+        for row in ranges:
+            self.assertEqual(row['qualifier']['unit'], 'Hz')
+            self.assertEqual(row['tolerances']['reading'], {'high':100, 'low':-100,
+                'unit':'ppm', 'symmetric':True, 'distribution':'not_set'})
+            self.assertEqual(row['acShuntSource']['serial'], 'TI-10')
+        item.functions[0]['ranges'][0]['tolerances']['reading']['high'] = 90
+        item.save()
+        self.assertEqual(seed_ac_shunt_test_instruments(), 0)
+        item.refresh_from_db()
+        self.assertEqual(item.functions[0]['ranges'][0]['tolerances']['reading']['high'], 90)
+
+    def test_reuses_authored_ti_and_keeps_reference_definitions_separate(self):
+        self.make_session()
+        Instrument.objects.create(id='reference', model='Y5020 · TI-10', instrument_type='tmde')
+        self.assertEqual(seed_ac_shunt_test_instruments(), 1)
+        self.assertEqual(Instrument.objects.count(), 2)
+        Instrument.objects.filter(instrument_type='uut').delete()
+        Instrument.objects.create(id='authored-ti', model='Y5020 · TI-10', instrument_type='uut', functions=[])
+        self.assertEqual(seed_ac_shunt_test_instruments(), 0)
+        self.assertEqual(Instrument.objects.get(pk='authored-ti').functions, [])
+
+    def test_skips_sessions_without_identity_or_points(self):
+        CalibrationSession.objects.create(session_name='Empty', test_instrument_model='Y5020', test_instrument_serial='EMPTY')
+        self.make_session(serial='')
+        self.assertEqual(seed_ac_shunt_test_instruments(), 0)

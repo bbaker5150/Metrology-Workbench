@@ -42,16 +42,19 @@ beforeEach(() => {
 describe("prepareImportedSession", () => {
   it('saves an AC-shunt budget with explicitly reused shared links while keeping the existing budget and library intact', async () => {
     const shared={id:'shared-meter',scope:'validated',model:'REF',description:'Y5020',functions:[]};
-    axios.get.mockImplementation(url=>Promise.resolve({data:url.endsWith('/instruments/') ? [shared] : url.endsWith('/sessions/') ? [{id:1,name:'Original',testPoints:[]}] : []}));
+    const sharedTi={id:'shared-ti',scope:'validated',type:'uut',manufacturer:'Fluke',model:'Y5020 · TI-10',functions:[]};
+    axios.get.mockImplementation(url=>Promise.resolve({data:url.endsWith('/instruments/') ? [shared,sharedTi] : url.endsWith('/sessions/') ? [{id:1,name:'Original',testPoints:[]}] : []}));
     const {result}=renderHook(()=>useSessionManager());
-    await waitFor(()=>expect(result.current.instruments).toHaveLength(1));
+    await waitFor(()=>expect(result.current.instruments).toHaveLength(2));
     const item=linkAcShuntDefinition({id:'reference-instance'},shared);
-    await act(async()=>{await result.current.importSession({name:'New AC/DC budget',tmdes:[item],testPoints:[]},new Map(),{requireSaved:true,reuseSharedInstruments:true});});
+    const ti=linkAcShuntDefinition({id:'ti-instance'},sharedTi);
+    await act(async()=>{await result.current.importSession({name:'New AC/DC budget',uuts:[ti],tmdes:[item],testPoints:[]},new Map(),{requireSaved:true,reuseSharedInstruments:true});});
     expect(result.current.sessions.find(session=>session.id===1)).toMatchObject({name:'Original',testPoints:[]});
     expect(result.current.currentSessionData.tmdes[0]).toMatchObject({libraryInstrumentId:'shared-meter',instrument:{sourceId:'shared-meter',scope:'validated'}});
     const saved=axios.put.mock.calls.find(([,data])=>data.name==='New AC/DC budget')[1];
     expect(saved.tmdes[0].libraryInstrumentId).toBe('shared-meter');
-    expect(result.current.instruments).toEqual([shared]);
+    expect(saved.uuts[0]).toMatchObject({libraryInstrumentId:'shared-ti',instrument:{sourceId:'shared-ti',manufacturer:'Fluke',model:'Y5020 · TI-10'}});
+    expect(result.current.instruments).toEqual([shared,sharedTi]);
     expect(axios.post).not.toHaveBeenCalled();
   });
   it('does not claim a local-library save succeeded when the API rejects it', async () => {

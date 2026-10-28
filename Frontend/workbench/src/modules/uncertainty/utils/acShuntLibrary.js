@@ -25,9 +25,11 @@ export function acShuntInstrumentRoles(snapshot) {
 export function matchAcShuntInstrument(role, instruments) {
   if (!normalized(role.serial)) return null;
   const candidates = sharedAcShuntInstruments(instruments).filter(item => {
+    if (role.kind === 'uut' && item.type === 'tmde') return false;
+    if (role.kind === 'shunt' && item.type === 'uut') return false;
     const sources = (item.functions || []).flatMap(fn => (fn.ranges || []).map(range => range.acShuntSource).filter(Boolean));
     const serials = [item.serialNumber, item.assetId, item.model, ...sources.map(source => source.serial)].map(normalized);
-    return serials.includes(normalized(role.serial)) &&
+    return (serials.includes(normalized(role.serial)) || normalized(item.model) === normalized(`${role.model} ${role.serial}`)) &&
       [item.model, item.description].some(value => normalized(value).includes(normalized(role.model))) && Boolean(role.model);
   });
   return candidates.length === 1 ? candidates[0] : null;

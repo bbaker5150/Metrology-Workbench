@@ -2,8 +2,14 @@ import React from 'react';
 import { beforeEach, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import axios from 'axios';
-import AcShuntImportTool from './AcShuntImportTool';
+import ImportTool from './AcShuntImportTool';
 vi.mock('axios',()=>({default:{get:vi.fn()}}));
+
+const ti = { id:'shared-ti',type:'uut',scope:'validated',manufacturer:'Fluke',model:'A40B · UUT',functions:[{
+  id:'current',name:'Current',unit:'A',ranges:[{id:'10-1000',min:10,max:10,unit:'A',
+    qualifier:{value:1000,min:1000,max:1000,unit:'Hz',isSingleValue:true},
+    tolerances:{reading:{high:100,low:-100,unit:'ppm',symmetric:true,distribution:'not_set'}}}]}] };
+const AcShuntImportTool = ({instruments = [], ...props}) => <ImportTool {...props} instruments={[ti,...instruments]}/>;
 
 const snapshot={id:1,name:'A40B calibration',createdAt:'2026-10-02',
   instruments:{test_instrument_model:'A40B',test_instrument_serial:'UUT'},
@@ -27,6 +33,7 @@ it('loads only when opened, previews missing data, and saves a new budget',async
   fireEvent.click(screen.getByRole('button',{name:'Create budget'}));
   await waitFor(()=>expect(onImport).toHaveBeenCalledTimes(1));
   expect(onImport.mock.calls[0][0]).toMatchObject({name:'A40B calibration · AC/DC budget'});
+  expect(onImport.mock.calls[0][0].uuts[0]).toMatchObject({libraryInstrumentId:'shared-ti',instrument:{manufacturer:'Fluke',model:'A40B · UUT',sourceId:'shared-ti'}});
   await waitFor(()=>expect(screen.queryByText('Import shunt measurements')).toBeNull());
 });
 it('shows the measurement values and only an existing reference choice',async()=>{
@@ -54,6 +61,16 @@ it('shows database failures and prevents creating an absent preview',async()=>{
   fireEvent.click(screen.getByRole('button',{name:'Import AC/DC shunt session'}));
   expect(await screen.findByRole('alert')).toHaveTextContent('Could not load');
   expect(screen.getByRole('button',{name:'Create budget'})).toBeDisabled();
+});
+it('keeps the TI selector available when automatic matching is ambiguous',async()=>{
+  render(<AcShuntImportTool onImport={vi.fn()} instruments={[{...ti,id:'other'}]}/>);
+  fireEvent.click(screen.getByRole('button',{name:'Import AC/DC shunt session'}));
+  fireEvent.click(await screen.findByRole('button',{name:/A40B calibration/}));
+  expect(await screen.findByRole('alert')).toHaveTextContent('Choose the library TI');
+  expect(screen.getByRole('button',{name:'Create budget'})).toBeDisabled();
+  fireEvent.change(screen.getByLabelText('Test instrument (TI)'),{target:{value:'other'}});
+  await screen.findByText('1 measurement points');
+  expect(screen.getByRole('button',{name:'Create budget'})).toBeEnabled();
 });
 it('keeps the dialog open when saving fails',async()=>{
   render(<AcShuntImportTool onImport={vi.fn().mockRejectedValue(new Error('Save failed'))}/>);

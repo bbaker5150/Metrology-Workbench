@@ -6,24 +6,26 @@ import { recalculatePointUncertaintyFields } from './riskCompute';
 
 const finite = n => n !== null && n !== undefined && n !== '' && Number.isFinite(Number(n));
 const qualifier = value => ({ name: 'Frequency', min: value, max: value, value, isSingleValue: true, unit: 'Hz' });
-const limit = (ppm, distribution) => ({ reading: { high: ppm, low: -ppm, unit: 'ppm', symmetric: true, distribution } });
 
 // Only observations come from the session. Reference uncertainties come from
 // the existing library, independently of the one-time reference setup.
-export function buildAcShuntBudget(snapshot, { instruments = [], referenceId } = {}) {
+export function buildAcShuntBudget(snapshot, { instruments = [], referenceId, uutInstrumentId } = {}) {
   if (!snapshot.points?.length) throw new Error('This session has no measurement points.');
   const meta = snapshot.instruments || {};
   const shared = sharedAcShuntInstruments(instruments);
   const definition = referenceId !== undefined
-    ? shared.find(item => String(item.id) === String(referenceId))
-    : matchAcShuntInstrument({ model: meta.standard_instrument_model, serial: meta.standard_instrument_serial }, shared);
-  const areaId = uuid(), uutId = uuid(), fnId = uuid();
+    ? shared.find(item => item.type !== 'uut' && String(item.id) === String(referenceId))
+    : matchAcShuntInstrument({ kind: 'shunt', model: meta.standard_instrument_model, serial: meta.standard_instrument_serial }, shared);
+  const uutDefinition = uutInstrumentId !== undefined
+    ? shared.find(item => item.type !== 'tmde' && String(item.id) === String(uutInstrumentId))
+    : matchAcShuntInstrument({ kind: 'uut', model: meta.test_instrument_model, serial: meta.test_instrument_serial }, shared);
+  if (!uutDefinition) throw new Error(`Choose the library TI for ${[meta.test_instrument_model, meta.test_instrument_serial].filter(Boolean).join(' · ')}. Restart the backend to create library TIs from saved AC-shunt sessions if needed.`);
+  const areaId = uuid(), uutId = uuid();
   const warnings = [];
   const importedAt = new Date().toISOString();
-  const uut = { id: uutId, name: [meta.test_instrument_model, meta.test_instrument_serial].filter(Boolean).join(' ') || 'AC shunt TI',
+  const uut = linkAcShuntDefinition({ id: uutId, name: [uutDefinition.manufacturer, uutDefinition.model, uutDefinition.description].filter(Boolean).join(' '),
     measurementAreaId: areaId, measurementArea: 'Current', measurementAreaNames: ['Current'],
-    instrument: { id: uuid(), manufacturer: '', model: meta.test_instrument_model || 'AC shunt',
-      description: 'Lab TI requirement: ±100 ppm', functions: [{ id: fnId, name: 'Current', unit: 'A', ranges: [] }] } };
+  }, uutDefinition);
   const reference = definition ? linkAcShuntDefinition({ id: uuid(),
     name: [definition.manufacturer, definition.model, definition.description].filter(Boolean).join(' '),
     quantity: 1, isInstrumentBased: true, measurementAreaNames: ['Current'] }, definition) : null;
@@ -77,13 +79,15 @@ export function buildAcShuntBudget(snapshot, { instruments = [], referenceId } =
         warnings.push(`${point.current} A / ${point.frequency} Hz: ${error.message}`);
       }
     }
-    const range = { id: uuid(), range: `${nominal.value} A`, value: nominal.value, min: nominal.value, max: nominal.value,
-      isSingleValue: true, unit: 'A', qualifierGroupId: `${uutId}:${nominal.value}`, qualifier: nominal.qualifier,
-      tolerances: limit(100, 'not_set'), includeResolutionInBudget: false, source: 'Lab TI requirement' };
-    uut.instrument.functions[0].ranges.push(range);
+    let uutTolerance = {};
+    try {
+      uutTolerance = matchAcShuntRange(uut, 'Current', nominal);
+    } catch (error) {
+      warnings.push(`${point.current} A / ${point.frequency} Hz: ${error.message}`);
+    }
     return { id: uuid(), section: '', measurementAreaId: areaId, associatedUutIds: [uutId], activeUutId: uutId,
       measurementType: 'direct', components, tmdeTolerances: [],
-      uutTolerance: { ...range, rangeId: range.id, functionId: fnId, functionName: 'Current' },
+      uutTolerance,
       is_detailed_uncertainty_calculated: false, coverageFactorMode: 'auto',
       testPointInfo: { measurementArea: 'Current', parameter: nominal, qualifier: nominal.qualifier, acShuntSource: source } };
   });
@@ -96,9 +100,9 @@ export function buildAcShuntBudget(snapshot, { instruments = [], referenceId } =
     uncReq: { uncertaintyConfidence: 95, reliability: 85, calInt: 12, neededTUR: 4, reqPFA: 2 },
     notes: [`Source: AC-shunt session ${snapshot.id} (${snapshot.name}).`,
       'AC–DC difference is the signed measured result. AC/DC repeatability uses the saved paired Type A standard uncertainty with N−1 degrees of freedom.',
-      'Variability: editable ±5 ppm, Rectangular. TI acceptance: lab ±100 ppm, with no measured bias applied.',
+      'Variability: editable ±5 ppm, Rectangular. TI acceptance uses the selected library instrument, initially lab ±100 ppm, with no measured bias applied.',
       'Reference errors use the selected Uncertalytics instrument. Complete any remaining instrument contributions in the budget.', ...warnings].join('\n'),
     detailSectionOrder: ['instruments', 'equation', 'budget'], detailCollapsedSections: [] };
   session.testPoints = testPoints.map(point => recalculatePointUncertaintyFields(point, session));
-  return { warnings, session, referenceId: definition?.id || '' };
+  return { warnings, session, referenceId: definition?.id || '', uutInstrumentId: uutDefinition.id };
 }

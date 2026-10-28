@@ -13,17 +13,23 @@ const source={id:11,name:'Y5020 import smoke',createdAt:'2026-10-02T00:00:00Z',
     standard_instrument_serial:'STD-20'},points:[6.9,10,20].map(current=>({
       current,frequency:1000,sourcePointIds:[current*10,current*10+1],
       analytics:{pair_type_a_uncertainty_ppm:1.2,n_pairs_used:5,pair_delta_uut_ppm:2.5}}))};
-const reference={id:'nist-reference',scope:'validated',manufacturer:'Fluke',model:'Y5020',description:'NIST reference',
+const reference={id:'nist-reference',type:'tmde',scope:'validated',manufacturer:'Fluke',model:'Y5020 · STD-20',description:'NIST reference',
   functions:[{id:'current',name:'Current',unit:'A',ranges:source.points.map(point=>({
     id:`range-${point.current}`,min:point.current,max:point.current,value:point.current,isSingleValue:true,unit:'A',
     qualifier:{min:1000,max:1000,value:1000,isSingleValue:true,unit:'Hz'},
     tolerances:{reading:{high:point.current===20?46:35,low:point.current===20?-46:-35,unit:'ppm',distribution:'1.960',symmetric:true}},
     acShuntSource:{serial:'STD-20',model:'Y5020'}}))}]};
+const ti={id:'library-ti',type:'uut',scope:'validated',manufacturer:'Fluke',model:'Y5020 · TEST-20',description:'Lab TI',
+  functions:[{id:'ti-current',name:'Current',unit:'A',ranges:source.points.map(point=>({
+    id:`ti-range-${point.current}`,min:point.current,max:point.current,value:point.current,isSingleValue:true,unit:'A',
+    qualifier:{min:1000,max:1000,value:1000,isSingleValue:true,unit:'Hz'},
+    tolerances:{reading:{high:100,low:-100,unit:'ppm',distribution:'not_set',symmetric:true}},
+    acShuntSource:{serial:'TEST-20',model:'Y5020',role:'uut'}}))}]};
 let saved;
 await page.route('**/api/**',async route=>{
   const path=new URL(route.request().url()).pathname;
   let data=[];
-  if(path.endsWith('/uncertainty/instruments/'))data=[reference];
+  if(path.endsWith('/uncertainty/instruments/'))data=[reference,ti];
   else if(path.endsWith('/ac-shunt/sessions/'))data={available:true,sessions:[{id:11,session_name:source.name,test_instrument_model:'Y5020',test_instrument_serial:'TEST-20',created_at:source.createdAt}],page:1,pages:1};
   else if(path.endsWith('/ac-shunt/sessions/11/'))data=source;
   else if(route.request().method()==='PUT' && /uncertainty\/sessions\/\d+\/$/.test(path)){saved=route.request().postDataJSON();data=saved;}
@@ -42,6 +48,7 @@ try {
   await page.getByRole('button',{name:/Y5020 import smoke/}).click();
   await page.getByText('3 measurement points',{exact:true}).waitFor();
   assert.equal(await page.getByLabel('Reference instrument').inputValue(),'nist-reference');
+  assert.equal(await page.getByLabel('Test instrument (TI)').inputValue(),'library-ti');
   mkdirSync('tmp/ac-shunt-import',{recursive:true});
   await page.screenshot({path:'tmp/ac-shunt-import/preview.png'});
   await page.getByRole('button',{name:'Create budget',exact:true}).click();
@@ -51,6 +58,10 @@ try {
   assert.equal(saved.testPoints[0].components[0].dof,4);
   assert.equal(saved.tmdes.length,1);
   assert.equal(saved.tmdes[0].libraryInstrumentId,'nist-reference');
+  assert.equal(saved.uuts[0].libraryInstrumentId,'library-ti');
+  assert.equal(saved.uuts[0].instrument.sourceId,'library-ti');
+  assert.equal(saved.uuts[0].instrument.model,'Y5020 · TEST-20');
+  assert.equal(saved.uuts[0].instrument.manufacturer,'Fluke');
   assert.equal(saved.testPoints[0].testPointInfo.measurementArea,'Current');
   assert.ok(saved.testPoints.every(p=>p.testPointInfo.qualifier.value===1000 && p.testPointInfo.qualifier.unit==='Hz'));
   assert.ok(saved.testPoints.every(p=>p.testPointInfo.acShuntSource.deltaPpm===2.5));
@@ -71,6 +82,9 @@ try {
   console.log('Sidebar metrics displayed.');
   const rows=page.locator('[data-point-id]');
   assert.equal(await rows.count(),3);
+  assert.equal(await rows.first().locator('[data-sidebar-column="section"]').count(),0);
+  assert.equal(await rows.first().locator('[data-sidebar-column="value"] + [data-sidebar-column="qualifier"]').count(),1);
+  assert.match(await rows.first().locator('[data-sidebar-column="qualifier"]').innerText(),/1000 Hz/);
   writeFileSync('tmp/ac-shunt-import/point-row.html',await rows.first().evaluate(el=>el.outerHTML));
   for (const row of await rows.all()) {
     for (const metric of ['TUR','PFA','PFR']) {

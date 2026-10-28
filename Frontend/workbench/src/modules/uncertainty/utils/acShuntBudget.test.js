@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildAcShuntBudget } from './acShuntBudget';
+import { buildAcShuntBudget as buildBudget } from './acShuntBudget';
 import { computeUncertaintyForPoint, computePointRiskMetrics } from './riskCompute';
 import { resolvePointBudgetComponents } from './resolvePointBudgetComponents';
 import { getInlineManualDraft, normalizeInlineManualComponent } from '../features/analysis/utils/manualComponentUtils';
@@ -19,7 +19,50 @@ const reference = { id: 'ref', scope: 'validated', manufacturer: 'Fluke', model:
     tolerances: { reading: { high: ppm, low: -ppm, unit: 'ppm', distribution: '1.960', symmetric: true } },
     acShuntSource: { serial: 'REF', model: 'Y5020' } })) }] };
 
+const testInstrument = source => ({ id: 'shared-ti', type: 'uut', scope: 'validated', manufacturer: 'Fluke',
+  model: `${source.instruments.test_instrument_model} · ${source.instruments.test_instrument_serial}`, description: 'Lab TI',
+  functions: [{ id: 'ti-current', name: 'Current', unit: 'A', ranges: source.points.map((point, i) => ({
+    id: `ti-range-${i}`, min: point.current, max: point.current, unit: 'A', isSingleValue: true,
+    qualifier: { value: point.frequency, min: point.frequency, max: point.frequency, unit: 'Hz', isSingleValue: true },
+    tolerances: { reading: { high: 100, low: -100, unit: 'ppm', symmetric: true, distribution: 'not_set' } },
+  })) }] });
+const buildAcShuntBudget = (source, options = {}) => buildBudget(source, {
+  ...options, instruments: [testInstrument(source), ...(options.instruments || [])],
+});
+
 describe('simple AC-shunt measurement import', () => {
+  it('links the actual library TI with make, model, serial and library range IDs without modifying it', () => {
+    const source = snapshot();
+    const ti = testInstrument(source);
+    ti.functions[0].ranges[0].tolerances.reading.high = 90;
+    const before = JSON.stringify(ti);
+    const { session, uutInstrumentId } = buildBudget(source, { instruments: [ti, reference] });
+    expect(uutInstrumentId).toBe('shared-ti');
+    expect(session.uuts[0]).toMatchObject({ libraryInstrumentId: 'shared-ti',
+      instrument: { manufacturer: 'Fluke', model: 'Y5020 · TI', sourceId: 'shared-ti', localOverride: false } });
+    expect(session.uuts[0].instrument.validatedSnapshot).toBeTruthy();
+    expect(session.testPoints[0].uutTolerance).toMatchObject({ rangeId: 'ti-range-0', functionId: 'ti-current',
+      tolerances: { reading: { high: 90 } } });
+    expect(JSON.stringify(ti)).toBe(before);
+  });
+  it('requires a TI library match and never substitutes another serial or a reference', () => {
+    const source = snapshot();
+    const ti = testInstrument(source);
+    expect(() => buildBudget(source)).toThrow(/Choose the library TI/);
+    expect(() => buildBudget(source, { instruments: [{ ...ti, model: 'Y5020 · OTHER' }] })).toThrow(/Choose the library TI/);
+    expect(() => buildBudget(source, { instruments: [{ ...ti, type: 'tmde' }] })).toThrow(/Choose the library TI/);
+    expect(() => buildBudget(source, { instruments: [ti, { ...ti, id: 'duplicate' }] })).toThrow(/Choose the library TI/);
+    expect(buildBudget(source, { instruments: [ti, { ...ti, id: 'duplicate' }], uutInstrumentId: 'duplicate' }).uutInstrumentId).toBe('duplicate');
+  });
+  it('preserves the screenshot signed mean and full-precision standard Type A as separate quantities', () => {
+    const source = snapshot();
+    source.points[0].analytics = { pair_delta_uut_ppm: -0.070, pair_type_a_uncertainty_ppm: 0.6150070189859945, n_pairs_used: 5 };
+    const point = buildAcShuntBudget(source).session.testPoints[0];
+    expect(point.testPointInfo.acShuntSource.deltaPpm).toBe(-0.070);
+    expect(point.components[0].originalInput.standardUncertainty).toBe(0.6150070189859945);
+    expect(point.components[0].dof).toBe(4);
+    expect(point.components[0].value_native).toBeCloseTo(0.6150070189859945 * 10e-6, 15);
+  });
   it('imports current, frequency, signed result and Type A once without phase data or certificates', () => {
     const { session } = buildAcShuntBudget(snapshot());
     const point = session.testPoints[0];

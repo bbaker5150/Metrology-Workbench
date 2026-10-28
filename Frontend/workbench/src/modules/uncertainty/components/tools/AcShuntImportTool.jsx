@@ -4,7 +4,7 @@ import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faBolt, faTimes } from '@fortawesome/free-solid-svg-icons';
 import { UNCERTAINTY_API } from '../../constants/constants';
 import { buildAcShuntBudget } from '../../utils/acShuntBudget';
-import { sharedAcShuntInstruments } from '../../utils/acShuntLibrary';
+import { matchAcShuntInstrument, sharedAcShuntInstruments } from '../../utils/acShuntLibrary';
 import './AcShuntImportTool.css';
 
 const EMPTY_INSTRUMENTS = [];
@@ -15,6 +15,7 @@ export default function AcShuntImportTool({ onImport, instruments = EMPTY_INSTRU
   const [selected,setSelected] = useState('');
   const [snapshot,setSnapshot] = useState(null);
   const [referenceId,setReferenceId] = useState(undefined);
+  const [uutInstrumentId,setUutInstrumentId] = useState(undefined);
   const [error,setError] = useState('');
   const [loading,setLoading] = useState(false);
   const [saving,setSaving] = useState(false);
@@ -61,9 +62,11 @@ export default function AcShuntImportTool({ onImport, instruments = EMPTY_INSTRU
   },[open,selected]);
   const preview = useMemo(()=>{
     if (!snapshot) return null;
-    try {return buildAcShuntBudget(snapshot,{instruments,referenceId});}
+    try {return buildAcShuntBudget(snapshot,{instruments,referenceId,uutInstrumentId});}
     catch(e){return {error:e.message};}
-  },[snapshot,instruments,referenceId]);
+  },[snapshot,instruments,referenceId,uutInstrumentId]);
+  const selectedUutId = uutInstrumentId ?? matchAcShuntInstrument({ kind:'uut',
+    model:snapshot?.instruments?.test_instrument_model, serial:snapshot?.instruments?.test_instrument_serial }, instruments)?.id ?? '';
   const generate = async () => {
     if (!preview?.session || saving) return;
     setSaving(true); setError('');
@@ -86,21 +89,28 @@ export default function AcShuntImportTool({ onImport, instruments = EMPTY_INSTRU
         {loading && <p role="status">Loading sessions…</p>}
         {!loading && listing?.sessions?.length===0 && <p>No matching sessions.</p>}
         {listing?.sessions?.map(s=><button key={s.id} disabled={saving} className={String(selected)===String(s.id)?'selected':''}
-          onClick={()=>{setSnapshot(null);setReferenceId(undefined);setSelected(s.id);}} aria-pressed={String(selected)===String(s.id)}>
+          onClick={()=>{setSnapshot(null);setReferenceId(undefined);setUutInstrumentId(undefined);setSelected(s.id);}} aria-pressed={String(selected)===String(s.id)}>
           <strong>{s.session_name}</strong><span>{s.test_instrument_model || 'Unknown model'} · {s.test_instrument_serial || 'No serial'}<time>{s.created_at?.slice(0,10)}</time></span></button>)}
       </div>
       {selected && !snapshot && !error && <p role="status">Reading measurement results…</p>}
+      {snapshot && <label>Test instrument (TI)
+        <select aria-label="Test instrument (TI)" disabled={saving} value={selectedUutId}
+          onChange={event=>setUutInstrumentId(event.target.value)}>
+          <option value="">Choose the session's TI from the library</option>
+          {sharedAcShuntInstruments(instruments).filter(item=>item.type!=='tmde').map(item=><option key={item.id} value={item.id}>{[item.manufacturer,item.model,item.description].filter(Boolean).join(' · ')}</option>)}
+        </select>
+      </label>}
       {preview?.session && <section className="ac-shunt-import-preview" aria-label="Import preview">
         <strong>{preview.session.testPoints.length} measurement points</strong>
         <label>Reference instrument
           <select aria-label="Reference instrument" disabled={saving} value={preview.referenceId}
             onChange={event=>setReferenceId(event.target.value)}>
             <option value="">Assign in the budget later</option>
-            {sharedAcShuntInstruments(instruments).map(item=><option key={item.id} value={item.id}>{[item.manufacturer,item.model,item.description].filter(Boolean).join(' · ')}</option>)}
+            {sharedAcShuntInstruments(instruments).filter(item=>item.type!=='uut').map(item=><option key={item.id} value={item.id}>{[item.manufacturer,item.model,item.description].filter(Boolean).join(' · ')}</option>)}
           </select>
         </label>
-        <p>TI limits: lab ±100 ppm. Reference uncertainties use your library definition.</p>
-        <table><thead><tr><th>Current</th><th>Frequency</th><th>AC–DC difference</th><th>Type A</th></tr></thead>
+        <p>TI limits and reference uncertainties use your library definitions.</p>
+        <table><thead><tr><th>Current</th><th>Frequency</th><th>AC–DC difference</th><th>Type A standard (k = 1)</th></tr></thead>
           <tbody>{preview.session.testPoints.map(point=><tr key={point.id}>
             <td>{point.testPointInfo.parameter.value} A</td><td>{point.testPointInfo.qualifier.value} Hz</td>
             <td>{point.testPointInfo.acShuntSource.deltaPpm == null ? 'Unavailable' : `${point.testPointInfo.acShuntSource.deltaPpm} ppm`}</td>

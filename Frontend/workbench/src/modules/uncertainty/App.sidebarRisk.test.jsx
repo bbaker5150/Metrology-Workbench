@@ -13,6 +13,8 @@ import {
   DEFAULT_SIDEBAR_COLUMN_ORDER,
   getConsecutiveSidebarCellGroup,
   getConsecutiveSidebarCellGroupDuringEdit,
+  formatPointQualifier,
+  getSessionPointColumns,
   getSidebarColumnMinWidth,
   getSidebarRiskColumnWidths,
   getSidebarGridTemplate,
@@ -25,6 +27,37 @@ import {
 vi.mock("plotly.js-dist", () => ({ default: {} }));
 
 describe("measurement-point value editing", () => {
+  test('initializes AC-shunt columns after loading a session and preserves later user preferences', () => {
+    const session = { testPoints: [{ testPointInfo: { acShuntSource: { sessionId: 1 } } }] };
+    const defaults = { columns: { section: true, qualifier: false, value: false }, order: ['qualifier','section','value'] };
+    const imported = getSessionPointColumns(session, defaults);
+    expect(imported.columns).toMatchObject({ section:false, qualifier:true, value:true });
+    expect(imported.order[imported.order.indexOf('value') + 1]).toBe('qualifier');
+    expect(getSessionPointColumns({}, defaults).columns).toMatchObject(defaults.columns);
+    const reopened = getSessionPointColumns(session, defaults, { sidebarColumns: { section:true, qualifier:false }, sidebarColumnOrder: defaults.order });
+    expect(reopened.columns).toMatchObject({section:true,qualifier:false});
+    expect(reopened.order.slice(0,3)).toEqual(defaults.order);
+  });
+  test('displays frequency units and retains numeric editing and matching bounds', () => {
+    const saved = vi.fn();
+    const qualifier = { value:1000,min:1000,max:1000,unit:'Hz',isSingleValue:true };
+    const { container } = render(<SidebarPointItem point={{id:'shunt',testPointInfo:{qualifier,parameter:{value:10,unit:'A',qualifier}}}}
+      isSelected visibleColumns={{qualifier:true}} onSelect={vi.fn()} onSave={saved}/>);
+    expect(screen.getByText('1000 Hz')).toBeInTheDocument();
+    fireEvent.mouseDown(container.querySelector('.point-qualifier [data-point-editor-trigger]'),{button:0});
+    const input = container.querySelector('input');
+    expect(input.value).toBe('1000');
+    fireEvent.change(input,{target:{value:'3000'}});
+    fireEvent.blur(input);
+    const info = saved.mock.calls[0][0].testPointInfo;
+    expect(info.qualifier).toMatchObject({value:'3000',min:'3000',max:'3000',unit:'Hz'});
+    expect(info.parameter.qualifier).toEqual(info.qualifier);
+    expect(formatPointQualifier({value:'1000 Hz',unit:'Hz'})).toBe('1000 Hz');
+    expect(formatPointQualifier({value:0,unit:'Hz'})).toBe('0 Hz');
+    expect(formatPointQualifier({value:'',unit:'Hz'})).toBe('');
+    const points = [{id:1,qualifier},{id:2,qualifier:{...qualifier,unit:'kHz'}}];
+    expect(getConsecutiveSidebarCellGroup(points,0,p=>formatPointQualifier(p.qualifier)).span).toBe(1);
+  });
   test.each(['', 'Saved value', 0])('switches unchanged Section and Qualifier inputs without saving or recalculating: %j', value => {
     const saved = vi.fn();
     const { container } = render(<SidebarPointItem point={{ id: 'no-op', section: value,
