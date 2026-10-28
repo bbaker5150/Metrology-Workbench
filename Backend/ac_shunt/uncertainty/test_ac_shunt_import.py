@@ -5,6 +5,8 @@ from api.models import (CalibrationSession, Calibration, CalibrationConfiguratio
     CalibrationSettings, Shunt, ShuntReport, ShuntCorrection, TVC, TVCReport, TVCCorrection)
 from .ac_shunt_import import session_snapshot
 from .serializers import save_session, session_to_dict
+from .ac_shunt_instruments import seed_ac_shunt_references
+from .models import Instrument
 
 
 class AcShuntImportTests(TestCase):
@@ -36,26 +38,25 @@ class AcShuntImportTests(TestCase):
             for index,delta in enumerate(deltas,1):
                 CalibrationResultsCycle.objects.create(results=result,cycle_index=index,delta_uut_ppm=delta)
 
-    def test_snapshot_pairs_once_preserves_report_and_does_not_write(self):
+    def test_snapshot_pairs_once_sends_only_measurements_and_does_not_write(self):
         before = list(CalibrationResults.objects.values())
         snapshot = session_snapshot(self.session.pk)
         self.assertEqual(len(snapshot['points']),1)
-        self.assertEqual(snapshot['points'][0]['readerPoints'][0]['filterMode'],'SLOW')
         point = snapshot['points'][0]
         self.assertEqual(point['analytics']['n_pairs_used'],3)
         self.assertAlmostEqual(point['analytics']['pair_type_a_uncertainty_ppm'],1/(3**.5))
-        self.assertEqual(point['shuntSources'][0]['report']['number'],'SAVED')
-        self.assertEqual(point['shuntSources'][0]['expandedPpm'],4)
-        self.assertEqual(point['tvcs']['std']['expandedPpm'],6)
+        self.assertEqual(point['analytics']['pair_delta_uut_ppm'],3)
+        self.assertEqual(set(point), {'sourcePointIds','current','frequency','analytics','stabilityFailed'})
+        self.assertEqual(set(point['analytics']), {'pair_delta_uut_ppm','pair_type_a_uncertainty_ppm','n_pairs_used'})
         self.assertEqual(before,list(CalibrationResults.objects.values()))
 
-    def test_manual_exclusions_and_missing_certificate_are_not_zero(self):
+    def test_manual_exclusions_do_not_depend_on_certificates(self):
         CalibrationResults.objects.update(manual_excluded_pairs=[2])
         ShuntCorrection.objects.all().delete()
         point = session_snapshot(self.session.pk)['points'][0]
         self.assertEqual(point['analytics']['n_pairs_used'],2)
         self.assertAlmostEqual(point['analytics']['pair_type_a_uncertainty_ppm'],1)
-        self.assertEqual(point['shuntSources'],[None,None])
+        self.assertNotIn('shuntSources',point)
 
     def test_read_endpoints_search_missing_and_empty_session(self):
         client = APIClient()
@@ -66,13 +67,28 @@ class AcShuntImportTests(TestCase):
         empty = CalibrationSession.objects.create(session_name='Empty')
         self.assertEqual(session_snapshot(empty.pk)['points'],[])
 
-    def test_incomplete_type_a_and_legacy_report_are_explicit(self):
+    def test_incomplete_type_a_is_explicit(self):
         TestPoint.objects.filter(direction='Reverse').delete()
         TestPoint.objects.update(correction_report=None)
         point = session_snapshot(self.session.pk)['points'][0]
         self.assertIsNone(point['analytics']['pair_type_a_uncertainty_ppm'])
-        self.assertEqual(point['shuntSources'][0]['expandedPpm'],40)
-        self.assertIn('legacy',point['shuntSources'][0]['report']['selection'])
+        self.assertNotIn('tvcs',point)
+
+    def test_legacy_persisted_aggregates_are_preserved(self):
+        CalibrationResultsCycle.objects.all().delete()
+        CalibrationResults.objects.update(pair_delta_uut_ppm=-7, pair_type_a_uncertainty_ppm=2, n_pairs_used=4)
+        point = session_snapshot(self.session.pk)['points'][0]
+        self.assertEqual(point['analytics'], {'pair_delta_uut_ppm': -7,
+            'pair_type_a_uncertainty_ppm': 2, 'n_pairs_used': 4, 'persistedOnly': True})
+
+    def test_snapshot_does_not_read_certificate_tables(self):
+        from django.db import connections
+        from django.test.utils import CaptureQueriesContext
+        with CaptureQueriesContext(connections['default']) as queries:
+            session_snapshot(self.session.pk)
+        sql = ' '.join(query['sql'].lower() for query in queries.captured_queries)
+        for table in ('api_shuntreport', 'api_shuntcorrection', 'api_tvcreport', 'api_tvccorrection'):
+            self.assertNotIn(table, sql)
 
     def test_provenance_and_pending_components_survive_budget_save(self):
         data = {'id':12345,'name':'Imported','testPoints':[{'id':'point','testPointInfo':{
@@ -119,3 +135,53 @@ class AcShuntImportTests(TestCase):
                 for key, value in expected.items():
                     self.assertEqual(actual[key], value, key)
             self.assertFalse(restored['components'][1].get('variableSymbol'))
+
+
+class AcShuntReferenceSetupTests(TestCase):
+    databases = {'default', 'uncertainty'}
+
+    def setUp(self):
+        self.shunt = Shunt.objects.create(model_name='Y5020', serial_number='NIST-10', range=10)
+        self.report = ShuntReport.objects.create(shunt=self.shunt, report_number='NIST-2026', calibration_date='2026-01-01')
+        for frequency, uncertainty in [(60,38),(1000,35),(6000,None)]:
+            ShuntCorrection.objects.create(report=self.report, current=10, frequency=frequency, uncertainty=uncertainty)
+
+    def test_creates_grouped_frequency_ranges_and_preserves_edits_on_repeat(self):
+        self.assertEqual(seed_ac_shunt_references(), 1)
+        instrument = Instrument.objects.get()
+        ranges = instrument.functions[0]['ranges']
+        self.assertEqual(instrument.scope, 'validated')
+        self.assertEqual(instrument.functions[0]['name'], 'Current')
+        self.assertEqual(len({r['qualifierGroupId'] for r in ranges}), 1)
+        self.assertEqual([r['qualifier']['value'] for r in ranges], [60,1000,6000])
+        self.assertEqual(ranges[0]['tolerances']['reading'], {
+            'high': 38, 'low': -38, 'unit': 'ppm', 'symmetric': True, 'distribution': '1.960'})
+        self.assertEqual(ranges[1]['tolerances']['reading']['high'], 35)
+        self.assertEqual(ranges[2]['tolerances'], {})
+        self.assertEqual(ranges[0]['acShuntSource']['reportNumber'], 'NIST-2026')
+        instrument.functions[0]['ranges'][0]['tolerances']['reading']['high'] = 99
+        instrument.save()
+        ShuntCorrection.objects.filter(report=self.report,frequency=60).update(uncertainty=100)
+        self.assertEqual(seed_ac_shunt_references(), 0)
+        instrument.refresh_from_db()
+        self.assertEqual(instrument.functions[0]['ranges'][0]['tolerances']['reading']['high'], 99)
+
+    def test_distinct_standards_keep_their_individual_uncertainties(self):
+        other = Shunt.objects.create(model_name='Y5020', serial_number='NIST-20', range=20)
+        report = ShuntReport.objects.create(shunt=other, report_number='OTHER')
+        ShuntCorrection.objects.create(report=report,current=20,frequency=1000,uncertainty=46)
+        self.assertEqual(seed_ac_shunt_references(), 2)
+        definitions = {item.model: item for item in Instrument.objects.all()}
+        self.assertEqual(definitions['Y5020 · NIST-20'].functions[0]['ranges'][0]['tolerances']['reading']['high'],46)
+        self.assertEqual(definitions['Y5020 · NIST-10'].functions[0]['ranges'][1]['tolerances']['reading']['high'],35)
+
+    def test_reuses_existing_authored_identity_and_prefers_manual_registry_entry(self):
+        Instrument.objects.create(id='authored', model='NIST-10', description='Y5020', functions=[])
+        self.assertEqual(seed_ac_shunt_references(),0)
+        self.assertEqual(Instrument.objects.count(),1)
+        Instrument.objects.all().delete()
+        manual = Shunt.objects.create(model_name='Y5020',serial_number='NIST-10',range=10,is_manual=True)
+        report = ShuntReport.objects.create(shunt=manual,report_number='MANUAL')
+        ShuntCorrection.objects.create(report=report,current=10,frequency=1000,uncertainty=42)
+        self.assertEqual(seed_ac_shunt_references(),1)
+        self.assertEqual(Instrument.objects.get().functions[0]['ranges'][0]['tolerances']['reading']['high'],42)

@@ -45,8 +45,15 @@ class Command(BaseCommand):
         self._bootstrap_outbox()
         self._bootstrap_local_workstation()
         self._bootstrap_mock_session()
+        self._bootstrap_ac_shunt_references()
 
         self.stdout.write(self.style.SUCCESS("Bootstrap complete."))
+
+    def _bootstrap_ac_shunt_references(self):
+        try:
+            call_command('seed_ac_shunt_references')
+        except Exception as exc:
+            self.stdout.write(self.style.WARNING(f'AC-shunt reference setup skipped ({exc!r}).'))
 
     def _migrate_default_db(self):
         """Apply pending migrations on the default DB.

@@ -210,6 +210,11 @@ def main():
     # session survive subsequent boots.
     _bootstrap_mock_calibration_session()
 
+    try:
+        call_command('seed_ac_shunt_references')
+    except Exception as e:
+        print(f"WARNING: AC-shunt reference setup skipped: {e}")
+
     # 4. Handle Port Conflicts
     port = '8000'
     if is_port_in_use(port):

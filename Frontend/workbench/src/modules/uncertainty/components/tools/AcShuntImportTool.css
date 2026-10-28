@@ -27,3 +27,5 @@
 .ac-shunt-import [role=alert] {color:#ef9c84;}
 .ac-shunt-import select {font:inherit;color:inherit;background:var(--content-background-solid,#17202e);border:1px solid var(--border-color,#42516a);border-radius:8px;padding:8px;max-width:60%;min-width:0;}
 .ac-shunt-import select:focus-visible {outline:2px solid #73b7ef;outline-offset:2px;}
+.ac-shunt-import-preview table {width:100%;border-collapse:collapse;font-size:11px;}
+.ac-shunt-import-preview th,.ac-shunt-import-preview td {padding:7px 4px;text-align:left;border-bottom:1px solid var(--border-color,#42516a);overflow-wrap:anywhere;}
