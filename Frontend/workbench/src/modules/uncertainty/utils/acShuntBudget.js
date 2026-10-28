@@ -20,7 +20,7 @@ export function buildAcShuntBudget(snapshot, { instruments = [] } = {}) {
   const areaId = uuid(), uutId = uuid();
   const warnings = [];
   const importedAt = new Date().toISOString();
-  const uut = linkAcShuntDefinition({ id: uutId, name: [uutDefinition.manufacturer, uutDefinition.model, uutDefinition.description].filter(Boolean).join(' '),
+  const uut = linkAcShuntDefinition({ id: uutId, name: uutDefinition.description || '', description: uutDefinition.description || '',
     measurementAreaId: areaId, measurementArea: 'Current', measurementAreaNames: ['Current'],
   }, uutDefinition);
   const reference = definition ? linkAcShuntDefinition({ id: uuid(),

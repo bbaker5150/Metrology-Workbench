@@ -10,6 +10,8 @@ For the supplied example, the signed result is −0.070 ppm and the repeatabilit
 
 The actual TI and reference are matched automatically to the shared Uncertalytics library by model and serial. The import menu only requires selecting the saved session; it has no TI or standard selectors. The TI table displays the library make, model and serial and retains the library link, just like the TMDE table. If a TI has no unique match, correct its library identity before retrying. The importer does not invent a generic TI. Library TI ranges initially use the lab's ±100 ppm acceptance limits, grouped by current with frequency qualifiers. Subsequent library edits are preserved. Reference current/frequency ranges supply their individual uncertainty. Missing or ambiguous ranges are flagged for review; no frequency interpolation occurs. The TMDE name stores its description separately from make/model, and repeated identity prefixes from earlier imports are displayed only once.
 
+Both instrument tables display make, model/serial, then the instrument description. New imports populate the UUT's Description field from the library. Older imported UUT rows with an empty Description use their saved instrument definition's description; an existing custom row description takes precedence. TI and reference descriptions retain their own role-specific text.
+
 The routine snapshot contains only session identity, TI/reference identity, current/frequency, accepted-pair aggregates, source point IDs and stability flags. It does not fetch certificates, reader settings or phase voltage data. It does not rebuild readers, TVCs, transfer equations or manufacturer specifications. Add any remaining instrument contributions through the usual budget editors.
 
 ## Initial instrument setup

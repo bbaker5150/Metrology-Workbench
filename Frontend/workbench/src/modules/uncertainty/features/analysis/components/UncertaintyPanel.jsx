@@ -33,7 +33,7 @@ import { showFirstInstrumentHint } from "../../../utils/instrumentOnboarding";
 /**
  * src/features/analysis/components/UncertaintyPanel.jsx
  */
-import { formatInstrumentIdentity, formatErrorSourceDescription, formatErrorSourceKind } from "../../../utils/instrumentIdentity";
+import { formatInstrumentIdentity, formatErrorSourceDescription, formatErrorSourceKind, getUutDescription } from "../../../utils/instrumentIdentity";
 import React, {
   useState,
   useEffect,
@@ -7076,7 +7076,7 @@ const SummaryDashboard = ({
   };
 
   const rowLabel = (kind, item) =>
-    kind === "uut" ? item?.description || "" : item?.name || "";
+    kind === "uut" ? getUutDescription(item) : item?.name || "";
 
   const itemInstrumentForLibrary = (kind, item) => {
     const inst = item?.instrument || {};
@@ -9568,14 +9568,14 @@ const SummaryDashboard = ({
                                   onMouseEnter={() =>
                                     setHoveredCell({ tableId: "uut", colIndex: 0 })
                                   }
-                                  title={uut.description}
+                                  title={formatInstrumentIdentity(uut)}
                                 >
                                   <InstrumentOrderControls
                                     onMoveUp={() => moveInstrument("uut", uut.id, uutFnKey, -1)}
                                     onMoveDown={() => moveInstrument("uut", uut.id, uutFnKey, 1)}
                                   />
                                   <EditableDescriptionCell
-                                    name={uut.description}
+                                    name={getUutDescription(uut)}
                                     nickname={uut.nickname}
                                     make={uut.instrument?.manufacturer}
                                     model={uut.instrument?.model}
@@ -9659,7 +9659,7 @@ const SummaryDashboard = ({
                           onMouseEnter={() =>
                             setHoveredCell({ tableId: "uut", colIndex: 0 })
                           }
-                          title={uut.description}
+                          title={formatInstrumentIdentity(uut)}
                         >
                           <InstrumentOrderControls
                             onMoveUp={() => moveInstrument("uut", uut.id, uutFnKey, -1)}
@@ -9667,7 +9667,7 @@ const SummaryDashboard = ({
                           />
                           {onSessionSave ? (
                             <EditableDescriptionCell
-                              name={uut.description}
+                              name={getUutDescription(uut)}
                               nickname={uut.nickname}
                               make={uut.instrument?.manufacturer}
                               model={uut.instrument?.model}
@@ -9681,7 +9681,7 @@ const SummaryDashboard = ({
                               }
                             />
                           ) : (
-                            uut.description
+                            formatInstrumentIdentity(uut)
                           )}
                         </td>
                         {renderCustomCellsAfter("uut", uut, "description", rowSpan, [{ range: activeRange }])}
@@ -11430,7 +11430,7 @@ function DetailedView({
   const { syncToShared, getDiff } = useInstrumentSync(onInstrumentSynced);
 
   const rowLabel = (kind, item) =>
-    kind === "uut" ? item?.description || "" : item?.name || "";
+    kind === "uut" ? getUutDescription(item) : item?.name || "";
   const itemInstrumentForLibrary = (kind, item) => {
     const inst = item?.instrument || {};
     const areaName =
@@ -15894,7 +15894,7 @@ function DetailedView({
                                   />
                                   <div className="uut-description-content">
                                     <EditableDescriptionCell
-                                      name={uut.description}
+                                      name={getUutDescription(uut)}
                                       nickname={uut.nickname}
                                       make={uut.instrument?.manufacturer}
                                       model={uut.instrument?.model}
@@ -16000,7 +16000,7 @@ function DetailedView({
                           <div className="uut-description-content">
                             {onSessionSave ? (
                               <EditableDescriptionCell
-                                name={uut.description}
+                                name={getUutDescription(uut)}
                                 nickname={uut.nickname}
                                 make={uut.instrument?.manufacturer}
                                 model={uut.instrument?.model}
@@ -16014,7 +16014,7 @@ function DetailedView({
                                 }
                               />
                             ) : (
-                              <span>{uut.nickname || uut.description}</span>
+                              <span>{formatInstrumentIdentity(uut)}</span>
                             )}
                             {isActivePointUut && (
                               <span

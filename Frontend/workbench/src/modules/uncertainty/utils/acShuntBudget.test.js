@@ -40,7 +40,9 @@ describe('simple AC-shunt measurement import', () => {
     const { session, uutInstrumentId } = buildBudget(source, { instruments: [ti, reference] });
     expect(uutInstrumentId).toBe('shared-ti');
     expect(session.uuts[0]).toMatchObject({ libraryInstrumentId: 'shared-ti',
+      description: 'Lab TI', name: 'Lab TI',
       instrument: { manufacturer: 'Fluke', model: 'Y5020 · TI', sourceId: 'shared-ti', localOverride: false } });
+    expect(formatInstrumentIdentity(session.uuts[0])).toBe('Fluke Y5020 · TI Lab TI');
     expect(session.uuts[0].instrument.validatedSnapshot).toBeTruthy();
     expect(session.testPoints[0].uutTolerance).toMatchObject({ rangeId: 'ti-range-0', functionId: 'ti-current',
       tolerances: { reading: { high: 90 } } });

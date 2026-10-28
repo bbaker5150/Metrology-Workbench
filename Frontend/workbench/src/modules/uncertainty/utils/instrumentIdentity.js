@@ -1,4 +1,8 @@
 // Shared display format for instrument tables, measurement points and exports.
+// Earlier AC-shunt imports left the UUT's row description empty while keeping
+// the library description on its nested instrument definition.
+export const getUutDescription = (source = {}) => source.description || source.instrument?.description || '';
+
 export const formatInstrumentIdentity = (source = {}, fallback = "Instrument") => {
   const instrument = source.instrument || source;
   const parts = [];
