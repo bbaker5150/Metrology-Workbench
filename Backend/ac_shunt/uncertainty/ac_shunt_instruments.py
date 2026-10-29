@@ -30,16 +30,22 @@ def positive(value):
         return False
 
 
+def manual_source(shunt, report):
+    return manual_corrections({'isManual': shunt.is_manual, 'remark': shunt.remark,
+                              'report': {'notes': getattr(report, 'notes', '')}})
+
+
 def standard_type(shunt, report):
-    if manual_corrections({'isManual': shunt.is_manual, 'remark': shunt.remark,
-                           'report': {'notes': getattr(report, 'notes', '')}}):
-        return 'MANUAL'
     # Lab convention: the catalog's 100 ppm uncertainties identify a Check
     # STD. Do not infer this from the TI's separate 100 ppm acceptance limit.
     uncertainties = [float(row.uncertainty) for row in report.corrections.all()
                      if row.uncertainty is not None and math.isfinite(row.uncertainty) and row.uncertainty >= 0] if report else []
+    if uncertainties and all(math.isclose(value, 100, rel_tol=0, abs_tol=1e-9) for value in uncertainties):
+        return 'CHECK STD'
+    if manual_source(shunt, report):
+        return 'MANUAL'
     if uncertainties:
-        return 'CHECK STD' if all(math.isclose(value, 100, rel_tol=0, abs_tol=1e-9) for value in uncertainties) else 'NIST'
+        return 'NIST'
     # A Check STD can itself be traceable to NIST. Prefer its device label.
     for text in (shunt.remark, shunt.model_name, getattr(report, 'notes', ''), getattr(report, 'report_number', '')):
         if re.search(r'\bcheck[\s_-]*(?:std|standard)\b', text or '', re.I):
@@ -65,7 +71,7 @@ def catalog_record(shunt, model, report, label):
     def finite(value):
         return value if value is not None and math.isfinite(float(value)) else None
     return {'model': model, 'serial': shunt.serial_number.strip(), 'rangeA': shunt.range,
-            'standardType': label, 'isManual': label == 'MANUAL', 'remark': shunt.remark,
+            'standardType': label, 'isManual': manual_source(shunt, report), 'remark': shunt.remark,
             'report': None if not report else {
                 'id': report.pk, 'number': report.report_number, 'date': str(report.calibration_date or ''), 'notes': report.notes,
                 'points': [{'currentA': finite(row.current), 'frequencyHz': finite(row.frequency),
@@ -143,9 +149,10 @@ def instrument_identity(model, serial, shunt_range, label):
             'description': ' '.join(part for part in (serial, range_text, label) if part)}
 
 
-def source_identity(model, serial, shunt_range, label, role):
+def source_identity(model, serial, shunt_range, label, role, *, is_manual=None):
     return {'model': model, 'serial': serial, 'shuntRange': shunt_range,
-            'standardType': label, 'isManual': label == 'MANUAL', 'role': role, 'namingVersion': 3}
+            'standardType': label, 'isManual': label == 'MANUAL' if is_manual is None else is_manual,
+            'role': role, 'namingVersion': 3}
 
 
 def remember_calibration_evidence(item, records):
@@ -171,9 +178,11 @@ def matches_instrument(item, model, serial, shunt_range=None):
             and model.casefold() in f'{item.model} {item.description}'.casefold())
 
 
-def rename_instrument_once(item, model, serial, shunt_range, label, role):
+def rename_instrument_once(item, model, serial, shunt_range, label, role, *, is_manual=None):
     metadata = item.column_metadata or {}
     previous = metadata.get('acShuntIdentity', {})
+    if is_manual is None:
+        is_manual = previous.get('isManual', label == 'MANUAL')
     if previous.get('namingVersion', 0) >= 2:
         # Repair the missing rating produced by conflicting historical session
         # configurations, but preserve names the user has since customized.
@@ -184,12 +193,12 @@ def rename_instrument_once(item, model, serial, shunt_range, label, role):
             return
         if not auto_name:
             item.column_metadata = {**metadata, 'acShuntIdentity': {**previous,
-                **source_identity(model, serial, shunt_range, label, role)}}
+                **source_identity(model, serial, shunt_range, label, role, is_manual=is_manual)}}
             item.save(update_fields=['column_metadata', 'updated_at'])
             return
     for field, value in instrument_identity(model, serial, shunt_range, label).items():
         setattr(item, field, value)
-    item.column_metadata = {**metadata, 'acShuntIdentity': {**previous, **source_identity(model, serial, shunt_range, label, role)}}
+    item.column_metadata = {**metadata, 'acShuntIdentity': {**previous, **source_identity(model, serial, shunt_range, label, role, is_manual=is_manual)}}
     item.save(update_fields=['manufacturer', 'model', 'description', 'column_metadata', 'updated_at'])
 
 
@@ -236,7 +245,7 @@ def seed_ac_shunt_references(*, export_only=False):
             canonical_matches = [item for item in matches if matches_instrument(item, model, identity[0], shunt.range)]
             if canonical_matches:
                 for item in canonical_matches:
-                    rename_instrument_once(item, model, identity[0], shunt.range, label, 'tmde')
+                    rename_instrument_once(item, model, identity[0], shunt.range, label, 'tmde', is_manual=record['isManual'])
                     remember_calibration_evidence(item, records)
                 retain_canonical_instrument(matches, next((item.id for item in canonical_matches if item.id == key), canonical_matches[0].id), alias_names)
                 continue
@@ -267,7 +276,7 @@ def seed_ac_shunt_references(*, export_only=False):
             continue
         defaults = {
             **instrument_identity(model, identity[0], shunt.range, label),
-            'column_metadata': {'acShuntIdentity': {**source_identity(model, identity[0], shunt.range, label, 'tmde'),
+            'column_metadata': {'acShuntIdentity': {**source_identity(model, identity[0], shunt.range, label, 'tmde', is_manual=record['isManual']),
                                                   'calibrationEvidence': [record],
                                                   **({'serialAliases': alias_names} if alias_names else {})}},
             'measurement_area': 'Current', 'measurement_area_color': '#5aa6d9',
@@ -325,7 +334,8 @@ def seed_ac_shunt_test_instruments(*, export_only=False):
         if any(shunt.is_manual for shunt, _ in matching_shunts):
             matching_shunts = [(shunt, label) for shunt, label in matching_shunts if shunt.is_manual]
         identity = (model.casefold(), serial.casefold())
-        record = grouped.setdefault(identity, {'model': model, 'serial': serial, 'points': set(), 'physicalRanges': set(), 'labels': set(), 'serialAliases': set()})
+        record = grouped.setdefault(identity, {'model': model, 'serial': serial, 'points': set(), 'physicalRanges': set(), 'labels': set(), 'serialAliases': set(), 'isManual': False})
+        record['isManual'] |= any(manual_source(shunt, resolve_active_report(shunt.reports.all())) for shunt, _ in matching_shunts)
         record['serialAliases'].update(alias for (family, alias, _, _manual), row in aliases.items()
                                        if family == model and row['serial'].casefold() == serial.casefold())
         if len(matching_shunts) == 1:
@@ -361,7 +371,7 @@ def seed_ac_shunt_test_instruments(*, export_only=False):
                                   'shuntRange': shunt_range, 'standardType': label}})
         defaults = {
             **instrument_identity(model, serial, shunt_range, label),
-            'column_metadata': {'acShuntIdentity': {**source_identity(model, serial, shunt_range, label, 'uut'),
+            'column_metadata': {'acShuntIdentity': {**source_identity(model, serial, shunt_range, label, 'uut', is_manual=record['isManual']),
                                                   'calibrationEvidence': matching_uncertainty_records(
                                                       {'model': model, 'serial': serial, 'shuntRange': shunt_range}, records),
                                                   **({'serialAliases': alias_names} if alias_names else {})}},

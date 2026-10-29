@@ -7,12 +7,13 @@ from unittest.mock import patch
 
 from django.core.management import call_command
 from django.test import TestCase
-from api.models import Shunt, ShuntReport, ShuntCorrection
+from api.models import Shunt, ShuntReport, ShuntCorrection, CalibrationSession, TestPointSet, TestPoint
 from .ac_shunt_instruments import catalog_record, seed_ac_shunt_references, shunt_catalog, standard_type
 from .ac_shunt_roles import consolidate_library_roles, default_ti_functions
 from .management.commands.import_ac_shunt_library import prepare_definitions
 from .models import Instrument, Session, Uut
 from .serializers import instrument_to_dict, save_instrument
+from .shunt_identity import catalog_standard_type
 
 
 class ShuntManualRoleTests(TestCase):
@@ -31,16 +32,67 @@ class ShuntManualRoleTests(TestCase):
         ShuntCorrection.objects.create(report=report, current=3, frequency=1000, correction=1, uncertainty=uncertainty)
         return shunt, report
 
-    def test_manual_overrides_label_even_at_100_ppm_and_baseline_remains_separate(self):
+    def test_manual_100_ppm_is_check_standard_and_baseline_remains_separate(self):
         base, base_report = self.report()
         manual, report = self.report(True, uncertainty=100, notes='Temp corrections from session #93')
-        self.assertEqual(standard_type(manual, report), 'MANUAL')
+        self.assertEqual(standard_type(manual, report), 'CHECK STD')
         self.assertEqual(standard_type(base, base_report), 'NIST')
         self.assertEqual(seed_ac_shunt_references(), 2)
         self.assertEqual(seed_ac_shunt_references(), 0)
         self.assertEqual(set(Instrument.objects.values_list('description', flat=True)),
-                         {'450274742 5 A MANUAL', '450274742 5 A NIST'})
+                         {'450274742 5 A CHECK STD', '450274742 5 A NIST'})
         self.assertEqual({item.functions[0]['ranges'][0]['tolerances']['reading']['high'] for item in Instrument.objects.all()}, {22, 100})
+        self.assertTrue(Instrument.objects.get(description='450274742 5 A CHECK STD').column_metadata['acShuntIdentity']['isManual'])
+
+    def test_live_and_portable_classification_use_the_same_precedence(self):
+        shunt, report = self.report()
+        for manual, uncertainty, expected in [(False, 100, 'CHECK STD'), (True, 100, 'CHECK STD'),
+                                               (True, 10, 'MANUAL'), (False, 10, 'NIST')]:
+            with self.subTest(manual=manual, uncertainty=uncertainty):
+                shunt.is_manual = manual
+                report.notes = 'Temp corrections from session #79' if manual else 'Baseline'
+                report.corrections.update(uncertainty=uncertainty)
+                self.assertEqual(standard_type(shunt, report), expected)
+                self.assertEqual(catalog_standard_type(catalog_record(shunt, 'A40B', report, '')), expected)
+        shunt.is_manual = True
+        ShuntCorrection.objects.create(report=report, current=3, frequency=2000, correction=1, uncertainty=100)
+        self.assertEqual(standard_type(shunt, report), 'MANUAL')
+        self.assertEqual(catalog_standard_type(catalog_record(shunt, 'A40B', report, '')), 'MANUAL')
+
+    def test_startup_relabels_existing_manual_100_entry_without_changing_id_or_specs(self):
+        self.report(True, uncertainty=100, notes='Temp corrections from session #79')
+        seed_ac_shunt_references()
+        item = Instrument.objects.get()
+        item.description = '450274742 5 A MANUAL'
+        item.column_metadata['acShuntIdentity']['standardType'] = 'MANUAL'
+        item.save()
+        old_id, old_functions = item.id, copy.deepcopy(item.functions)
+        source = CalibrationSession.objects.create(session_name='TI profile', test_instrument_model='A40B', test_instrument_serial='450274742')
+        points = TestPointSet.objects.create(session=source)
+        TestPoint.objects.create(test_point_set=points, current=3, frequency=1000, direction='Forward')
+        for _ in range(2):
+            call_command('seed_ac_shunt_references', stdout=StringIO())
+        item.refresh_from_db()
+        self.assertEqual(Instrument.objects.count(), 1)
+        self.assertEqual(item.id, old_id)
+        self.assertEqual(item.description, '450274742 5 A CHECK STD')
+        self.assertEqual(item.functions, old_functions)
+        self.assertTrue(item.column_metadata['acShuntIdentity']['isManual'])
+        self.assertEqual(item.column_metadata['acShuntIdentity']['roles'], ['tmde', 'uut'])
+
+    def test_portable_manual_100_entry_is_renamed_without_losing_provenance(self):
+        self.report(True, uncertainty=100, notes='Temp corrections from session #84')
+        seed_ac_shunt_references()
+        definition = instrument_to_dict(Instrument.objects.get())
+        definition['description'] = '450274742 5 A MANUAL'
+        definition['acShuntIdentity']['standardType'] = 'MANUAL'
+        payload = {'format': 'uncertalytics-ac-shunt-library', 'version': 1,
+                   'catalog': [catalog_record(*row) for row in shunt_catalog()], 'instruments': [definition]}
+        prepared = prepare_definitions(payload)[0]
+        self.assertEqual(prepared['description'], '450274742 5 A CHECK STD')
+        self.assertEqual(prepared['id'], definition['id'])
+        self.assertTrue(prepared['acShuntIdentity']['isManual'])
+        self.assertEqual(prepared['functions'], definition['functions'])
 
     def test_copied_or_temporary_corrections_are_manual_without_guessing_from_uncertainty(self):
         shunt, report = self.report(notes='20A copied from 18A')

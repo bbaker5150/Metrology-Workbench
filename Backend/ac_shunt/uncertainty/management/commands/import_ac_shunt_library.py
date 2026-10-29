@@ -187,7 +187,7 @@ class Command(BaseCommand):
                     canonical_matches = [old for old in matches if matches_instrument(old, source['model'], source['serial'], source['shuntRange'])]
                     if canonical_matches:
                         for old in canonical_matches:
-                            rename_instrument_once(old, source['model'], source['serial'], source['shuntRange'], source['standardType'], item['type'])
+                            rename_instrument_once(old, source['model'], source['serial'], source['shuntRange'], source['standardType'], item['type'], is_manual=source['isManual'])
                             remember_calibration_evidence(old, source['calibrationEvidence'])
                         retained += 1
                     else:

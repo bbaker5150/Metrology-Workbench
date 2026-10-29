@@ -89,7 +89,7 @@ class Command(BaseCommand):
                 item.scope == Instrument.SCOPE_LOCAL and item.source_id in imported_ids)]
             payload = {
                 'format': 'uncertalytics-ac-shunt-library', 'version': 1, 'exportedAt': now(),
-                'classificationRule': 'Only instruments with reported catalog uncertainty are included. Active catalog uncertainties all 100 ppm: CHECK STD; other known nonnegative uncertainties: NIST. TI acceptance limits are not calibration evidence.',
+                'classificationRule': 'Only instruments with reported catalog uncertainty are included. All known active report uncertainties 100 ppm: CHECK STD, including manual records. Otherwise manual, temporary, or copied corrections: MANUAL; baseline report values: NIST. TI acceptance limits are not calibration evidence.',
                 'catalog': catalog, 'instruments': definitions,
                 'previousLibraryEntries': [instrument_to_dict(item) for item in old],
                 'cleanupRequested': bool(options['clean_old_imports']),

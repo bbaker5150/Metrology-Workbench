@@ -13,11 +13,15 @@ def catalog_variant_key(row):
 
 
 def catalog_standard_type(row):
+    # The lab's reported 100 ppm convention takes precedence over manual
+    # provenance. Keep provenance separately for matching and deduplication.
+    values = [float(point['uncertaintyPpm']) for point in reported_uncertainty_points(row)]
+    if values and all(math.isclose(value, 100, rel_tol=0, abs_tol=1e-9) for value in values):
+        return 'CHECK STD'
     if manual_corrections(row):
         return 'MANUAL'
-    values = [float(point['uncertaintyPpm']) for point in reported_uncertainty_points(row)]
     if values:
-        return 'CHECK STD' if all(math.isclose(value, 100, rel_tol=0, abs_tol=1e-9) for value in values) else 'NIST'
+        return 'NIST'
     return row.get('standardType', '')
 
 
