@@ -82,46 +82,6 @@ class AcShuntImportTests(TestCase):
         self.assertEqual(point['analytics'], {'pair_delta_uut_ppm': -7,
             'pair_type_a_uncertainty_ppm': 2, 'n_pairs_used': 4, 'persistedOnly': True})
 
-    def test_5790_snapshot_sends_only_compact_resolution_sensitivity(self):
-        self.session.standard_reader_model = 'Fluke 5790B'
-        self.session.standard_reader_serial = 'READER'
-        self.session.save()
-        CalibrationResults.objects.update(manual_excluded_pairs=[1])
-        CalibrationResultsCycle.objects.update(std_ac_open_avg=1, std_ac_close_avg=1,
-            std_dc_pos_avg=1, std_dc_neg_avg=-1)
-        before = list(CalibrationResults.objects.values())
-        snapshot = session_snapshot(self.session.pk)
-        self.assertEqual(snapshot['instruments']['standard_reader_serial'], 'READER')
-        point = snapshot['points'][0]
-        self.assertNotIn('readerPoints', point)
-        self.assertEqual(point['readerResolution'], {'std': {'ppmPerVolt': 2e6, 'rangeVolts': .22},
-                                                   'ti': {'ppmPerVolt': None, 'rangeVolts': .22}})
-        self.assertEqual(before, list(CalibrationResults.objects.values()))
-
-        # The much smaller excluded voltages must not inflate the resolution.
-        for result in CalibrationResults.objects.all():
-            index = 1 if result.test_point.direction == 'Forward' else 3
-            result.cycles.filter(cycle_index=index).update(std_dc_pos_avg=.01, std_dc_neg_avg=-.01)
-        self.assertEqual(session_snapshot(self.session.pk)['points'][0]['readerResolution']['std']['ppmPerVolt'], 2e6)
-        CalibrationSettings.objects.update(f5790_range_mode='2.2', f5790_filter_mode='FAST', f5790_hires_enabled=False)
-        self.assertEqual(session_snapshot(self.session.pk)['points'][0]['readerResolution']['std']['ppmPerVolt'], 2e7)
-        CalibrationSettings.objects.update(f5790_hires_enabled=True)
-        self.assertEqual(session_snapshot(self.session.pk)['points'][0]['readerResolution']['std']['ppmPerVolt'], 2e6)
-
-    def test_5790_legacy_snapshot_uses_saved_aggregate_voltages_without_inventing_them(self):
-        self.session.standard_reader_model = '5790A'
-        self.session.save()
-        CalibrationResultsCycle.objects.all().delete()
-        CalibrationResults.objects.update(pair_delta_uut_ppm=1, pair_type_a_uncertainty_ppm=2,
-            n_pairs_used=4, std_ac_open_avg=.2)
-        resolution = session_snapshot(self.session.pk)['points'][0]['readerResolution']
-        self.assertIsNone(resolution['std']['ppmPerVolt'])
-        CalibrationResults.objects.update(std_ac_close_avg=.2, std_dc_pos_avg=.2, std_dc_neg_avg=-.2)
-        resolution = session_snapshot(self.session.pk)['points'][0]['readerResolution']
-        self.assertAlmostEqual(resolution['std']['ppmPerVolt'], 1e7)
-        CalibrationSettings.objects.update(f5790_range_mode='AUTO')
-        self.assertIsNone(session_snapshot(self.session.pk)['points'][0]['readerResolution']['std']['ppmPerVolt'])
-
     def test_screenshot_mean_and_standard_type_a_remain_distinct(self):
         CalibrationResultsCycle.objects.all().delete()
         CalibrationSettings.objects.update(n_cycles=5)

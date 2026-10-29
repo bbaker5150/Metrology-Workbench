@@ -67,35 +67,6 @@ it('shows database failures and prevents creating an absent preview',async()=>{
   expect(await screen.findByRole('alert')).toHaveTextContent('Could not load');
   expect(screen.getByRole('button',{name:'Create budget'})).toBeDisabled();
 });
-it('imports an existing local 5790 with its populated resolution into TMDE without per-point matching warnings',async()=>{
-  const source={...snapshot,instruments:{...snapshot.instruments,standard_instrument_model:'A40B',standard_instrument_serial:'REF',
-    standard_reader_model:'5790B',test_reader_model:'5790B',standard_reader_serial:'4449302',test_reader_serial:'4449302'},
-    points:Array.from({length:20},(_,index)=>({...snapshot.points[0],sourcePointIds:[index+1],
-      analytics:{pair_delta_uut_ppm:-3,pair_type_a_uncertainty_ppm:2,n_pairs_used:4},
-      readerResolution:{std:{ppmPerVolt:2e6,rangeVolts:2.2},ti:{ppmPerVolt:2e6,rangeVolts:2.2}}}))};
-  axios.get.mockImplementation(url=>Promise.resolve({data:url.endsWith('/1/')?source:{available:true,sessions:[{id:1,session_name:'Saved run'}],pages:1}}));
-  const meter={id:'existing-5790',scope:'local',manufacturer:'Fluke',model:'5790B',functions:[{
-    id:'difference',name:'AC/DC Difference',unit:'ppm',ranges:[{id:'existing-range',max:200,unit:'ppm',
-      measuringResolution:1e-7,measuringResolutionUnit:'V',measuringResolutionDistribution:'3.464',includeResolutionInBudget:true}]}]};
-  const onImport=vi.fn().mockResolvedValue({});
-  const reference=JSON.parse(JSON.stringify({...ti,id:'reference',type:'tmde',model:'A40B · REF'}));
-  reference.functions[0].ranges[0].tolerances.reading.distribution='1.960';
-  render(<AcShuntImportTool onImport={onImport} instruments={[reference,meter]}/>);
-  fireEvent.click(screen.getByRole('button',{name:'Import AC/DC shunt session'}));
-  fireEvent.click(await screen.findByRole('button',{name:/Saved run/}));
-  await screen.findByText('20 measurement points');
-  expect(screen.queryByText(/items to review/)).toBeNull();
-  expect(screen.queryByRole('alert')).toBeNull();
-  fireEvent.click(screen.getByRole('button',{name:'Create budget'}));
-  await waitFor(()=>expect(onImport).toHaveBeenCalledTimes(1));
-  const saved=onImport.mock.calls[0][0];
-  const tmde=saved.tmdes.find(item=>item.libraryInstrumentId===meter.id);
-  expect(tmde.instrument.functions).toEqual(meter.functions);
-  expect(saved.tmdes).toHaveLength(2);
-  expect(saved.testPoints.every(point=>point.components.filter(row=>row.isResolution).length===1)).toBe(true);
-  expect(saved.testPoints.every(point=>point.components.find(row=>row.isResolution).tmdeBudgetSourceId===tmde.id)).toBe(true);
-  expect(saved.testPoints.every(point=>point.combined_uncertainty_absolute_base>0)).toBe(true);
-});
 it('reports ambiguous automatic matching without introducing instrument selectors',async()=>{
   render(<AcShuntImportTool onImport={vi.fn()} instruments={[{...ti,id:'other'}]}/>);
   fireEvent.click(screen.getByRole('button',{name:'Import AC/DC shunt session'}));

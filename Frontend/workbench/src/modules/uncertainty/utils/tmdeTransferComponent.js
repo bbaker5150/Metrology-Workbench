@@ -2,7 +2,7 @@ import { getInstrumentRangeRows } from './instrumentFunctionSelection';
 import { getBudgetComponentsFromTolerance } from '../features/analysis/utils/budgetUtils';
 import { unresolvedComponent } from './incompleteBudget';
 import { formatRangeLabel } from './rangeFormatting';
-import { distributionDivisorValue, resolveErrorDistribution, unitSystem } from './uncertaintyMath';
+import { resolveErrorDistribution, unitSystem } from './uncertaintyMath';
 
 // A transfer measurement can use several physical ranges in one correlated
 // error contribution. Resolve the live range limits at each saved input value,
@@ -18,21 +18,18 @@ export function resolveTmdeTransferComponent(component, session, nominal) {
       const range = master && getInstrumentRangeRows(master,{flattenTolerances:true}).find(r =>
         String(r.rangeId) === String(source.rangeId) && String(r.functionId) === String(source.functionId));
       if (!range) throw Error('The linked TMDE range is missing.');
-      const selected = component.isResolution ? { ...range, includeResolutionInBudget: true } : range;
-      const resolved = getBudgetComponentsFromTolerance(selected,source.nominal).filter(c=>Boolean(c.isResolution) === Boolean(component.isResolution) && !c.isManual);
+      const resolved = getBudgetComponentsFromTolerance(range,source.nominal).filter(c=>Boolean(c.isResolution) === Boolean(component.isResolution) && !c.isManual);
       if (!resolved.length || resolved.some(c=>c.pendingReason || !Number.isFinite(c.value_native))) throw Error('Set uncertainty and distribution for the linked TMDE range.');
       const sensitivity = Number(source.sensitivity);
       if (!Number.isFinite(sensitivity)) throw Error('The saved transfer sensitivity is invalid.');
       const groupKey = `${source.role}:${source.direction}`;
       const group = groups.get(groupKey) || {role:source.role,standard:0,limit:0};
       for (const c of resolved) {
-        const rawDivisor=distributionDivisorValue(c.distributionDivisor);
+        const rawDivisor=Number(c.distributionDivisor);
         const divisor=c.isResolution && ["3.464","4.899"].includes(String(c.distributionDivisor)) ? rawDivisor / 2 : rawDivisor;
         divisors.add(divisor);
         const sourceScale = unitSystem.units[source.nominal.unit]?.to_si ?? 1;
-        const multiplier = component.isResolution ? Number(source.resolutionMultiplier ?? 1) : 1;
-        if (!(multiplier > 0) || !Number.isFinite(multiplier)) throw Error('The saved resolution multiplier is invalid.');
-        const scale = (unitSystem.units[c.unit_native]?.to_si ?? 1) / sourceScale * multiplier;
+        const scale = (unitSystem.units[c.unit_native]?.to_si ?? 1) / sourceScale;
         group.standard += Math.abs(sensitivity*c.value_native*scale);
         group.limit += Math.abs(sensitivity*(c.isResolution ? c.value_native*divisor : c.toleranceLimit_native)*scale);
       }
@@ -48,8 +45,6 @@ export function resolveTmdeTransferComponent(component, session, nominal) {
       unit_native:nominal.unit,isBaseUnitValue:false,toleranceLimit_native:limit,
       distributionDivisor:resolveErrorDistribution(divisor)?.value || String(divisor),
       distribution:resolveErrorDistribution(divisor)?.label || 'Combined uncertainty',tmdeTransferDetails:sourceDetails,
-      originalInput:{...component.originalInput,
-        toleranceLimit:component.tmdeTransferOutputUnit === 'ppm' ? limit/Number(nominal.value)*1e6 : limit,
-        errorDistributionDivisor:String(divisor),unit:component.tmdeTransferOutputUnit || nominal.unit}};
+      originalInput:{...component.originalInput,toleranceLimit:limit,errorDistributionDivisor:String(divisor),unit:nominal.unit}};
   } catch(error) { return unresolvedComponent(component,error.message); }
 }

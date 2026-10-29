@@ -1,5 +1,4 @@
 import UncertaintyTypeMenu from "./UncertaintyTypeMenu";
-import { isBudgetEditorScrollTarget } from "../../../utils/budgetEditorViewport";
 import DynamicUncertaintyFields from "./DynamicUncertaintyFields";
 import { FLUSH_EDITORS } from "../../../hooks/usePageExitRecovery";
 import { readEditorDraft, saveEditorDraft, clearEditorDraft } from "../../../utils/editorRecovery";
@@ -119,7 +118,6 @@ export default function DynamicBudgetComponentRow({
     let pending;
     const outside = event => {
       if (rowRef.current?.contains(event.target) || isEditorPortal(event.target)) return;
-      if (isBudgetEditorScrollTarget(event.target, rowRef.current)) return;
       if (event.target?.closest?.(".instrument-column-resize-handle")) return;
       // Let the destination receive its click before collapsing the row.
       clearTimeout(pending);

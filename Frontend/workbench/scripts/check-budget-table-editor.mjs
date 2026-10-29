@@ -20,12 +20,9 @@ localStorage.removeItem('uncertalytics:budget-column-widths:v1:check');
 if(new URLSearchParams(location.search).has('fixed')) localStorage.setItem('uncertalytics:budget-column-widths:v1:check',JSON.stringify({source:160,limit:90,distribution:130,type:40,standard:140,actions:36}));
 function Fixture(){
  const [definition,setDefinition]=useState(()=>({...createDynamicDefinition('table',point), name:'Variability',distribution:'1.732'}));
- const [autoEdit,setAutoEdit]=useState(false);
- const create=kind=>{setAutoEdit(true);setDefinition({...createDynamicDefinition(kind,point),name:'New component',distribution:'1.732'});};
  window.savedTableDefinition=definition;
  const component=createDynamicComponent(definition);
- component.id='fixture-component';
- return <div className="uncertainty-module" style={{padding:20,fontFamily:'Arial'}}><button id="outside">Outside</button><button id="new-table" onClick={()=>create('table')}>New table</button><button id="new-equation" onClick={()=>create('equation')}>New equation</button><h3>Budget</h3><div className="budget-section-table-wrap" style={{width:650}}><ResizableBudgetTable scope="check" columns={columns}><tbody><DynamicBudgetComponentRow key={definition.id} autoEdit={autoEdit} component={component} referencePoint={point} ToleranceEditorComponent={InlineToleranceCell} onKindChange={create} onCommit={setDefinition}/></tbody></ResizableBudgetTable></div></div>
+ return <div className="uncertainty-module" style={{padding:20,fontFamily:'Arial'}}><button id="outside">Outside</button><h3>Budget</h3><div className="budget-section-table-wrap" style={{width:650}}><ResizableBudgetTable scope="check" columns={columns}><tbody><DynamicBudgetComponentRow component={component} referencePoint={point} ToleranceEditorComponent={InlineToleranceCell} onKindChange={()=>{}} onCommit={setDefinition}/></tbody></ResizableBudgetTable></div></div>
 }
 createRoot(document.getElementById('root')).render(<Fixture/>);
 `;
@@ -74,34 +71,9 @@ try {
       const scroll = await budget.locator('.dynamic-table-scroll').evaluate(el => ({ client: el.clientWidth, scroll: el.scrollWidth }));
       assert.ok(scroll.scroll <= scroll.client + 2, 'Lookup controls must not be clipped by an inner scrollbar');
     };
-    const checkVisible = async () => {
-      await page.waitForFunction(() => {
-        const viewport = document.querySelector('.budget-section-table-wrap');
-        const editor = viewport.querySelector('.inline-tolerance-editor');
-        if (!editor) return false;
-        const v = viewport.getBoundingClientRect(), e = editor.getBoundingClientRect();
-        return e.left >= v.left - 1 && e.right <= v.right - 30;
-      });
-    };
-    const checkScrollbar = async () => {
-      const width = await table.evaluate(el => el.offsetWidth);
-      // Native scrollbar events target the scroll container itself. Include
-      // focusin as well: focus movement used to dismiss the outer row.
-      await budget.dispatchEvent('pointerdown', { button: 0 });
-      await budget.dispatchEvent('focusin');
-      await budget.dispatchEvent('pointerup', { button: 0 });
-      await budget.dispatchEvent('click', { button: 0 });
-      await budget.evaluate(el => { el.scrollLeft += 25; });
-      await page.waitForTimeout(100);
-      assert.equal(await budget.locator('.inline-tolerance-editor').count(), 1, 'Scrollbar interaction must preserve the editor');
-      assert.equal(await table.evaluate(el => el.offsetWidth), width, 'Scrollbar interaction must preserve the expanded column');
-    };
     await open();
     await checkLayout();
-    await checkVisible();
     await budget.getByLabel('Uncertainty row 1', { exact: true }).fill('0.012');
-    await checkScrollbar();
-    assert.equal(await budget.getByLabel('Uncertainty row 1', { exact: true }).inputValue(), '0.012');
     await budget.getByRole('button', { name: 'Edit point unit', exact: true }).click();
     await checkLayout();
     await budget.getByLabel('Uncertainty row 1', { exact: true }).click();
@@ -140,24 +112,8 @@ try {
     await page.locator('#outside').click();
     await budget.locator('.inline-tolerance-editor').waitFor({ state: 'detached' });
     assert.equal(await page.evaluate(() => window.savedTableDefinition.rows.length), 1);
-    // Newly created and switched editors must be brought fully into view,
-    // including at scoped zoom, without the user moving the scrollbar.
-    await page.locator('#new-table').click();
-    await checkVisible();
-    await checkScrollbar();
-    await budget.getByRole('button', { name: 'Change uncertainty type', exact: true }).click();
-    await budget.getByRole('button', { name: 'Equation', exact: true }).click();
-    await budget.getByLabel('Uncertainty equation', { exact: true }).waitFor();
-    await checkVisible();
-    await checkScrollbar();
-    await page.locator('#new-equation').click();
-    await checkVisible();
-    await budget.getByRole('button', { name: 'Change uncertainty type', exact: true }).click();
-    await budget.getByRole('button', { name: 'Table', exact: true }).click();
-    await checkVisible();
-    await checkLayout();
     assert.deepEqual(errors, []);
-    console.log(`PASS: ${fixed ? 'saved narrow' : 'automatic'} columns; editing, units, symmetry, rows, zoom, persistence, fit, scrollbar, new/switch editor visibility`);
+    console.log(`PASS: ${fixed ? 'saved narrow' : 'automatic'} columns; editing, units, symmetry, rows, zoom, persistence, fit`);
     await page.close();
   }
 } finally {

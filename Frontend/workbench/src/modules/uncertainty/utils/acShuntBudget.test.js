@@ -119,7 +119,7 @@ describe('simple AC-shunt measurement import', () => {
     const { session } = buildAcShuntBudget(snapshot([{current:10,frequency:1000},{current:20,frequency:1000}]));
     const [first, second] = session.testPoints;
     const row = first.components[1];
-    expect(row).toMatchObject({ name: 'Fluke 5790B Variability', type: 'B', isInlineManual: true, isManual: true,
+    expect(row).toMatchObject({ name: 'Variability', type: 'B', isInlineManual: true, isManual: true,
       distribution: 'Rectangular', originalInput: { tolerance: { floor: { high: 5, low: -5, unit: 'ppm', distribution: '1.732' } } } });
     expect(row.value).toBeCloseTo(5/Math.sqrt(3), 8);
     expect(row.value_native).toBeCloseTo(10*5/Math.sqrt(3)*1e-6, 12);

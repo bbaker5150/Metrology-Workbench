@@ -2,7 +2,6 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { preserveTableTextSelection } from "../../../utils/tableTextSelection";
 import { measureTableColumnWidths } from "../../../utils/measureTableColumnWidths";
 import { measureDynamicTableEditorWidth } from "../../../utils/measureDynamicTableEditorWidth";
-import { revealBudgetEditor } from "../../../utils/budgetEditorViewport";
 import { resizeTableColumn } from "../../../utils/fillTrailingColumn";
 
 const STORAGE_PREFIX = "uncertalytics:budget-column-widths:v1:";
@@ -40,9 +39,6 @@ export default function ResizableBudgetTable({ scope, columns, children }) {
     const table = tableRef.current;
     if (!table) return;
     const releaseTextSelection = preserveTableTextSelection(table);
-    let activeEditors = new Map();
-    let revealFrame = null;
-    const revealPending = new Set();
     const measure = () => {
       const viewport = table.parentElement;
       if (viewport?.clientWidth) {
@@ -53,18 +49,12 @@ export default function ResizableBudgetTable({ scope, columns, children }) {
         if (table.style.getPropertyValue("--budget-editor-width") !== editorWidth) table.style.setProperty("--budget-editor-width", editorWidth);
       }
       const next = {};
-      const currentEditors = new Map();
       table.querySelectorAll(EDITORS).forEach(editor => {
         const cell = editor.closest("td");
         if (!cell || cell.closest("table") !== table) return;
         // The shared tolerance editor contains its own data-budget-editor.
         // Measure the outer editor once, including its toolbar and padding.
         if (editor.parentElement.closest(EDITORS)?.closest("td") === cell) return;
-        const kind = editor.querySelector('[data-dynamic-kind]')?.dataset.dynamicKind || editor.dataset.dynamicKind;
-        if (kind) {
-          currentEditors.set(editor, kind);
-          if (activeEditors.get(editor) !== kind) revealPending.add(editor);
-        }
         const style = getComputedStyle(cell);
         const key = editor.dataset.budgetEditor || (editor.matches(".budget-range-selector") ? "source" : "limit");
         const lookupWidth = measureDynamicTableEditorWidth(editor);
@@ -78,14 +68,6 @@ export default function ResizableBudgetTable({ scope, columns, children }) {
         next[key] = Math.max(next[key] || 0, Math.ceil(contentWidth + parseFloat(style.paddingLeft || 0) + parseFloat(style.paddingRight || 0) + 2));
       });
       setEditorMinimums(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
-      activeEditors = currentEditors;
-      if (revealPending.size && revealFrame === null) {
-        revealFrame = requestAnimationFrame(() => {
-          revealFrame = null;
-          revealPending.forEach(editor => revealBudgetEditor(editor, table.parentElement));
-          revealPending.clear();
-        });
-      }
     };
     const resize = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(measure);
     const observeEditors = () => {
@@ -101,11 +83,11 @@ export default function ResizableBudgetTable({ scope, columns, children }) {
       frame = requestAnimationFrame(() => { frame = null; observeEditors(); });
     };
     const mutation = new MutationObserver(schedule);
-    mutation.observe(table, { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ["data-budget-editor", "data-dynamic-kind", "class", "style"] });
+    mutation.observe(table, { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ["data-budget-editor", "class", "style"] });
     const zoomMutation = new MutationObserver(measure);
     zoomMutation.observe(table, { attributes: true, attributeFilter: ["style"] });
     window.addEventListener("resize", measure);
-    return () => { releaseTextSelection(); cancelAnimationFrame(frame); cancelAnimationFrame(revealFrame); resize?.disconnect(); mutation.disconnect(); zoomMutation.disconnect(); window.removeEventListener("resize", measure); };
+    return () => { releaseTextSelection(); cancelAnimationFrame(frame); resize?.disconnect(); mutation.disconnect(); zoomMutation.disconnect(); window.removeEventListener("resize", measure); };
   }, []);
 
 

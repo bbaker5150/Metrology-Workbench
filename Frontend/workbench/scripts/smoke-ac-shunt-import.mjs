@@ -71,7 +71,7 @@ try {
   assert.ok(saved.testPoints.every(p=>p.expanded_uncertainty_absolute_base>0));
   assert.ok(saved.testPoints.every(p=>p.measurementType==='direct' && !p.equationString));
   assert.ok(saved.testPoints.every(p=>p.components[0].originalInput.standardUncertainty===1.2));
-  assert.ok(saved.testPoints.every(p=>p.components[1].name==='Fluke 5790B Variability' && p.components[1].isInlineManual &&
+  assert.ok(saved.testPoints.every(p=>p.components[1].name==='Variability' && p.components[1].isInlineManual &&
     p.components[1].originalInput.tolerance.floor.high===5 && p.components[1].distribution==='Rectangular'));
   assert.ok(saved.testPoints.every(p=>p.components[2].tmdeBudgetSourceId===saved.tmdes[0].id));
   const expandArea=page.getByRole('button',{name:'Expand measurement area',exact:true});
@@ -95,7 +95,7 @@ try {
   }
   await rows.first().click({position:{x:2,y:2}});
   await page.getByRole('button',{name:'Uncertainty Budget',exact:true}).click();
-  await page.getByText('Fluke 5790B Variability',{exact:true}).first().waitFor();
+  await page.getByText('Variability',{exact:true}).first().waitFor();
   const body=await page.locator('body').innerText();
   assert.match(body,/Imported AC–DC difference: 2.5 ppm/);
   assert.match(body,/Rectangular/);

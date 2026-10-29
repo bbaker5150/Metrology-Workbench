@@ -2,35 +2,8 @@ import { render, screen } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import UncertaintyPanel, { EditableDescriptionCell } from './UncertaintyPanel';
 import { buildAcShuntBudget } from '../../../utils/acShuntBudget';
-import { resolvePointBudgetComponents } from '../../../utils/resolvePointBudgetComponents';
-import { applyItemRangePatch } from './UncertaintyPanel';
 
 vi.mock('plotly.js-dist',()=>({default:{}}));
-
-it.each(['session', 'point'])('shows the existing 5790 and its populated resolution in the actual %s TMDE table', viewMode => {
-  const shunt = (id, type) => ({id, type, scope:'validated',model:'Y5020',serialNumber:id,
-    functions:[{id:'current',name:'Current',unit:'A',ranges:[{id:'10',min:10,max:10,unit:'A',
-      tolerances:{reading:{high:100,low:-100,unit:'ppm',distribution:'1.960'}}}]}]});
-  const reader={id:'existing-reader',scope:'local',manufacturer:'Fluke',model:'5790B',functions:[{
-    id:'difference',name:'AC/DC Difference',unit:'ppm',ranges:[{id:'200-ppm',min:0,max:200,unit:'ppm',
-      measuringResolution:1e-7,measuringResolutionUnit:'V',measuringResolutionDistribution:'3.464',includeResolutionInBudget:true}]}]};
-  const {session}=buildAcShuntBudget({id:1,name:'Reader display',instruments:{test_instrument_model:'Y5020',test_instrument_serial:'ti',
-    standard_instrument_model:'Y5020',standard_instrument_serial:'ref',standard_reader_model:'5790B',standard_reader_serial:'4449302'},
-    points:[{current:10,frequency:1000,analytics:{pair_delta_uut_ppm:1,pair_type_a_uncertainty_ppm:2,n_pairs_used:5},
-      readerResolution:{std:{ppmPerVolt:2e6,rangeVolts:2.2}}}]}, {instruments:[shunt('ti','uut'),shunt('ref','tmde'),reader]});
-  const point=session.testPoints[0], meter=session.tmdes[1];
-  const {container,rerender}=render(<UncertaintyPanel testPointData={{...point,viewMode}} sessionData={session}
-    onSessionSave={vi.fn()} tmdeTolerancesData={[]} uutNominal={point.testPointInfo.parameter}/>);
-  const row=container.querySelector(`[data-range-group="tmde:${meter.id}"]`);
-  expect(row).toHaveTextContent('Fluke 5790B');
-  expect(row).toHaveTextContent('0.0000001 V');
-  const before=resolvePointBudgetComponents(point,session).find(row=>row.isResolution).value;
-  session.tmdes[1]=applyItemRangePatch(meter,'200-ppm',{resolution:2e-7});
-  rerender(<UncertaintyPanel testPointData={{...point,viewMode}} sessionData={{...session}}
-    onSessionSave={vi.fn()} tmdeTolerancesData={[]} uutNominal={point.testPointInfo.parameter}/>);
-  expect(container.querySelector(`[data-range-group="tmde:${meter.id}"]`)).toHaveTextContent('0.0000002 V');
-  expect(resolvePointBudgetComponents(point,session).find(row=>row.isResolution).value).toBeCloseTo(before*2,12);
-});
 
 it.each([
   'NIST reference AC shunt · 20 A',
