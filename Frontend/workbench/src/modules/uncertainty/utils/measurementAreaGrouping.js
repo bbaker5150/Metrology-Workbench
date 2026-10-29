@@ -160,7 +160,12 @@ export const setMeasurementAreaColor = (session, area, color) => {
   const found = existing.some(group => makeMeasurementAreaKey(group.name) === key);
   const groups = existing.map(group => makeMeasurementAreaKey(group.name) === key ? { ...group, color } : group);
   if (!found) groups.push({ name: area.name, unit: area.unit || "", units: area.units || [], color });
-  return { ...session, measurementAreaGroups: groups };
+  return { ...session, measurementAreaGroups: groups,
+    // Imported sessions also retain ID-based area records used by point/UUT
+    // editors. Keep both representations in step from the first color edit.
+    measurementAreas: (session.measurementAreas || []).map(stored =>
+      makeMeasurementAreaKey(stored.name) === key ? { ...stored, color } : stored),
+  };
 };
 
 // Choose once when authoring an area, then persist it with the session. Prefer

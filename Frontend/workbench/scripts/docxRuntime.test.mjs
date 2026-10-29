@@ -21,6 +21,7 @@ test('checks the agents version actually resolved by the React adapter', () => {
     const adapter = path.join(scope, 'docx-editor-react');
     addPackage(adapter, '@heyirisai/docx-editor-react', '1.11.0');
     addPackage(path.join(scope, 'docx-editor-core'), '@heyirisai/docx-editor-core', '1.11.0');
+    addPackage(path.join(scope, 'docx-editor-i18n'), '@heyirisai/docx-editor-i18n', '1.11.0');
     addPackage(path.join(scope, 'docx-editor-agents'), '@heyirisai/docx-editor-agents', '1.11.0', 'react.js');
     const nested = path.join(adapter, 'node_modules/@heyirisai/docx-editor-agents');
     addPackage(nested, '@heyirisai/docx-editor-agents', '1.11.0', 'react.js');

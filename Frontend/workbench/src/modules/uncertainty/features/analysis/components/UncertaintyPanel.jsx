@@ -7922,7 +7922,7 @@ const SummaryDashboard = ({
   };
 
   const handleFunctionColorChange = (fn, color) => {
-    if (onSessionSave) onSessionSave(setMeasurementAreaColor(sessionData, fn, color));
+    if (onSessionSave) onSessionSave(setMeasurementAreaColor(latestSessionDataRef.current, fn, color));
   };
 
   // Rename organization across tables and sidebar without changing specifications.
@@ -7963,6 +7963,8 @@ const SummaryDashboard = ({
         <input
           type="color"
           value={color}
+          aria-label={`Color for ${fn.name} measurement area`}
+          onInput={(e) => handleFunctionColorChange(fn, e.target.value)}
           onChange={(e) => handleFunctionColorChange(fn, e.target.value)}
           style={{
             position: "absolute",
@@ -12883,7 +12885,7 @@ function DetailedView({
   };
 
   const handleFunctionColorChange = (fn, color) => {
-    if (onSessionSave) onSessionSave(setMeasurementAreaColor(sessionData, fn, color));
+    if (onSessionSave) onSessionSave(setMeasurementAreaColor(latestSessionDataRef.current, fn, color));
   };
 
   const handleFunctionRename = (fn, rawName) => {
@@ -12971,6 +12973,8 @@ function DetailedView({
         <input
           type="color"
           value={color}
+          aria-label={`Color for ${fn.name} measurement area`}
+          onInput={(e) => handleFunctionColorChange(fn, e.target.value)}
           onChange={(e) => handleFunctionColorChange(fn, e.target.value)}
           style={{
             position: "absolute",

@@ -1,3 +1,5 @@
+import { getBudgetComponentsFromTolerance } from '../features/analysis/utils/budgetUtils';
+import { assessRangeCompatibility } from './tmdeCompatibility';
 import { describe, expect, it } from 'vitest';
 import { buildAcShuntBudget as buildBudget } from './acShuntBudget';
 import { computeUncertaintyForPoint, computePointRiskMetrics } from './riskCompute';
@@ -5,7 +7,7 @@ import { resolvePointBudgetComponents } from './resolvePointBudgetComponents';
 import { getInlineManualDraft, normalizeInlineManualComponent } from '../features/analysis/utils/manualComponentUtils';
 import { isPpmBudget } from './budgetDisplay';
 import { formatInstrumentIdentity } from './instrumentIdentity';
-import { generic5790, nominalY5020Resolution } from './testFixtures/generic5790';
+import { generic5790, qualified5790, nominalY5020Resolution } from './testFixtures/generic5790';
 
 const snapshot = (points = [{ current: 10, frequency: 1000 }]) => ({
   id: 10, name: 'Saved run', createdAt: '2026-10-02',
@@ -162,6 +164,32 @@ describe('simple AC-shunt measurement import', () => {
       expect(isPpmBudget(rows)).toBe(true);
     });
     expect(JSON.stringify(reference)).toBe(before);
+  });
+  it('matches nested mode, frequency and interval qualifiers and adds published ppm plus voltage floor before dividing by k', () => {
+    const range=qualified5790.functions[0].ranges.find(r=>r.id==='fluke-5790b-generic-medium-slow-0.22');
+    const point={value:.1,unit:'V',qualifier:{value:'Medium/Slow or HIRES On',qualifier:{value:'AC',
+      qualifier:{value:1000,unit:'Hz',qualifier:{value:'1 Year'}}}}};
+    expect(assessRangeCompatibility(range,point).compatible).toBe(true);
+    point.qualifier.qualifier.qualifier.qualifier.value='90 Days';
+    expect(assessRangeCompatibility(range,point).compatible).toBe(false);
+    point.qualifier.qualifier.qualifier.qualifier.value='1 Year';
+    point.qualifier.qualifier.qualifier.value=30000;
+    expect(assessRangeCompatibility(range,point).compatible).toBe(false);
+    const accuracy=getBudgetComponentsFromTolerance(range,{value:.1,unit:'V'}).find(row=>!row.isResolution);
+    expect(accuracy.value_native).toBeCloseTo((38e-6*.1+1.5e-6)/2.58,12);
+    expect(accuracy.distribution).toBe('Normal (99%)');
+    expect(accuracy.distributionDivisor).toBe('2.580');
+  });
+  it('uses only resolution after adding qualified accuracy specifications and keeps the imported session name', () => {
+    const source = snapshot();
+    source.generic5790Instrument = qualified5790;
+    const {session} = buildAcShuntBudget(source);
+    expect(session.name).toBe('Saved run · Uncertainty Budget');
+    const rows=resolvePointBudgetComponents(session.testPoints[0],session);
+    expect(rows).toHaveLength(3);
+    expect(rows.at(-1).value).toBeCloseTo(Math.SQRT2/Math.sqrt(12),10);
+    expect(rows.at(-1).tmdeBudgetFunctionId).toBe('fluke-5790b-generic-voltage');
+    expect(rows.at(-1).pendingReason).toBeNull();
   });
   it('adds exactly one generic reader for Y5020 regardless of physical reader serials or other library meters', () => {
     const source = snapshot([{current:10,frequency:1000},{current:20,frequency:1000}]);

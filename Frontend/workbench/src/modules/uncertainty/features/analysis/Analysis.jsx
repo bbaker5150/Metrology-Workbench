@@ -1032,13 +1032,6 @@ function Analysis({
         <>
           {/* Detailed View Navigation Tabs */}
           {analysisTabs}
-          {testPointData.testPointInfo?.acShuntSource && (
-            <p style={{ margin: '8px 20px', fontSize: 12 }}>
-              Imported AC–DC difference: {testPointData.testPointInfo.acShuntSource.deltaPpm == null
-                ? 'Unavailable' : `${testPointData.testPointInfo.acShuntSource.deltaPpm} ppm`}
-              {' · '}{testPointData.testPointInfo.acShuntSource.sessionName || `AC-shunt session ${testPointData.testPointInfo.acShuntSource.sessionId}`}
-            </p>
-          )}
 
           <div
             ref={analysisContentRef}

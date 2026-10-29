@@ -103,7 +103,7 @@ try {
   await page.getByRole('button',{name:'Uncertainty Budget',exact:true}).click();
   await page.getByText('Fluke 5790B Variability',{exact:true}).first().waitFor();
   const body=await page.locator('body').innerText();
-  assert.match(body,/Imported AC–DC difference: 2.5 ppm/);
+  assert.doesNotMatch(body,/Imported AC–DC difference:/);
   assert.match(body,/Rectangular/);
   assert.match(body,/Normal \(95%\)/);
   await page.screenshot({path:'tmp/ac-shunt-import/budget.png'});

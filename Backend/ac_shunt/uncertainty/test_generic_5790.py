@@ -6,7 +6,7 @@ from rest_framework.test import APIClient
 from api.models import (CalibrationSession, Calibration, CalibrationConfigurations,
                         TestPointSet, TestPoint, CalibrationSettings, CalibrationResults, CalibrationResultsCycle)
 from .ac_shunt_import import session_snapshot
-from .fluke5790_instrument import GENERIC_5790_ID, seed_generic_5790
+from .fluke5790_instrument import GENERIC_5790_ID, seed_generic_5790, generic_5790_defaults, VOLTAGE_FUNCTION_ID
 from .models import Instrument
 from .serializers import instrument_to_dict, save_session, session_to_dict
 from .y5020_resolution import phase_sensitivity
@@ -34,33 +34,61 @@ class Generic5790Tests(TestCase):
                        for role in ('std', 'ti') for phase in ('ac_open', 'ac_close', 'dc_pos', 'dc_neg')})
         return session
 
-    def test_single_serial_independent_definition_with_manual_resolutions_and_no_accuracy(self):
+    def test_single_definition_groups_modes_frequencies_and_all_intervals(self):
         unrelated = Instrument.objects.create(id='existing-reader', model='5790B 4449302', functions=[{'name':'Mine'}])
         instrument, created = seed_generic_5790()
         self.assertTrue(created)
         self.assertEqual(instrument.model, '5790B')
-        self.assertEqual(instrument.description, '')
-        self.assertEqual(instrument.scope, 'validated')
-        normal, fast = instrument.functions
-        self.assertEqual(len(normal['ranges']), 13)
-        self.assertEqual(len(fast['ranges']), 13)
-        for fn in instrument.functions:
-            for row in fn['ranges']:
-                self.assertEqual(row['resolution'], row['measuringResolution'])
-                self.assertEqual(row['resolutionUnit'], 'V')
-                self.assertEqual(row['resolutionDistribution'], '3.464')
-                self.assertTrue(row['includeResolutionInBudget'])
-                self.assertEqual(row['tolerances'], {})
-        self.assertEqual(normal['ranges'][6]['resolution'], 1e-7)  # 2.2 V, Medium/Slow
-        self.assertEqual(fast['ranges'][6]['resolution'], 1e-6)
-        self.assertEqual(normal['ranges'][-1]['resolution'], 1e-4)
-        normal['ranges'][6]['resolution'] = 2e-7
+        self.assertEqual(len(instrument.functions), 1)
+        rows = instrument.functions[0]['ranges']
+        self.assertEqual(len({row['qualifierGroupId'] for row in rows}), 13)
+        self.assertEqual(len({row['id'] for row in rows}), len(rows))
+        for row in rows:
+            self.assertEqual(row['resolution'], row['measuringResolution'])
+            self.assertEqual(row['resolutionDistribution'], '3.464')
+            self.assertEqual(row['tolerances']['reading']['distribution'], '2.580')
+        for scale in (.0022, .22, 2.2, 1000):
+            group = [r for r in rows if r['generic5790Range']['fullScale'] == scale]
+            self.assertEqual(len({r['qualifier']['text'] for r in group}), 2)
+            self.assertEqual({r['qualifier']['qualifier']['qualifier']['qualifier']['text'] for r in group}, {'90 Days','1 Year','2 Years'})
+        # Independent anchors from the printed manual (all three intervals).
+        def ac(scale, mode, spec):
+            return next(r for r in rows if r['generic5790Range'] == {'fullScale':scale,'resolutionMode':mode,'specification':spec})
+        self.assertEqual([ac(2.2,'medium-slow',f'ac-2-{i}')['tolerances']['reading']['high'] for i in range(3)], [22,24,29])
+        self.assertEqual([ac(.0022,'fast',f'ac-7-{i}')['tolerances']['floor']['high'] for i in range(3)], [6e-6,8e-6,8e-6])
+        self.assertEqual([ac(.22,'medium-slow',f'dc-{i}')['tolerances']['reading']['high'] for i in range(3)], [37,38,43])
+        self.assertEqual(ac(2.2,'medium-slow','transfer-2-2')['tolerances']['reading']['high'],18)
+        self.assertEqual(ac(2.2,'fast','ac-2-1')['resolution'],1e-6)
+        self.assertEqual(ac(1000,'medium-slow','ac-2-1')['max'],1050)
+        self.assertIn('typical',ac(700,'fast','ac-0-1')['qualifier']['qualifier']['text'])
+        target = ac(2.2,'medium-slow','ac-2-1')
+        target['resolution'] = 2e-7
         instrument.save()
         self.assertFalse(seed_generic_5790()[1])
-        self.assertEqual(Instrument.objects.get(pk=GENERIC_5790_ID).functions[0]['ranges'][6]['resolution'], 2e-7)
+        self.assertEqual(next(r for r in Instrument.objects.get(pk=GENERIC_5790_ID).functions[0]['ranges'] if r['id']==target['id'])['resolution'],2e-7)
         unrelated.refresh_from_db()
-        self.assertEqual(unrelated.functions, [{'name':'Mine'}])
-        self.assertEqual(Instrument.objects.count(), 2)
+        self.assertEqual(unrelated.functions,[{'name':'Mine'}])
+        self.assertEqual(Instrument.objects.count(),2)
+
+    def test_upgrade_backs_up_v1_preserves_edits_and_keeps_stable_range_ids(self):
+        from unittest.mock import patch
+        original = generic_5790_defaults()
+        original['column_metadata'] = {'generic5790':{'version':1,'serialIndependent':True},'customFields':{'owner':'Lab'}}
+        original['functions'] = [{'id':f'{GENERIC_5790_ID}-medium-slow','name':'Voltage (Medium/Slow)','unit':'V',
+            'ranges':[{'id':f'{GENERIC_5790_ID}-medium-slow-2.2','resolution':2e-7,'measuringResolution':2e-7,
+                       'resolutionUnit':'V','tolerances':{}}]}]
+        Instrument.objects.create(id=GENERIC_5790_ID,**original)
+        with patch('uncertainty.ac_shunt_library_cleanup.backup_instruments') as backup:
+            upgraded,_ = seed_generic_5790()
+            backup.assert_called_once()
+            self.assertEqual(upgraded.column_metadata['customFields'],{'owner':'Lab'})
+            self.assertEqual(upgraded.column_metadata['generic5790']['version'],2)
+            rows=upgraded.functions[0]['ranges']
+            row=next(r for r in rows if r['id']==f'{GENERIC_5790_ID}-medium-slow-2.2')
+            self.assertEqual(row['resolution'],2e-7)
+            self.assertEqual(row['tolerances']['reading']['high'],24)
+            seed_generic_5790()
+            backup.assert_called_once()
 
     def test_y5020_endpoint_initializes_once_and_returns_the_same_generic_instrument(self):
         session = self.session()

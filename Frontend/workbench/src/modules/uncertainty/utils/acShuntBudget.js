@@ -104,7 +104,7 @@ export function buildAcShuntBudget(snapshot, { instruments = [] } = {}) {
       testPointInfo: { measurementArea: 'Current', parameter: nominal, qualifier: nominal.qualifier, acShuntSource: source } };
   });
   if (!reference) warnings.push('Add your reference instrument and its uncertainty sources to complete the budget.');
-  const session = { name: `${snapshot.name} · AC/DC budget`, document: `AC-shunt session ${snapshot.id}`,
+  const session = { name: `${snapshot.name} · Uncertainty Budget`, document: `AC-shunt session ${snapshot.id}`,
     documentDate: snapshot.createdAt?.slice(0, 10) || '',
     measurementAreas: [{ id: areaId, name: 'Current', color: '#5aa6d9' }],
     measurementAreaGroups: [{ id: 'current', name: 'Current', units: ['A'], color: '#5aa6d9' }],

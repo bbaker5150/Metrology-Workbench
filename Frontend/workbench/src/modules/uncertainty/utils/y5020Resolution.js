@@ -18,7 +18,11 @@ export function resolveY5020Resolution(component, session, nominal) {
     let largest;
     for (const source of component.y5020Resolution?.cases || []) {
       const range = ranges.find(row => String(row.rangeId) === String(source.rangeId)
-        && String(row.functionId) === String(source.functionId));
+        && String(row.functionId) === String(source.functionId))
+        // v1 used one function per resolution mode. Stable range IDs survive
+        // the v2 qualifier migration and syncing an existing budget.
+        || ranges.find(row => String(source.rangeId).startsWith(`${GENERIC_5790_ID}-`)
+          && String(row.rangeId) === String(source.rangeId));
       if (!range) throw Error('The linked Fluke 5790B resolution range is missing.');
       const resolution = getBudgetComponentsFromTolerance({ ...range, includeResolutionInBudget: true }, { value: 1, unit: 'V' })
         .find(row => row.isResolution);

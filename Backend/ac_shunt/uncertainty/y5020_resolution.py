@@ -8,7 +8,7 @@ accepted cycle contribution. Type A is unaffected.
 import math
 import re
 
-from .fluke5790_instrument import GENERIC_5790_ID, RESOLUTION_RANGES
+from .fluke5790_instrument import GENERIC_5790_ID, RESOLUTION_RANGES, VOLTAGE_FUNCTION_ID
 
 
 def is_y5020(model):
@@ -88,7 +88,7 @@ def resolution_snapshot(points, analytics, current):
     return {
         'method': 'independent-phase-rounding-max-cycle',
         'nominalVoltageFallback': used_nominal, 'autoRangeUpperBound': used_auto_bound,
-        'cases': [{'functionId': f'{GENERIC_5790_ID}-{function}',
+        'cases': [{'functionId': VOLTAGE_FUNCTION_ID,
                    'rangeId': f'{GENERIC_5790_ID}-{function}-{full_scale:g}',
                    'ppmPerVolt': value} for (function, full_scale), value in cases.items()],
     }

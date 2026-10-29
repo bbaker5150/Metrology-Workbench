@@ -2,28 +2,44 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import UncertaintyPanel, { EditableDescriptionCell } from './UncertaintyPanel';
 import { buildAcShuntBudget } from '../../../utils/acShuntBudget';
-import { generic5790, nominalY5020Resolution } from '../../../utils/testFixtures/generic5790';
+import { generic5790, qualified5790, nominalY5020Resolution } from '../../../utils/testFixtures/generic5790';
 import { resolvePointBudgetComponents } from '../../../utils/resolvePointBudgetComponents';
 
 vi.mock('plotly.js-dist',()=>({default:{}}));
 
-it.each(['session', 'point'])('shows the generic 5790 and its editable voltage resolution in the %s TMDE table', async viewMode => {
+it.each(['session', 'point'].flatMap(viewMode=>[generic5790,qualified5790].map(reader=>({viewMode,reader}))))('shows editable 5790 resolution in $viewMode with version $reader.generic5790.version qualifiers', async ({viewMode,reader}) => {
   const ti = { id:'ti',type:'uut',scope:'validated',manufacturer:'Fluke',model:'Y5020 · TI',
     functions:[{id:'current',name:'Current',unit:'A',ranges:[{id:'10A',min:10,max:10,unit:'A',
       qualifier:{value:1000,unit:'Hz',isSingleValue:true},
       tolerances:{reading:{high:100,low:-100,unit:'ppm',symmetric:true,distribution:'not_set'}}}]}] };
-  const {session} = buildAcShuntBudget({id:1,name:'Resolution table',generic5790Instrument:generic5790,
+  const {session} = buildAcShuntBudget({id:1,name:'Resolution table',generic5790Instrument:reader,
     instruments:{test_instrument_model:'Y5020',test_instrument_serial:'TI'},
     points:[{current:10,frequency:1000,readerResolution:nominalY5020Resolution(10),
       analytics:{pair_delta_uut_ppm:1,pair_type_a_uncertainty_ppm:2,n_pairs_used:5}}]}, {instruments:[ti]});
   const point = session.testPoints[0];
   const save = vi.fn();
-  const {container} = render(<UncertaintyPanel testPointData={{...point,viewMode}}
+  const {container, rerender} = render(<UncertaintyPanel testPointData={{...point,viewMode}}
     sessionData={session} onSessionSave={save} tmdeTolerancesData={[]} uutNominal={point.testPointInfo.parameter}/>);
+  const colorInput = container.querySelector('[data-tour="uut-table"] input[type="color"]');
+  fireEvent.input(colorInput, {target:{value:'#ff0000'}});
+  const recolored = save.mock.calls.at(-1)[0];
+  expect(recolored.measurementAreaGroups[0].color).toBe('#ff0000');
+  expect(recolored.measurementAreas[0].color).toBe('#ff0000');
+  rerender(<UncertaintyPanel testPointData={{...point,viewMode}}
+    sessionData={recolored} onSessionSave={save} tmdeTolerancesData={[]} uutNominal={point.testPointInfo.parameter}/>);
+  expect(container.querySelector('[data-tour="uut-table"] input[type="color"]')).toHaveValue('#ff0000');
+  expect(container.querySelector('[data-tour="tmde-table"] input[type="color"]')).toHaveValue('#ff0000');
   const group = `[data-range-group="tmde:${session.tmdes[0].id}"]`;
   expect(container.querySelector(group).querySelector('.inline-desc-combined')).toHaveTextContent('Fluke 5790B');
   // Both views show every stored range. Edit the 2.2 V range used by this point.
   const row = container.querySelector(`${group}[data-range-id="${generic5790.functions[0].ranges[1].id}"]`);
+  if (reader.generic5790.version === 2) {
+    const rows = [...container.querySelectorAll(group)];
+    expect(rows[0].querySelector('[data-range-cell]')).toHaveAttribute('rowspan','6');
+    expect(container.querySelector('[data-tour="tmde-table"]')).toHaveTextContent('Medium/Slow or HIRES On');
+    expect(container.querySelector('[data-tour="tmde-table"]')).toHaveTextContent('Fast/Off, HIRES Off');
+    for (const interval of ['90 Days','1 Year','2 Years']) expect(container.querySelector('[data-tour="tmde-table"]')).toHaveTextContent(interval);
+  }
   const resolution = row.querySelector('[title="Edit resolution"]');
   expect(resolution).toBeInTheDocument();
   expect(resolution).toHaveTextContent(/0\.0000001.*V/);
@@ -33,7 +49,7 @@ it.each(['session', 'point'])('shows the generic 5790 and its editable voltage r
   fireEvent.blur(input);
   await waitFor(() => expect(save).toHaveBeenCalled());
   const updated = save.mock.calls.at(-1)[0];
-  const changed = updated.tmdes[0].instrument.functions[0].ranges[1];
+  const changed = updated.tmdes[0].instrument.functions.flatMap(fn=>fn.ranges).find(r=>r.id===generic5790.functions[0].ranges[1].id);
   expect(Number(changed.resolution)).toBe(2e-7);
   expect(Number(changed.measuringResolution)).toBe(2e-7);
   expect(resolvePointBudgetComponents(point,updated).at(-1).value)

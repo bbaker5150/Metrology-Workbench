@@ -30,6 +30,7 @@ const inspectDocxRuntime = (root) => {
     require.resolve('@heyirisai/docx-editor-core'),
     fromReact.resolve('@heyirisai/docx-editor-core'),
     fromReact.resolve('@heyirisai/docx-editor-agents/react'),
+    fromReact.resolve('@heyirisai/docx-editor-i18n'),
   ];
   const mismatches = entries.map(readPackage).filter(pkg => pkg.version !== expected);
   return { expected, mismatches, reactDirectory };
@@ -41,9 +42,9 @@ export function verifyDocxRuntime(root) {
     throw new Error(
       `The installed Notes editor dependencies do not match this checkout: ` +
       mismatches.map(pkg => `${pkg.name}@${pkg.version}`).join(', ') +
-      `. Expected ${expected}. Stop the app, run "npm run repair:notes" in ` +
-      `Frontend/workbench, then restart the same Electron command. This targeted ` +
-      `repair does not reinstall Electron or require a network connection.`,
+      `. Expected ${expected}. Stop the app and run "npm install" in Frontend/workbench ` +
+      `after updating this checkout. For leftover nested copies, run "npm run repair:notes", ` +
+      `then restart the same Electron command. The targeted repair needs no network connection.`,
     );
   }
 }
@@ -88,6 +89,8 @@ export const docxRuntime = () => ({
 export const docxDedupe = [
   '@heyirisai/docx-editor-core',
   '@heyirisai/docx-editor-react',
+  '@heyirisai/docx-editor-agents',
+  '@heyirisai/docx-editor-i18n',
   'prosemirror-model', 'prosemirror-state', 'prosemirror-view',
   'prosemirror-transform', 'prosemirror-tables', 'prosemirror-keymap',
   'prosemirror-commands', 'prosemirror-history', 'prosemirror-dropcursor',

@@ -33,7 +33,7 @@ it('loads only when opened, previews missing data, and saves a new budget',async
   expect(screen.getByText(/items to review/)).toBeTruthy();
   fireEvent.click(screen.getByRole('button',{name:'Create budget'}));
   await waitFor(()=>expect(onImport).toHaveBeenCalledTimes(1));
-  expect(onImport.mock.calls[0][0]).toMatchObject({name:'A40B calibration · AC/DC budget'});
+  expect(onImport.mock.calls[0][0]).toMatchObject({name:'A40B calibration · Uncertainty Budget'});
   expect(onImport.mock.calls[0][0].uuts[0]).toMatchObject({libraryInstrumentId:'shared-ti',instrument:{manufacturer:'Fluke',model:'A40B · UUT',sourceId:'shared-ti'}});
   await waitFor(()=>expect(screen.queryByText('Import shunt measurements')).toBeNull());
 });
