@@ -1,5 +1,5 @@
 import React from "react";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ResizableBudgetTable from "./ResizableBudgetTable";
 
@@ -144,5 +144,44 @@ describe("budget column resizing", () => {
     </tr></tbody></ResizableBudgetTable>);
     await waitFor(() => expect(widths()).toEqual(['242px', '362px']));
     expect(JSON.parse(localStorage.getItem('uncertalytics:budget-column-widths:v1:final:length'))).toEqual({ source: 100, limit: 90 });
+  });
+
+  it.each([1, 1.5])('reveals newly opened and switched editors at %sx zoom without overriding later user scrolling', async scale => {
+    const storageKey = 'uncertalytics:budget-column-widths:v1:final:length';
+    localStorage.setItem(storageKey, JSON.stringify({ source: 400, limit: 90 }));
+    vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(650);
+    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function () {
+      return this.matches('.budget-section-table-wrap') ? 650 : this.matches('.inline-tolerance-editor') ? 420 : 800;
+    });
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function () {
+      const viewport = this.closest('.budget-section-table-wrap');
+      const left = this.matches('.budget-section-table-wrap') ? 0 : (400 - (viewport?.scrollLeft || 0)) * scale;
+      const width = (this.matches('.budget-section-table-wrap') ? 650 : 420) * scale;
+      return { left, right: left + width, width, top: 0, bottom: 40, height: 40 };
+    });
+    const view = kind => <div className="budget-section-table-wrap"><ResizableBudgetTable scope="final:length" columns={columns}>
+      <tbody><tr><td>Source</td><td className="budget-inline-tolerance-cell">{kind &&
+        <div className="inline-tolerance-editor"><div data-budget-editor="limit" data-dynamic-kind={kind}>Fields</div></div>
+      }</td></tr></tbody></ResizableBudgetTable></div>;
+    const { rerender, container } = render(view(null));
+    const viewport = container.querySelector('.budget-section-table-wrap');
+    for (const kind of ['table', 'equation', 'table']) {
+      viewport.scrollLeft = 0;
+      rerender(view(kind));
+      await waitFor(() => {
+        const rect = container.querySelector('.inline-tolerance-editor').getBoundingClientRect();
+        expect(rect.left).toBeGreaterThanOrEqual(0);
+        expect(rect.right).toBeLessThanOrEqual((650 - 40) * scale);
+      });
+      expect(widths()).toEqual(['400px', '422px']);
+      expect(JSON.parse(localStorage.getItem(storageKey))).toEqual({ source: 400, limit: 90 });
+      viewport.scrollLeft = 50;
+      fireEvent.scroll(viewport);
+      fireEvent(window, new Event('resize'));
+      await act(async () => { await new Promise(resolve => setTimeout(resolve, 50)); });
+      expect(viewport.scrollLeft).toBe(50);
+    }
+    rerender(view(null));
+    await waitFor(() => expect(widths()).toEqual(['400px', '90px']));
   });
 });

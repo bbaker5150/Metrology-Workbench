@@ -53,7 +53,7 @@ export function buildAcShuntBudget(snapshot, { instruments = [] } = {}) {
     if (source.deltaPpm === null) warnings.push(`${point.current} A / ${point.frequency} Hz: AC–DC difference is unavailable.`);
     if (point.stabilityFailed) warnings.push(`${point.current} A / ${point.frequency} Hz: source session flagged failed stability.`);
     const variability = normalizeInlineManualComponent({ component: { id: uuid() },
-      draft: { name: 'Variability', type: 'B', inputMode: 'tolerance', unit: 'ppm', errorDistributionDivisor: '1.732',
+      draft: { name: 'Fluke 5790B Variability', type: 'B', inputMode: 'tolerance', unit: 'ppm', errorDistributionDivisor: '1.732',
         tolerance: { floor: { high: 5, low: -5, unit: 'ppm', distribution: '1.732', symmetric: true } } },
       referencePoint: nominal });
     const components = [repeatability, variability];
@@ -98,7 +98,7 @@ export function buildAcShuntBudget(snapshot, { instruments = [] } = {}) {
     uncReq: { uncertaintyConfidence: 95, reliability: 85, calInt: 12, neededTUR: 4, reqPFA: 2 },
     notes: [`Source: AC-shunt session ${snapshot.id} (${snapshot.name}).`,
       'AC–DC difference is the signed measured result. AC/DC repeatability uses the saved paired Type A standard uncertainty with N−1 degrees of freedom.',
-      'Variability: editable ±5 ppm, Rectangular. TI acceptance uses the selected library instrument, initially lab ±100 ppm, with no measured bias applied.',
+      'Fluke 5790B Variability: editable ±5 ppm, Rectangular. TI acceptance uses the selected library instrument, initially lab ±100 ppm, with no measured bias applied.',
       'Reference errors use the selected Uncertalytics instrument. Complete any remaining instrument contributions in the budget.', ...warnings].join('\n'),
     detailSectionOrder: ['instruments', 'equation', 'budget'], detailCollapsedSections: [] };
   session.testPoints = testPoints.map(point => recalculatePointUncertaintyFields(point, session));

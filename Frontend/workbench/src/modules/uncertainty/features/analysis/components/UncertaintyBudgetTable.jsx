@@ -1,4 +1,5 @@
 import { FLUSH_EDITORS } from "../../../hooks/usePageExitRecovery";
+import { isBudgetEditorScrollTarget } from "../../../utils/budgetEditorViewport";
 import { readEditorDraft, saveEditorDraft, clearEditorDraft } from "../../../utils/editorRecovery";
 import { budgetDragProps } from "../../../utils/instrumentBudgetComponents";
 import { rawDecimal } from "../../../utils/rawDecimal";
@@ -435,6 +436,7 @@ export const InlineManualComponentRow = ({
   useEffect(() => {
     if (!editing) return undefined;
     const handleOutsidePointer = (event) => {
+      if (isBudgetEditorScrollTarget(event.target, rowRef.current)) return;
       if (
         event.target?.closest?.(
           ".inline-tolerance-shape-menu, .inline-tolerance-shape-backdrop, .inline-unit-menu",

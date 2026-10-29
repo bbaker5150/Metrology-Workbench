@@ -1,12 +1,56 @@
 import React, { useState } from 'react';
 import { expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import UncertaintyBudgetTable from './UncertaintyBudgetTable';
 import DynamicBudgetComponentRow from './DynamicBudgetComponentRow';
 import { InlineToleranceCell, applyToleranceCaseChange, getSpecRows } from './UncertaintyPanel';
 import { normalizeInlineManualComponent } from '../utils/manualComponentUtils';
 import { switchBudgetUncertaintyKind } from '../utils/switchBudgetUncertaintyKind';
+import { createDynamicComponent, createDynamicDefinition } from '../../../utils/dynamicBudgetComponents';
 vi.mock('plotly.js-dist', () => ({ default: {} }));
+
+it.each(['manual', 'table', 'equation'])('keeps the shared %s editor open during budget scrollbar interaction', async kind => {
+  const referencePoint = { value: 10, unit: 'A' };
+  const component = kind === 'manual'
+    ? normalizeInlineManualComponent({ component: { id: 'scroll-manual' }, referencePoint,
+      draft: { name: 'Variability', type: 'B', unit: 'ppm', inputMode: 'tolerance',
+        tolerance: { floor: { high: 5, low: -5, unit: 'ppm', symmetric: true, distribution: '1.732' } } } })
+    : createDynamicComponent(createDynamicDefinition(kind, referencePoint));
+  const { container } = render(<><button>Outside</button><UncertaintyBudgetTable
+    components={[component]} referencePoint={referencePoint}
+    ToleranceEditorComponent={InlineToleranceCell} applyToleranceChange={applyToleranceCaseChange}
+    formatToleranceSummary={getSpecRows} onComponentUpdate={vi.fn()} /></>);
+  fireEvent.click(screen.getByRole('button', { name: /^(Edit|Set) tolerance$/ }));
+  const editor = container.querySelector('.inline-tolerance-editor');
+  const row = editor.closest('tr');
+  const viewport = editor.closest('.budget-section-table-wrap');
+  expect(viewport).toBeTruthy();
+  let input;
+  if (kind !== 'manual') {
+    input = screen.getByLabelText(kind === 'table' ? 'Uncertainty row 1' : 'Uncertainty equation');
+    fireEvent.change(input, { target: { value: kind === 'table' ? '.25' : 'x / 100' } });
+  }
+  // Native scrollbar events target the viewport, outside both the row and
+  // shared tolerance editor. Flush delayed dismissal callbacks before checking.
+  for (const target of [viewport, editor.querySelector('.dynamic-table-scroll')].filter(Boolean)) {
+    fireEvent.pointerDown(target, { button: 0 });
+    fireEvent.mouseDown(target, { button: 0 });
+    fireEvent.focusIn(target);
+    fireEvent.pointerUp(target, { button: 0 });
+    fireEvent.mouseUp(target, { button: 0 });
+    fireEvent.click(target);
+    fireEvent.scroll(target, { target: { scrollLeft: 25 } });
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 25)); });
+    expect(editor).toBeInTheDocument();
+    expect(row).toHaveClass('is-editing');
+    if (input) expect(input).toHaveValue(kind === 'table' ? '.25' : 'x / 100');
+  }
+  // A real outside click must still close the editor.
+  fireEvent.pointerDown(screen.getByRole('button', { name: 'Outside' }));
+  fireEvent.pointerUp(screen.getByRole('button', { name: 'Outside' }));
+  fireEvent.click(screen.getByRole('button', { name: 'Outside' }));
+  await waitFor(() => expect(editor).not.toBeInTheDocument());
+});
 
 it('switches a budget manual source through the shared table/equation editors and retains each draft', async () => {
   const referencePoint = { value: 10, unit: 'A' };

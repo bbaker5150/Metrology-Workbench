@@ -4,7 +4,7 @@ In the full Workbench, open Uncertalytics and choose the lightning button after 
 
 Each imported point is a direct current measurement in A with a Frequency qualifier in Hz. On first opening an imported budget, Section is hidden and Qualifier appears immediately after Value (for example, `1000 Hz`). Later column customizations persist for that budget. The signed AC–DC difference is retained as the measured result and shown above the point workspace. It is not added as uncertainty or applied as TI bias.
 
-The AC/DC repeatability row uses the module's saved paired Type A standard uncertainty in ppm, without another division by sqrt(N). Its degrees of freedom are N−1. Pairing, cycle caps and excluded cycles follow the AC-shunt results view. Missing Type A remains incomplete. Each point also receives an independent, editable manual Variability row: ±5 ppm, Rectangular (standard uncertainty 5/sqrt(3) ppm).
+The AC/DC repeatability row uses the module's saved paired Type A standard uncertainty in ppm, without another division by sqrt(N). Its degrees of freedom are N−1. Pairing, cycle caps and excluded cycles follow the AC-shunt results view. Missing Type A remains incomplete. Each point also receives an independent, editable manual Fluke 5790B Variability row: ±5 ppm, Rectangular (standard uncertainty 5/sqrt(3) ppm).
 
 For the supplied example, the signed result is −0.070 ppm and the repeatability row uses the full saved standard uncertainty, 0.6150070189859945 ppm, with 4 degrees of freedom for 5 pairs. The preview labels this as standard Type A (k = 1). Newer AC-shunt result cards label their ± value as expanded Type A (k = 2); that display is twice the standard value and is not used as a standard input to the budget.
 
