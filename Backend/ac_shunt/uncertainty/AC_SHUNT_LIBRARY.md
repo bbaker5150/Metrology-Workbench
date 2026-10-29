@@ -19,3 +19,12 @@ python manage.py seed_ac_shunt_references
 ```
 
 Backend startup also runs this seed command. Stable identities prevent repeated runs from adding duplicates. TIs retain the lab's 100 ppm acceptance limit, while standards retain the corresponding report uncertainties and frequency qualifiers. Existing budgets retain their saved definitions until explicitly synchronized or reimported.
+
+To install a reviewed export instead, run these commands from `Backend/ac_shunt` with the backend stopped:
+
+```powershell
+python manage.py import_ac_shunt_library --input "$env:USERPROFILE\Desktop\ac-shunt-library-reviewed.json" --dry-run
+python manage.py import_ac_shunt_library --input "$env:USERPROFILE\Desktop\ac-shunt-library-reviewed.json"
+```
+
+The dry run validates every definition and lists the names without writing. Import creates missing shared library entries, preserves existing uncertainty definitions and customized names, and leaves saved budgets intact. Validation or an ID conflict rolls back the whole import. The backup section is not imported. Repeating the command does not add duplicates. A missing TI rating is filled only when its exact model/serial has a unique catalog rating; serial suffixes remain distinct. Catalog ratings also take precedence over historical session range settings during seeding, without removing any measured current/frequency points. TIs without a matching catalog classification retain an unset Check STD/NIST label.

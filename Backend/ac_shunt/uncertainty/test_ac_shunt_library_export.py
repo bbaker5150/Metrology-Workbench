@@ -103,3 +103,57 @@ class ShuntLibraryExportTests(TestCase):
             self.export(clean_old_imports=True)
         self.assertEqual(Instrument.objects.count(), 5)
         self.assertFalse(self.output.exists())
+
+    def test_reviewed_file_import_is_idempotent_and_preserves_existing_edits(self):
+        data = self.export(clean_old_imports=True)
+        call_command('import_ac_shunt_library', input=str(self.output), stdout=StringIO())
+        item = Instrument.objects.get(pk=data['instruments'][0]['id'])
+        self.assertEqual(item.description, '12345 10 mA CHECK STD')
+        self.assertEqual(item.functions[0]['ranges'][0]['tolerances']['reading']['high'], 100)
+        item.description = 'Reviewed custom name'
+        item.functions[0]['ranges'][0]['tolerances']['reading']['high'] = 90
+        item.save()
+        before = list(Instrument.objects.values())
+        call_command('import_ac_shunt_library', input=str(self.output), stdout=StringIO())
+        self.assertEqual(list(Instrument.objects.values()), before)
+
+    def test_dry_run_and_invalid_export_do_not_write(self):
+        data = self.export(clean_old_imports=True)
+        before = list(Instrument.objects.values())
+        call_command('import_ac_shunt_library', input=str(self.output), dry_run=True, stdout=StringIO())
+        self.assertEqual(list(Instrument.objects.values()), before)
+        invalid = json.loads(json.dumps(data['instruments'][0]))
+        invalid['id'] = 'ac-shunt-ref-' + '0' * 32
+        invalid['acShuntIdentity']['serial'] = 'OTHER'
+        invalid['functions'][0]['ranges'][0]['qualifier']['value'] = -60
+        data['instruments'].append(invalid)
+        self.output.write_text(json.dumps(data), encoding='utf-8')
+        with self.assertRaises(CommandError):
+            call_command('import_ac_shunt_library', input=str(self.output), stdout=StringIO())
+        self.assertEqual(list(Instrument.objects.values()), before)
+
+    def test_import_identity_collision_rolls_back_earlier_creations(self):
+        data = self.export(clean_old_imports=True)
+        conflict = json.loads(json.dumps(data['instruments'][0]))
+        conflict['id'] = 'ac-shunt-ref-' + '0' * 32
+        conflict['acShuntIdentity']['serial'] = 'OTHER'
+        data['instruments'].append(conflict)
+        self.output.write_text(json.dumps(data), encoding='utf-8')
+        Instrument.objects.create(id=conflict['id'], model='Unrelated instrument')
+        before = list(Instrument.objects.values())
+        with self.assertRaises(CommandError):
+            call_command('import_ac_shunt_library', input=str(self.output), stdout=StringIO())
+        self.assertEqual(list(Instrument.objects.values()), before)
+
+    def test_portable_ti_rating_comes_from_exact_catalog_serial_without_collapsing_suffixes(self):
+        from .management.commands.import_ac_shunt_library import prepare_definitions
+        data = self.export()
+        item = data['instruments'][0]
+        item['id'] = 'ac-shunt-ti-' + '0' * 32
+        item['type'] = 'uut'
+        item['acShuntIdentity'].update(role='uut', shuntRange=None)
+        data['catalog'].append({'model': 'A40B', 'serial': '12345-2', 'rangeA': 20})
+        prepared = prepare_definitions(data)[0]
+        self.assertEqual(prepared['description'], '12345 10 mA CHECK STD')
+        self.assertEqual(prepared['functions'][0]['ranges'][0]['acShuntSource']['shuntRange'], .01)
+        self.assertIsNone(item['acShuntIdentity']['shuntRange'])

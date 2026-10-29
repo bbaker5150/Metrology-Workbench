@@ -70,8 +70,11 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
   await addedManual.getByRole('button', { name: 'Table', exact: true }).click();
   const newTable = frame.locator('.budget-dynamic-row.is-editing-tolerance');
   await newTable.getByRole('button', { name: 'Edit error source name' }).click();
-  await newTable.getByRole('textbox', { name: 'Error source name' }).fill('Temporary switched table');
-  await newTable.getByRole('textbox', { name: 'Error source name' }).press('Enter');
+  // The shared tolerance editor closes when focus moves to the name cell,
+  // so the row switches from editing-tolerance to editing-name.
+  const sourceName = frame.getByRole('textbox', { name: 'Error source name', exact: true });
+  await sourceName.fill('Temporary switched table');
+  await sourceName.press('Enter');
   const tableEditor = frame.locator(".budget-dynamic-row").filter({ hasText: "Temporary switched table" });
   await tableEditor.locator(".dynamic-tolerance-cell").click();
   await tableEditor.locator('[data-dynamic-cell="0:0"]').fill('5');

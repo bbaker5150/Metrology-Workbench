@@ -326,3 +326,32 @@ class AcShuntTestInstrumentSetupTests(TestCase):
         CalibrationSession.objects.create(session_name='Empty', test_instrument_model='Y5020', test_instrument_serial='EMPTY')
         self.make_session(serial='')
         self.assertEqual(seed_ac_shunt_test_instruments(), 0)
+
+    def test_unique_catalog_rating_repairs_missing_name_and_preserves_all_measurement_points(self):
+        session = self.make_session(points=((.001, 60),))
+        CalibrationConfigurations.objects.filter(calibration__session=session).update(ac_shunt_range=.002)
+        self.make_session(points=((20, 1000),))
+        seed_ac_shunt_test_instruments()
+        item = Instrument.objects.get()
+        self.assertEqual(item.description, 'TI-10')
+        original_ranges = item.functions
+        Shunt.objects.create(model_name='Y5020', serial_number='TI-10', range=20, remark='CHECK STD')
+        self.assertEqual(seed_ac_shunt_test_instruments(), 0)
+        item.refresh_from_db()
+        self.assertEqual(item.description, 'TI-10 20 A CHECK STD')
+        self.assertEqual(item.functions, original_ranges)
+        generated = seed_ac_shunt_test_instruments(export_only=True)[0]
+        self.assertEqual(generated.description, 'TI-10 20 A CHECK STD')
+        self.assertEqual([row['value'] for row in generated.functions[0]['ranges']], [.001, 20])
+
+    def test_rating_repair_preserves_a_customized_name(self):
+        session = self.make_session()
+        CalibrationConfigurations.objects.filter(calibration__session=session).update(ac_shunt_range=None)
+        seed_ac_shunt_test_instruments()
+        item = Instrument.objects.get()
+        item.description = 'My custom name'
+        item.save()
+        Shunt.objects.create(model_name='Y5020', serial_number='TI-10', range=20, remark='NIST')
+        seed_ac_shunt_test_instruments()
+        item.refresh_from_db()
+        self.assertEqual(item.description, 'My custom name')

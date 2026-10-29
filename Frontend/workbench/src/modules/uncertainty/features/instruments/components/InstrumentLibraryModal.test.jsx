@@ -128,7 +128,11 @@ it.each([['session','uut'],['session','tmde'],['point','uut'],['point','tmde']])
  Object.assign(drag,{dataTransfer,workbenchPointerDrag:true});fireEvent(source,drag);
  expect(dataTransfer.effectAllowed).toBe('copy');
  const target=[...document.querySelectorAll(`[data-tour="${kind}-table"]`)].find(node=>!library.contains(node));
- fireEvent.drop(target.querySelector('td'),{dataTransfer});
+ const table=within(target).getByRole('table');
+ expect(table.querySelector('tbody').children).toHaveLength(0);
+ // Empty instrument tables deliberately have no placeholder row. Drop on
+ // their actual header cell and keep checking the complete copied payload.
+ fireEvent.drop(table.querySelector('th'),{dataTransfer});
  expect(save).toHaveBeenCalledTimes(1);
  const rows=save.mock.calls[0][0][kind==='uut'?'uuts':'tmdes'];
  expect(rows.map(row=>row.instrument.id)).toEqual(['A','B']);

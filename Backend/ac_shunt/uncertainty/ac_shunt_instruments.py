@@ -84,8 +84,14 @@ def matches_instrument(item, model, serial, shunt_range=None):
 
 def rename_instrument_once(item, model, serial, shunt_range, label, role):
     metadata = item.column_metadata or {}
-    if metadata.get('acShuntIdentity', {}).get('namingVersion', 0) >= 2:
-        return
+    previous = metadata.get('acShuntIdentity', {})
+    if previous.get('namingVersion', 0) >= 2:
+        # Repair the missing rating produced by conflicting historical session
+        # configurations, but preserve names the user has since customized.
+        old_name = instrument_identity(model, serial, previous.get('shuntRange'), previous.get('standardType', ''))
+        if not (role == 'uut' and not positive(previous.get('shuntRange')) and positive(shunt_range)
+                and all(getattr(item, field) == value for field, value in old_name.items())):
+            return
     for field, value in instrument_identity(model, serial, shunt_range, label).items():
         setattr(item, field, value)
     item.column_metadata = {**metadata, 'acShuntIdentity': source_identity(model, serial, shunt_range, label, role)}
@@ -165,12 +171,17 @@ def seed_ac_shunt_test_instruments(*, export_only=False):
         config = getattr(getattr(session, 'calibration', None), 'configurations', None)
         configured_range = getattr(config, 'ac_shunt_range', None)
         matching_shunts = [(shunt, label) for shunt, family, _, label in catalog
-                           if shunt.serial_number.strip().casefold() == serial.casefold() and family == model
-                           and (not positive(configured_range) or math.isclose(shunt.range, configured_range))]
-        if positive(configured_range):
-            record['physicalRanges'].add(float(configured_range))
-        elif len(matching_shunts) == 1:
+                           if shunt.serial_number.strip().casefold() == serial.casefold() and family == model]
+        # A unique catalog identity describes the physical instrument. Session
+        # settings can describe a different measurement range; retain its points
+        # without allowing that setting to erase the instrument's rating.
+        if len(matching_shunts) > 1 and positive(configured_range):
+            matching_shunts = [(shunt, label) for shunt, label in matching_shunts
+                               if math.isclose(shunt.range, configured_range)]
+        if len(matching_shunts) == 1:
             record['physicalRanges'].add(matching_shunts[0][0].range)
+        elif positive(configured_range):
+            record['physicalRanges'].add(float(configured_range))
         record['labels'].update(label for _, label in matching_shunts if label)
         point_set = getattr(session, 'test_point_set', None)
         for point in point_set.points.all() if point_set else []:

@@ -57,6 +57,7 @@
     "shell-quote": "^1.12.0"
   },
   "scripts": {
+    "postinstall": "node node_modules/electron/install.js",
     "start": "vite --host 0.0.0.0 --port 3000",
     "build": "vite build",
     "build:standalone": "vite build --config vite.standalone.config.mjs",
@@ -112,17 +113,17 @@
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^13.5.0",
     "@vitejs/plugin-react": "^4.3.4",
-    "@vitest/coverage-v8": "^4.1.10",
+    "@vitest/coverage-v8": "^4.1.11",
     "concurrently": "^9.2.1",
     "cross-env": "^10.1.0",
-    "electron": "^41.2.0",
+    "electron": "^42.11.18",
     "electron-builder": "^26.0.12",
     "jsdom": "^25.0.1",
     "playwright": "1.62.1",
     "serve": "^14.2.6",
-    "vite": "^6.0.7",
+    "vite": "^6.4.5",
     "vite-plugin-singlefile": "^2.3.3",
-    "vitest": "^4.1.8",
+    "vitest": "^4.1.11",
     "wait-on": "^9.0.5"
   }
 }
