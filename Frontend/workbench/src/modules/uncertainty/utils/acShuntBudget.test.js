@@ -41,6 +41,8 @@ describe('simple AC-shunt measurement import', () => {
     expect(buildAcShuntBudget(source,{instruments:[ref]}).referenceId).toBe('ref');
     source.instruments.standard_instrument_serial = '5965004-3';
     expect(buildAcShuntBudget(source,{instruments:[ref]}).referenceId).toBe('');
+    source.instruments.standard_instrument_serial = '59650042';
+    expect(buildAcShuntBudget(source,{instruments:[ref]}).referenceId).toBe('');
   });
   it('matches conventional library names by saved identity and physical range without changing uncertainties', () => {
     const source = snapshot();
