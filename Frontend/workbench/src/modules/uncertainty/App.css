@@ -21628,24 +21628,25 @@ body.light-mode .uncertainty-module :is(.instrument-equipment-table, .instrument
 
 /* Expanded instrument specifications use compact rows and legible control
    outlines against both light and dark function tints. */
-.uncertainty-module .instrument-equipment-table .inline-tolerance-editor {
-  width: max-content; min-width: 0; align-items: flex-start; gap: 1px;
+.uncertainty-module :is(.instrument-equipment-table, .uncertainty-budget-table) .inline-tolerance-editor {
+  width: max-content; min-width: 0; max-width: none; align-items: flex-start; gap: 1px;
   --tolerance-control-outline: color-mix(in srgb, var(--text-color) 48%, var(--instrument-function-color, var(--border-color)));
+  --instrument-editor-divider: var(--tolerance-control-outline);
 }
-.uncertainty-module .instrument-equipment-table .inline-tolerance-modebar { align-self: stretch; }
-.uncertainty-module .instrument-equipment-table .inline-tolerance-term-group {
+.uncertainty-module :is(.instrument-equipment-table, .uncertainty-budget-table) .inline-tolerance-modebar { align-self: stretch; }
+.uncertainty-module :is(.instrument-equipment-table, .uncertainty-budget-table) .inline-tolerance-term-group {
   width: max-content; min-height: 24px; padding: 2px 5px;
 }
-.uncertainty-module .instrument-equipment-table .inline-tolerance-editor--all > .inline-tolerance-term-group + .inline-tolerance-term-group {
+.uncertainty-module :is(.instrument-equipment-table, .uncertainty-budget-table) .inline-tolerance-editor--all > .inline-tolerance-term-group + .inline-tolerance-term-group {
   margin-top: 0; padding-top: 2px; border-top: 0;
 }
-.uncertainty-module .instrument-equipment-table .inline-tolerance-editor :is(.inline-tolerance-input, .inline-menu-select-trigger, .inline-unit-base-button, .bias-value-input) {
+.uncertainty-module :is(.instrument-equipment-table, .uncertainty-budget-table) .inline-tolerance-editor :is(.inline-tolerance-input, .inline-menu-select-trigger, .inline-unit-base-button, .bias-value-input) {
   border-color: var(--tolerance-control-outline);
 }
-.uncertainty-module .instrument-equipment-table .inline-tolerance-footer {
+.uncertainty-module :is(.instrument-equipment-table, .uncertainty-budget-table) .inline-tolerance-footer {
   padding: 2px 5px 4px; border-top: 0;
 }
-.uncertainty-module .instrument-equipment-table .inline-tolerance-greater-toggle { padding-left: 0; }
+.uncertainty-module :is(.instrument-equipment-table, .uncertainty-budget-table) .inline-tolerance-greater-toggle { padding-left: 0; }
 .uncertainty-module .instrument-equipment-table .instrument-bias-editor {
   margin-top: 4px; padding: 7px 5px 3px;
   border-top: 1px solid var(--tolerance-control-outline);
@@ -21836,11 +21837,11 @@ body.light-mode .uncertainty-module :is(.instrument-equipment-table, .instrument
 .uncertainty-module .instrument-equipment-table .instrument-function-row {
   --instrument-editor-divider: color-mix(in srgb, var(--text-color) 48%, var(--instrument-function-color, var(--border-color)));
 }
-.uncertainty-module .instrument-equipment-table :is(.inline-tolerance-modebar, .instrument-tolerance-toolbar, .inline-tolerance-term-group, .instrument-bias-editor, .dynamic-table-scroll),
-.uncertainty-module .instrument-equipment-table .dynamic-input-table :is(th, td) {
+.uncertainty-module :is(.instrument-equipment-table, .uncertainty-budget-table) :is(.inline-tolerance-modebar, .instrument-tolerance-toolbar, .inline-tolerance-term-group, .instrument-bias-editor, .dynamic-table-scroll),
+.uncertainty-module :is(.instrument-equipment-table, .uncertainty-budget-table) .dynamic-input-table :is(th, td) {
   border-block-color: var(--instrument-editor-divider);
 }
-.uncertainty-module .instrument-equipment-table .inline-tolerance-footer {
+.uncertainty-module :is(.instrument-equipment-table, .uncertainty-budget-table) .inline-tolerance-footer {
   align-self: stretch; margin-top: 4px; padding: 7px 5px 3px;
   border-top: 1px solid var(--instrument-editor-divider);
 }
@@ -22167,7 +22168,7 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
 .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-inline-field > span { white-space: nowrap; }
 
 /* Center the visible data, balancing the hidden action gutter on both sides. */
-.uncertainty-module .instrument-equipment-table .inline-tolerance-editor:has(.dynamic-budget-editor[data-dynamic-kind="table"]) { width: 100%; box-sizing: border-box; }
+.uncertainty-module :is(.instrument-equipment-table, .uncertainty-budget-table) .inline-tolerance-editor:has(.dynamic-budget-editor[data-dynamic-kind="table"]) { width: 100%; box-sizing: border-box; }
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] { width: 100%; max-width: none; min-width: 0; box-sizing: border-box; align-self: stretch; }
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] > .dynamic-table-scroll { width: 100%; padding-left: 48px; box-sizing: border-box; }
 

@@ -206,12 +206,12 @@ class AcShuntReferenceSetupTests(TestCase):
     def test_adds_check_standards_from_catalog_without_saved_sessions(self):
         check = Shunt.objects.create(model_name='Shunt', serial_number='CHECK-1', range=.01, remark='Check Standard')
         report = ShuntReport.objects.create(shunt=check, report_number='LAB-2026', notes='Traceable to NIST')
-        ShuntCorrection.objects.create(report=report, current=.005, frequency=1000, uncertainty=12)
+        ShuntCorrection.objects.create(report=report, current=.005, frequency=1000, uncertainty=100)
         self.assertEqual(seed_ac_shunt_references(), 2)
         item = Instrument.objects.get(description='CHECK-1 10 mA CHECK STD')
         self.assertEqual((item.manufacturer, item.model), ('Fluke', 'A40B'))
         self.assertEqual(item.column_metadata['acShuntIdentity']['standardType'], 'CHECK STD')
-        self.assertEqual(item.functions[0]['ranges'][0]['tolerances']['reading']['high'], 12)
+        self.assertEqual(item.functions[0]['ranges'][0]['tolerances']['reading']['high'], 100)
         self.assertFalse(CalibrationSession.objects.exists())
         self.assertEqual(seed_ac_shunt_references(), 0)
 
@@ -256,13 +256,13 @@ class AcShuntReferenceSetupTests(TestCase):
         self.assertEqual(Instrument.objects.get(pk='existing-20').description, 'NIST-10 20 A NIST')
         self.assertTrue(Instrument.objects.filter(description='NIST-10 10 A NIST').exists())
 
-    def test_does_not_assume_unlabeled_records_are_nist(self):
+    def test_classifies_unlabeled_records_from_catalog_uncertainties(self):
         self.shunt.remark = ''
         self.shunt.save()
         self.report.report_number = 'LAB-2026'
         self.report.save()
         seed_ac_shunt_references()
-        self.assertEqual(Instrument.objects.get().description, 'NIST-10 10 A')
+        self.assertEqual(Instrument.objects.get().description, 'NIST-10 10 A NIST')
 
 
 class AcShuntTestInstrumentSetupTests(TestCase):

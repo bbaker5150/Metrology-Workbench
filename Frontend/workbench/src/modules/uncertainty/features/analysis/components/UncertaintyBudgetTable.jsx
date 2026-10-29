@@ -7,6 +7,7 @@ import GrowingNumericInput from "../../../components/common/GrowingNumericInput"
 import InlineMenuSelect from "../../../components/common/InlineMenuSelect";
 import InlineSourceNameEditor from "../../../components/common/InlineSourceNameEditor";
 import { getInstrumentRangeRows } from "../../../utils/instrumentFunctionSelection";
+import { formatQualifierPath } from "../../../utils/qualifierRanges";
 import ResizableBudgetTable from "./ResizableBudgetTable";
 import DecisionRiskCards from "./DecisionRiskCards";
 import DynamicBudgetComponentRow from "./DynamicBudgetComponentRow";
@@ -670,6 +671,7 @@ export const InlineManualComponentRow = ({
                 onKindChange(kind, draftRef.current);
               } : undefined}
               tolerance={draft.tolerance || {}}
+              referencePoint={referencePoint}
               activeRange={{
                 id: component.id,
                 max: referencePoint?.value,
@@ -678,6 +680,7 @@ export const InlineManualComponentRow = ({
               key={activeField}
               editable
               openRequested={activeField === "tolerance"}
+              onEditingChange={active => { if (!active && activeField === "tolerance") finish(); }}
               onCommit={(typeKey, nextTerm) =>
                 updateDraft((current) => {
                   const nextTolerance = applyToleranceChange
@@ -881,6 +884,7 @@ const UncertaintyBudgetTable = ({
   applyToleranceChange,
   formatToleranceSummary,
   onOpenCorrelation,
+  formatRangeDetail,
   onBudgetSettingsChange,
   uncertaintyDisplayMode = 'auto',
   onUncertaintyDisplayModeChange,
@@ -1138,7 +1142,8 @@ const UncertaintyBudgetTable = ({
       const kind = component.tmdeUncertaintySourceName || component.tmdeBudgetComponentKind || String(component.name || "Tolerance").split(" - ").at(-1);
       const name = `${formatErrorSourceDescription(source)} - ${formatErrorSourceKind(kind)}`;
       const ranges = getInstrumentRangeRows(source, { flattenTolerances: true });
-      return { ...component, name, sourceDisplayName: name, budgetRangeOptions: ranges };
+      return { ...component, name, sourceDisplayName: name, budgetRangeOptions: ranges,
+        budgetQualifierNames: source.instrument?.qualifierColumnNames || source.qualifierColumnNames || [] };
     });
     const displayNames = enumerateComponentDisplayNames(labeledComponents);
     return (
@@ -1157,6 +1162,7 @@ const UncertaintyBudgetTable = ({
       <tbody className="component-group-tbody">
         {labeledComponents.map((component, componentIndex) => {
           if (component.dynamicDefinitionId) return <DynamicBudgetComponentRow key={`${component.id}:${component.dynamicDefinition?.kind}`} component={component} referencePoint={manualReferencePoint} measurementPoint={manualReferencePoint} showDof={showDof} displayUncertainty={displayUncertainty}
+            ToleranceEditorComponent={ToleranceEditorComponent}
             UnitSelectComponent={UnitSelectComponent} autoEdit={component.id === newDynamicComponentId || component.id === switchedComponentId} onEditorOpened={onDynamicEditorOpened}
             onKindChange={!component.tmdeUncertaintySourceId && !component.sourceTmdeId && !component.tmdeBudgetSourceId ? (kind, typeDraft) => { setSwitchedComponentId(component.id); onComponentUpdate?.(component.id,
               { uncertaintyKind: kind, typeDraft, referencePoint: manualReferencePoint }, component); } : undefined}
@@ -1240,7 +1246,10 @@ const UncertaintyBudgetTable = ({
                       const max = range.max ?? range.value ?? "";
                       const single = range.isSingleValue || String(min) === String(max) || min === "" || max === "";
                       const rangeLabel = `${single ? (min !== "" ? min : max !== "" ? max : "Not Set") : `${min} to ${max}`} ${getUnitDisplayLabel(range.unit || range.functionUnit)}`.trim();
-                      return { value: String(index), rangeLabel, label: `${rangeLabel} | ${getToleranceErrorSummary(range, manualReferencePoint)}` };
+                      const qualifierLabel = formatQualifierPath(range, component.budgetQualifierNames);
+                      return { value: String(index), rangeLabel: [rangeLabel, qualifierLabel].filter(Boolean).join(" | "),
+                        label: formatRangeDetail?.(range, manualReferencePoint, component.budgetQualifierNames)
+                          || [rangeLabel, qualifierLabel, getToleranceErrorSummary(range, manualReferencePoint)].filter(Boolean).join(" | ") };
                     })}
                     onChange={index => onComponentUpdate?.(component.id, { selectedBudgetRange: component.budgetRangeOptions[Number(index)] }, component)} />
                 )}

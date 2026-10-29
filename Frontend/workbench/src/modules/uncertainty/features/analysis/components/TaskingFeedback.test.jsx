@@ -1,7 +1,7 @@
 import React from "react";
 import { render, renderHook, screen, fireEvent, within } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
-import { normalizeRangeBounds, RangeCell, getUsableBudgetRangeChoices } from "./UncertaintyPanel";
+import { normalizeRangeBounds, RangeCell, getUsableBudgetRangeChoices, formatRangeToleranceDetail } from "./UncertaintyPanel";
 import UncertaintyBudgetTable from "./UncertaintyBudgetTable";
 import { resolvePointBudgetComponents } from "../../../utils/resolvePointBudgetComponents";
 import { getBudgetComponentsFromTolerance } from "../utils/budgetUtils";
@@ -79,4 +79,20 @@ it("shows a range selector and final PFA/PFR, including unavailable PFR for unkn
   expect(onUpdate.mock.calls[0][1].selectedBudgetRange.id).toBe("two");
   expect(screen.getByLabelText("Final decision risk")).toHaveTextContent("PFANAPFRNA");
   expect(screen.getByLabelText("PFR: Unavailable")).toBeInTheDocument();
+});
+
+it('uses the Add menu detail for equal-current ranges with distinct frequency qualifiers', () => {
+  const ranges = [60, 400, 1000].map((frequency, index) => ({ id: `r${index}`, value: 10, min: 10, max: 10, isSingleValue: true, unit: 'A',
+    qualifier: { name: 'Frequency', value: frequency, unit: 'Hz' },
+    tolerances: { reading: { high: index ? 35 : 38, low: index ? -35 : -38, unit: 'ppm', symmetric: true, distribution: '1.960' } } }));
+  const onUpdate = vi.fn();
+  render(<UncertaintyBudgetTable components={[{ ...component, value_native: .0001, unit_native: 'A', tmdeBudgetRangeId: 'r0' }]}
+    budgetInstruments={[master(ranges)]} referencePoint={{ value: 10, unit: 'A' }}
+    formatRangeDetail={formatRangeToleranceDetail} onComponentUpdate={onUpdate} />);
+  fireEvent.click(screen.getByRole('button', { name: /Range for/ }));
+  const options = within(screen.getByRole('listbox', { name: /Range for/ })).getAllByRole('option');
+  expect(options[0]).toHaveTextContent('10 A | Frequency: 60 Hz | ± 38 ppm IV | Normal (95%)');
+  expect(options[1]).toHaveTextContent('10 A | Frequency: 400 Hz | ± 35 ppm IV | Normal (95%)');
+  fireEvent.click(options[1]);
+  expect(onUpdate.mock.calls[0][1].selectedBudgetRange.qualifier.value).toBe(400);
 });

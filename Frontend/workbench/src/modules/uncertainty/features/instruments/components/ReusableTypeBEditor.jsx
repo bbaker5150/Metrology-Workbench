@@ -24,6 +24,7 @@ export default function ReusableTypeBEditor({ components, onChange, referenceUni
       {components.filter(item => item.budgetComponent).map(record => {
         const component = record.budgetComponent;
         if (component.dynamicDefinitionId) return <DynamicBudgetComponentRow key={record.id}
+          ToleranceEditorComponent={InlineToleranceCell}
           component={resolveDynamicComponent(component, component.dynamicDefinition, point)} referencePoint={point} UnitSelectComponent={UnitSelect}
           autoEdit={editingId === record.id || (activeId === record.id && component.inlineDraft === true)} onEditorOpened={() => setEditingId(null)}
           onCommit={definition => update(record, { ...component, dynamicDefinition: definition, name: definition.name, inlineDraft: false })}

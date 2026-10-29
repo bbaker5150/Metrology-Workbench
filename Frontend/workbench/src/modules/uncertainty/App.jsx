@@ -1,4 +1,5 @@
 import InstrumentLibraryModal from "./features/instruments/components/InstrumentLibraryModal";
+import { buildSidebarCellGroups } from "./utils/sidebarCellGroups";
 import { newMeasurementAreaColor } from "./utils/measurementAreaGrouping";
 import MeasurementAreaEmptyHint from "./components/common/MeasurementAreaEmptyHint";
 import { UnitSelect } from "./features/analysis/components/UncertaintyPanel";
@@ -955,7 +956,7 @@ export const SidebarPointItem = ({
     const preferredBelongsToGroup =
       group?.span > 1 &&
       preferredId &&
-      group.pointIds?.some((id) => String(id) === preferredId);
+      (group.pointIdSet ? group.pointIdSet.has(preferredId) : group.pointIds?.some((id) => String(id) === preferredId));
 
     if (preferredBelongsToGroup) {
       if (onRequestSharedMemberEdit) {
@@ -1126,13 +1127,13 @@ export const SidebarPointItem = ({
   }, [
     cellGroups.uut?.isStart,
     cellGroups.uut?.span,
-    cellGroups.uut?.pointIds?.join("|"),
+    cellGroups.uut?.key ?? cellGroups.uut?.pointIds?.join("|"),
     cellGroups.section?.isStart,
     cellGroups.section?.span,
-    cellGroups.section?.pointIds?.join("|"),
+    cellGroups.section?.key ?? cellGroups.section?.pointIds?.join("|"),
     cellGroups.qualifier?.isStart,
     cellGroups.qualifier?.span,
-    cellGroups.qualifier?.pointIds?.join("|"),
+    cellGroups.qualifier?.key ?? cellGroups.qualifier?.pointIds?.join("|"),
     visibleColumns.uut,
     visibleColumns.section,
     visibleColumns.qualifier,
@@ -1145,7 +1146,8 @@ export const SidebarPointItem = ({
   // them highlights the shared cell as a whole.
   const groupIsHighlighted = (group) =>
     group?.span > 1 &&
-    group.pointIds?.some((id) => highlightedPointIdSet.has(String(id)));
+    (group.pointIdSet ? [...highlightedPointIdSet].some(id => group.pointIdSet.has(id))
+      : group.pointIds?.some((id) => highlightedPointIdSet.has(String(id))));
   // Every cell of a run carries the same key, so hovering any row in the run
   // can light the whole shared cell the way selecting a point does.
   const groupedCellRunKey = (group, column) =>
@@ -5270,41 +5272,20 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
 
   // Shared sidebar point-row markup (used under every UUT and the Unassigned
   // bucket). Extracted so the Function -> UUT -> Point tree stays readable.
+  const sidebarCellGroups = useMemo(() => new Map(sidebarData.map(group => {
+    const points = group.isUnassigned ? group.uutGroups[0]?.points || [] : group.points || [];
+    return [group.id, buildSidebarCellGroups(points, pointDiagnosticsMap, pendingSharedFieldEdit, formatPointQualifier)];
+  })), [sidebarData, pointDiagnosticsMap, pendingSharedFieldEdit]);
+  const sidebarInstrumentChoices = useMemo(() => new Map(sidebarData.map(group => [group.id, {
+    units: getMeasurementAreaUnits(currentSessionData, group.name),
+    uuts: (group.uutGroups || []).filter(uut => !uut.isUnassigned).map(uut => ({ id: uut.id, label: formatInstrumentIdentity(uut) })),
+  }])), [sidebarData, currentSessionData]);
   const renderSidebarPointRow = (tp, fnGroup, points = [], index = 0) => {
     const contextUutId = tp.associatedUutIds?.[0] || null;
-    const functionUuts = (fnGroup?.uutGroups || []).filter(
-      (group) => !group.isUnassigned,
-    );
     const currentUut = (currentSessionData?.uuts || []).find(
       (uut) => String(uut.id) === String(contextUutId),
     );
-    const cellGroups = {
-      warningIcons: getConsecutiveSidebarCellGroup(
-        points,
-        index,
-        (point) => pointDiagnosticsMap[point.id]?.length ? `point:${point.id}` : "",
-        true, // Read-only empty information cells have no per-point input.
-      ),
-      uut: getConsecutiveSidebarCellGroup(
-        points,
-        index,
-        (point) => point.associatedUutIds?.[0] ?? "",
-      ),
-      section: getConsecutiveSidebarCellGroupDuringEdit(
-        points,
-        index,
-        (point) => point.section ?? "",
-        "section",
-        pendingSharedFieldEdit,
-      ),
-      qualifier: getConsecutiveSidebarCellGroupDuringEdit(
-        points,
-        index,
-        (point) => formatPointQualifier(point.testPointInfo?.qualifier),
-        "qualifier",
-        pendingSharedFieldEdit,
-      ),
-    };
+    const cellGroups = sidebarCellGroups.get(fnGroup.id)?.[index] || {};
     return (
     <SidebarPointItem
       key={tp.id}
@@ -5313,10 +5294,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
       uutName={formatInstrumentIdentity(
         currentUut || { name: "Unassigned" },
       )}
-      uutOptions={functionUuts.map((uut) => ({
-        id: uut.id,
-        label: formatInstrumentIdentity(uut),
-      }))}
+      uutOptions={sidebarInstrumentChoices.get(fnGroup.id)?.uuts}
       cellGroups={cellGroups}
       columnWidths={sidebarRenderedColumnWidths}
       columnOrder={sidebarColumnOrder}
@@ -5386,7 +5364,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
       isSelected={selectedSidebarPointIds.includes(tp.id)}
       isActivePoint={selectedTestPointId === tp.id}
       isTableSelected={selectedTablePointIds.includes(tp.id)}
-      unitOptions={getMeasurementAreaUnits(currentSessionData, fnGroup.name)}
+      unitOptions={sidebarInstrumentChoices.get(fnGroup.id)?.units}
       liveRiskMetrics={pointRiskMap[tp.id]}
       liveUncertainty={pointUncertaintyMap[tp.id]}
       liveTmdeLimits={sidebarPointData.get(tp.id)?.tmdeLimits}

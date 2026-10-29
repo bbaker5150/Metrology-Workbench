@@ -9,6 +9,37 @@ function Harness({viewMode,grouped=false}) {
  const point={id:'p',viewMode,testPointInfo:{parameter:{name:'Current',value:50,unit:'A'},qualifier:{value:200,unit:'Hz'}},associatedUutIds:['u1'],components:[],tmdeTolerances:[],specifications:{}};
  return <><UncertaintyPanel testPointData={point} sessionData={session} onSessionSave={save} uutNominal={point.testPointInfo.parameter} tmdeTolerancesData={[]} setNotification={()=>{}} onInstrumentSynced={()=>{}}/><output data-testid="state">{JSON.stringify(session)}</output></>;
 }
+
+it.each(['session','point'])('Ctrl+Enter commits the current range then focuses one new range in %s', async viewMode => {
+ render(<Harness viewMode={viewMode}/>);
+ let row=document.querySelector('tr[data-range-group="uut:u1"]');
+ fireEvent.click(row.querySelector('[data-range-cell] .inline-tolerance-summary'));
+ const input=within(row).getByPlaceholderText('min');
+ input.focus(); fireEvent.change(input,{target:{value:'25'}});
+ fireEvent.keyDown(input,{key:'Enter',ctrlKey:true});
+ await waitFor(()=>expect(document.querySelectorAll('tr[data-range-group="uut:u1"]')).toHaveLength(2));
+ const rows=[...document.querySelectorAll('tr[data-range-group="uut:u1"]')];
+ expect(within(rows[1]).getByPlaceholderText('min')).toHaveFocus();
+ const ranges=JSON.parse(screen.getByTestId('state').textContent).uuts[0].instrument.functions[0].ranges;
+ expect(String(ranges[0].min)).toBe('25');
+ expect(ranges[1].min).toBe('');
+});
+
+it.each(['session','point'])('Ctrl+Enter retains unblurred qualifier text in %s', async viewMode => {
+ render(<Harness viewMode={viewMode}/>);
+ const row=document.querySelector('tr[data-range-group="uut:u1"]');
+ fireEvent.mouseDown(row.querySelector('[data-range-cell]'));
+ fireEvent.click(within(row).getByRole('button',{name:'Add qualifier',exact:true}));
+ const input=within(row).getByRole('textbox',{name:'Qualifier value'});
+ fireEvent.change(input,{target:{value:'400 Hz'}});
+ fireEvent.keyDown(input,{key:'Enter',ctrlKey:true});
+ const rows=[...document.querySelectorAll('tr[data-range-group="uut:u1"]')];
+ expect(rows).toHaveLength(2);
+ expect(within(rows[1]).getByRole('textbox',{name:'Qualifier value'})).toHaveFocus();
+ const ranges=JSON.parse(screen.getByTestId('state').textContent).uuts[0].instrument.functions[0].ranges;
+ expect(ranges[0].qualifier.text).toBe('400 Hz');
+ expect(ranges[1].qualifier.text || '').toBe('');
+});
 it.each(['session','point'])('adds and merges qualifier sub-ranges in %s view',async viewMode=>{
  render(<Harness viewMode={viewMode}/>);
  let row=document.querySelector('tr[data-range-group="uut:u1"]');

@@ -28,6 +28,12 @@ def positive(value):
 
 
 def standard_type(shunt, report):
+    # Lab convention: the catalog's 100 ppm uncertainties identify a Check
+    # STD. Do not infer this from the TI's separate 100 ppm acceptance limit.
+    uncertainties = [float(row.uncertainty) for row in report.corrections.all()
+                     if row.uncertainty is not None and math.isfinite(row.uncertainty) and row.uncertainty >= 0] if report else []
+    if uncertainties:
+        return 'CHECK STD' if all(math.isclose(value, 100, rel_tol=0, abs_tol=1e-9) for value in uncertainties) else 'NIST'
     # A Check STD can itself be traceable to NIST. Prefer its device label.
     for text in (shunt.remark, shunt.model_name, getattr(report, 'notes', ''), getattr(report, 'report_number', '')):
         if re.search(r'\bcheck[\s_-]*(?:std|standard)\b', text or '', re.I):
@@ -60,7 +66,7 @@ def instrument_identity(model, serial, shunt_range, label):
 
 def source_identity(model, serial, shunt_range, label, role):
     return {'model': model, 'serial': serial, 'shuntRange': shunt_range,
-            'standardType': label, 'role': role, 'namingVersion': 1}
+            'standardType': label, 'role': role, 'namingVersion': 2}
 
 
 def matches_instrument(item, model, serial, shunt_range=None):
@@ -78,7 +84,7 @@ def matches_instrument(item, model, serial, shunt_range=None):
 
 def rename_instrument_once(item, model, serial, shunt_range, label, role):
     metadata = item.column_metadata or {}
-    if metadata.get('acShuntIdentity', {}).get('namingVersion') == 1:
+    if metadata.get('acShuntIdentity', {}).get('namingVersion', 0) >= 2:
         return
     for field, value in instrument_identity(model, serial, shunt_range, label).items():
         setattr(item, field, value)
@@ -86,14 +92,15 @@ def rename_instrument_once(item, model, serial, shunt_range, label, role):
     item.save(update_fields=['manufacturer', 'model', 'description', 'column_metadata', 'updated_at'])
 
 
-def seed_ac_shunt_references():
+def seed_ac_shunt_references(*, export_only=False):
     existing = list(Instrument.objects.filter(scope=Instrument.SCOPE_VALIDATED).exclude(instrument_type='uut'))
     created = 0
+    exported = []
     for shunt, model, report, label in shunt_catalog():
         identity = (shunt.serial_number.strip(), shunt.range)
         key = 'ac-shunt-ref-' + sha256(repr(identity).encode()).hexdigest()[:32]
         matches = [item for item in existing if item.id == key or matches_instrument(item, model, identity[0], shunt.range)]
-        if matches:
+        if matches and not export_only:
             for item in matches:
                 rename_instrument_once(item, model, identity[0], shunt.range, label, 'tmde')
             continue
@@ -123,18 +130,22 @@ def seed_ac_shunt_references():
             })
         if not ranges and not label:
             continue
-        _, was_created = Instrument.objects.get_or_create(id=key, defaults={
+        defaults = {
             **instrument_identity(model, identity[0], shunt.range, label),
             'column_metadata': {'acShuntIdentity': source_identity(model, identity[0], shunt.range, label, 'tmde')},
             'measurement_area': 'Current', 'measurement_area_color': '#5aa6d9',
             'instrument_type': 'tmde', 'scope': Instrument.SCOPE_VALIDATED,
             'functions': [{'id': f'{key}-current', 'name': 'Current', 'unit': 'A', 'ranges': ranges}],
-        })
+        }
+        if export_only:
+            exported.append(Instrument(id=key, **defaults))
+            continue
+        _, was_created = Instrument.objects.get_or_create(id=key, defaults=defaults)
         created += int(was_created)
-    return created
+    return exported if export_only else created
 
 
-def seed_ac_shunt_test_instruments():
+def seed_ac_shunt_test_instruments(*, export_only=False):
     """Create one library TI per saved model/serial, collecting its point ranges.
 
     Reference and TI definitions remain separate even when a physical shunt
@@ -166,13 +177,14 @@ def seed_ac_shunt_test_instruments():
             if math.isfinite(float(point.current)) and point.current > 0 and point.frequency > 0:
                 record['points'].add((float(point.current), point.frequency))
     created = 0
+    exported = []
     for identity, record in grouped.items():
         key = 'ac-shunt-ti-' + sha256(repr(identity).encode()).hexdigest()[:32]
         model, serial = record['model'], record['serial']
         shunt_range = next(iter(record['physicalRanges'])) if len(record['physicalRanges']) == 1 else None
         label = next(iter(record['labels'])) if len(record['labels']) == 1 else ''
         matches = [item for item in existing if item.id == key or matches_instrument(item, model, serial)]
-        if matches:
+        if matches and not export_only:
             for item in matches:
                 rename_instrument_once(item, model, serial, shunt_range, label, 'uut')
             continue
@@ -190,11 +202,15 @@ def seed_ac_shunt_test_instruments():
                 'source': 'Lab TI requirement',
                 'acShuntSource': {'model': model, 'serial': serial, 'role': 'uut',
                                   'shuntRange': shunt_range, 'standardType': label}})
-        _, was_created = Instrument.objects.get_or_create(id=key, defaults={
+        defaults = {
             **instrument_identity(model, serial, shunt_range, label),
             'column_metadata': {'acShuntIdentity': source_identity(model, serial, shunt_range, label, 'uut')},
             'measurement_area': 'Current', 'measurement_area_color': '#5aa6d9',
             'instrument_type': 'uut', 'scope': Instrument.SCOPE_VALIDATED,
-            'functions': [{'id': f'{key}-current', 'name': 'Current', 'unit': 'A', 'ranges': ranges}]})
+            'functions': [{'id': f'{key}-current', 'name': 'Current', 'unit': 'A', 'ranges': ranges}]}
+        if export_only:
+            exported.append(Instrument(id=key, **defaults))
+            continue
+        _, was_created = Instrument.objects.get_or_create(id=key, defaults=defaults)
         created += int(was_created)
-    return created
+    return exported if export_only else created

@@ -21,6 +21,7 @@ const implicitUnits = (definition, point) => definition && ({ ...definition, mea
 export default function DynamicBudgetComponentRow({
   component, referencePoint, measurementPoint = referencePoint, showDof, onCommit, onRemove, onMoveUp, onMoveDown,
   onKindChange,
+  ToleranceEditorComponent,
   displayUncertainty = value => value,
   UnitSelectComponent = FallbackUnitSelect, autoEdit = false, onEditorOpened,
 }) {
@@ -193,8 +194,21 @@ export default function DynamicBudgetComponentRow({
         ) : <button type="button" className={`inline-tolerance-summary dynamic-source-label${sourceName ? "" : " is-empty"}`} aria-label="Edit error source name" onMouseDown={event => { event.preventDefault(); setNaming(true); }} onClick={() => setNaming(true)}>{sourceName || "Not Set"}</button>}
         </div>
       </td>
-      <td className="dynamic-tolerance-cell">
-        {!editing ? (
+      <td className="dynamic-tolerance-cell budget-inline-tolerance-cell">
+        {ToleranceEditorComponent ? <ToleranceEditorComponent
+          tolerance={{ tmdeUncertaintyDefinition: draft }}
+          activeRange={{ id: component.id, value: referencePoint?.value, max: referencePoint?.value, unit: referencePoint?.unit }}
+          referencePoint={referencePoint} measurementPoint={measurementPoint} dynamicComponent={component}
+          editable openRequested={editing} summaryOverride={preview.dynamicSummary || "Not Set"}
+          onEditingChange={active => { if (active) setEditing(true); else if (editing) finish(); }}
+          onUncertaintyKindChange={onKindChange ? kind => {
+            clearEditorDraft(draftKey); dirty.current = false;
+            onKindChange(kind, draftRef.current);
+          } : undefined}
+          onCommit={(type, value) => {
+            const definition = type === "__replace__" ? value.tmdeUncertaintyDefinition : type === "tmdeUncertaintyDefinition" ? value : null;
+            if (definition) change(definition);
+          }} /> : !editing ? (
           <button ref={triggerRef} type="button" className={`inline-tolerance-summary${preview.dynamicSummary ? "" : " is-empty"}`}
             title={preview.pendingReason || `Edit ${kindLabel.toLowerCase()} uncertainty`} onClick={openEditor}>
             {preview.dynamicSummary || "Not Set"}

@@ -4774,6 +4774,8 @@ export const InlineToleranceCell = ({
   tolerance = {},
   activeRange = {},
   referencePoint,
+  measurementPoint = referencePoint,
+  dynamicComponent,
   editable,
   showMeasurementStatus = false,
   biasRole,
@@ -5102,6 +5104,7 @@ export const InlineToleranceCell = ({
       </div>}
       </> : <>
         <DynamicUncertaintyFields definition={selectedDefinition || createDynamicDefinition(selectedType, referencePoint || activeRange)}
+          component={dynamicComponent} measurementPoint={measurementPoint || referencePoint || activeRange}
           referencePoint={referencePoint || activeRange} UnitSelectComponent={UnitSelect} showPreview={false} modebarTarget={dynamicModebarTarget}
           onChange={patch => updateSelectedSource(selectedSecondary ? { dynamicDefinition: { ...selectedDefinition, ...patch } } : { tmdeUncertaintyDefinition: { ...selectedDefinition, ...patch } })} />
       </>}
@@ -5279,7 +5282,12 @@ export const RangeCell = ({
       setIsEditing(true);
     };
     return (
-      <div key="summary" className="inline-range-editor" onMouseDown={(e) => e.stopPropagation()}>
+      <div key="summary" className="inline-range-editor" onMouseDown={(e) => e.stopPropagation()}
+        onKeyDownCapture={event => {
+          if (event.key !== "Enter" || !(event.ctrlKey || event.metaKey) || !onAdvanceRange || event.nativeEvent.isComposing) return;
+          event.preventDefault(); event.stopPropagation();
+          if (!event.repeat) onAdvanceRange();
+        }}>
         <div className="inline-range-main">
           <button
             type="button"
@@ -5344,8 +5352,10 @@ export const RangeCell = ({
       onBlur={handleBlur}
       onKeyDownCapture={(event) => {
         if (event.key === "Enter" && (event.ctrlKey || event.metaKey) && onAdvanceRange) {
+          if (event.nativeEvent.isComposing) return;
           event.preventDefault();
           event.stopPropagation();
+          if (event.repeat) return;
           event.target.blur?.();
           onAdvanceRange();
           return;
@@ -7820,6 +7830,7 @@ const SummaryDashboard = ({
     );
     persistItem(kind, updated);
     if (focusNew && newRangeId) {
+      setExpandedRangeKeys(previous => new Set(previous).add(itemStateKey(kind, item.id)));
       setPendingRangeEditKey(`${itemStateKey(kind, item.id)}:${newRangeId}`);
     }
   };
@@ -11974,6 +11985,7 @@ function DetailedView({
     );
     persistInlineItemDetail(kind, updated);
     if (focusNew && newRangeId) {
+      setExpandedRangeKeys(previous => new Set(previous).add(itemStateKey(kind, item.id)));
       setPendingRangeEditKey(`${itemStateKey(kind, item.id)}:${newRangeId}`);
     }
   };
@@ -17295,6 +17307,7 @@ function DetailedView({
               onDynamicEditorOpened={onDynamicEditorOpened}
               applyToleranceChange={applyToleranceCaseChange}
               formatToleranceSummary={getSpecRows}
+              formatRangeDetail={(range, point, names) => formatRangeToleranceDetail(range, point, sessionData.qualifierColumnNames?.tmde || names)}
               calcResults={calcResults}
               referencePoint={uutNominal}
               uncertaintyConfidence={getPointRequirements(testPointData, sessionData).uncertaintyConfidence}
