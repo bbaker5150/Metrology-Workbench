@@ -1,4 +1,4 @@
-"""One-time library setup for 5790 main-input voltage resolution.
+"""Set resolution on existing 5790 ranges; never generate reader functions.
 
 Fluke 5790A/B Operators Manuals, Table 4-5 and HIRES command. These are
 reporting increments, not calibration uncertainties. The active import profile
@@ -22,8 +22,8 @@ VOLT_UNITS = {'V': 1, 'mV': 1e-3, 'uV': 1e-6, 'µV': 1e-6, 'μV': 1e-6}
 
 
 def reader_model(item):
-    match = re.search(r'\b5790[AB]\b', f'{item.model} {item.description}', re.I)
-    return match.group().upper() if match else None
+    match = re.search(r'5790\s*([AB])\b', f'{item.model} {item.description}', re.I)
+    return f'5790{match.group(1).upper()}' if match else None
 
 
 def resolution_profile(model, maximum):
@@ -53,43 +53,50 @@ def apply_profile(row, profile):
         row.pop(key, None)
 
 
-def seed_5790_resolution():
-    """Upgrade existing shared readers once; never alter saved budget snapshots."""
-    updates = []
-    for item in Instrument.objects.filter(scope='validated'):
-        model = reader_model(item)
-        if not model or (item.column_metadata or {}).get('fluke5790ResolutionVersion') == 1:
+def unchanged_generated_function(function, model):
+    """Remove only the untouched functions mistakenly appended by version 1."""
+    mode = next((mode for mode in ('AC', 'DC') if function.get('id') == f'5790-resolution-{mode}'), None)
+    if not mode:
+        return False
+    ranges = []
+    for bound in RANGES:
+        if mode == 'DC' and bound < .22:
             continue
-        functions = deepcopy(item.functions or [])
-        covered_modes = set()
+        row = {'id': f'5790-resolution-{mode}-{bound:g}', 'min': 0, 'max': bound,
+               'unit': 'V', 'tolerances': {}}
+        apply_profile(row, resolution_profile(model, bound))
+        ranges.append(row)
+    return function == {'id': f'5790-resolution-{mode}', 'name': f'{mode} Voltage', 'unit': 'V', 'ranges': ranges}
+
+
+def seed_5790_resolution():
+    """Repair existing local/shared readers once, preserving subsequent edits."""
+    updates = []
+    for item in Instrument.objects.all():
+        model = reader_model(item)
+        version = (item.column_metadata or {}).get('fluke5790ResolutionVersion', 0)
+        if not model or version >= 2:
+            continue
+        functions = [deepcopy(fn) for fn in (item.functions or [])
+                     if not (version == 1 and unchanged_generated_function(fn, model))]
         for function in functions:
             if 'wideband' in function.get('name', '').lower():
                 continue
             for row in function.get('ranges', []):
-                scale = VOLT_UNITS.get(row.get('unit') or function.get('unit'))
+                # A range already updated by v1 may have been edited since.
+                if version == 1 and row.get('fluke5790Resolution'):
+                    continue
+                unit = row.get('unit') or function.get('unit')
+                scale = VOLT_UNITS.get(unit)
                 try:
                     maximum = abs(float(row.get('max', row.get('value')))) * scale if scale else None
                 except (ValueError, TypeError):
                     maximum = None
-                profile = resolution_profile(model, maximum) if maximum else None
+                # Existing AC/DC-difference definitions use ppm ranges. Their
+                # reader's reporting increment is still a voltage, not ppm.
+                profile = resolution_profile(model, maximum or 2.2) if scale or unit == 'ppm' else None
                 if profile:
                     apply_profile(row, profile)
-                    mode = re.search(r'\b(AC|DC)\b', function.get('name', ''), re.I)
-                    covered_modes.update([mode.group().upper()] if mode else ['AC', 'DC'])
-        # Older entries may only have ppm variability or AC voltage. Add the
-        # missing voltage functions without changing their authored sources.
-        for mode in ('AC', 'DC'):
-            if mode in covered_modes:
-                continue
-            ranges = []
-            for bound in RANGES:
-                if mode == 'DC' and bound < .22:
-                    continue
-                row = {'id': f'5790-resolution-{mode}-{bound:g}', 'min': 0, 'max': bound,
-                       'unit': 'V', 'tolerances': {}}
-                apply_profile(row, resolution_profile(model, bound))
-                ranges.append(row)
-            functions.append({'id': f'5790-resolution-{mode}', 'name': f'{mode} Voltage', 'unit': 'V', 'ranges': ranges})
         updates.append((item, functions))
     if not updates:
         return 0
@@ -97,6 +104,6 @@ def seed_5790_resolution():
     with transaction.atomic(using=router.db_for_write(Instrument)):
         for item, functions in updates:
             item.functions = functions
-            item.column_metadata = {**(item.column_metadata or {}), 'fluke5790ResolutionVersion': 1}
+            item.column_metadata = {**(item.column_metadata or {}), 'fluke5790ResolutionVersion': 2}
             item.save(update_fields=['functions', 'column_metadata', 'updated_at'])
     return len(updates)

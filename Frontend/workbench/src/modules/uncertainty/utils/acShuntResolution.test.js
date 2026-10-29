@@ -2,99 +2,105 @@ import { describe, it, expect } from 'vitest';
 import { buildAcShuntBudget } from './acShuntBudget';
 import { resolvePointBudgetComponents } from './resolvePointBudgetComponents';
 import { isPpmBudget } from './budgetDisplay';
+import { getInstrumentRangeRows } from './instrumentFunctionSelection';
+import { getBudgetRangeWarnings } from './pointDiagnostics';
 
-const phases = Object.fromEntries(['std', 'ti'].flatMap(side => ['ac_open', 'ac_close', 'dc_pos', 'dc_neg'].map(phase => [`${side}_${phase}`, phase === 'dc_neg' ? -1 : 1])));
-const observation = { direction: 'Forward', cycleIndex: 1, phases, eta_std: 1, eta_ti: 1, rangeMode: '2.2', filterMode: 'FAST', hiresEnabled: true };
-const reader = (serial = '', model = '5790B') => ({ id: `reader-${serial}`, scope: 'validated', manufacturer: 'Fluke', model, serialNumber: serial,
-  functions: ['AC', 'DC'].map(mode => ({ id: mode, name: `${mode} Voltage`, unit: 'V', ranges: [{
-    id: `${mode}-2.2`, min: 0, max: 2.2, unit: 'V', measuringResolution: 1e-7, measuringResolutionUnit: 'V',
+// Match the existing authored AC/DC-difference library shape, not a fabricated
+// AC/DC voltage catalog: one 200 ppm range and a normal resolution field.
+const reader = (serial = '', model = '5790B') => ({ id: `reader-${serial}`, scope: 'local', manufacturer: 'Fluke', model, serialNumber: serial,
+  functions: [{ id: 'difference', name: 'AC/DC Difference', unit: 'ppm', ranges: [{
+    id: 'existing-200-ppm', min: 0, max: 200, unit: 'ppm', measuringResolution: 1e-7, measuringResolutionUnit: 'V',
     measuringResolutionDistribution: '3.464', includeResolutionInBudget: true,
-    fluke5790Resolution: { highResolutionVolts: 1e-7, normalResolutionVolts: 1e-6 },
     tolerances: { reading: { high: 999, unit: 'ppm', distribution: '1.732' } },
-  }] })) });
+  }] }] });
 const shunt = (id, type) => ({ id, scope: 'validated', type, model: 'Y5020', serialNumber: id,
   functions: [{ id: 'current', name: 'Current', unit: 'A', ranges: [{ id: '10', min: 10, max: 10, unit: 'A',
     tolerances: { reading: { high: type === 'uut' ? 100 : 35, unit: 'ppm', distribution: '1.960' } } }] }] });
-function build({ observations = [observation], models = {}, readers = [reader()], current = 10 } = {}) {
+function build({ resolution = { std: { ppmPerVolt: 2e6, rangeVolts: 2.2 }, ti: { ppmPerVolt: 2e6, rangeVolts: 2.2 } },
+  models = {}, readers = [reader()], current = 10 } = {}) {
   return buildAcShuntBudget({ id: 1, name: 'Resolution test', instruments: {
     test_instrument_model: 'Y5020', test_instrument_serial: 'ti', standard_instrument_model: 'Y5020', standard_instrument_serial: 'ref',
-    standard_reader_model: '5790B', standard_reader_serial: 'STD', test_reader_model: '5790B', test_reader_serial: 'TI', ...models,
-  }, points: [{ current, frequency: 1000, sourcePointIds: [1, 2], readerPoints: observations,
+    standard_reader_model: '5790B', standard_reader_serial: '4449302', test_reader_model: '5790B', test_reader_serial: '4449302', ...models,
+  }, points: [{ current, frequency: 1000, sourcePointIds: [1, 2], readerResolution: resolution,
     analytics: { pair_delta_uut_ppm: 3, pair_type_a_uncertainty_ppm: 2, n_pairs_used: 4 } }] },
   { instruments: [shunt('ti', 'uut'), shunt('ref', 'tmde'), ...readers] });
 }
 const resolved = session => resolvePointBudgetComponents(session.testPoints[0], session).filter(c => c.isResolution);
 
-describe('5790 resolution in AC-shunt budgets', () => {
-  it('propagates volts through the ratios, includes only resolution and keeps automatic ppm display', () => {
-    const { session, warnings } = build();
-    const rows = resolved(session);
+describe('5790 resolution from existing instruments', () => {
+  it('imports the local instrument into TMDE with its existing populated resolution range and a normal linked budget row', () => {
+    const definition = reader();
+    const before = JSON.stringify(definition);
+    const { session, warnings } = build({ readers: [definition] });
     expect(warnings).toEqual([]);
-    expect(rows).toHaveLength(2);
-    // Four |d(Vac/Vdc)/dVphase| = 0.5 / V at 1 V. Conservative
-    // fully correlated phase sum: 2 * 0.1 microvolt / sqrt(12).
-    for (const row of rows) {
-      expect(row.value).toBeCloseTo(2 * .1 / Math.sqrt(12), 12);
-      expect(row.value_native).toBeCloseTo(row.value * 10e-6, 15);
-      expect(row.toleranceLimit_native).toBeCloseTo(10e-7, 15);
-      expect(row.tmdeTransferSources).toHaveLength(4);
-      expect(row.pendingReason).toBeNull();
-    }
-    expect(isPpmBudget(resolvePointBudgetComponents(session.testPoints[0], session))).toBe(true);
-    expect(session.tmdes).toHaveLength(3);
-  });
-  it('uses saved HIRES and filter settings and supports the 5790A', () => {
-    const normal = resolved(build({ observations: [{ ...observation, hiresEnabled: false }] }).session)[0].value;
-    for (const settings of [{ hiresEnabled: true }, { hiresEnabled: false, filterMode: 'MEDIUM' }, { hiresEnabled: false, filterMode: 'SLOW' }]) {
-      expect(resolved(build({ observations: [{ ...observation, ...settings }] }).session)[0].value).toBeCloseTo(normal / 10, 12);
-    }
-    const { session } = build({ models: { standard_reader_model: '5790A', test_reader_model: '34420A' }, readers: [reader('', '5790A')] });
-    expect(resolved(session)).toHaveLength(1);
-    expect(resolved(session)[0].name).toContain('5790A');
-  });
-  it('does not count repeated cycles twice or reduce resolution with sqrt(N), and conservatively combines a shared reader', () => {
-    const value = resolved(build().session)[0].value;
-    const { session } = build({ observations: [observation, { ...observation, direction: 'Reverse', cycleIndex: 2 }],
-      models: { test_reader_serial: 'STD' } });
-    expect(resolved(session)).toHaveLength(1);
-    expect(resolved(session)[0].value).toBeCloseTo(value * 2, 12);
     expect(session.tmdes).toHaveLength(2);
-  });
-  it('keeps phase sensitivities tied to the saved voltages and eta, not nominal current alone', () => {
-    const { session } = build({ observations: [{ ...observation, phases: Object.fromEntries(Object.entries(phases).map(([key, value]) => [key, value / 2])), eta_std: 2 }] });
-    const [std, ti] = resolved(session);
-    expect(ti.value).toBeCloseTo(std.value * 2, 12);
-  });
-  it('refreshes imported resolution from live linked library ranges without changing reader accuracy', () => {
-    const { session } = build();
-    const before = resolved(session)[0].value;
     const meter = session.tmdes[1];
-    for (const fn of meter.instrument.functions) for (const row of fn.ranges) {
-      row.measuringResolution *= 2;
-      row.includeResolutionInBudget = false; // Explicit budget row remains opted in.
-    }
-    expect(resolved(session)[0].value).toBeCloseTo(before * 2, 12);
-    expect(resolved(session)[1].value).toBeCloseTo(before, 12);
-    expect(meter.instrument.functions[0].ranges[0].tolerances.reading.high).toBe(999);
+    expect(meter.libraryInstrumentId).toBe(definition.id);
+    expect(meter.instrument.scope).toBe('local');
+    expect(meter.instrument.functions).toEqual(definition.functions);
+    const [range] = getInstrumentRangeRows(meter);
+    expect(range).toMatchObject({ rangeId: 'existing-200-ppm', measuringResolution: 1e-7, measuringResolutionUnit: 'V', includeResolutionInBudget: true });
+    const [row] = resolved(session);
+    expect(resolved(session)).toHaveLength(1);
+    expect(row).toMatchObject({ tmdeBudgetSourceId: meter.id, tmdeBudgetRangeId: range.rangeId, tmdeBudgetComponentKind: 'Resolution', pendingReason: null });
+    expect(row.tmdeTransferSources).toBeUndefined();
+    expect(row.value).toBeCloseTo(.4 / Math.sqrt(12), 12);
+    expect(row.value_native).toBeCloseTo(row.value * 10e-6, 15);
+    expect(session.testPoints[0].combined_uncertainty_absolute_base).toBeCloseTo(
+      Math.hypot(2, 5 / Math.sqrt(3), 35 / 1.96, .4 / Math.sqrt(12)) * 10e-6, 12);
+    expect(row.authoredTolerance.floor.high).toBeCloseTo(.2, 12);
+    expect(row.originalInput.toleranceLimit).toBeCloseTo(.2, 12);
+    expect(getBudgetRangeWarnings({ components: resolved(session), tmdes: session.tmdes, directNominal: { value: 10, unit: 'A' } })).toEqual({});
+    expect(isPpmBudget(resolvePointBudgetComponents(session.testPoints[0], session))).toBe(true);
+    expect(JSON.stringify(definition)).toBe(before);
   });
   it.each([
-    ['missing phase data', []],
-    ['missing one phase', [{ ...observation, phases: { ...phases, std_ac_open: null } }]],
-    ['AUTO range', [{ ...observation, rangeMode: 'AUTO' }]],
-    ['missing HIRES/filter', [{ ...observation, hiresEnabled: null, filterMode: null }]],
-    ['missing fixed range', [{ ...observation, rangeMode: null }]],
-  ])('keeps %s incomplete through subsequent recalculations', (_, observations) => {
-    const { session, warnings } = build({ observations });
-    expect(warnings.length).toBeGreaterThan(0);
-    const row = resolved(session)[0];
-    expect(row.pendingReason).toBeTruthy();
-    expect(row.value_native).toBeNull();
-    expect(row.tmdeTransferSources).toBeUndefined();
+    { model: '5790B', description: '4449302' },
+    { model: '4449302', description: 'Fluke 5790B' },
+    { model: '5790B · 4449302', description: '' },
+    { model: 'Fluke 5790 B', description: '' },
+  ])('matches existing library naming $model / $description', identity => {
+    const { session, warnings } = build({ readers: [{ ...reader(), ...identity }] });
+    expect(warnings).toEqual([]);
+    expect(session.tmdes[1].instrument.model).toBe(identity.model);
+    expect(resolved(session)[0].value).toBeGreaterThan(0);
   });
-  it('never substitutes another serial or ambiguous model-only definitions', () => {
-    for (const readers of [[reader('OTHER')], [reader(), { ...reader(), id: 'duplicate' }]]) {
-      expect(resolved(build({ readers }).session).every(row => row.pendingReason)).toBe(true);
-    }
-    expect(resolved(build({ readers: [reader('STD'), reader('TI')] }).session).every(row => !row.pendingReason)).toBe(true);
+  it('uses the visible local copy of a shared model and preserves its resolution', () => {
+    const shared = { ...reader(), id: 'shared', scope: 'validated' };
+    const local = { ...reader(), id: 'local', sourceId: shared.id };
+    local.functions[0].ranges[0].measuringResolution = 2e-7;
+    const { session } = build({ readers: [shared, local] });
+    expect(session.tmdes[1].libraryInstrumentId).toBe('local');
+    expect(resolved(session)[0].value).toBeCloseTo(.8 / Math.sqrt(12), 12);
+  });
+  it('uses distinct reader definitions once each and supports the 5790A', () => {
+    const { session } = build({ models: { test_reader_model: '5790A', test_reader_serial: '4449303' },
+      readers: [reader('4449302'), reader('4449303', '5790A')] });
+    expect(session.tmdes).toHaveLength(3);
+    for (const row of resolved(session)) expect(row.value).toBeCloseTo(.2 / Math.sqrt(12), 12);
+  });
+  it('recalculates directly from resolution edits on the TMDE and retains its accuracy terms', () => {
+    const { session } = build();
+    const before = resolved(session)[0].value;
+    const range = session.tmdes[1].instrument.functions[0].ranges[0];
+    range.measuringResolution *= 2;
+    range.includeResolutionInBudget = false; // Explicit budget row remains included.
+    expect(resolved(session)[0].value).toBeCloseTo(before * 2, 12);
+    expect(range.tolerances.reading.high).toBe(999);
+    range.measuringResolution = '';
+    expect(resolved(session)[0].pendingReason).toMatch(/Set the resolution/);
+    expect(resolved(session)[0].value_native).toBeNull();
+    expect(getBudgetRangeWarnings({ components: resolved(session), tmdes: session.tmdes, directNominal: { value: 10, unit: 'A' } }).final[0].reason).toMatch(/Set the resolution/);
+  });
+  it('does not create an orphan budget source or repeat matching warnings for every point', () => {
+    expect(() => build({ readers: [] })).toThrow(/unique existing/);
+    expect(() => build({ readers: [reader('OTHER')] })).toThrow(/unique existing/);
+    expect(() => build({ readers: [reader(), { ...reader(), id: 'duplicate' }] })).toThrow(/unique existing/);
+    const empty = reader();
+    empty.functions[0].ranges[0].measuringResolution = '';
+    expect(() => build({ readers: [empty] })).toThrow(/Set resolution on the existing/);
+  });
+  it('does not invent a volts-to-ppm conversion when the saved observations are incomplete', () => {
+    expect(() => build({ resolution: { std: { ppmPerVolt: null }, ti: { ppmPerVolt: 2e6 } } })).toThrow(/Saved reader voltages/);
   });
 });

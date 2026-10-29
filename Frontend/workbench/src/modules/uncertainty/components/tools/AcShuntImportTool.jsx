@@ -77,7 +77,7 @@ export default function AcShuntImportTool({ onImport, instruments = EMPTY_INSTRU
       onCancel={e=>{e.preventDefault();close();}} onClick={e=>{if(e.target===dialog.current)close();}}>
       <header><div><span className="ac-shunt-import-eyebrow">AC / DC</span><h2 id="ac-shunt-import-title">Import shunt measurements</h2></div>
         <button aria-label="Close AC/DC importer" onClick={close} disabled={saving}><FontAwesomeIcon icon={faTimes}/></button></header>
-      <p>Import current points, frequency qualifiers and AC–DC results. Each point includes Type A repeatability and an editable ±5 ppm Rectangular Fluke 5790B Variability source. Sessions using 5790 readers also include their resolution contribution.</p>
+      <p>Import current points, frequency qualifiers and AC–DC results. Each point includes Type A repeatability and an editable ±5 ppm Rectangular Fluke 5790B Variability source.</p>
       <input autoFocus type="search" aria-label="Search AC-shunt sessions" placeholder="Search session, model or serial…" value={query}
         disabled={saving} onChange={e=>{setQuery(e.target.value);setSelected('');setSnapshot(null);}}/>
       <div className="ac-shunt-import-sessions" aria-label="AC-shunt sessions" aria-busy={loading}>

@@ -53,6 +53,15 @@ export function getBudgetRangeWarnings({
   const warnings = {};
   for (const component of components) {
     if (!component?.isBudgetInstance || !component.tmdeBudgetRangeId) continue;
+    if (component.acShuntResolution) {
+      // This source is already converted from reader volts to output ppm.
+      // The current point is not a voltage/AC-DC-difference range selection.
+      // Missing ranges/settings/resolution still surface through its resolver.
+      if (component.pendingReason) (warnings.final ||= []).push({
+        componentId: component.id, name: component.name, reason: component.pendingReason,
+      });
+      continue;
+    }
     if (component.tmdeTransferSources) {
       for (const input of component.tmdeTransferSources) {
         const master=tmdes.find(t=>String(t.id)===String(input.sourceId));

@@ -15,7 +15,7 @@ export function buildAcShuntBudget(snapshot, { instruments = [] } = {}) {
   if (!snapshot.points?.length) throw new Error('This session has no measurement points.');
   const meta = snapshot.instruments || {};
   const shared = sharedAcShuntInstruments(instruments);
-  const readers = linkAcShuntReaders(meta, shared);
+  const readers = linkAcShuntReaders(meta, instruments);
   const definition = matchAcShuntInstrument({ kind: 'shunt', model: meta.standard_instrument_model, serial: meta.standard_instrument_serial, shuntRange: meta.shuntRange, reportIds: meta.referenceReportIds }, shared);
   const uutDefinition = matchAcShuntInstrument({ kind: 'uut', model: meta.test_instrument_model, serial: meta.test_instrument_serial, shuntRange: meta.shuntRange }, shared);
   if (!uutDefinition) throw new Error(`Could not automatically match TI ${[meta.test_instrument_model, meta.test_instrument_serial].filter(Boolean).join(' · ')}. Check its model and serial in the instrument library, then retry.`);
@@ -59,7 +59,7 @@ export function buildAcShuntBudget(snapshot, { instruments = [] } = {}) {
         tolerance: { floor: { high: 5, low: -5, unit: 'ppm', distribution: '1.732', symmetric: true } } },
       referencePoint: nominal });
     const components = [repeatability, variability];
-    components.push(...acShuntResolutionComponents(point, nominal, readers, source, warnings));
+    components.push(...acShuntResolutionComponents(point, nominal, readers));
     if (reference) {
       try {
         const range = matchAcShuntRange(reference, 'Current', nominal);
@@ -102,7 +102,6 @@ export function buildAcShuntBudget(snapshot, { instruments = [] } = {}) {
     notes: [`Source: AC-shunt session ${snapshot.id} (${snapshot.name}).`,
       'AC–DC difference is the signed measured result. AC/DC repeatability uses the saved paired Type A standard uncertainty with N−1 degrees of freedom.',
       'Fluke 5790B Variability: editable ±5 ppm, Rectangular. TI acceptance uses the selected library instrument, initially lab ±100 ppm, with no measured bias applied.',
-      ...(readers.length ? ['5790 resolution uses the linked voltage increment and saved HIRES/filter settings, propagated through the AC/DC voltage ratios. Absolute phase sensitivities are summed conservatively; the largest accepted cycle/direction is used without assuming cancellation or averaging reduction. Separate readers combine in quadrature.'] : []),
       'Reference errors use the selected Uncertalytics instrument. Complete any remaining instrument contributions in the budget.', ...warnings].join('\n'),
     detailSectionOrder: ['instruments', 'equation', 'budget'], detailCollapsedSections: [] };
   session.testPoints = testPoints.map(point => recalculatePointUncertaintyFields(point, session));
