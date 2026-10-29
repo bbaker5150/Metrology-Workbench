@@ -64,13 +64,19 @@ export const annotateRangeWithFunction = (
 
 export const getInstrumentRangeRows = (
   source = {},
-  { flattenTolerances = false } = {},
+  { flattenTolerances = false, rangeIds = null } = {},
 ) => {
   const instrument = getInstrumentDefinition(source);
   const rows = [];
+  let rangeIndex = 0;
+  const requestedIds = rangeIds && new Set([...rangeIds].map(String));
   const sources = instrumentUncertaintySources(source);
   const pushRange = (range, fn = null, sourceName = "") => {
-    const annotated = annotateRangeWithFunction(inheritInstrumentUncertaintySources(range, source, sources), fn, rows.length);
+    const index = rangeIndex++;
+    // Linked sources need only their chosen rows. Preserve the original index
+    // without allocating a copy of every specification for every test point.
+    if (requestedIds && !requestedIds.has(String(firstValue(range.rangeId, range.id)))) return;
+    const annotated = annotateRangeWithFunction(inheritInstrumentUncertaintySources(range, source, sources), fn, index);
     rows.push({
       ...(flattenTolerances
         ? {

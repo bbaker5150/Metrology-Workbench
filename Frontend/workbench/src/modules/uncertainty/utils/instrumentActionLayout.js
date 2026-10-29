@@ -107,9 +107,10 @@ export function syncInstrumentActions(container, table, layer, pointer = null) {
   });
   for (const action of layer.querySelectorAll(':scope > .instrument-row-action')) {
     const group = groups.get(key(action)) || [];
-    const rects = group.map(row => row.getBoundingClientRect());
-    const top = Math.max(visibleTop, Math.min(...rects.map(rect => rect.top)));
-    const bottom = Math.min(visibleBottom, Math.max(...rects.map(rect => rect.bottom)));
+    // Rows are in document order. The two end rows delimit the instrument;
+    // scrolling must not measure every specification between them.
+    const top = Math.max(visibleTop, group[0]?.getBoundingClientRect().top ?? Infinity);
+    const bottom = Math.min(visibleBottom, group.at(-1)?.getBoundingClientRect().bottom ?? -Infinity);
     const band = surface('instrument-action-band', top, bottom);
     const cellSelected = group.some(row => row.dataset.rangeSelected === 'true' ||
       row.matches(':not([data-selection-key]):is(.selected-row, .selected-spec-row)'));
@@ -124,7 +125,7 @@ export function syncInstrumentActions(container, table, layer, pointer = null) {
       band.dataset.measurementArea = action.dataset.measurementArea;
       band.toggleAttribute('data-cell-selected', cellSelected);
     }
-    const visible = rects.length > 0 && bottom - top >= 20 * scale;
+    const visible = group.length > 0 && bottom - top >= 20 * scale;
     action.hidden = !visible;
     if (!visible) continue;
     action.style.top = `${((top + bottom) / 2 - bounds.top) / scale}px`;

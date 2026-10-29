@@ -72,6 +72,51 @@ export function qualifierRowSpan(rows, range, depth = 0) {
   const group = qualifierCellGroup(rows, range, depth);
   return group ? group.rows.length : 0;
 }
+
+// Rendering a specification table asks for every row's span at every depth.
+// Build each column in one pass instead of searching/rebuilding the entire
+// instrument for every cell. Scope the lookup to the current range snapshot.
+export function createQualifierRowSpanLookup(rows) {
+  const indices = new Map();
+  rows.forEach((row, index) => { if (!indices.has(idOf(row))) indices.set(idOf(row), index); });
+  const columns = new Map();
+  return (range, depth = 0) => {
+    const index = indices.get(idOf(range));
+    if (index === undefined) return 0;
+    if (!columns.has(depth)) {
+      const spans = new Array(rows.length).fill(0);
+      let previous, start = 0;
+      rows.forEach((row, i) => {
+        const key = qualifierCellKey(row, depth);
+        if (key == null || key !== previous) start = i;
+        spans[start]++;
+        previous = key;
+      });
+      columns.set(depth, spans);
+    }
+    return columns.get(depth)[index];
+  };
+}
+
+export function createInstrumentRangeViewCache() {
+  const views = new WeakMap();
+  return item => {
+    if (!views.has(item)) {
+      const rows = getInstrumentRangeRows(item);
+      // The editor uses stored tolerance fields, not calculated/inherited
+      // secondary sources. Match its custom-range-first lookup precedence.
+      const instrument = item.instrument || {};
+      const tolerances = new Map();
+      for (const range of [...(item.ranges || []), ...(instrument.functions || []).flatMap(fn => fn.ranges || []), ...(instrument.ranges || [])]) {
+        for (const id of [range.rangeId, range.id]) {
+          if (id != null && id !== '' && !tolerances.has(String(id))) tolerances.set(String(id), range.tolerances || range.tolerance || {});
+        }
+      }
+      views.set(item, { rows, tolerances, rowSpan: createQualifierRowSpanLookup(rows) });
+    }
+    return views.get(item);
+  };
+}
 // Resolve all rows covered by the existing shared cell, even when the edit
 // originates from a continuation row (e.g. finishing a newly added input).
 const qualifierGroupRows = (rows, range, depth) => {

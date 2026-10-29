@@ -14,9 +14,10 @@ export function resolveY5020Resolution(component, session, nominal) {
   const name = `${formatInstrumentIdentity(master || { manufacturer: 'Fluke', model: '5790B' })} - Resolution`;
   try {
     if (!master) throw Error('The generic Fluke 5790B is missing from the TMDE table.');
-    const ranges = getInstrumentRangeRows(master, { flattenTolerances: true });
+    const cases = component.y5020Resolution?.cases || [];
+    const ranges = getInstrumentRangeRows(master, { flattenTolerances: true, rangeIds: cases.map(source => source.rangeId) });
     let largest;
-    for (const source of component.y5020Resolution?.cases || []) {
+    for (const source of cases) {
       const range = ranges.find(row => String(row.rangeId) === String(source.rangeId)
         && String(row.functionId) === String(source.functionId))
         // v1 used one function per resolution mode. Stable range IDs survive

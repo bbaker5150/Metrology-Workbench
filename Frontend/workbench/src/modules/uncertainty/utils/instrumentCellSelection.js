@@ -28,7 +28,7 @@ export function instrumentRowSelectionFromEvent(event, previous, previousMode, a
 // Logical columns cannot use cellIndex: row-spanned Description/Sync/custom
 // cells disappear from later rows. Build one occupancy grid for every range.
 export function instrumentCellGrid(table) {
-  const rows = [...table.querySelectorAll("tr[data-selection-key][data-range-id]")];
+  const rows = [...table.querySelectorAll("tr[data-selection-key][data-range-id], tr.instrument-function-row:not([data-selection-key])")];
   const occupied = [], cells = [];
   rows.forEach((row, index) => {
     occupied[index] ||= [];
@@ -48,19 +48,72 @@ export function instrumentCellGrid(table) {
   return { rows, cells };
 }
 
+export function createInstrumentCellHighlighter(table) {
+  let grid, byRow, byColumn, byCell;
+  let hoveredColumn;
+  let rowCells = new Set(), columnCells = new Set();
+  const toggle = (cell, attribute, active) => {
+    if (cell.hasAttribute(attribute) !== active) cell.toggleAttribute(attribute, active);
+  };
+  const update = (previous, next, attribute) => {
+    previous.forEach(cell => { if (!next.has(cell)) toggle(cell, attribute, false); });
+    next.forEach(cell => { if (!previous.has(cell)) toggle(cell, attribute, true); });
+    return next;
+  };
+  const hover = (row = null, cell = null) => {
+    if (!grid) refresh();
+    rowCells = update(rowCells, new Set(byRow.get(row) || []), 'data-cell-hovered');
+    const entry = byCell.get(cell), next = new Set();
+    const columnKey = entry ? `${entry.column}:${entry.end}` : null;
+    if (columnKey === hoveredColumn) return;
+    hoveredColumn = columnKey;
+    if (entry) for (let col = entry.column; col < entry.end; col++) {
+      (byColumn.get(col) || []).forEach(candidate => next.add(candidate));
+    }
+    columnCells = update(columnCells, next, 'data-column-hovered');
+  };
+  const refresh = () => {
+    grid = instrumentCellGrid(table);
+    hoveredColumn = undefined;
+    byRow = new Map(); byColumn = new Map(); byCell = new Map();
+    rowCells = new Set(grid.cells.filter(({ cell }) => cell.hasAttribute('data-cell-hovered')).map(({ cell }) => cell));
+    columnCells = new Set(grid.cells.filter(({ cell }) => cell.hasAttribute('data-column-hovered')).map(({ cell }) => cell));
+    const syncColumn = grid.cells.find(entry => entry.cell.classList.contains('cell-sync'))?.column;
+    grid.cells.forEach(entry => {
+      const { cell, column, end, covered } = entry;
+      byCell.set(cell, entry);
+      covered.forEach(row => { if (!byRow.has(row)) byRow.set(row, []); byRow.get(row).push(cell); });
+      for (let col = column; col < end; col++) {
+        if (!byColumn.has(col)) byColumn.set(col, []);
+        byColumn.get(col).push(cell);
+      }
+      const selected = covered.some(row => row.dataset.rangeSelected === 'true' ||
+        (!row.dataset.selectionKey && row.matches('.selected-row, .selected-spec-row'))) &&
+        !(table.dataset.selectionMode === 'range' && cell.classList.contains('cell-description'));
+      toggle(cell, 'data-cell-selected', selected);
+      toggle(cell, 'data-before-sync', end === syncColumn);
+    });
+  };
+  return { refresh, hover, invalidate() { grid = null; }, get rows() { if (!grid) refresh(); return grid.rows; } };
+}
+
+// Shared description/qualifier cells can cover hundreds of physical rows.
+// Resolve the pointer with logarithmic geometry reads, rather than scanning
+// every preceding row for every pointermove event.
+export function instrumentRowAtY(rows, y, selectionKey) {
+  let low = 0, high = rows.length - 1;
+  while (low <= high) {
+    const index = (low + high) >>> 1, row = rows[index];
+    const rect = row.getBoundingClientRect();
+    if (y < rect.top) high = index - 1;
+    else if (y >= rect.bottom) low = index + 1;
+    else return row.dataset.selectionKey === selectionKey ? row : null;
+  }
+  return null;
+}
+
 export function updateInstrumentCellHighlights(table, hoveredRow = null, hoveredCell = null) {
-  const { rows, cells } = instrumentCellGrid(table);
-  const hoverIndex = rows.indexOf(hoveredRow);
-  const hovered = cells.find(entry => entry.cell === hoveredCell);
-  const syncColumn = cells.find(entry => entry.cell.classList.contains('cell-sync'))?.column;
-  cells.forEach(({ cell, index, column, end, covered }) => {
-      const selected = covered.some(candidate => candidate.dataset.rangeSelected === "true") &&
-        !(table.dataset.selectionMode === "range" && cell.classList.contains("cell-description"));
-      cell.toggleAttribute("data-cell-selected", selected);
-      cell.toggleAttribute("data-cell-hovered", hoverIndex >= index && hoverIndex < index + covered.length);
-      cell.toggleAttribute("data-column-hovered", Boolean(hovered && column < hovered.end && end > hovered.column));
-      // Sync owns the full-height left seam. Do not also draw the preceding
-      // cell's right border on only the first physical row of an instrument.
-      cell.toggleAttribute("data-before-sync", end === syncColumn);
-  });
+  const highlighter = createInstrumentCellHighlighter(table);
+  highlighter.refresh();
+  highlighter.hover(hoveredRow, hoveredCell);
 }

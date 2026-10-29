@@ -1,13 +1,14 @@
 import { measureDynamicTableEditorWidth } from "../utils/measureDynamicTableEditorWidth";
 import { alignEmptyHintArrows } from "../utils/alignEmptyHintArrows";
 import { claimWorkspaceSelection } from "../utils/workspaceSelection";
-import { updateInstrumentCellHighlights } from "../utils/instrumentCellSelection";
+import { createInstrumentCellHighlighter, instrumentRowAtY } from "../utils/instrumentCellSelection";
 import { attachInstrumentPointerDrag } from "../utils/instrumentPointerDrag";
 import { useCallback, useLayoutEffect, useState } from "react";
 import { preserveTableTextSelection } from "../utils/tableTextSelection";
 import { createInstrumentSelectionOutline } from "../utils/instrumentSelectionOutline";
 import { syncInstrumentActions, updateInstrumentActionHover } from "../utils/instrumentActionLayout";
 import { measureTableColumnWidths } from "../utils/measureTableColumnWidths";
+import { measureInlineTextWidths } from "../utils/measureInlineTextWidths";
 
 const EDITORS = ".inline-desc-fields, .inline-range-editor.is-editing, .qualifier-range-cell .inline-range-editor, .inline-tolerance-editor, .inline-resolution-editor, .inline-distribution-editor, .instrument-custom-field-input";
 export const qualifierColumnKey = cell => {
@@ -38,9 +39,19 @@ const equationEditorWidth = editor => {
   return width;
 };
 
-export const instrumentMutationAffectsLayout = record =>
-  record.type !== 'attributes' || record.attributeName !== 'class' ||
-  layoutClasses(record.oldValue) !== layoutClasses(record.target.getAttribute('class'));
+const authoredStyle = value => (value || '').split(';')
+  .map(rule => rule.trim()).filter(rule => rule && !rule.startsWith('--instrument-live-') && !rule.startsWith('--instrument-natural-')).sort().join(';');
+export const instrumentMutationAffectsLayout = record => {
+  if (record.type !== 'attributes') return true;
+  if (record.attributeName === 'class') return layoutClasses(record.oldValue) !== layoutClasses(record.target.getAttribute('class'));
+  if (record.attributeName === 'style') {
+    // These are our own positioning/measurement writes. Observing them caused
+    // another full-table layout every frame, even while the app was idle.
+    if (record.target?.matches('.instrument-column-insert-button')) return false;
+    if (record.target?.matches('table, col')) return authoredStyle(record.oldValue) !== authoredStyle(record.target.getAttribute('style'));
+  }
+  return true;
+};
 
 export const expandedInstrumentWidths = (weights, baseline, requirements, absolute = false, fillIndex = weights.length - 1) => {
   const total = weights.reduce((sum, weight) => sum + weight, 0) || 1;
@@ -88,22 +99,20 @@ export default function useInstrumentTableLayout(containerRef) {
     viewport?.addEventListener('instrument-actions-change', syncActions);
     let hoveredRow = null;
     let hoveredCell = null;
+    const highlighter = createInstrumentCellHighlighter(table);
     const hover = event => {
       const cell = event.target?.closest?.('td');
-      let row = cell?.closest('tr[data-selection-key]') || null;
+      let row = cell?.closest('tr[data-selection-key], tr.instrument-function-row') || null;
       if (row && cell.rowSpan > 1) {
         // Moving within a shared cell emits no new pointerover. Resolve the
         // physical range by Y so shared cells follow exactly that range.
-        row = [...table.querySelectorAll('tr[data-selection-key]')].find(candidate => {
-          const rect = candidate.getBoundingClientRect();
-          return candidate.dataset.selectionKey === row.dataset.selectionKey && event.clientY >= rect.top && event.clientY < rect.bottom;
-        }) || row;
+        row = instrumentRowAtY(highlighter.rows, event.clientY, row.dataset.selectionKey) || row;
       }
       if (row === hoveredRow && cell === hoveredCell) return;
       hoveredRow = row; hoveredCell = cell;
-      updateInstrumentCellHighlights(table, hoveredRow, hoveredCell);
+      highlighter.hover(hoveredRow, hoveredCell);
     };
-    const leave = () => { hoveredRow = null; hoveredCell = null; updateInstrumentCellHighlights(table); };
+    const leave = () => { hoveredRow = null; hoveredCell = null; highlighter.hover(); };
     table.addEventListener("pointerover", hover);
     table.addEventListener("pointermove", hover);
     table.addEventListener("pointerleave", leave);
@@ -190,22 +199,17 @@ export default function useInstrumentTableLayout(containerRef) {
           requirements[index] = contentWidths[header.dataset.instrumentColumn] || 0;
         });
       }
+      const textWidths = measureInlineTextWidths([
+        ...table.querySelectorAll('th .instrument-custom-column-label, th .instrument-custom-column-name-input'),
+        ...(!library ? table.querySelectorAll('.qualifier-range-cell .inline-range-editor:not(.is-editing) .inline-tolerance-summary') : []),
+      ]);
       // Header rename inputs use the same intrinsic text measurement as their
       // collapsed labels; allocated column widths must not feed back into it.
       [...(table.tHead?.rows[0]?.cells || [])].forEach((header, index) => {
         if (library || !header.dataset.instrumentColumn?.startsWith('qualifier')) return;
         const label = header.querySelector('.instrument-custom-column-label, .instrument-custom-column-name-input');
         if (!label) return;
-        const style = getComputedStyle(label);
-        const probe = document.createElement('span');
-        probe.style.cssText = 'position:fixed;left:-100000px;width:max-content;white-space:nowrap;visibility:hidden;';
-        probe.style.font = style.font;
-        probe.style.textTransform = style.textTransform;
-        probe.style.letterSpacing = style.letterSpacing;
-        probe.textContent = label.value ?? label.textContent;
-        document.body.appendChild(probe);
-        requirements[index] = Math.max(requirements[index] || 0, probe.offsetWidth + 32);
-        probe.remove();
+        requirements[index] = Math.max(requirements[index] || 0, (textWidths.get(label) || 0) + 32);
       });
       if (!absolute) {
         // Preserve wrapping in descriptions, but reserve space for their badges.
@@ -250,13 +254,7 @@ export default function useInstrumentTableLayout(containerRef) {
           // text independently: the editor's assigned width would feed back.
           const summary = editor.querySelector('.inline-tolerance-summary');
           const summaryStyle = getComputedStyle(summary);
-          const probe = document.createElement('span');
-          probe.style.cssText = 'position:fixed;left:-100000px;white-space:nowrap;visibility:hidden;';
-          probe.style.font = summaryStyle.font;
-          probe.textContent = summary.textContent;
-          document.body.appendChild(probe);
-          width = probe.offsetWidth + (parseFloat(summaryStyle.paddingLeft) || 0) + (parseFloat(summaryStyle.paddingRight) || 0) + 2;
-          probe.remove();
+          width = (textWidths.get(summary) || 0) + (parseFloat(summaryStyle.paddingLeft) || 0) + (parseFloat(summaryStyle.paddingRight) || 0) + 2;
         }
         if (content !== editor) {
           // The range wrapper stretches to the cell. Measure intrinsic children,
@@ -302,7 +300,8 @@ export default function useInstrumentTableLayout(containerRef) {
       // action rail, so an arrow inside the table would create scroll overflow.
       alignEmptyHintArrows(card || table);
       syncHeaderOffset();
-      updateInstrumentCellHighlights(table, hoveredRow, hoveredCell);
+      highlighter.refresh();
+      highlighter.hover(hoveredRow, hoveredCell);
       syncActions();
     };
     const schedule = () => {
@@ -318,6 +317,7 @@ export default function useInstrumentTableLayout(containerRef) {
     // Hover changes color only. Re-measuring every cell on mouse movement can
     // feed rounding/scrollbar changes back into the widths of a large table.
     const mutation = new MutationObserver(records => {
+      if (!records || records.some(record => record.type === 'childList' || record.attributeName === 'rowspan' || record.attributeName === 'colspan')) highlighter.invalidate();
       if (library && records?.some(record =>
         instrumentMutationAffectsLayout(record) &&
         !(record.type === 'attributes' && record.attributeName === 'style' &&

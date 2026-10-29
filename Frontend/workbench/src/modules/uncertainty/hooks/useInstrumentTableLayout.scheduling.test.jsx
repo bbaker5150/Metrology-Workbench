@@ -21,6 +21,52 @@ it('does not resize for hover colors, but still responds to editors, selection a
   expect(instrumentMutationAffectsLayout({ type: 'childList' })).toBe(true);
 });
 
+it('ignores its own layout styles while still responding to authored widths and zoom', () => {
+  const table = document.createElement('table'), col = document.createElement('col'), button = document.createElement('button');
+  button.className = 'instrument-column-insert-button';
+  const change = (target, before, after) => {
+    target.setAttribute('style', after);
+    return instrumentMutationAffectsLayout({ type: 'attributes', attributeName: 'style', oldValue: before, target });
+  };
+  expect(change(table, 'min-width: 1200px;', 'min-width: 1200px; --instrument-live-table-width: 1600px; --instrument-natural-table-width: 1600px;')).toBe(false);
+  expect(change(col, 'width: 100px;', 'width: 100px; --instrument-live-column-width: 180px;')).toBe(false);
+  expect(change(button, 'left: 20px;', 'left: 40px; position: fixed;')).toBe(false);
+  expect(change(table, 'zoom: 1;', 'zoom: 1.2;')).toBe(true);
+  expect(change(col, 'width: 100px;', 'width: 200px;')).toBe(true);
+});
+
+it('settles after initial measurement with real mutation observation and positioned header controls', async () => {
+  const frames = new Map(); let id = 0;
+  vi.stubGlobal('requestAnimationFrame', callback => { frames.set(++id, callback); return id; });
+  vi.stubGlobal('cancelAnimationFrame', key => frames.delete(key));
+  vi.spyOn(Element.prototype, 'getClientRects').mockReturnValue([{}]);
+  vi.spyOn(Element.prototype, 'getBoundingClientRect').mockReturnValue({ left: 0, top: 0, right: 500, bottom: 30, width: 500, height: 30 });
+  const matches = Element.prototype.matches, open = new WeakSet();
+  vi.spyOn(Element.prototype, 'matches').mockImplementation(function (selector) {
+    return selector === ':popover-open' ? open.has(this) : matches.call(this, selector);
+  });
+  function Fixture() {
+    const ref = useRef(null), attach = useInstrumentTableLayout(ref);
+    return <div ref={attach}><table style={{ minWidth: 200 }}>
+      <colgroup><col style={{ width: '100%' }}/></colgroup>
+      <thead><tr><th data-instrument-column="description">Instrument<button className="instrument-column-insert-button"
+        ref={node => { if (node) { node.showPopover = () => open.add(node); node.hidePopover = () => open.delete(node); } }}/></th></tr></thead>
+      <tbody><tr><td>5790B</td></tr></tbody>
+    </table></div>;
+  }
+  const { container, unmount } = render(<Fixture/>);
+  await act(async () => { await Promise.resolve(); });
+  expect(container.querySelector('button').style.position).toBe('fixed');
+  expect(frames.size).toBe(0);
+  // Authored width changes still schedule exactly one measurement.
+  container.querySelector('col').style.width = '240px';
+  await act(async () => { await Promise.resolve(); });
+  expect(frames.size).toBe(1);
+  await act(async () => { const pending = [...frames.values()]; frames.clear(); pending.forEach(callback => callback()); });
+  expect(frames.size).toBe(0);
+  unmount();
+});
+
 it("coalesces drag style and resize notifications, yielding before measuring again", () => {
   let mutation, resize;
   let nextId = 0;

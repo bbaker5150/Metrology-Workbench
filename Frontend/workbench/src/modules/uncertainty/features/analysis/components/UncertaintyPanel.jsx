@@ -1,7 +1,7 @@
 import { instrumentForRole } from '../../../utils/acShuntInstrumentRole';
 import { InstrumentTableViewport, InstrumentDeleteAction } from "./InstrumentTableActions";
 import { consecutiveCellGroup } from "../../../utils/consecutiveCellGroup";
-import { cutQualifierRows, formatQualifierValue, formatQualifierPath, editQualifierRange, instrumentQualifierDepth, instrumentQualifierNames, qualifierAt, qualifierDepth, qualifierGroupKey, qualifierRowSpan } from "../../../utils/qualifierRanges";
+import { cutQualifierRows, formatQualifierValue, formatQualifierPath, editQualifierRange, instrumentQualifierDepth, instrumentQualifierNames, qualifierAt, qualifierDepth, qualifierGroupKey, createInstrumentRangeViewCache } from "../../../utils/qualifierRanges";
 import { measurementPreview } from '../../../utils/measurementPreview';
 import { newMeasurementAreaColor } from "../../../utils/measurementAreaGrouping";
 import MeasurementAreaEmptyHint from "../../../components/common/MeasurementAreaEmptyHint";
@@ -6923,6 +6923,7 @@ const SummaryDashboard = ({
   onInstrumentSelection = () => {},
 }) => {
   sessionData = useMemo(() => migrateMeasurementAreas(sessionData), [sessionData]);
+  const getRangeView = useMemo(() => createInstrumentRangeViewCache(), [sessionData.uuts, sessionData.tmdes]);
   const latestSessionDataRef = useRef(sessionData);
   latestSessionDataRef.current = sessionData;
   const [localLibraryChoices, setLocalLibraryChoices] = useState({});
@@ -8344,13 +8345,6 @@ const SummaryDashboard = ({
     return { item, ranges, activeRange };
   };
 
-  // Industry Grade Highlighting State
-  const [hoveredCell, setHoveredCell] = useState({
-    tableId: null,
-    colIndex: null,
-  });
-  const [hoveredRowId, setHoveredRowId] = useState(null);
-
   // Activate a single range row in the expanded "view all ranges" view. Unlike a
   // normal instrument-row click (which toggles selection), this ALWAYS selects
   // the instrument and marks the clicked range as active, so the Range/Tolerance
@@ -8443,9 +8437,9 @@ const SummaryDashboard = ({
     } = {},
   ) => {
     const setRangeIdx = kind === "uut" ? setLocalRangeIndices : setTmdeRangeIndices;
-    const tableId = kind;
     const rangeKey = rangeIdOf(range);
-    const tolerance = getItemRangeTolerance(item, rangeKey) || range;
+    const rangeView = getRangeView(item);
+    const tolerance = rangeView.tolerances.get(String(rangeKey)) || getItemRangeTolerance(item, rangeKey) || range;
     const rangeGroupKey = itemStateKey(kind, stateId);
     // Whole-instrument selection also includes range IDs for copy/delete, but
     // range controls belong only to an explicitly selected range.
@@ -8453,7 +8447,7 @@ const SummaryDashboard = ({
 
     const qualifierEnabled = (kind === "uut" ? uutTableColumns : tmdeTableColumns).qualifierEnabled;
     const splitQualifierCells = customColumnsFor(kind).some(column => column.insertAfter === "range" || column.insertAfter?.startsWith("qualifier"));
-    const span = qualifierRowSpan(getInstrumentRangeRows(item), range);
+    const span = rangeView.rowSpan(range);
     const updateQualifier = (action, patch, depth = 1) => {
       const current = (latestSessionDataRef.current[kind === "uut" ? "uuts" : "tmdes"] || []).find(entry => sameId(entry.id, item.id)) || item;
       const exists = getInstrumentRangeRows(current).some(row => sameId(rangeIdOf(row), rangeKey));
@@ -8469,8 +8463,7 @@ const SummaryDashboard = ({
           rowSpan={span}
           colSpan={range.qualifier || splitQualifierCells ? 1 : 1 + Number(qualifierEnabled)}
           data-range-cell="true"
-          className={`cell-value ${hoveredCell.tableId === tableId && hoveredCell.colIndex === 1 ? "col-hovered" : ""}`}
-          onMouseEnter={() => setHoveredCell({ tableId, colIndex: 1 })}
+          className="cell-value"
           onContextMenu={(event) =>
             openRangeRowMenu(event, kind, item, range, rangeIndex, totalRanges)
           }
@@ -8554,9 +8547,9 @@ const SummaryDashboard = ({
           const columnKey = depth === 1 ? "qualifier" : `qualifier${depth}`;
           const custom = renderCustomAfter(columnKey);
           if (!qualifier) return splitQualifierCells ? <React.Fragment key={depth}><td data-qualifier-empty={depth} />{custom}</React.Fragment> : null;
-          const rowSpan = qualifierRowSpan(getInstrumentRangeRows(item), range, depth);
+          const rowSpan = rangeView.rowSpan(range, depth);
           if (!rowSpan) return <React.Fragment key={depth}>{custom}</React.Fragment>;
-          const actionsSelected = getInstrumentRangeRows(item).slice(rangeIndex, rangeIndex + rowSpan)
+          const actionsSelected = rangeView.rows.slice(rangeIndex, rangeIndex + rowSpan)
             .some(row => (selectedRangeIds[itemStateKey(kind, item.id)] || []).some(id => sameId(id, rangeIdOf(row))));
           return <React.Fragment key={depth}><td rowSpan={rowSpan} colSpan={qualifier.qualifier || splitQualifierCells ? 1 : Number(qualifierEnabled) - depth + 1} data-range-cell="true" data-qualifier-cell={depth} data-actions-selected={actionsSelected || undefined} className="cell-value qualifier-range-cell" onContextMenu={event => openRangeRowMenu(event, kind, item, range, rangeIndex)}>
             <div className="range-row-cell">
@@ -8579,8 +8572,7 @@ const SummaryDashboard = ({
 
         <td
           data-range-tolerance-key={`${itemStateKey(kind, item.id)}:${rangeKey}`}
-          className={`cell-tolerance ${hoveredCell.tableId === tableId && hoveredCell.colIndex === 2 ? "col-hovered" : ""}`}
-          onMouseEnter={() => setHoveredCell({ tableId, colIndex: 2 })}
+          className="cell-tolerance"
           title={(kind === "uut" ? getUutSpecRows(tolerance) : getSpecRows(tolerance))[0]}
         >
           <InlineToleranceCell biasRole={kind}
@@ -8620,8 +8612,7 @@ const SummaryDashboard = ({
         )}
 
         <td
-          className={`cell-value ${hoveredCell.tableId === tableId && hoveredCell.colIndex === 3 ? "col-hovered" : ""}`}
-          onMouseEnter={() => setHoveredCell({ tableId, colIndex: 3 })}
+          className="cell-value"
           title={formatResolutionLabel(range)}
         >
           <ResolutionCellInput
@@ -9432,10 +9423,6 @@ const SummaryDashboard = ({
             onMouseDownCapture={event => { if (event.shiftKey || event.ctrlKey || event.metaKey) event.preventDefault(); }}
             data-selection-mode={lastSelectionTarget === "range" ? "range" : "instrument"}
             className="instrument-summary-table industry-table instrument-equipment-table"
-            onMouseLeave={() => {
-              setHoveredCell({ tableId: null, colIndex: null });
-              setHoveredRowId(null);
-            }}
             style={{
               tableLayout: "fixed",
               width: uutTableColumns.tableWidth,
@@ -9556,8 +9543,7 @@ const SummaryDashboard = ({
                               data-range-id={String(rangeIdOf(range))}
                               data-range-selected={selectedRangeIds[itemStateKey("uut", uut.id)] ? selectedRangeIds[itemStateKey("uut", uut.id)].some(id => sameId(id, rangeIdOf(range))) : isSelected}
                               onClickCapture={event => { if (event.ctrlKey || event.metaKey || event.shiftKey) { event.preventDefault(); event.stopPropagation(); } }}
-                              className={`instrument-function-row inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${isSelected && (selectedRangeIds[itemStateKey("uut", uut.id)] || []).some((id) => sameId(id, rangeIdOf(range))) ? " is-selected-range" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
-                              onMouseEnter={() => setHoveredRowId(uut.id)}
+                              className={`instrument-function-row inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${isSelected && (selectedRangeIds[itemStateKey("uut", uut.id)] || []).some((id) => sameId(id, rangeIdOf(range))) ? " is-selected-range" : ""} `}
                               onContextMenu={(event) =>
                                 openInstrumentRowMenu(event, "uut", uut)
                               }
@@ -9581,10 +9567,7 @@ const SummaryDashboard = ({
                               {i === 0 && (
                                 <td
                                   rowSpan={spanRows}
-                                  className={`cell-description has-order-controls ${hoveredCell.tableId === "uut" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
-                                  onMouseEnter={() =>
-                                    setHoveredCell({ tableId: "uut", colIndex: 0 })
-                                  }
+                                  className="cell-description has-order-controls"
                                   title={formatInstrumentIdentity(uut)}
                                 >
                                   <InstrumentOrderControls
@@ -9640,13 +9623,12 @@ const SummaryDashboard = ({
                     <React.Fragment key={uutRowKey}>
                       {renderInstrumentDeleteButton("uut", uut, uutFnKey)}
                       <tr
-                        className={`instrument-function-row ${isSelected ? "selected-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
+                        className={`instrument-function-row ${isSelected ? "selected-row" : ""} `}
                         onClickCapture={e => { if (isModifiedInstrumentSelection(e)) { handleUutClick(e, uut.id); e.preventDefault(); e.stopPropagation(); } }}
                         onClick={(e) => handleUutClick(e, uut.id)}
                         onContextMenu={(event) =>
                           openInstrumentRowMenu(event, "uut", uut)
                         }
-                        onMouseEnter={() => setHoveredRowId(uut.id)}
                         draggable={false}
 
 
@@ -9672,10 +9654,7 @@ const SummaryDashboard = ({
                       >
                         <td
                           rowSpan={rowSpan}
-                          className={`cell-description has-order-controls ${hoveredCell.tableId === "uut" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
-                          onMouseEnter={() =>
-                            setHoveredCell({ tableId: "uut", colIndex: 0 })
-                          }
+                          className="cell-description has-order-controls"
                           title={formatInstrumentIdentity(uut)}
                         >
                           <InstrumentOrderControls
@@ -9705,10 +9684,7 @@ const SummaryDashboard = ({
                         <td
                           data-range-cell="true"
                           rowSpan={rowSpan}
-                          className={`cell-value ${hoveredCell.tableId === "uut" && hoveredCell.colIndex === 1 ? "col-hovered" : ""}`}
-                          onMouseEnter={() =>
-                            setHoveredCell({ tableId: "uut", colIndex: 1 })
-                          }
+                          className="cell-value"
                           onContextMenu={(event) =>
                             openRangeRowMenu(
                               event,
@@ -9775,10 +9751,7 @@ const SummaryDashboard = ({
                         </td>
                         {renderCustomCellsAfter("uut", uut, "range", rowSpan, [{ range: activeRange }])}
                         <td
-                          className={`cell-tolerance ${hoveredCell.tableId === "uut" && hoveredCell.colIndex === 2 ? "col-hovered" : ""}`}
-                          onMouseEnter={() =>
-                            setHoveredCell({ tableId: "uut", colIndex: 2 })
-                          }
+                          className="cell-tolerance"
                           title={specRows[0]}
                         >
                           <div className={showAllRanges ? "range-stack" : "range-collapsed-cell"}>
@@ -9840,10 +9813,7 @@ const SummaryDashboard = ({
                         {renderCustomCellsAfter("uut", uut, "tolerance", rowSpan, [{ range: activeRange }])}
                         <td
                           rowSpan={rowSpan}
-                          className={`cell-value ${hoveredCell.tableId === "uut" && hoveredCell.colIndex === 3 ? "col-hovered" : ""}`}
-                          onMouseEnter={() =>
-                            setHoveredCell({ tableId: "uut", colIndex: 3 })
-                          }
+                          className="cell-value"
                           title={formatResolutionLabel(activeRange)}
                         >
                           <div className={showAllRanges ? "range-stack" : "range-collapsed-cell"}>
@@ -9904,8 +9874,7 @@ const SummaryDashboard = ({
                       {!onSessionSave && specRows.slice(1).map((specComp, sIdx) => (
                         <tr
                           key={`${uut.id}-spec-${sIdx}`}
-                          className={`instrument-function-row spec-row ${isSelected ? "selected-spec-row" : ""} ${hoveredRowId === uut.id ? "hovered-spec-row" : ""}`}
-                          onMouseEnter={() => setHoveredRowId(uut.id)}
+                          className={`instrument-function-row spec-row ${isSelected ? "selected-spec-row" : ""} `}
                           data-measurement-area={uutFnKey}
                         onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = event.dataTransfer.types?.includes(BUDGET_COMPONENT_MIME) ? "copy" : "move"; }}
                         data-instrument-id={uut.id}
@@ -9918,10 +9887,7 @@ const SummaryDashboard = ({
                         onClick={(e) => handleUutClick(e, uut.id)}
                         >
                           <td
-                            className={`cell-tolerance ${hoveredCell.tableId === "uut" && hoveredCell.colIndex === 2 ? "col-hovered" : ""}`}
-                            onMouseEnter={() =>
-                              setHoveredCell({ tableId: "uut", colIndex: 2 })
-                            }
+                            className="cell-tolerance"
                             title={specComp}
                           >
                             {specComp}
@@ -9965,10 +9931,6 @@ const SummaryDashboard = ({
             onMouseDownCapture={event => { if (event.shiftKey || event.ctrlKey || event.metaKey) event.preventDefault(); }}
             data-selection-mode={lastSelectionTarget === "range" ? "range" : "instrument"}
             className={`instrument-summary-table industry-table equipment-summary-table instrument-equipment-table${libraryMode && !libraryExpandedIds.length ? " instrument-library-names-only" : ""}`}
-            onMouseLeave={() => {
-              setHoveredCell({ tableId: null, colIndex: null });
-              setHoveredRowId(null);
-            }}
             style={{
               tableLayout: "fixed",
               width: tmdeTableColumns.tableWidth,
@@ -10088,8 +10050,7 @@ const SummaryDashboard = ({
                               data-range-id={String(rangeIdOf(range))}
                               data-range-selected={selectedRangeIds[itemStateKey("tmde", tmde.id)] ? selectedRangeIds[itemStateKey("tmde", tmde.id)].some(id => sameId(id, rangeIdOf(range))) : isSelected}
                               onClickCapture={event => { if (event.ctrlKey || event.metaKey || event.shiftKey) { event.preventDefault(); event.stopPropagation(); } }}
-                              className={`instrument-function-row inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${isSelected && (selectedRangeIds[itemStateKey("tmde", tmde.id)] || []).some((id) => sameId(id, rangeIdOf(range))) ? " is-selected-range" : ""} ${hoveredRowId === tmde.id ? "row-hovered" : ""}`}
-                              onMouseEnter={() => setHoveredRowId(tmde.id)}
+                              className={`instrument-function-row inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${isSelected && (selectedRangeIds[itemStateKey("tmde", tmde.id)] || []).some((id) => sameId(id, rangeIdOf(range))) ? " is-selected-range" : ""} `}
                               onContextMenu={(event) =>
                                 openInstrumentRowMenu(event, "tmde", tmde)
                               }
@@ -10113,10 +10074,7 @@ const SummaryDashboard = ({
                               {i === 0 && (
                                 <td
                                   rowSpan={spanRows}
-                                  className={`cell-description${libraryMode ? " instrument-library-expanded-description" : " has-order-controls"} ${hoveredCell.tableId === "tmde" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
-                                  onMouseEnter={() =>
-                                    setHoveredCell({ tableId: "tmde", colIndex: 0 })
-                                  }
+                                  className={`cell-description${libraryMode ? " instrument-library-expanded-description" : " has-order-controls"} `}
                                   title={tmde.name}
                                 >
                                   {libraryMode && libraryRenderSpecifications?.(tmde.id)}
@@ -10194,13 +10152,12 @@ const SummaryDashboard = ({
                     <React.Fragment key={tmdeRowKey || idx}>
                       {renderInstrumentDeleteButton("tmde", tmde, tmdeFnKey)}
                       <tr
-                        className={`instrument-function-row ${isSelected ? "selected-row" : ""} ${hoveredRowId === tmde.id ? "row-hovered" : ""}`}
+                        className={`instrument-function-row ${isSelected ? "selected-row" : ""} `}
                         onClickCapture={e => { if (isModifiedInstrumentSelection(e)) { handleTmdeClick(e, tmde.id); e.preventDefault(); e.stopPropagation(); } }}
                         onClick={(e) => handleTmdeClick(e, tmde.id)}
                         onContextMenu={(event) =>
                           openInstrumentRowMenu(event, "tmde", tmde)
                         }
-                        onMouseEnter={() => setHoveredRowId(tmde.id)}
                         draggable={false}
 
 
@@ -10226,10 +10183,7 @@ const SummaryDashboard = ({
                       >
                         <td
                           rowSpan={rowSpan}
-                          className={`cell-description${libraryMode ? " instrument-library-expanded-description" : " has-order-controls"} ${hoveredCell.tableId === "tmde" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
-                          onMouseEnter={() =>
-                            setHoveredCell({ tableId: "tmde", colIndex: 0 })
-                          }
+                          className={`cell-description${libraryMode ? " instrument-library-expanded-description" : " has-order-controls"} `}
                           title={tmde.name}
                         >
                           {libraryMode && libraryRenderSpecifications?.(tmde.id)}
@@ -10274,10 +10228,7 @@ const SummaryDashboard = ({
                         <td
                           data-range-cell="true"
                           rowSpan={rowSpan}
-                          className={`cell-value ${hoveredCell.tableId === "tmde" && hoveredCell.colIndex === 1 ? "col-hovered" : ""}`}
-                          onMouseEnter={() =>
-                            setHoveredCell({ tableId: "tmde", colIndex: 1 })
-                          }
+                          className="cell-value"
                           onContextMenu={(event) =>
                             openRangeRowMenu(
                               event,
@@ -10341,10 +10292,7 @@ const SummaryDashboard = ({
                         </td>
                         {renderCustomCellsAfter("tmde", tmde, "range", rowSpan, [{ range: activeRange }])}
                         <td
-                          className={`cell-tolerance ${hoveredCell.tableId === "tmde" && hoveredCell.colIndex === 2 ? "col-hovered" : ""}`}
-                          onMouseEnter={() =>
-                            setHoveredCell({ tableId: "tmde", colIndex: 2 })
-                          }
+                          className="cell-tolerance"
                           title={specRows[0]}
                         >
                           <div className={showAllRanges ? "range-stack" : "range-collapsed-cell"}>
@@ -10431,10 +10379,7 @@ const SummaryDashboard = ({
                         {renderCustomCellsAfter("tmde", tmde, "distribution", rowSpan, [{ range: activeRange }])}
                         <td
                           rowSpan={rowSpan}
-                          className={`cell-value ${hoveredCell.tableId === "tmde" && hoveredCell.colIndex === 3 ? "col-hovered" : ""}`}
-                          onMouseEnter={() =>
-                            setHoveredCell({ tableId: "tmde", colIndex: 3 })
-                          }
+                          className="cell-value"
                           title={formatResolutionLabel(activeRange)}
                         >
                           <div className={showAllRanges ? "range-stack" : "range-collapsed-cell"}>
@@ -10493,7 +10438,7 @@ const SummaryDashboard = ({
                       {!onSessionSave && specRows.slice(1).map((specComp, sIdx) => (
                         <tr
                           key={`${tmde.id}-spec-${sIdx}`}
-                          className={`instrument-function-row spec-row ${isSelected ? "selected-spec-row" : ""} ${hoveredRowId === tmde.id ? "hovered-spec-row" : ""}`}
+                          className={`instrument-function-row spec-row ${isSelected ? "selected-spec-row" : ""} `}
                           data-measurement-area={tmdeFnKey}
                         onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = event.dataTransfer.types?.includes(BUDGET_COMPONENT_MIME) ? "copy" : "move"; }}
                         data-instrument-id={tmde.id}
@@ -10504,13 +10449,9 @@ const SummaryDashboard = ({
                           })}
                           onClickCapture={e => { if (isModifiedInstrumentSelection(e)) { handleTmdeClick(e, tmde.id); e.preventDefault(); e.stopPropagation(); } }}
                         onClick={(e) => handleTmdeClick(e, tmde.id)}
-                          onMouseEnter={() => setHoveredRowId(tmde.id)}
                         >
                           <td
-                            className={`cell-tolerance ${hoveredCell.tableId === "tmde" && hoveredCell.colIndex === 2 ? "col-hovered" : ""}`}
-                            onMouseEnter={() =>
-                              setHoveredCell({ tableId: "tmde", colIndex: 2 })
-                            }
+                            className="cell-tolerance"
                             title={specComp}
                           >
                             {specComp}
@@ -10700,6 +10641,7 @@ function DetailedView({
 }) {
   const uutNominal = useMemo(() => rawUutNominal ? { ...rawUutNominal, qualifier: testPointData.testPointInfo?.qualifier } : rawUutNominal, [rawUutNominal, testPointData.testPointInfo?.qualifier]);
   sessionData = useMemo(() => migrateMeasurementAreas(sessionData), [sessionData]);
+  const getRangeView = useMemo(() => createInstrumentRangeViewCache(), [sessionData.uuts, sessionData.tmdes]);
   const latestSessionDataRef = useRef(sessionData);
   latestSessionDataRef.current = sessionData;
   const [isSymbolMenuOpen, setIsSymbolMenuOpen] = useState(false);
@@ -11427,13 +11369,7 @@ function DetailedView({
     lastSelectionTarget,
   ]);
 
-  // Industry Grade Highlighting State
-  // Industry Grade Highlighting State
-  const [hoveredCell, setHoveredCell] = useState({
-    tableId: null,
-    colIndex: null,
-  });
-  const [hoveredRowId, setHoveredRowId] = useState(null);
+
 
   // ===========================================================================
   // Inline instrument editing in the measurement-point view — FULL PARITY with
@@ -12253,9 +12189,9 @@ function DetailedView({
       renderCustomAfter = () => null,
     },
   ) => {
-    const tableId = kind === "uut" ? "uut_det" : "tmde_det";
     const rangeKey = rangeIdOf(range);
-    const tolerance = getItemRangeTolerance(item, rangeKey) || range || {};
+    const rangeView = getRangeView(item);
+    const tolerance = rangeView.tolerances.get(String(rangeKey)) || getItemRangeTolerance(item, rangeKey) || range;
     const rangeGroupKey = itemStateKey(kind, stateId);
     // Whole-instrument selection also includes range IDs for copy/delete, but
     // range controls belong only to an explicitly selected range.
@@ -12263,7 +12199,7 @@ function DetailedView({
 
     const qualifierEnabled = (kind === "uut" ? uutTableColumns : tmdeTableColumns).qualifierEnabled;
     const splitQualifierCells = customColumnsFor(kind).some(column => column.insertAfter === "range" || column.insertAfter?.startsWith("qualifier"));
-    const span = qualifierRowSpan(getInstrumentRangeRows(item), range);
+    const span = rangeView.rowSpan(range);
     const updateQualifier = (action, patch, depth = 1) => {
       const current = (latestSessionDataRef.current[kind === "uut" ? "uuts" : "tmdes"] || []).find(entry => sameId(entry.id, item.id)) || item;
       const exists = getInstrumentRangeRows(current).some(row => sameId(rangeIdOf(row), rangeKey));
@@ -12279,8 +12215,7 @@ function DetailedView({
           rowSpan={span}
           colSpan={range.qualifier || splitQualifierCells ? 1 : 1 + Number(qualifierEnabled)}
           data-range-cell="true"
-          className={`cell-value ${hoveredCell.tableId === tableId && hoveredCell.colIndex === cols.range ? "col-hovered" : ""}`}
-          onMouseEnter={() => setHoveredCell({ tableId, colIndex: cols.range })}
+          className="cell-value"
           onContextMenu={(event) =>
             openRangeRowMenu(event, kind, item, range, rangeIndex, totalRanges)
           }
@@ -12364,9 +12299,9 @@ function DetailedView({
           const columnKey = depth === 1 ? "qualifier" : `qualifier${depth}`;
           const custom = renderCustomAfter(columnKey);
           if (!qualifier) return splitQualifierCells ? <React.Fragment key={depth}><td data-qualifier-empty={depth} />{custom}</React.Fragment> : null;
-          const rowSpan = qualifierRowSpan(getInstrumentRangeRows(item), range, depth);
+          const rowSpan = rangeView.rowSpan(range, depth);
           if (!rowSpan) return <React.Fragment key={depth}>{custom}</React.Fragment>;
-          const actionsSelected = getInstrumentRangeRows(item).slice(rangeIndex, rangeIndex + rowSpan)
+          const actionsSelected = rangeView.rows.slice(rangeIndex, rangeIndex + rowSpan)
             .some(row => (selectedRangeIds[itemStateKey(kind, item.id)] || []).some(id => sameId(id, rangeIdOf(row))));
           return <React.Fragment key={depth}><td rowSpan={rowSpan} colSpan={qualifier.qualifier || splitQualifierCells ? 1 : Number(qualifierEnabled) - depth + 1} data-range-cell="true" data-qualifier-cell={depth} data-actions-selected={actionsSelected || undefined} className="cell-value qualifier-range-cell" onContextMenu={event => openRangeRowMenu(event, kind, item, range, rangeIndex)}>
             <div className="range-row-cell">
@@ -12389,8 +12324,7 @@ function DetailedView({
 
         <td
           data-range-tolerance-key={`${itemStateKey(kind, item.id)}:${rangeKey}`}
-          className={`cell-tolerance ${hoveredCell.tableId === tableId && hoveredCell.colIndex === cols.tol ? "col-hovered" : ""}`}
-          onMouseEnter={() => setHoveredCell({ tableId, colIndex: cols.tol })}
+          className="cell-tolerance"
           title={(kind === "uut" ? getUutSpecRows(tolerance) : getSpecRows(tolerance))[0]}
         >
           <InlineToleranceCell biasRole={kind}
@@ -12431,8 +12365,7 @@ function DetailedView({
         )}
 
         <td
-          className={`cell-value ${hoveredCell.tableId === tableId && hoveredCell.colIndex === cols.res ? "col-hovered" : ""}`}
-          onMouseEnter={() => setHoveredCell({ tableId, colIndex: cols.res })}
+          className="cell-value"
           title={formatResolutionLabel(range)}
         >
           <ResolutionCellInput
@@ -15786,10 +15719,6 @@ function DetailedView({
             onMouseDownCapture={event => { if (event.shiftKey || event.ctrlKey || event.metaKey) event.preventDefault(); }}
             data-selection-mode={lastSelectionTarget === "range" ? "range" : "instrument"}
             className="instrument-summary-table industry-table instrument-equipment-table"
-            onMouseLeave={() => {
-              setHoveredCell({ tableId: null, colIndex: null });
-              setHoveredRowId(null);
-            }}
             style={{
               tableLayout: "fixed",
               width: uutTableColumns.tableWidth,
@@ -15864,8 +15793,7 @@ function DetailedView({
                               data-range-id={String(rangeIdOf(range))}
                               data-range-selected={selectedRangeIds[itemStateKey("uut", uut.id)] ? selectedRangeIds[itemStateKey("uut", uut.id)].some(id => sameId(id, rangeIdOf(range))) : isSelected}
                               onClickCapture={event => { if (event.ctrlKey || event.metaKey || event.shiftKey) { event.preventDefault(); event.stopPropagation(); } }}
-                              className={`instrument-function-row inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${isSelected && (selectedRangeIds[itemStateKey("uut", uut.id)] || []).some((id) => sameId(id, rangeIdOf(range))) ? " is-selected-range" : ""}${isActivePointUut ? " active-point-uut-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
-                              onMouseEnter={() => setHoveredRowId(uut.id)}
+                              className={`instrument-function-row inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelected ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${isSelected && (selectedRangeIds[itemStateKey("uut", uut.id)] || []).some((id) => sameId(id, rangeIdOf(range))) ? " is-selected-range" : ""}${isActivePointUut ? " active-point-uut-row" : ""} `}
                               onContextMenu={(event) =>
                                 openInstrumentRowMenu(event, "uut", uut)
                               }
@@ -15900,10 +15828,7 @@ function DetailedView({
                               {i === 0 && (
                                 <td
                                   rowSpan={spanRows}
-                                  className={`cell-description has-order-controls ${hoveredCell.tableId === "uut_det" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
-                                  onMouseEnter={() =>
-                                    setHoveredCell({ tableId: "uut_det", colIndex: 0 })
-                                  }
+                                  className="cell-description has-order-controls"
                                   style={{
                                     color: isLinked
                                       ? "var(--primary-color)"
@@ -15974,8 +15899,7 @@ function DetailedView({
                     <React.Fragment key={uutRowKey}>
                       {renderInstrumentDeleteButton("uut", uut, uutFnKey)}
                       <tr
-                        className={`instrument-function-row ${isSelected ? `selected-row selected-instrument-start ${specRows.length <= 1 ? "selected-instrument-end" : ""}` : ""} ${isActivePointUut ? "active-point-uut-row" : ""} ${hoveredRowId === uut.id ? "row-hovered" : ""}`}
-                        onMouseEnter={() => setHoveredRowId(uut.id)}
+                        className={`instrument-function-row ${isSelected ? `selected-row selected-instrument-start ${specRows.length <= 1 ? "selected-instrument-end" : ""}` : ""} ${isActivePointUut ? "active-point-uut-row" : ""} `}
                         onContextMenu={(event) =>
                           openInstrumentRowMenu(event, "uut", uut)
                         }
@@ -16005,10 +15929,7 @@ function DetailedView({
                       >
                         <td
                           rowSpan={rowSpan}
-                          className={`cell-description has-order-controls ${hoveredCell.tableId === "uut_det" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
-                          onMouseEnter={() =>
-                            setHoveredCell({ tableId: "uut_det", colIndex: 0 })
-                          }
+                          className="cell-description has-order-controls"
                           style={{
                             color: isLinked
                               ? "var(--primary-color)"
@@ -16053,10 +15974,7 @@ function DetailedView({
                         <td
                           data-range-cell="true"
                           rowSpan={rowSpan}
-                          className={`cell-value ${hoveredCell.tableId === "uut_det" && hoveredCell.colIndex === 1 ? "col-hovered" : ""}`}
-                          onMouseEnter={() =>
-                            setHoveredCell({ tableId: "uut_det", colIndex: 1 })
-                          }
+                          className="cell-value"
                           style={{ verticalAlign: "middle" }}
                           onContextMenu={(event) =>
                             openRangeRowMenu(
@@ -16131,10 +16049,7 @@ function DetailedView({
                         {renderCustomCellsAfter("uut", uut, "range", rowSpan, [{ range: activeRange }])}
 
                         <td
-                          className={`cell-tolerance ${hoveredCell.tableId === "uut_det" && hoveredCell.colIndex === 2 ? "col-hovered" : ""}`}
-                          onMouseEnter={() =>
-                            setHoveredCell({ tableId: "uut_det", colIndex: 2 })
-                          }
+                          className="cell-tolerance"
                           title={!onSessionSave ? specRows[0] : undefined}
                         >
                           <div className={showAllRanges ? "range-stack" : "range-collapsed-cell"}>
@@ -16200,10 +16115,7 @@ function DetailedView({
                         {renderCustomCellsAfter("uut", uut, "tolerance", rowSpan, [{ range: activeRange }])}
                         <td
                           rowSpan={rowSpan}
-                          className={`cell-value ${hoveredCell.tableId === "uut_det" && hoveredCell.colIndex === 3 ? "col-hovered" : ""}`}
-                          onMouseEnter={() =>
-                            setHoveredCell({ tableId: "uut_det", colIndex: 3 })
-                          }
+                          className="cell-value"
                           title={formatResolutionLabel(activeRange)}
                         >
                           <div className={showAllRanges ? "range-stack" : "range-collapsed-cell"}>
@@ -16259,8 +16171,7 @@ function DetailedView({
                       {!onSessionSave && specRows.slice(1).map((specComp, sIdx) => (
                         <tr
                           key={`${uutRowKey}-spec-${sIdx}`}
-                          className={`instrument-function-row spec-row ${isSelected ? `selected-spec-row selected-instrument-continuation ${sIdx === specRows.length - 2 ? "selected-instrument-end" : ""}` : ""} ${isActivePointUut ? "active-point-uut-spec-row" : ""} ${hoveredRowId === uut.id ? "hovered-spec-row" : ""}`}
-                          onMouseEnter={() => setHoveredRowId(uut.id)}
+                          className={`instrument-function-row spec-row ${isSelected ? `selected-spec-row selected-instrument-continuation ${sIdx === specRows.length - 2 ? "selected-instrument-end" : ""}` : ""} ${isActivePointUut ? "active-point-uut-spec-row" : ""} `}
                           data-measurement-area={uutFnKey}
                         onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = event.dataTransfer.types?.includes(BUDGET_COMPONENT_MIME) ? "copy" : "move"; }}
                         data-instrument-id={uut.id}
@@ -16272,13 +16183,7 @@ function DetailedView({
                           }}
                         >
                           <td
-                            className={`cell-spec ${hoveredCell.tableId === "uut_det" && hoveredCell.colIndex === 2 ? "col-hovered" : ""}`}
-                            onMouseEnter={() =>
-                              setHoveredCell({
-                                tableId: "uut_det",
-                                colIndex: 2,
-                              })
-                            }
+                            className="cell-spec"
                             style={{
                               borderTop: "1px dashed var(--border-color)",
                             }}
@@ -16576,10 +16481,6 @@ function DetailedView({
               onMouseDownCapture={event => { if (event.shiftKey || event.ctrlKey || event.metaKey) event.preventDefault(); }}
               data-selection-mode={lastSelectionTarget === "range" ? "range" : "instrument"}
             className="instrument-summary-table industry-table equipment-detail-table instrument-equipment-table"
-              onMouseLeave={() => {
-                setHoveredCell({ tableId: null, colIndex: null });
-                setHoveredRowId(null);
-              }}
               style={{
                 tableLayout: "fixed",
                 width: tmdeTableColumns.tableWidth,
@@ -16705,8 +16606,7 @@ function DetailedView({
                               data-range-id={String(rangeIdOf(range))}
                               data-range-selected={selectedRangeIds[itemStateKey("tmde", masterTmde.id)] ? selectedRangeIds[itemStateKey("tmde", masterTmde.id)].some(id => sameId(id, rangeIdOf(range))) : isSelectedRow}
                               onClickCapture={event => { if (event.ctrlKey || event.metaKey || event.shiftKey) { event.preventDefault(); event.stopPropagation(); } }}
-                                  className={`instrument-function-row tmde-row inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelectedRow ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${isSelectedRow && (selectedRangeIds[itemStateKey("tmde", masterTmde.id)] || []).some((id) => sameId(id, rangeIdOf(range))) ? " is-selected-range" : ""} ${hoveredRowId === masterTmde.id ? "row-hovered" : ""}`}
-                                  onMouseEnter={() => setHoveredRowId(masterTmde.id)}
+                                  className={`instrument-function-row tmde-row inline-range-row${i === 0 ? " inline-range-row--first" : ""}${isSelectedRow ? " instrument-selected" : ""}${isActiveRange ? " is-active-range" : ""}${isSelectedRow && (selectedRangeIds[itemStateKey("tmde", masterTmde.id)] || []).some((id) => sameId(id, rangeIdOf(range))) ? " is-selected-range" : ""} `}
                                   onContextMenu={(event) =>
                                     openInstrumentRowMenu(event, "tmde", masterTmde)
                                   }
@@ -16747,10 +16647,7 @@ function DetailedView({
                                   {i === 0 && (
                                     <td
                                       rowSpan={spanRows}
-                                      className={`cell-description has-order-controls ${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
-                                      onMouseEnter={() =>
-                                        setHoveredCell({ tableId: "tmde_det", colIndex: 0 })
-                                      }
+                                      className="cell-description has-order-controls"
                                     >
                                       <InstrumentOrderControls
                                         onMoveUp={() => moveInstrument("tmde", masterTmde.id, tmdeFnKey, -1)}
@@ -16839,8 +16736,7 @@ function DetailedView({
                         <React.Fragment key={`${tmdeRowKey}-${idx}`}>
                           {renderInstrumentDeleteButton("tmde", masterTmde, tmdeFnKey)}
                           <tr
-                            className={`instrument-function-row tmde-row ${isSelectedRow ? `selected-row selected-instrument-start ${specRows.length <= 1 ? "selected-instrument-end" : ""}` : ""} ${hoveredRowId === masterTmde.id ? "row-hovered" : ""}`}
-                            onMouseEnter={() => setHoveredRowId(masterTmde.id)}
+                            className={`instrument-function-row tmde-row ${isSelectedRow ? `selected-row selected-instrument-start ${specRows.length <= 1 ? "selected-instrument-end" : ""}` : ""} `}
                             onContextMenu={(event) =>
                               openInstrumentRowMenu(event, "tmde", masterTmde)
                             }
@@ -16869,13 +16765,7 @@ function DetailedView({
                           >
                             <td
                               rowSpan={rowSpan}
-                              className={`cell-description has-order-controls ${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 0 ? "col-hovered" : ""}`}
-                              onMouseEnter={() =>
-                                setHoveredCell({
-                                  tableId: "tmde_det",
-                                  colIndex: 0,
-                                })
-                              }
+                              className="cell-description has-order-controls"
                             >
                               <InstrumentOrderControls
                                 onMoveUp={() => moveInstrument("tmde", masterTmde.id, tmdeFnKey, -1)}
@@ -16926,13 +16816,7 @@ function DetailedView({
                             <td
                               data-range-cell="true"
                               rowSpan={rowSpan}
-                              className={`cell-value ${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 1 ? "col-hovered" : ""}`}
-                              onMouseEnter={() =>
-                                setHoveredCell({
-                                  tableId: "tmde_det",
-                                  colIndex: 1,
-                                })
-                              }
+                              className="cell-value"
                               style={{ verticalAlign: "middle" }}
                               onContextMenu={(event) =>
                                 openRangeRowMenu(
@@ -17030,13 +16914,7 @@ function DetailedView({
                             {renderCustomCellsAfter("tmde", masterTmde, "range", rowSpan, [{ range: activeRange }], [{ range: activeRange }])}
 
                             <td
-                              className={`cell-tolerance ${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 2 ? "col-hovered" : ""}`}
-                              onMouseEnter={() =>
-                                setHoveredCell({
-                                  tableId: "tmde_det",
-                                  colIndex: 2,
-                                })
-                              }
+                              className="cell-tolerance"
                               title={!onSessionSave ? specRows[0] : undefined}
                             >
                               <div className={showAllRanges ? "range-stack" : "range-collapsed-cell"}>
@@ -17154,13 +17032,7 @@ function DetailedView({
 
                             <td
                               rowSpan={rowSpan}
-                              className={`cell-value ${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 4 ? "col-hovered" : ""}`}
-                              onMouseEnter={() =>
-                                setHoveredCell({
-                                  tableId: "tmde_det",
-                                  colIndex: 4,
-                                })
-                              }
+                              className="cell-value"
                               title={formatResolutionLabel(activeRange)}
                             >
                               <div className={showAllRanges ? "range-stack" : "range-collapsed-cell"}>
@@ -17248,20 +17120,11 @@ function DetailedView({
                           {!onSessionSave && specRows.slice(1).map((specComp, sIdx) => (
                             <tr
                               key={`${tmdeRowKey}-${idx}-spec-${sIdx}`}
-                              className={`instrument-function-row spec-row ${isSelectedRow ? `selected-spec-row selected-instrument-continuation ${sIdx === specRows.length - 2 ? "selected-instrument-end" : ""}` : ""} ${hoveredRowId === masterTmde.id ? "hovered-spec-row" : ""}`}
+                              className={`instrument-function-row spec-row ${isSelectedRow ? `selected-spec-row selected-instrument-continuation ${sIdx === specRows.length - 2 ? "selected-instrument-end" : ""}` : ""} `}
                               style={functionBadgeStyle(tmdeFnKey)}
-                              onMouseEnter={() =>
-                                setHoveredRowId(masterTmde.id)
-                              }
                             >
                               <td
-                                className={`${hoveredCell.tableId === "tmde_det" && hoveredCell.colIndex === 2 ? "col-hovered" : ""}`}
-                                onMouseEnter={() =>
-                                  setHoveredCell({
-                                    tableId: "tmde_det",
-                                    colIndex: 2,
-                                  })
-                                }
+                                className=""
                                 style={{
                                   borderTop: "1px dashed var(--border-color)",
                                 }}
