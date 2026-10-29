@@ -32,6 +32,16 @@ const buildAcShuntBudget = (source, options = {}) => buildBudget(source, {
 });
 
 describe('simple AC-shunt measurement import', () => {
+  it('automatically matches proven tagged aliases without treating other tagged correction sets as equivalent', () => {
+    const source = snapshot();
+    source.instruments.standard_instrument_serial = '5965004-2';
+    source.instruments.shuntRange = 20;
+    const ref = {...reference, model:'Y5020', description:'5965004 20 A CHECK STD',
+      acShuntIdentity:{model:'Y5020', serial:'5965004', shuntRange:20, serialAliases:['5965004-2']}};
+    expect(buildAcShuntBudget(source,{instruments:[ref]}).referenceId).toBe('ref');
+    source.instruments.standard_instrument_serial = '5965004-3';
+    expect(buildAcShuntBudget(source,{instruments:[ref]}).referenceId).toBe('');
+  });
   it('matches conventional library names by saved identity and physical range without changing uncertainties', () => {
     const source = snapshot();
     source.instruments.shuntRange = 20;

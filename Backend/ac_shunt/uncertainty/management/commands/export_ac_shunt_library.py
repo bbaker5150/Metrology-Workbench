@@ -1,6 +1,5 @@
 """Portable catalog/definition export and scoped cleanup of old shunt imports."""
 import json
-import math
 from pathlib import Path
 
 from django.core.management.base import BaseCommand, CommandError
@@ -10,7 +9,7 @@ from django.utils.timezone import now
 from api.models import CalibrationSession
 
 from uncertainty.ac_shunt_instruments import (
-    seed_ac_shunt_references, seed_ac_shunt_test_instruments, shunt_catalog, shunt_model,
+    catalog_record, seed_ac_shunt_references, seed_ac_shunt_test_instruments, shunt_catalog, shunt_model,
 )
 from uncertainty.models import Instrument, TestPoint, Uut, SessionTmde
 from uncertainty.serializers import instrument_to_dict
@@ -29,10 +28,6 @@ def imported_shunt(item):
         return family in ('A40B', 'Y5020')
     return (item.id.startswith(('ac-shunt-ref-', 'ac-shunt-ti-'))
             and shunt_model(item.model) in ('A40B', 'Y5020'))
-
-
-def finite(value):
-    return value if value is not None and math.isfinite(float(value)) else None
 
 
 def legacy_imported_ids(alias):
@@ -76,19 +71,7 @@ class Command(BaseCommand):
                             help='After writing the backup, remove only library entries with AC-shunt import provenance and their local copies.')
 
     def handle(self, *args, **options):
-        catalog = []
-        for shunt, model, report, label in shunt_catalog():
-            catalog.append({
-                'model': model, 'serial': shunt.serial_number.strip(), 'rangeA': shunt.range,
-                'standardType': label, 'remark': shunt.remark,
-                'report': None if not report else {
-                    'id': report.pk, 'number': report.report_number, 'date': report.calibration_date,
-                    'notes': report.notes,
-                    'points': [{'currentA': finite(row.current), 'frequencyHz': finite(row.frequency),
-                                'uncertaintyPpm': finite(row.uncertainty)}
-                               for row in sorted(report.corrections.all(), key=lambda row: (row.current, row.frequency))],
-                },
-            })
+        catalog = [catalog_record(*row) for row in shunt_catalog()]
         definitions = [instrument_to_dict(item) for item in (
             seed_ac_shunt_references(export_only=True) + seed_ac_shunt_test_instruments(export_only=True))
             if shunt_model(item.model) in ('A40B', 'Y5020')]

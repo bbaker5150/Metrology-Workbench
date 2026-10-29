@@ -31,7 +31,8 @@ export function matchAcShuntInstrument(role, instruments) {
     const sources = [item.acShuntIdentity, ...(item.functions || []).flatMap(fn => (fn.ranges || []).map(range => range.acShuntSource))].filter(Boolean);
     const physicalRanges = sources.map(source => source.shuntRange).filter(value => Number(value) > 0).map(Number);
     if (Number(role.shuntRange) > 0 && physicalRanges.length && !physicalRanges.some(value => Math.abs(value - Number(role.shuntRange)) < 1e-12)) return false;
-    const serials = [item.serialNumber, item.assetId, item.model, ...sources.map(source => source.serial)].map(normalized);
+    const serials = [item.serialNumber, item.assetId, item.model,
+      ...sources.flatMap(source => [source.serial, ...(source.serialAliases || [])])].map(normalized);
     return (serials.includes(normalized(role.serial)) || normalized(item.model) === normalized(`${role.model} ${role.serial}`)) &&
       [item.model, item.description, ...sources.map(source => source.model)].some(value => normalized(value).includes(shuntModel(role.model))) && Boolean(role.model);
   });

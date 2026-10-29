@@ -8,12 +8,16 @@ from pathlib import Path
 from django.core.management.base import BaseCommand, CommandError
 from django.db import router, transaction
 
-from uncertainty.ac_shunt_instruments import instrument_identity, matches_instrument, rename_instrument_once
+from uncertainty.ac_shunt_instruments import (
+    catalog_record, instrument_identity, matches_instrument, rename_instrument_once,
+    retain_canonical_instrument, shunt_catalog,
+)
+from uncertainty.shunt_identity import catalog_key, correction_aliases, definition_signature, serial_aliases
 from uncertainty.models import Instrument
 from uncertainty.serializers import save_instrument
 
 
-def prepare_definitions(payload):
+def prepare_definitions(payload, *, live_catalog=None):
     """Validate the whole file before writing, and recover missing catalog ratings."""
     if not isinstance(payload, dict) or payload.get('format') != 'uncertalytics-ac-shunt-library' or payload.get('version') != 1:
         raise ValueError('Expected a version 1 AC-shunt library export.')
@@ -70,7 +74,43 @@ def prepare_definitions(payload):
                     raise ValueError('Invalid ppm uncertainty.')
                 row['acShuntSource'] = {**row.get('acShuntSource', {}),
                     'model': model, 'serial': serial, 'shuntRange': identity['shuntRange'], 'standardType': label}
-    return definitions
+    catalog = copy.deepcopy(payload.get('catalog', []))
+    # Old exports omitted correction values. On the originating lab computer,
+    # recover them only from the same report and unchanged point/uncertainty set.
+    for row in catalog:
+        report = row.get('report') or {}
+        if report.get('points') and all('correctionPpm' in point for point in report['points']):
+            continue
+        for live in live_catalog or []:
+            live_report = live.get('report') or {}
+            if catalog_key(row) != catalog_key(live) or report.get('id') != live_report.get('id'):
+                continue
+            without_corrections = [{key: value for key, value in point.items() if key != 'correctionPpm'}
+                                   for point in live_report.get('points', [])]
+            if report.get('points') == without_corrections:
+                row['report'] = live_report
+                break
+    aliases = correction_aliases(catalog)
+    retained = []
+    # Canonical entries come first, regardless of export order.
+    definitions.sort(key=lambda item: (len(item['acShuntIdentity']['serial']), item['acShuntIdentity']['serial'].casefold()))
+    for item in definitions:
+        identity = item['acShuntIdentity']
+        key = (identity['model'], identity['serial'].casefold(), identity['shuntRange'])
+        canonical = aliases.get(key)
+        target = next((old for old in retained if canonical and old['type'] == item['type']
+                       and old['acShuntIdentity']['model'] == canonical['model']
+                       and old['acShuntIdentity']['serial'].casefold() == canonical['serial'].casefold()
+                       and old['acShuntIdentity']['shuntRange'] == canonical['rangeA']), None)
+        if target and definition_signature(target['functions']) == definition_signature(item['functions']) and target.get('typeBComponents') == item.get('typeBComponents'):
+            continue
+        record = next((row for row in catalog if catalog_key(row) == key), None)
+        names = serial_aliases(record, aliases) if record else []
+        identity.pop('serialAliases', None)
+        if names:
+            identity['serialAliases'] = names
+        retained.append(item)
+    return retained
 
 
 class Command(BaseCommand):
@@ -83,7 +123,7 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         try:
             payload = json.loads(Path(options['input']).expanduser().read_text(encoding='utf-8-sig'))
-            definitions = prepare_definitions(payload)
+            definitions = prepare_definitions(payload, live_catalog=[catalog_record(*row) for row in shunt_catalog()])
         except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
             raise CommandError(f'Invalid export; library unchanged: {error}') from error
         if options['dry_run']:
@@ -97,16 +137,27 @@ class Command(BaseCommand):
             existing = list(Instrument.objects.using(alias).select_for_update().all())
             for item in definitions:
                 source = item['acShuntIdentity']
+                names = [source['serial'], *source.get('serialAliases', [])]
                 matches = [old for old in existing if old.scope == Instrument.SCOPE_VALIDATED
-                           and old.instrument_type == item['type'] and matches_instrument(old, source['model'], source['serial'],
-                               source['shuntRange'] if item['type'] == 'tmde' else None)]
+                           and old.instrument_type == item['type'] and any(matches_instrument(old, source['model'], serial,
+                               source['shuntRange'] if item['type'] == 'tmde' else None) for serial in names)]
                 collision = next((old for old in existing if old.id == item['id']), None)
                 if collision and collision not in matches:
                     raise CommandError(f"Conflicting existing ID {item['id']}; no definitions imported.")
                 if matches:
-                    for old in matches:
-                        rename_instrument_once(old, source['model'], source['serial'], source['shuntRange'], source['standardType'], item['type'])
-                    retained += 1
+                    canonical_matches = [old for old in matches if matches_instrument(old, source['model'], source['serial'], source['shuntRange'])]
+                    if canonical_matches:
+                        for old in canonical_matches:
+                            rename_instrument_once(old, source['model'], source['serial'], source['shuntRange'], source['standardType'], item['type'])
+                        retained += 1
+                    else:
+                        primary = save_instrument(item)
+                        existing.append(primary)
+                        matches.append(primary)
+                        created += 1
+                    preferred_id = canonical_matches[0].id if canonical_matches else item['id']
+                    retain_canonical_instrument(matches, preferred_id, source.get('serialAliases', []), source)
+                    existing = [old for old in existing if old.pk is not None]
                 else:
                     existing.append(save_instrument(item))
                     created += 1
