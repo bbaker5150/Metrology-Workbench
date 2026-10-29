@@ -90,8 +90,10 @@ export async function checkQualifierRanges({frame, page, saved, until, check}) {
           check(`${view} ${kind} clicking the selected qualifier deselects it in ${theme}`, await second.getAttribute('data-actions-selected') !== 'true');
         }
         await second.click({position:{x:5,y:5}});
-        check(`${view} ${kind} qualifier row selection in ${theme}`,await until(async()=>await table.getAttribute('data-selection-mode')==='instrument' && await rows.nth(1).getAttribute('data-range-selected')==='true'));
-        check(`${view} ${kind} shared cells highlight in ${theme}`,await until(async()=>await first.locator('.cell-description').getAttribute('data-cell-selected')!==null && await baseRange.getAttribute('data-cell-selected')!==null));
+        check(`${view} ${kind} qualifier row selection in ${theme}`,await until(async()=>await table.getAttribute('data-selection-mode')==='range' && await rows.nth(1).getAttribute('data-range-selected')==='true' && await rows.nth(0).getAttribute('data-range-selected')==='false'));
+        // Qualifier selection includes its shared parent range, not the whole
+        // instrument. Match the range-selection contract in QualifierRanges.
+        check(`${view} ${kind} only the qualifier and shared range highlight in ${theme}`,await until(async()=>await first.locator('.cell-description').getAttribute('data-cell-selected')===null && await baseRange.getAttribute('data-cell-selected')!==null && await second.getAttribute('data-cell-selected')!==null && await qualifier.getAttribute('data-cell-selected')===null));
         check(`${view} ${kind} qualifier columns align in ${theme}`,await table.evaluate(table=>{
           const header=table.querySelector('[data-instrument-column="qualifier"]').getBoundingClientRect();
           return [...table.querySelectorAll('[data-qualifier-cell]')].every(cell=>{const box=cell.getBoundingClientRect();return Math.abs(box.left-header.left)<2 && Math.abs(box.right-header.right)<2;});
