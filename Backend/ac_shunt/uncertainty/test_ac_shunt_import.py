@@ -82,6 +82,39 @@ class AcShuntImportTests(TestCase):
         self.assertEqual(point['analytics'], {'pair_delta_uut_ppm': -7,
             'pair_type_a_uncertainty_ppm': 2, 'n_pairs_used': 4, 'persistedOnly': True})
 
+    def test_5790_snapshot_only_sends_accepted_cycle_means_and_settings(self):
+        self.session.standard_reader_model = 'Fluke 5790B'
+        self.session.standard_reader_serial = 'READER'
+        self.session.save()
+        CalibrationResults.objects.update(manual_excluded_pairs=[1])
+        CalibrationResultsCycle.objects.update(std_ac_open_avg=1, std_ac_close_avg=1,
+            std_dc_pos_avg=1, std_dc_neg_avg=-1)
+        before = list(CalibrationResults.objects.values())
+        snapshot = session_snapshot(self.session.pk)
+        self.assertEqual(snapshot['instruments']['standard_reader_serial'], 'READER')
+        rows = snapshot['points'][0]['readerPoints']
+        self.assertEqual({(row['direction'], row['cycleIndex']) for row in rows},
+                         {('Forward', 2), ('Forward', 3), ('Reverse', 1), ('Reverse', 2)})
+        for row in rows:
+            self.assertEqual(row['phases']['std_dc_neg'], -1)
+            self.assertEqual(row['rangeMode'], '0.22')
+            self.assertEqual(row['filterMode'], 'SLOW')
+            self.assertTrue(row['hiresEnabled'])
+            self.assertIsNone(row['phases']['ti_ac_open'])
+            self.assertNotIn('raw_data', row)
+        self.assertEqual(before, list(CalibrationResults.objects.values()))
+
+    def test_5790_legacy_snapshot_uses_saved_aggregate_voltages_without_inventing_them(self):
+        self.session.standard_reader_model = '5790A'
+        self.session.save()
+        CalibrationResultsCycle.objects.all().delete()
+        CalibrationResults.objects.update(pair_delta_uut_ppm=1, pair_type_a_uncertainty_ppm=2,
+            n_pairs_used=4, std_ac_open_avg=.2)
+        rows = session_snapshot(self.session.pk)['points'][0]['readerPoints']
+        self.assertEqual(len(rows), 2)
+        self.assertEqual(rows[0]['phases']['std_ac_open'], .2)
+        self.assertIsNone(rows[0]['phases']['std_dc_pos'])
+
     def test_screenshot_mean_and_standard_type_a_remain_distinct(self):
         CalibrationResultsCycle.objects.all().delete()
         CalibrationSettings.objects.update(n_cycles=5)

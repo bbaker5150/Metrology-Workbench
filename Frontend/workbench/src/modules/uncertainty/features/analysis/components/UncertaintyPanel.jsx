@@ -2025,7 +2025,7 @@ const INLINE_EDITOR_PORTAL_SELECTOR =
   "[data-theme-toggle], .instrument-library-header, " +
   ".inline-unit-menu, .inline-tolerance-shape-menu, .inline-tolerance-shape-backdrop, .inline-desc-search";
 
-const isInstrumentScrollTarget = target => target?.matches?.(".instrument-panel-table-container, .dynamic-table-scroll");
+const isInstrumentScrollTarget = target => target?.matches?.(".instrument-panel-table-container, .budget-section-table-wrap, .dynamic-table-scroll");
 
 const activeInlineEditors = new WeakMap();
 

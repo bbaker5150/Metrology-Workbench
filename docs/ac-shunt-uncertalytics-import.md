@@ -4,7 +4,7 @@ In the full Workbench, open Uncertalytics and choose the lightning button after 
 
 Each imported point is a direct current measurement in A with a Frequency qualifier in Hz. On first opening an imported budget, Section is hidden and Qualifier appears immediately after Value (for example, `1000 Hz`). Later column customizations persist for that budget. The signed AC–DC difference is retained as the measured result and shown above the point workspace. It is not added as uncertainty or applied as TI bias.
 
-The AC/DC repeatability row uses the module's saved paired Type A standard uncertainty in ppm, without another division by sqrt(N). Its degrees of freedom are N−1. Pairing, cycle caps and excluded cycles follow the AC-shunt results view. Missing Type A remains incomplete. Each point also receives an independent, editable manual Variability row: ±5 ppm, Rectangular (standard uncertainty 5/sqrt(3) ppm).
+The AC/DC repeatability row uses the module's saved paired Type A standard uncertainty in ppm, without another division by sqrt(N). Its degrees of freedom are N−1. Pairing, cycle caps and excluded cycles follow the AC-shunt results view. Missing Type A remains incomplete. Each point also receives an independent, editable manual Fluke 5790B Variability row: ±5 ppm, Rectangular (standard uncertainty 5/sqrt(3) ppm).
 
 For the supplied example, the signed result is −0.070 ppm and the repeatability row uses the full saved standard uncertainty, 0.6150070189859945 ppm, with 4 degrees of freedom for 5 pairs. The preview labels this as standard Type A (k = 1). Newer AC-shunt result cards label their ± value as expanded Type A (k = 2); that display is twice the standard value and is not used as a standard input to the budget.
 
@@ -12,7 +12,17 @@ The actual TI and reference are matched automatically to the shared Uncertalytic
 
 Shunt library names and new imports use `Fluke {A40B or Y5020} {serial} {rated range} {CHECK STD or NIST}`. For example: `Fluke Y5020 3845014 20 A CHECK STD` and `Fluke Y5020 5965004 20 A NIST`. Manufacturer and model stay in their own fields; serial, range and standard designation occupy Description. Both instrument tables display those fields in the same order. Older budgets retain their saved definitions until the library instrument is synced or the session is imported again.
 
-The routine snapshot contains only session identity, TI/reference identity and configured shunt range, current/frequency, accepted-pair aggregates, source point IDs and stability flags. Model, serial and rated range support automatic matching independently of the display name. It does not fetch certificates, reader settings or phase voltage data. It does not rebuild readers, TVCs, transfer equations or manufacturer specifications. Add any remaining instrument contributions through the usual budget editors.
+The snapshot contains session and instrument identity, configured shunt range, current/frequency, accepted-pair aggregates, source point IDs and stability flags. Sessions using 5790A/B readers additionally include only the accepted cycles' phase voltage averages, eta and saved range/HIRES/filter settings needed for resolution. Legacy sessions can use their saved aggregate phase means; absent means stay incomplete. Raw sample arrays and certificates are not fetched. The importer does not add reader accuracy or TVC specifications. Add any remaining instrument contributions through the usual budget editors.
+
+## 5790 reader resolution
+
+Backend startup updates existing shared 5790A/B definitions once, backing up their previous definitions in the Portal credentials directory's `backups` folder. Existing accuracy terms and range IDs remain intact. Definitions with only a ppm source gain AC/DC voltage resolution ranges. The setup marker preserves subsequent manual edits. Restart the backend after pulling, refresh Uncertalytics, and import the session again to create the new resolution rows; existing budgets are not silently rewritten.
+
+The library stores the full high-resolution voltage increment: 0.1 µV on the supported ranges through 2.2 V. Each full increment uses Rectangular (resolution), divisor sqrt(12), equivalent to ±half an increment with a rectangular distribution. The import applies the saved HIRES/filter mode: above 220 mV, HIRES OFF with OFF/FAST filtering uses ten times the high-resolution increment. DC ranges below 220 mV are promoted to 220 mV. Sources: Fluke [5790A Operators Manual](https://assets.fluke.com/manuals/5790a___omeng0400.pdf) and [5790B Operators Manual](https://media.fluke.com/f969b653-c483-4d78-a50e-b10800c204a4_original%20file.pdf), Table 4-5 and the HIRES command.
+
+Resolution is propagated through `(Vac / Vdc - 1) / eta` for each reader, where Vac and Vdc are the means of the absolute opening/closing AC and positive/negative DC readings. Absolute phase sensitivities are summed as a conservative correlation bound. The largest contribution across accepted cycles/directions is retained, with no additional averaging credit. Shared-meter roles are summed; distinct meters combine through the budget's ordinary quadrature. For example, four 1 V phases, eta = 1 and a 0.1 µV increment give 0.057735 ppm per reader under this conservative rule. Type A remains the saved paired standard uncertainty.
+
+Reader matching first uses model/serial, then a unique model-only library profile if available. Each row remains linked to the selected voltage ranges, so resolution edits recalculate it. Missing settings, voltage means, ranges or profiles stay explicitly incomplete. AUTO sessions without a recorded physical range also stay incomplete; additional GPIB digits are not used to invent resolution. The result is displayed in ppm while its native contribution is stored in A at the measurement point.
 
 ## Initial instrument setup
 
@@ -28,6 +38,6 @@ To run setup separately, from `Backend/ac_shunt` use `python manage.py seed_ac_s
 
 ## Focused checks
 
-Use `manage.py test uncertainty.test_ac_shunt_import` and the focused Vitest files `acShuntBudget.test.js`, `acShuntSpecs.test.js`, `AcShuntImportTool.test.jsx`, `App.sidebarRisk.test.jsx`, and `useSessionManager.test.js`.
+Use `manage.py test uncertainty.test_ac_shunt_import uncertainty.test_5790_resolution` and the focused Vitest files `acShuntBudget.test.js`, `acShuntResolution.test.js`, `acShuntSpecs.test.js`, `AcShuntImportTool.test.jsx`, `App.sidebarRisk.test.jsx`, and `useSessionManager.test.js`. `node scripts/check-budget-table-editor.mjs` checks scrollbar draft retention and automatic visibility for newly opened and switched table/equation editors.
 
 After hands-on testing is approved, the feature browser check is `node scripts/smoke-ac-shunt-import.mjs`, with `WORKBENCH_URL` pointing to the full Workbench server (default port 3197). It checks the simplified preview, saved point/qualifier/result fields, manual variability, shared reference links and TI limits.
