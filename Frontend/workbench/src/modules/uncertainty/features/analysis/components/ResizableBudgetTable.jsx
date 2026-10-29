@@ -1,6 +1,7 @@
 import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { preserveTableTextSelection } from "../../../utils/tableTextSelection";
 import { measureTableColumnWidths } from "../../../utils/measureTableColumnWidths";
+import { measureDynamicTableEditorWidth } from "../../../utils/measureDynamicTableEditorWidth";
 import { resizeTableColumn } from "../../../utils/fillTrailingColumn";
 
 const STORAGE_PREFIX = "uncertalytics:budget-column-widths:v1:";
@@ -51,9 +52,20 @@ export default function ResizableBudgetTable({ scope, columns, children }) {
       table.querySelectorAll(EDITORS).forEach(editor => {
         const cell = editor.closest("td");
         if (!cell || cell.closest("table") !== table) return;
+        // The shared tolerance editor contains its own data-budget-editor.
+        // Measure the outer editor once, including its toolbar and padding.
+        if (editor.parentElement.closest(EDITORS)?.closest("td") === cell) return;
         const style = getComputedStyle(cell);
         const key = editor.dataset.budgetEditor || (editor.matches(".budget-range-selector") ? "source" : "limit");
-        next[key] = Math.max(next[key] || 0, Math.ceil(Math.max(editor.offsetWidth, editor.scrollWidth) + parseFloat(style.paddingLeft || 0) + parseFloat(style.paddingRight || 0) + 2));
+        const lookupWidth = measureDynamicTableEditorWidth(editor);
+        if (lookupWidth !== null) {
+          // A definite content width breaks the nested table's circular 100%
+          // sizing in both automatic and user-resized budget columns.
+          const value = `${lookupWidth}px`;
+          if (editor.style.getPropertyValue("--budget-lookup-editor-width") !== value) editor.style.setProperty("--budget-lookup-editor-width", value);
+        }
+        const contentWidth = lookupWidth ?? Math.max(editor.offsetWidth, editor.scrollWidth);
+        next[key] = Math.max(next[key] || 0, Math.ceil(contentWidth + parseFloat(style.paddingLeft || 0) + parseFloat(style.paddingRight || 0) + 2));
       });
       setEditorMinimums(previous => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
     };
@@ -71,7 +83,7 @@ export default function ResizableBudgetTable({ scope, columns, children }) {
       frame = requestAnimationFrame(() => { frame = null; observeEditors(); });
     };
     const mutation = new MutationObserver(schedule);
-    mutation.observe(table, { childList: true, subtree: true, attributes: true, attributeFilter: ["data-budget-editor", "class"] });
+    mutation.observe(table, { childList: true, characterData: true, subtree: true, attributes: true, attributeFilter: ["data-budget-editor", "class", "style"] });
     const zoomMutation = new MutationObserver(measure);
     zoomMutation.observe(table, { attributes: true, attributeFilter: ["style"] });
     window.addEventListener("resize", measure);
@@ -119,9 +131,11 @@ export default function ResizableBudgetTable({ scope, columns, children }) {
   };
   const resizeColumn = (key, delta, sizes) => saveWidths(resizeTableColumn(fixed ? widths : null, sizes, key, delta, minimumWidth(key)));
   const fitColumn = key => {
-    const measured = measureTableColumnWidths(tableRef.current, "budgetColumn");
+    // Expanded editors already have independent content minima. Including
+    // their percentage-sized nested tables in the clone recreates the cycle.
+    const measured = measureTableColumnWidths(tableRef.current, "budgetColumn", { exclude: EDITORS });
     const { sizes } = snapshot();
-    resizeColumn(key, (measured[key] || sizes[key]) - sizes[key], sizes);
+    resizeColumn(key, Math.max(measured[key] || sizes[key], editorMinimums[key] || 0) - sizes[key], sizes);
   };
   const startResize = (event, key) => {
     if (event.button !== 0) return;

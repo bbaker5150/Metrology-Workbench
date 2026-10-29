@@ -511,7 +511,7 @@ export const getSessionPointColumns = (session, defaults = {}, preferences = {})
   }
   return {
     columns: { ...DEFAULT_SIDEBAR_COLUMNS, ...defaults.columns,
-      ...(isAcShunt ? { section: false, value: true, qualifier: true } : {}),
+      ...(isAcShunt ? { section: false, value: true, qualifier: true, warningIcons: false } : {}),
       ...preferences.sidebarColumns },
     order: normalizeSidebarColumnOrder(preferences.sidebarColumnOrder || order),
   };

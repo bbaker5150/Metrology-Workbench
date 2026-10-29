@@ -22172,6 +22172,17 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] { width: 100%; max-width: none; min-width: 0; box-sizing: border-box; align-self: stretch; }
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] > .dynamic-table-scroll { width: 100%; padding-left: 48px; box-sizing: border-box; }
 
+/* Budget columns use automatic layout until resized. Give their nested lookup
+   editor an intrinsic width, as instrument columns do, rather than resolving
+   a full-width fixed table against its own content width. */
+:is(.uncertainty-module, .instrument-builder-wrapper) .budget-inline-tolerance-cell > .inline-tolerance-editor:has(.dynamic-budget-editor[data-dynamic-kind="table"]),
+:is(.uncertainty-module, .instrument-builder-wrapper) .budget-inline-tolerance-cell > .dynamic-budget-editor[data-dynamic-kind="table"] {
+  width: var(--budget-lookup-editor-width, 420px);
+  min-width: var(--budget-lookup-editor-width, 420px);
+  max-width: none;
+  box-sizing: border-box;
+}
+
 /* Comparison layout: symmetry left, units centered, source actions right. */
 :is(.instrument-tolerance-toolbar, .budget-uncertainty-type-toolbar):has(> .dynamic-unit-slot) {
   display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); align-items: center; gap: 8px;

@@ -29,13 +29,13 @@ vi.mock("plotly.js-dist", () => ({ default: {} }));
 describe("measurement-point value editing", () => {
   test('initializes AC-shunt columns after loading a session and preserves later user preferences', () => {
     const session = { testPoints: [{ testPointInfo: { acShuntSource: { sessionId: 1 } } }] };
-    const defaults = { columns: { section: true, qualifier: false, value: false }, order: ['qualifier','section','value'] };
+    const defaults = { columns: { section: true, qualifier: false, value: false, warningIcons: true }, order: ['qualifier','section','value'] };
     const imported = getSessionPointColumns(session, defaults);
-    expect(imported.columns).toMatchObject({ section:false, qualifier:true, value:true });
+    expect(imported.columns).toMatchObject({ section:false, qualifier:true, value:true, warningIcons:false });
     expect(imported.order[imported.order.indexOf('value') + 1]).toBe('qualifier');
     expect(getSessionPointColumns({}, defaults).columns).toMatchObject(defaults.columns);
-    const reopened = getSessionPointColumns(session, defaults, { sidebarColumns: { section:true, qualifier:false }, sidebarColumnOrder: defaults.order });
-    expect(reopened.columns).toMatchObject({section:true,qualifier:false});
+    const reopened = getSessionPointColumns(session, defaults, { sidebarColumns: { section:true, qualifier:false, warningIcons:true }, sidebarColumnOrder: defaults.order });
+    expect(reopened.columns).toMatchObject({section:true,qualifier:false,warningIcons:true});
     expect(reopened.order.slice(0,3)).toEqual(defaults.order);
   });
   test('displays frequency units and retains numeric editing and matching bounds', () => {

@@ -105,6 +105,34 @@ describe("budget column resizing", () => {
     expect(localStorage.length).toBe(0);
   });
 
+  it("sizes a full-width lookup from its content without feeding allocated widths back into the column", async () => {
+    const storageKey = 'uncertalytics:budget-column-widths:v1:final:length';
+    localStorage.setItem(storageKey, JSON.stringify({ source: 160, limit: 90 }));
+    vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function () {
+      if (this.style.position === 'fixed') return 420; // authored lookup width probe
+      if (this.matches('.dynamic-column-heading')) return 90;
+      if (this.matches('.inline-tolerance-editor, .dynamic-budget-editor')) return 1000000;
+      return 520;
+    });
+    const view = render(<ResizableBudgetTable scope="final:length" columns={columns}><tbody><tr>
+      <td>Source</td><td className="budget-inline-tolerance-cell">
+        <div className="inline-tolerance-editor"><div className="dynamic-budget-editor" data-budget-editor="limit">
+          <table className="dynamic-lookup-table"><thead><tr>
+            <th><span className="dynamic-column-heading">Point A</span></th>
+            <th><span className="dynamic-column-heading">Uncertainty ppm</span></th>
+          </tr></thead></table>
+        </div></div>
+      </td></tr></tbody></ResizableBudgetTable>);
+    const budgetCols = () => [...document.querySelectorAll('.budget-resizable-table > colgroup > col')].map(col => col.style.width);
+    await waitFor(() => expect(budgetCols()).toEqual(['160px', '422px']));
+    expect(document.querySelector('.inline-tolerance-editor').style.getPropertyValue('--budget-lookup-editor-width')).toBe('420px');
+    fireEvent(window, new Event('resize'));
+    expect(budgetCols()).toEqual(['160px', '422px']);
+    expect(JSON.parse(localStorage.getItem(storageKey))).toEqual({ source: 160, limit: 90 });
+    view.rerender(fixture());
+    await waitFor(() => expect(budgetCols()).toEqual(['160px', '90px']));
+  });
+
   it("fits the manual tolerance editor and full range label even with saved narrow columns", async () => {
     localStorage.setItem('uncertalytics:budget-column-widths:v1:final:length', JSON.stringify({ source: 100, limit: 90 }));
     vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function () {
