@@ -64,7 +64,7 @@ export default function DynamicBudgetComponentRow({
     setDraft(next);
     saveEditorDraft(draftKey, next);
   }, [draftKey]);
-  const finish = useCallback((cancel = false) => {
+  const finish = useCallback((cancel = false, keepCellEditors = false) => {
     if (cancel) {
       draftRef.current = definitionRef.current;
       setDraft(definitionRef.current);
@@ -76,8 +76,10 @@ export default function DynamicBudgetComponentRow({
     clearEditorDraft(draftKey);
     dirty.current = false;
     setEditing(false);
-    setNaming(false);
-    setDistributionEditing(false);
+    if (!keepCellEditors) {
+      setNaming(false);
+      setDistributionEditing(false);
+    }
   }, [draftKey]);
 
   useEffect(() => {
@@ -200,7 +202,9 @@ export default function DynamicBudgetComponentRow({
           activeRange={{ id: component.id, value: referencePoint?.value, max: referencePoint?.value, unit: referencePoint?.unit }}
           referencePoint={referencePoint} measurementPoint={measurementPoint} dynamicComponent={component}
           editable openRequested={editing} summaryOverride={preview.dynamicSummary || "Not Set"}
-          onEditingChange={active => { if (active) setEditing(true); else if (editing) finish(); }}
+          // The shared editor dismisses when another cell receives focus.
+          // Commit its draft without closing the newly opened name/distribution.
+          onEditingChange={active => { if (active) setEditing(true); else if (editing) finish(false, true); }}
           onUncertaintyKindChange={onKindChange ? kind => {
             clearEditorDraft(draftKey); dirty.current = false;
             onKindChange(kind, draftRef.current);
