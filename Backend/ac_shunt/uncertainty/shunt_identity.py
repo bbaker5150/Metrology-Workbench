@@ -8,6 +8,31 @@ def catalog_key(row):
     return row['model'], row['serial'].strip().casefold(), float(row['rangeA'])
 
 
+def reported_uncertainty_points(row):
+    """Only report values count as evidence; a TI acceptance limit does not."""
+    result = []
+    for point in (row.get('report') or {}).get('points') or []:
+        values = [point.get(key) for key in ('currentA', 'frequencyHz', 'uncertaintyPpm')]
+        try:
+            if any(value is None or isinstance(value, bool) or not math.isfinite(float(value)) for value in values):
+                continue
+            current, frequency, uncertainty = map(float, values)
+        except (ValueError, TypeError):
+            continue
+        if current > 0 and frequency > 0 and uncertainty >= 0:
+            result.append(point)
+    return result
+
+
+def matching_uncertainty_records(identity, catalog):
+    """Require exact model/serial and, when known, the physical rating."""
+    return [row for row in catalog
+            if row.get('model') == identity.get('model')
+            and str(row.get('serial', '')).strip().casefold() == str(identity.get('serial', '')).strip().casefold()
+            and (identity.get('shuntRange') is None or row.get('rangeA') == identity['shuntRange'])
+            and reported_uncertainty_points(row)]
+
+
 def correction_signature(row):
     points = (row.get('report') or {}).get('points') or []
     result = []

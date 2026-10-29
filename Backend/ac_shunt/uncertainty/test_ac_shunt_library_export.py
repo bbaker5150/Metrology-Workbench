@@ -138,6 +138,9 @@ class ShuntLibraryExportTests(TestCase):
         conflict['id'] = 'ac-shunt-ref-' + '0' * 32
         conflict['acShuntIdentity']['serial'] = 'OTHER'
         data['instruments'].append(conflict)
+        catalog = json.loads(json.dumps(data['catalog'][0]))
+        catalog['serial'] = 'OTHER'
+        data['catalog'].append(catalog)
         self.output.write_text(json.dumps(data), encoding='utf-8')
         Instrument.objects.create(id=conflict['id'], model='Unrelated instrument')
         before = list(Instrument.objects.values())

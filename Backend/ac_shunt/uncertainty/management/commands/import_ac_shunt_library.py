@@ -10,20 +10,22 @@ from django.db import router, transaction
 
 from uncertainty.ac_shunt_instruments import (
     catalog_record, instrument_identity, matches_instrument, rename_instrument_once,
-    retain_canonical_instrument, shunt_catalog,
+    remember_calibration_evidence, retain_canonical_instrument, shunt_catalog,
 )
-from uncertainty.shunt_identity import catalog_key, correction_aliases, definition_signature, serial_aliases
+from uncertainty.ac_shunt_library_cleanup import remove_unsupported_generated_instruments
+from uncertainty.shunt_identity import (catalog_key, correction_aliases, definition_signature,
+    matching_uncertainty_records, reported_uncertainty_points, serial_aliases)
 from uncertainty.models import Instrument
 from uncertainty.serializers import save_instrument
 
 
-def prepare_definitions(payload, *, live_catalog=None):
+def prepare_definitions(payload, *, live_catalog=None, excluded=None):
     """Validate the whole file before writing, and recover missing catalog ratings."""
     if not isinstance(payload, dict) or payload.get('format') != 'uncertalytics-ac-shunt-library' or payload.get('version') != 1:
         raise ValueError('Expected a version 1 AC-shunt library export.')
     definitions = copy.deepcopy(payload.get('instruments'))
-    if not isinstance(definitions, list) or not definitions:
-        raise ValueError('The export contains no instrument definitions.')
+    if not isinstance(definitions, list):
+        raise ValueError('The export must contain a list of instrument definitions.')
     seen_ids, seen_identities = set(), set()
     for item in definitions:
         identity = item['acShuntIdentity']
@@ -37,7 +39,7 @@ def prepare_definitions(payload, *, live_catalog=None):
             raise ValueError('Invalid or duplicate instrument ID.')
         seen_ids.add(item['id'])
         if role == 'uut' and identity.get('shuntRange') is None:
-            ratings = {row['rangeA'] for row in payload.get('catalog', [])
+            ratings = {row['rangeA'] for row in payload.get('catalog', []) + (live_catalog or [])
                        if row['model'] == model and row['serial'].strip().casefold() == serial.strip().casefold()}
             if len(ratings) == 1:
                 identity['shuntRange'] = ratings.pop()
@@ -96,6 +98,21 @@ def prepare_definitions(payload, *, live_catalog=None):
     definitions.sort(key=lambda item: (len(item['acShuntIdentity']['serial']), item['acShuntIdentity']['serial'].casefold()))
     for item in definitions:
         identity = item['acShuntIdentity']
+        evidence = matching_uncertainty_records(identity, catalog) or matching_uncertainty_records(identity, live_catalog or [])
+        if not evidence:
+            if excluded is not None:
+                excluded.append(item)
+            continue
+        # Never trust a generated TI's 100 ppm limit or an old display label as
+        # calibration evidence. Retain the source report for portable installs.
+        identity['calibrationEvidence'] = evidence
+        uncertainties = [float(point['uncertaintyPpm']) for row in evidence for point in reported_uncertainty_points(row)]
+        identity['standardType'] = 'CHECK STD' if all(math.isclose(value, 100, rel_tol=0, abs_tol=1e-9)
+                                                     for value in uncertainties) else 'NIST'
+        item.update(instrument_identity(identity['model'], identity['serial'], identity['shuntRange'], identity['standardType']))
+        for function in item['functions']:
+            for row in function['ranges']:
+                row['acShuntSource']['standardType'] = identity['standardType']
         key = (identity['model'], identity['serial'].casefold(), identity['shuntRange'])
         canonical = aliases.get(key)
         target = next((old for old in retained if canonical and old['type'] == item['type']
@@ -123,9 +140,13 @@ class Command(BaseCommand):
     def handle(self, *args, **options):
         try:
             payload = json.loads(Path(options['input']).expanduser().read_text(encoding='utf-8-sig'))
-            definitions = prepare_definitions(payload, live_catalog=[catalog_record(*row) for row in shunt_catalog()])
+            live_catalog = [catalog_record(*row) for row in shunt_catalog()]
+            excluded = []
+            definitions = prepare_definitions(payload, live_catalog=live_catalog, excluded=excluded)
         except (OSError, ValueError, KeyError, TypeError, AttributeError) as error:
             raise CommandError(f'Invalid export; library unchanged: {error}') from error
+        for item in excluded:
+            self.stdout.write(f"Excluded {item['model']} {item['acShuntIdentity']['serial']}: no reported calibration uncertainty.")
         if options['dry_run']:
             for item in definitions:
                 self.stdout.write(f"{item['type'].upper()}: {item['manufacturer']} {item['model']} {item['description']}")
@@ -149,6 +170,7 @@ class Command(BaseCommand):
                     if canonical_matches:
                         for old in canonical_matches:
                             rename_instrument_once(old, source['model'], source['serial'], source['shuntRange'], source['standardType'], item['type'])
+                            remember_calibration_evidence(old, source['calibrationEvidence'])
                         retained += 1
                     else:
                         primary = save_instrument(item)
@@ -161,4 +183,8 @@ class Command(BaseCommand):
                 else:
                     existing.append(save_instrument(item))
                     created += 1
+            removed, backup = remove_unsupported_generated_instruments(
+                payload.get('catalog', []) + live_catalog, candidate_ids={item['id'] for item in excluded})
         self.stdout.write(self.style.SUCCESS(f'Created {created} instruments; retained {retained} existing definitions. Saved budgets unchanged.'))
+        if removed:
+            self.stdout.write(f'Removed {removed} unsupported generated entries/local copies. Backup: {backup}.')
