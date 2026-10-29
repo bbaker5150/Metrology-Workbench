@@ -9,6 +9,7 @@ import { normalizeInlineManualComponent, getInlineManualDraft } from "../feature
 import { reconcileTmdeInstances, refreshTmdeInstancesFromMasters } from "./tmdeReconcile";
 import { resolveTmdeTransferComponent } from './tmdeTransferComponent';
 import { formatErrorSourceDescription, formatErrorSourceKind } from './instrumentIdentity';
+import { resolveY5020Resolution } from './y5020Resolution';
 
 // Resolve the same explicit budget sources for the open view, sidebar and exports.
 // A resolution row explicitly added to a budget stays included regardless of
@@ -31,6 +32,7 @@ export function resolvePointBudgetComponents(point, sessionData, instruments = [
     // already-added budget row without reintroducing equation-variable assignment.
     const refreshedTmdeComponents = rawComponents
       .map((component) => {
+        if (component.y5020Resolution) return resolveY5020Resolution(component, sessionData, getReferencePoint(component));
         if (component.tmdeTransferSources) return resolveTmdeTransferComponent(component, sessionData, getReferencePoint(component));
         if (component.type === "A" && component.savedInputs) return resolveRepeatabilityComponent(component, getReferencePoint(component));
         if (component?.uutResolutionBudgetSource) {

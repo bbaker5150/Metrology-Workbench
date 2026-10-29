@@ -1,9 +1,44 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import UncertaintyPanel, { EditableDescriptionCell } from './UncertaintyPanel';
 import { buildAcShuntBudget } from '../../../utils/acShuntBudget';
+import { generic5790, nominalY5020Resolution } from '../../../utils/testFixtures/generic5790';
+import { resolvePointBudgetComponents } from '../../../utils/resolvePointBudgetComponents';
 
 vi.mock('plotly.js-dist',()=>({default:{}}));
+
+it.each(['session', 'point'])('shows the generic 5790 and its editable voltage resolution in the %s TMDE table', async viewMode => {
+  const ti = { id:'ti',type:'uut',scope:'validated',manufacturer:'Fluke',model:'Y5020 · TI',
+    functions:[{id:'current',name:'Current',unit:'A',ranges:[{id:'10A',min:10,max:10,unit:'A',
+      qualifier:{value:1000,unit:'Hz',isSingleValue:true},
+      tolerances:{reading:{high:100,low:-100,unit:'ppm',symmetric:true,distribution:'not_set'}}}]}] };
+  const {session} = buildAcShuntBudget({id:1,name:'Resolution table',generic5790Instrument:generic5790,
+    instruments:{test_instrument_model:'Y5020',test_instrument_serial:'TI'},
+    points:[{current:10,frequency:1000,readerResolution:nominalY5020Resolution(10),
+      analytics:{pair_delta_uut_ppm:1,pair_type_a_uncertainty_ppm:2,n_pairs_used:5}}]}, {instruments:[ti]});
+  const point = session.testPoints[0];
+  const save = vi.fn();
+  const {container} = render(<UncertaintyPanel testPointData={{...point,viewMode}}
+    sessionData={session} onSessionSave={save} tmdeTolerancesData={[]} uutNominal={point.testPointInfo.parameter}/>);
+  const group = `[data-range-group="tmde:${session.tmdes[0].id}"]`;
+  expect(container.querySelector(group).querySelector('.inline-desc-combined')).toHaveTextContent('Fluke 5790B');
+  // Both views show every stored range. Edit the 2.2 V range used by this point.
+  const row = container.querySelector(`${group}[data-range-id="${generic5790.functions[0].ranges[1].id}"]`);
+  const resolution = row.querySelector('[title="Edit resolution"]');
+  expect(resolution).toBeInTheDocument();
+  expect(resolution).toHaveTextContent(/0\.0000001.*V/);
+  fireEvent.click(resolution);
+  const input = row.querySelector('.inline-resolution-input');
+  fireEvent.change(input,{target:{value:'0.0000002'}});
+  fireEvent.blur(input);
+  await waitFor(() => expect(save).toHaveBeenCalled());
+  const updated = save.mock.calls.at(-1)[0];
+  const changed = updated.tmdes[0].instrument.functions[0].ranges[1];
+  expect(Number(changed.resolution)).toBe(2e-7);
+  expect(Number(changed.measuringResolution)).toBe(2e-7);
+  expect(resolvePointBudgetComponents(point,updated).at(-1).value)
+    .toBeCloseTo(2*Math.SQRT2/Math.sqrt(12), 10);
+});
 
 it.each([
   'NIST reference AC shunt · 20 A',

@@ -30,6 +30,13 @@ def ac_shunt_snapshot(request, session_id):
     snapshot = session_snapshot(session_id)
     if snapshot is None:
         return Response({"detail": "AC-shunt session not found."}, status=404)
+    from .y5020_resolution import is_y5020
+    if is_y5020(snapshot['instruments']['test_instrument_model']):
+        # Also initialize on first import for installations launched without
+        # bootstrap. The stable library ID prevents serial matching/duplicates.
+        from .fluke5790_instrument import seed_generic_5790
+        reader, _ = seed_generic_5790()
+        snapshot['generic5790Instrument'] = serializers.instrument_to_dict(reader)
     return Response(snapshot)
 
 

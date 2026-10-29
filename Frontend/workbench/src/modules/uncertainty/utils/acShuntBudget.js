@@ -4,6 +4,7 @@ import { getBudgetComponentsFromTolerance } from '../features/analysis/utils/bud
 import { matchAcShuntInstrument, linkAcShuntDefinition, matchAcShuntRange, sharedAcShuntInstruments } from './acShuntLibrary';
 import { recalculatePointUncertaintyFields } from './riskCompute';
 import { formatInstrumentIdentity } from './instrumentIdentity';
+import { GENERIC_5790_ID, isY5020 } from './y5020Resolution';
 
 const finite = n => n !== null && n !== undefined && n !== '' && Number.isFinite(Number(n));
 const qualifier = value => ({ name: 'Frequency', min: value, max: value, value, isSingleValue: true, unit: 'Hz' });
@@ -27,6 +28,11 @@ export function buildAcShuntBudget(snapshot, { instruments = [] } = {}) {
     name: definition.description || '',
     quantity: 1, isInstrumentBased: true, measurementAreaNames: ['Current'] }, definition) : null;
   const referenceIdentity = reference ? formatInstrumentIdentity(reference) : '';
+  const y5020 = isY5020(meta.test_instrument_model);
+  const readerDefinition = y5020 ? (snapshot.generic5790Instrument || shared.find(item => item.id === GENERIC_5790_ID)) : null;
+  const reader = readerDefinition ? linkAcShuntDefinition({ id: uuid(), name: readerDefinition.description || '',
+    quantity: 1, isInstrumentBased: true, measurementAreaNames: ['Current'] }, readerDefinition) : null;
+  if (y5020 && !reader) warnings.push('Restart the backend to initialize the generic Fluke 5790B library instrument.');
   const testPoints = snapshot.points.map(point => {
     if (!finite(point.current) || Number(point.current) <= 0 || !finite(point.frequency) || Number(point.frequency) <= 0) {
       throw new Error('Each AC-shunt point must have a positive current and frequency.');
@@ -77,6 +83,14 @@ export function buildAcShuntBudget(snapshot, { instruments = [] } = {}) {
         warnings.push(`${point.current} A / ${point.frequency} Hz: ${error.message}`);
       }
     }
+    if (y5020) {
+      const id = uuid();
+      components.push({ id, componentId: id, name: 'Fluke 5790B - Resolution', type: 'B', dof: Infinity,
+        isCore: true, isBudgetInstance: true, isResolution: true, quantity: 1,
+        sourceTmdeId: reader?.id, tmdeBudgetSourceId: reader?.id, tmdeBudgetComponentKind: 'Resolution',
+        y5020Resolution: point.readerResolution || { cases: [] },
+        originalInput: { inputMode: 'tolerance', unit: 'ppm', useFiniteDof: false } });
+    }
     let uutTolerance = {};
     try {
       uutTolerance = matchAcShuntRange(uut, 'Current', nominal);
@@ -94,11 +108,14 @@ export function buildAcShuntBudget(snapshot, { instruments = [] } = {}) {
     documentDate: snapshot.createdAt?.slice(0, 10) || '',
     measurementAreas: [{ id: areaId, name: 'Current', color: '#5aa6d9' }],
     measurementAreaGroups: [{ id: 'current', name: 'Current', units: ['A'], color: '#5aa6d9' }],
-    uuts: [uut], tmdes: reference ? [reference] : [], testPoints, noteImages: [], uutTolerance: {},
+    uuts: [uut], tmdes: [...(reference ? [reference] : []), ...(reader ? [reader] : [])], testPoints, noteImages: [], uutTolerance: {},
     uncReq: { uncertaintyConfidence: 95, reliability: 85, calInt: 12, neededTUR: 4, reqPFA: 2 },
     notes: [`Source: AC-shunt session ${snapshot.id} (${snapshot.name}).`,
       'AC–DC difference is the signed measured result. AC/DC repeatability uses the saved paired Type A standard uncertainty with N−1 degrees of freedom.',
       'Fluke 5790B Variability: editable ±5 ppm, Rectangular. TI acceptance uses the selected library instrument, initially lab ±100 ppm, with no measured bias applied.',
+      ...(y5020 ? ['Fluke 5790B resolution: live voltage increments from the generic library instrument, propagated through all eight phase means of the AC/DC comparison with independent rounding. Uses the largest accepted cycle; no sample/cycle averaging reduction.',
+        ...(snapshot.points.some(p => p.readerResolution?.nominalVoltageFallback) ? ['Where saved phase voltages are unavailable, resolution uses nominal Y5020 voltage (current × 0.01 Ω).'] : []),
+        ...(snapshot.points.some(p => p.readerResolution?.autoRangeUpperBound) ? ['AUTO does not save the actual reader range; resolution uses the supported 2.2 V upper-bound range.'] : [])] : []),
       'Reference errors use the selected Uncertalytics instrument. Complete any remaining instrument contributions in the budget.', ...warnings].join('\n'),
     detailSectionOrder: ['instruments', 'equation', 'budget'], detailCollapsedSections: [] };
   session.testPoints = testPoints.map(point => recalculatePointUncertaintyFields(point, session));

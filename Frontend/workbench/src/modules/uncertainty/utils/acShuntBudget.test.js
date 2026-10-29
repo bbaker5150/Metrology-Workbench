@@ -5,11 +5,14 @@ import { resolvePointBudgetComponents } from './resolvePointBudgetComponents';
 import { getInlineManualDraft, normalizeInlineManualComponent } from '../features/analysis/utils/manualComponentUtils';
 import { isPpmBudget } from './budgetDisplay';
 import { formatInstrumentIdentity } from './instrumentIdentity';
+import { generic5790, nominalY5020Resolution } from './testFixtures/generic5790';
 
 const snapshot = (points = [{ current: 10, frequency: 1000 }]) => ({
   id: 10, name: 'Saved run', createdAt: '2026-10-02',
+  generic5790Instrument: structuredClone(generic5790),
   instruments: { test_instrument_model: 'Y5020', test_instrument_serial: 'TI', standard_instrument_model: 'Y5020', standard_instrument_serial: 'REF' },
   points: points.map((point, index) => ({ ...point, sourcePointIds: [index * 2 + 1, index * 2 + 2],
+    readerResolution: nominalY5020Resolution(point.current),
     analytics: { pair_type_a_uncertainty_ppm: 2, n_pairs_used: 4, pair_delta_uut_ppm: -3 } })),
 });
 const reference = { id: 'ref', scope: 'validated', manufacturer: 'Fluke', model: 'Y5020 · REF', description: 'NIST reference',
@@ -105,13 +108,14 @@ describe('simple AC-shunt measurement import', () => {
       parameter: { value: 10, unit: 'A', qualifier: { value: 1000, unit: 'Hz' } },
       qualifier: { value: 1000, min: 1000, max: 1000, unit: 'Hz', isSingleValue: true },
       acShuntSource: { deltaPpm: -3, sessionId: 10, pointIds: [1,2] } });
-    expect(point.components).toHaveLength(2);
+    expect(point.components).toHaveLength(3);
     expect(point.components[0]).toMatchObject({ type: 'A', value: 2, dof: 3,
       originalInput: { standardUncertainty: 2, unit: 'ppm', useFiniteDof: true } });
     expect(point.components[0].value_native).toBeCloseTo(0.00002, 12);
     expect(point.equationString).toBeUndefined();
     expect(point.variableNominals).toBeUndefined();
-    expect(session.tmdes).toEqual([]);
+    expect(session.tmdes).toHaveLength(1);
+    expect(session.tmdes[0].instrument.id).toBe(generic5790.id);
     expect(point.components.some(c => c.tmdeTransferSources)).toBe(false);
     expect(isPpmBudget(point.components)).toBe(true);
   });
@@ -129,7 +133,7 @@ describe('simple AC-shunt measurement import', () => {
       draft: { ...draft, tolerance: { floor: { ...draft.tolerance.floor, high: 9, low: -9 } } } });
     first.components[1] = edited;
     expect(computeUncertaintyForPoint(first,session).combined_uncertainty_absolute_base)
-      .toBeCloseTo(Math.hypot(2,9/Math.sqrt(3))*10e-6, 12);
+      .toBeCloseTo(Math.hypot(2,9/Math.sqrt(3),Math.SQRT2/Math.sqrt(12))*10e-6, 12);
     expect(second.components[1].originalInput.tolerance.floor.high).toBe(5);
     expect(row.id).not.toBe(second.components[1].id);
   });
@@ -149,15 +153,61 @@ describe('simple AC-shunt measurement import', () => {
     const before = JSON.stringify(reference);
     const { session, referenceId } = buildAcShuntBudget(source, { instruments: [reference] });
     expect(referenceId).toBe('ref');
-    expect(session.tmdes).toHaveLength(1);
+    expect(session.tmdes).toHaveLength(2);
     session.testPoints.forEach((point,index) => {
       const rows = resolvePointBudgetComponents(point,session);
-      expect(rows).toHaveLength(3);
+      expect(rows).toHaveLength(4);
       expect(rows[2].value).toBeCloseTo([38,35,46][index]/1.96, 7);
       expect(rows[2].tmdeBudgetSourceId).toBe(session.tmdes[0].id);
       expect(isPpmBudget(rows)).toBe(true);
     });
     expect(JSON.stringify(reference)).toBe(before);
+  });
+  it('adds exactly one generic reader for Y5020 regardless of physical reader serials or other library meters', () => {
+    const source = snapshot([{current:10,frequency:1000},{current:20,frequency:1000}]);
+    source.instruments.standard_reader_serial = '4449302';
+    source.instruments.test_reader_serial = 'OTHER';
+    const duplicates = [generic5790, {...generic5790,id:'legacy-meter'}, {...generic5790,id:'local-copy',scope:'local'}];
+    const before = JSON.stringify(duplicates);
+    const {session} = buildAcShuntBudget(source, {instruments:duplicates});
+    expect(session.tmdes).toHaveLength(1);
+    expect(formatInstrumentIdentity(session.tmdes[0])).toBe('Fluke 5790B');
+    expect(session.tmdes[0].instrument.sourceId).toBe(generic5790.id);
+    expect(session.tmdes[0].measurementAreaNames).toEqual(['Current']);
+    for (const point of session.testPoints) {
+      const rows = resolvePointBudgetComponents(point, session).filter(row => row.isResolution);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].pendingReason).toBeNull();
+      const current = point.testPointInfo.parameter.value;
+      expect(rows[0].value).toBeCloseTo(Math.SQRT2*1e-7/(current*.01)/Math.sqrt(12)*1e6, 10);
+      expect(rows[0].tmdeBudgetSourceId).toBe(session.tmdes[0].id);
+    }
+    expect(JSON.stringify(duplicates)).toBe(before);
+  });
+  it.each(['A40B', 'A40B-20A', 'Other'])('does not add a 5790 instrument or resolution for %s', model => {
+    const source = snapshot();
+    source.instruments.test_instrument_model = model;
+    const {session} = buildAcShuntBudget(source, {instruments:[generic5790]});
+    expect(session.tmdes).toEqual([]);
+    expect(session.testPoints[0].components).toHaveLength(2);
+    expect(session.testPoints[0].components.some(row => row.y5020Resolution)).toBe(false);
+  });
+  it('recalculates the linked resolution and risk after editing the TMDE resolution and saving', () => {
+    const session = JSON.parse(JSON.stringify(buildAcShuntBudget(snapshot(), {instruments:[reference]}).session));
+    const point = session.testPoints[0];
+    const before = computeUncertaintyForPoint(point,session).combined_uncertainty_absolute_base;
+    const risk = computePointRiskMetrics(point,session);
+    const meter = session.tmdes.find(item => item.instrument.id === generic5790.id);
+    const range = meter.instrument.functions[0].ranges[1];
+    expect(range.resolution).toBe(1e-7);
+    range.resolution = 1e-5;
+    const rows = resolvePointBudgetComponents(point,session);
+    expect(rows.at(-1).value).toBeCloseTo(Math.SQRT2*100/Math.sqrt(12), 9);
+    expect(computeUncertaintyForPoint(point,session).combined_uncertainty_absolute_base).toBeGreaterThan(before);
+    expect(computePointRiskMetrics(point,session).tur).toBeLessThan(risk.tur);
+    range.resolution = '';
+    expect(resolvePointBudgetComponents(point,session).at(-1).pendingReason).toMatch(/Set the resolution/);
+    expect(computeUncertaintyForPoint(point,session)).toBeNull();
   });
   it('keeps missing reference frequencies incomplete rather than using another frequency', () => {
     const { session, warnings } = buildAcShuntBudget(snapshot([{current:10,frequency:6000}]), { instruments:[reference] });

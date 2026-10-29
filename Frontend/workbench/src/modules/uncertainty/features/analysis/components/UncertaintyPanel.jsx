@@ -10,6 +10,7 @@ import { switchBudgetUncertaintyKind } from "../utils/switchBudgetUncertaintyKin
 import DynamicUncertaintyFields from "./DynamicUncertaintyFields";
 import { instrumentUncertaintySources, withInstrumentUncertaintySources } from "../../../utils/instrumentUncertaintySources";
 import { FLUSH_EDITORS } from "../../../hooks/usePageExitRecovery";
+import { resolveY5020Resolution } from "../../../utils/y5020Resolution";
 import { readEditorDraft, saveEditorDraft, clearEditorDraft } from "../../../utils/editorRecovery";
 import { BUDGET_COMPONENT_MIME, associateBudgetComponent, canUseInstrumentBudgetComponent, instantiateInstrumentBudgetComponent } from "../../../utils/instrumentBudgetComponents";
 import { inputSymbol, inputBinding } from "../../../utils/budgetScope";
@@ -16628,7 +16629,18 @@ function DetailedView({
                         : tmdeRowKey;
                       // const referencePoint = tmdeInstance.measurementPoint || { value: '', unit: '' }; // Removed unused reference
 
-                      const savedTolerance = isChecked ? tmdeInstance : null;
+                      const linkedReaderResolution = (testPointData?.components || []).find(component =>
+                        component.y5020Resolution && String(component.tmdeBudgetSourceId) === String(masterTmde.id));
+                      const readerResolution = linkedReaderResolution
+                        ? resolveY5020Resolution(linkedReaderResolution, sessionData, uutNominal) : null;
+                      // The voltage reader contributes through an explicit
+                      // AC/DC sensitivity, not a direct-current TMDE instance.
+                      // Show its actual contributing range without adding a
+                      // second, dimensionally incompatible budget source.
+                      const savedTolerance = isChecked ? tmdeInstance : readerResolution ? {
+                        rangeId: readerResolution.tmdeBudgetRangeId,
+                        functionId: readerResolution.tmdeBudgetFunctionId,
+                      } : null;
                       // Pass the point's nominal so an unassigned TMDE defaults to
                       // a range that actually covers this measurement point
                       // (resolveUutRangeHelper Priority C) instead of range 0.

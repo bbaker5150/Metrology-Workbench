@@ -6,6 +6,7 @@ read-only calculation used by the AC-shunt results view.
 from collections import OrderedDict
 
 from api.models import CalibrationSession
+from .y5020_resolution import is_y5020, resolution_snapshot
 
 
 def session_snapshot(session_id):
@@ -27,12 +28,14 @@ def session_snapshot(session_id):
             analytics = {**analytics, 'pair_delta_uut_ppm': results[0].pair_delta_uut_ppm,
                          'pair_type_a_uncertainty_ppm': results[0].pair_type_a_uncertainty_ppm,
                          'n_pairs_used': results[0].n_pairs_used, 'persistedOnly': True}
+        reader_resolution = resolution_snapshot(pair, analytics, current) if is_y5020(session.test_instrument_model) else None
         # Send only the aggregates used by the budget, not phase readings or certificates.
         analytics = {key: analytics[key] for key in (
             'pair_delta_uut_ppm', 'pair_type_a_uncertainty_ppm', 'n_pairs_used', 'persistedOnly'
         ) if key in analytics} if analytics else None
         result_points.append({"sourcePointIds": [p.pk for p in pair], "current": float(current),
             "frequency": frequency, "analytics": analytics,
+            **({'readerResolution': reader_resolution} if reader_resolution else {}),
             "stabilityFailed": any(p.is_stability_failed for p in pair)})
     fields = ('standard_instrument_model', 'standard_instrument_serial',
               'test_instrument_model', 'test_instrument_serial')

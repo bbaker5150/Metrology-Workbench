@@ -12,7 +12,17 @@ The actual TI and reference are matched automatically to the shared Uncertalytic
 
 Shunt library names and new imports use `Fluke {A40B or Y5020} {serial} {rated range} {CHECK STD or NIST}`. For example: `Fluke Y5020 3845014 20 A CHECK STD` and `Fluke Y5020 5965004 20 A NIST`. Manufacturer and model stay in their own fields; serial, range and standard designation occupy Description. Both instrument tables display those fields in the same order. Older budgets retain their saved definitions until the library instrument is synced or the session is imported again.
 
-The routine snapshot contains only session identity, TI/reference identity and configured shunt range, current/frequency, accepted-pair aggregates, source point IDs and stability flags. Model, serial and rated range support automatic matching independently of the display name. It does not fetch certificates, reader settings or phase voltage data. It does not rebuild readers, TVCs, transfer equations or manufacturer specifications. Add any remaining instrument contributions through the usual budget editors.
+The routine snapshot contains session identity, TI/reference identity and configured shunt range, current/frequency, accepted-pair aggregates, source point IDs and stability flags. Model, serial and rated range support automatic matching independently of the display name. It does not fetch certificates or send raw phase readings. Y5020 snapshots also contain the generic 5790B definition and compact resolution sensitivities described below. Add any remaining instrument contributions through the usual budget editors.
+
+## Generic 5790B for Y5020 imports
+
+Y5020 imports automatically add one **Fluke 5790B**, without a serial number, to the Current area's TMDE table, and one linked **Fluke 5790B - Resolution** source per point. A40B imports do neither. The dedicated shared library ID is `fluke-5790b-generic`; reader serials and unrelated 5790 entries cannot make the match ambiguous. Bootstrap creates it once, and the first Y5020 import also ensures it exists for installations launched without bootstrap. Subsequent setup preserves edits. Existing imported budgets are not rewritten.
+
+The library's Voltage (Medium/Slow) and Voltage (Fast) functions contain the voltage-range increments from the **5790B Service Manual, page 1-6, Resolution and Range Limits**. Values occupy the normal editable Resolution cells; no accuracy specification is added. For example, the 2.2 V range has a full increment of 0.1 µV in Medium/Slow and 1 µV in Fast. Resolution uses the full-increment rectangular divisor `sqrt(12)`. HIRES ON also selects the fine increment, as specified in [Fluke's operator manual, Table 4-5 and HIRES command](https://s3.amazonaws.com/download.flukecal.com/pub/literature/5790B___omeng0000_0.pdf).
+
+All eight phase means contribute to the AC–DC calculation. For each shunt, `Vac = (|ac_open| + |ac_close|)/2` and `Vdc = (|dc_pos| + |dc_neg|)/2`. Each AC phase has sensitivity magnitude `10^6/(2 eta Vdc)` ppm/V; each DC phase has magnitude `10^6 Vac/(2 eta Vdc^2)` ppm/V. The eight sensitivities combine in quadrature under independent phase-rounding assumptions, then multiply the instrument's live voltage standard resolution. One full digit is retained for each phase mean, with no sample, cycle or forward/reverse averaging reduction; the largest accepted-cycle contribution is used. Cycle caps, ABBA pairing and manual/automatic exclusions follow the saved result. Type A remains unchanged.
+
+Older sessions with no phase means use the nominal Y5020 voltage, `current × 0.01 Ω`, with that assumption recorded in budget notes. AUTO range does not retain an actual selected range, so its resolution uses the supported 2.2 V upper-bound increment and records this in notes. The contribution is converted to ppm and equivalent current uncertainty; volts are never combined directly with amps. Changing the linked instrument's resolution immediately recalculates the contribution, combined/expanded uncertainty and risk metrics. Removing a required resolution leaves the contribution explicitly incomplete.
 
 ## Initial instrument setup
 
@@ -28,6 +38,6 @@ To run setup separately, from `Backend/ac_shunt` use `python manage.py seed_ac_s
 
 ## Focused checks
 
-Use `manage.py test uncertainty.test_ac_shunt_import` and the focused Vitest files `acShuntBudget.test.js`, `acShuntSpecs.test.js`, `AcShuntImportTool.test.jsx`, `App.sidebarRisk.test.jsx`, and `useSessionManager.test.js`.
+Use `manage.py test uncertainty.test_ac_shunt_import uncertainty.test_generic_5790` and the focused Vitest files `acShuntBudget.test.js`, `acShuntSpecs.test.js`, `AcShuntImportTool.test.jsx`, `AcShuntInstrumentIdentity.test.jsx`, `App.sidebarRisk.test.jsx`, and `useSessionManager.test.js`.
 
 After hands-on testing is approved, the feature browser check is `node scripts/smoke-ac-shunt-import.mjs`, with `WORKBENCH_URL` pointing to the full Workbench server (default port 3197). It checks the simplified preview, saved point/qualifier/result fields, manual variability, shared reference links and TI limits.

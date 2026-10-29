@@ -3,6 +3,7 @@ import { beforeEach, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import axios from 'axios';
 import ImportTool from './AcShuntImportTool';
+import { generic5790, nominalY5020Resolution } from '../../utils/testFixtures/generic5790';
 vi.mock('axios',()=>({default:{get:vi.fn()}}));
 
 const ti = { id:'shared-ti',type:'uut',scope:'validated',manufacturer:'Fluke',model:'A40B · UUT',functions:[{
@@ -82,6 +83,32 @@ it('keeps the dialog open when saving fails',async()=>{
   await screen.findByText(/1 measurement points/);
   fireEvent.click(screen.getByRole('button',{name:'Create budget'}));
   expect(await screen.findByRole('alert')).toHaveTextContent('Save failed');
+});
+
+it('imports Y5020 with its generic reader even when the loaded library has no matching reader serial', async () => {
+  const onImport = vi.fn();
+  const source = {...snapshot, name:'Y5020 run',
+    instruments:{test_instrument_model:'Y5020',test_instrument_serial:'UUT',test_reader_serial:'4449302'},
+    generic5790Instrument:generic5790,
+    points:[{current:10,frequency:1000,sourcePointIds:[1,2],readerResolution:nominalY5020Resolution(10),
+      analytics:{pair_delta_uut_ppm:-3,pair_type_a_uncertainty_ppm:2,n_pairs_used:4}}]};
+  axios.get.mockImplementation(url => Promise.resolve({data:url.endsWith('/1/') ? source
+    : {available:true,sessions:[{id:1,session_name:'Y5020 run',test_instrument_model:'Y5020'}]}}));
+  render(<ImportTool onImport={onImport} instruments={[{...ti,model:'Y5020 · UUT'}]}/>);
+  fireEvent.click(screen.getByRole('button',{name:'Import AC/DC shunt session'}));
+  fireEvent.click(await screen.findByRole('button',{name:/Y5020 run/}));
+  await screen.findByText('1 measurement points');
+  expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
+  expect(screen.queryByRole('alert')).not.toBeInTheDocument();
+  const create = screen.getByRole('button',{name:'Create budget'});
+  expect(create).toBeEnabled();
+  fireEvent.click(create);
+  await waitFor(() => expect(onImport).toHaveBeenCalledOnce());
+  const session = onImport.mock.calls[0][0];
+  expect(session.tmdes).toHaveLength(1);
+  expect(session.tmdes[0].instrument.sourceId).toBe(generic5790.id);
+  expect(session.testPoints[0].components.at(-1).tmdeBudgetSourceId).toBe(session.tmdes[0].id);
+  expect(session.testPoints[0].expanded_uncertainty_absolute_base).toBeGreaterThan(0);
 });
 
 it('makes later session pages available in one scrollable list without paging buttons',async()=>{

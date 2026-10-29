@@ -1,6 +1,7 @@
 import { chromium } from 'playwright';
 import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync } from 'node:fs';
+import { generic5790, nominalY5020Resolution } from '../src/modules/uncertainty/utils/testFixtures/generic5790.js';
 
 // Run against the full Workbench dev server: WORKBENCH_URL=http://127.0.0.1:3197
 const url=process.env.WORKBENCH_URL || 'http://127.0.0.1:3197';
@@ -9,9 +10,11 @@ const page=await browser.newPage({viewport:{width:1440,height:1000}});
 page.setDefaultTimeout(20000);
 const errors=[];page.on('pageerror',e=>errors.push(e.message));
 const source={id:11,name:'Y5020 import smoke',createdAt:'2026-10-02T00:00:00Z',
+  generic5790Instrument:generic5790,
   instruments:{test_instrument_model:'Y5020',test_instrument_serial:'TEST-20',standard_instrument_model:'Y5020',
     standard_instrument_serial:'STD-20'},points:[6.9,10,20].map(current=>({
       current,frequency:1000,sourcePointIds:[current*10,current*10+1],
+      readerResolution:nominalY5020Resolution(current),
       analytics:{pair_type_a_uncertainty_ppm:1.2,n_pairs_used:5,pair_delta_uut_ppm:2.5}}))};
 const reference={id:'nist-reference',type:'tmde',scope:'validated',manufacturer:'Fluke',model:'Y5020 · STD-20',description:'NIST reference',
   functions:[{id:'current',name:'Current',unit:'A',ranges:source.points.map(point=>({
@@ -29,7 +32,7 @@ let saved;
 await page.route('**/api/**',async route=>{
   const path=new URL(route.request().url()).pathname;
   let data=[];
-  if(path.endsWith('/uncertainty/instruments/'))data=[reference,ti];
+  if(path.endsWith('/uncertainty/instruments/'))data=[reference,ti,generic5790];
   else if(path.endsWith('/ac-shunt/sessions/'))data={available:true,sessions:[{id:11,session_name:source.name,test_instrument_model:'Y5020',test_instrument_serial:'TEST-20',created_at:source.createdAt}],page:1,pages:1};
   else if(path.endsWith('/ac-shunt/sessions/11/'))data=source;
   else if(route.request().method()==='PUT' && /uncertainty\/sessions\/\d+\/$/.test(path)){saved=route.request().postDataJSON();data=saved;}
@@ -55,7 +58,9 @@ try {
   console.log('Imported session saved.');
   assert.equal(saved.testPoints.length,3);
   assert.equal(saved.testPoints[0].components[0].dof,4);
-  assert.equal(saved.tmdes.length,1);
+  assert.equal(saved.tmdes.length,2);
+  assert.equal(saved.tmdes[1].instrument.sourceId,generic5790.id);
+  assert.equal(saved.tmdes[1].instrument.functions[0].ranges[1].resolution,1e-7);
   assert.equal(saved.tmdes[0].libraryInstrumentId,'nist-reference');
   assert.equal(saved.tmdes[0].name,'NIST reference');
   assert.equal(saved.uuts[0].libraryInstrumentId,'library-ti');
@@ -65,7 +70,8 @@ try {
   assert.equal(saved.testPoints[0].testPointInfo.measurementArea,'Current');
   assert.ok(saved.testPoints.every(p=>p.testPointInfo.qualifier.value===1000 && p.testPointInfo.qualifier.unit==='Hz'));
   assert.ok(saved.testPoints.every(p=>p.testPointInfo.acShuntSource.deltaPpm===2.5));
-  assert.ok(saved.testPoints.every(p=>p.components.length===3 && p.components.every(c=>!c.pendingReason)));
+  assert.ok(saved.testPoints.every(p=>p.components.length===4 && p.components.every(c=>!c.pendingReason)));
+  assert.ok(saved.testPoints.every(p=>p.components[3].isResolution && p.components[3].tmdeBudgetSourceId===saved.tmdes[1].id));
   assert.ok(saved.testPoints.every(p=>p.uutTolerance.tolerances.reading.high===100 && p.uutTolerance.tolerances.reading.low===-100));
   assert.ok(saved.testPoints.every(p=>!p.uutTolerance.tolerances.bias));
   assert.ok(saved.testPoints.every(p=>p.expanded_uncertainty_absolute_base>0));
