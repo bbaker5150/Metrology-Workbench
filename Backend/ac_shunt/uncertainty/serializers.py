@@ -442,6 +442,23 @@ def save_instrument(data):
             pk = linked_local.id
     existing = models.Instrument.objects.filter(id=pk).first()
     scope = data.get("scope") or (existing.scope if existing else models.Instrument.SCOPE_LOCAL)
+    if existing is None and scope == models.Instrument.SCOPE_VALIDATED and pk.startswith('ac-shunt-ti-'):
+        canonical = next((item for item in models.Instrument.objects.filter(scope=models.Instrument.SCOPE_VALIDATED)
+                          if pk in (item.column_metadata or {}).get('acShuntIdentity', {}).get('formerLibraryIds', [])), None)
+        if canonical:
+            existing, pk = canonical, canonical.id
+            source_id_in = canonical.id
+            data = {**data, 'acShuntIdentity': {**(data.get('acShuntIdentity') or {}), 'usageRole': 'uut'}}
+
+    # Saving the TI view of a shared shunt updates its acceptance profile,
+    # never the reference report uncertainties on the same physical entry.
+    identity = data.get('acShuntIdentity') or {}
+    if existing and scope == models.Instrument.SCOPE_VALIDATED and identity.get('usageRole') == 'uut':
+        canonical = {**(existing.column_metadata or {}).get('acShuntIdentity', {}),
+                     'uutFunctions': data.get('functions') or [],
+                     'uutTypeBComponents': data.get('typeBComponents') or []}
+        data = {**data, 'type': existing.instrument_type, 'functions': existing.functions,
+                'typeBComponents': existing.type_b_components, 'acShuntIdentity': canonical}
 
     defaults = {
         "manufacturer": data.get("manufacturer", "") or "",

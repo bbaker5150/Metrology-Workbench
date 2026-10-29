@@ -1,3 +1,4 @@
+import { instrumentForRole } from './utils/acShuntInstrumentRole';
 import InstrumentLibraryModal from "./features/instruments/components/InstrumentLibraryModal";
 import { buildSidebarCellGroups } from "./utils/sidebarCellGroups";
 import { newMeasurementAreaColor } from "./utils/measurementAreaGrouping";
@@ -4316,7 +4317,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
         inst.description ||
         `${inst.manufacturer || ""} ${inst.model || ""}`.trim() ||
         "Instrument";
-      const instrument = { ...inst };
+      const instrument = { ...instrumentForRole(inst, useAs) };
       delete instrument.useAs;
       if (useAs === "uut") {
         const areaId = ensureAreaId(

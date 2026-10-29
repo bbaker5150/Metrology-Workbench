@@ -1,5 +1,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import { instrumentMeasurementAreas, resolveSessionMeasurementAreas } from './measurementAreaGrouping';
+import { instrumentForRole } from './acShuntInstrumentRole';
+import { buildValidatedSnapshot } from './instrumentSync';
 
 export const LIBRARY_INSTRUMENT_MIME = 'application/x-workbench-library-instruments';
 const isLibraryDrag = transfer => transfer?.types?.includes(LIBRARY_INSTRUMENT_MIME) || Boolean(transfer?.getData(LIBRARY_INSTRUMENT_MIME));
@@ -9,7 +11,8 @@ const isLibraryDrag = transfer => transfer?.types?.includes(LIBRARY_INSTRUMENT_M
 export function addLibraryInstrumentRows(session, definitions, kind, areaKey) {
   const area = resolveSessionMeasurementAreas(session).find(item => item.key === areaKey);
   const rows = definitions.map(definition => {
-    const instrument = structuredClone(definition);
+    const instrument = structuredClone(instrumentForRole(definition, kind));
+    if (instrument.acShuntIdentity?.usageRole === 'uut') instrument.validatedSnapshot = buildValidatedSnapshot(instrument);
     const name = instrument.description || [instrument.manufacturer, instrument.model].filter(Boolean).join(' ') || 'Instrument';
     return {
       id: uuidv4(), instrument,

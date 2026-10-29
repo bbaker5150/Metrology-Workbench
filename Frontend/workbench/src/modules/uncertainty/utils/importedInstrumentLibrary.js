@@ -1,5 +1,6 @@
 import { v4 as uuid } from 'uuid';
 import { buildValidatedSnapshot } from './instrumentSync';
+import { instrumentForRole } from './acShuntInstrumentRole';
 
 // Importing specifications never grants library membership. Promotion is an
 // explicit user action, even when a matching definition already exists.
@@ -10,7 +11,7 @@ export function reconcileImportedInstruments(session, { sharedInstruments = [] }
     // Ordinary file imports still detach, even if they carry shared-looking IDs.
     const shared = sharedInstruments.find(item => item.scope === 'validated' &&
       String(item.id) === String(instrument.sourceId));
-    if (shared && JSON.stringify(instrument.validatedSnapshot) === JSON.stringify(buildValidatedSnapshot(shared))) {
+    if (shared && JSON.stringify(instrument.validatedSnapshot) === JSON.stringify(buildValidatedSnapshot(instrumentForRole(shared, instrument.acShuntIdentity?.usageRole)))) {
       return { ...instrument, libraryInstrumentId: shared.id };
     }
     const key = JSON.stringify([instrument.id, buildValidatedSnapshot(instrument)]);

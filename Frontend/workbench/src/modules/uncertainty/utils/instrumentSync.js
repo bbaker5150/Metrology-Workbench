@@ -1,4 +1,5 @@
 /** Library status: red is unsynced, yellow is local, green matches shared. */
+import { canonicalShuntDefinition } from './acShuntInstrumentRole';
 
 export const SYNC_NONE = "none";
 export const SYNC_GREEN = "green";
@@ -89,7 +90,9 @@ export const computeSyncState = (instrument = {}) => {
  * library: promote to validated scope, attach the password, and re-snapshot the
  * current definition so the row goes green again. Pure — the caller POSTs it.
  */
-export const buildSyncPayload = (instrument = {}, password = "") => ({
+export const buildSyncPayload = (instrument = {}, password = "") => {
+  instrument = canonicalShuntDefinition(instrument);
+  return ({
   ...instrument,
   id: instrument.sourceId || instrument.id,
   scope: "validated",
@@ -99,4 +102,5 @@ export const buildSyncPayload = (instrument = {}, password = "") => ({
   // override (e.g. a drag-induced area change) is no longer "out of sync".
   localOverride: false,
   password,
-});
+  });
+};

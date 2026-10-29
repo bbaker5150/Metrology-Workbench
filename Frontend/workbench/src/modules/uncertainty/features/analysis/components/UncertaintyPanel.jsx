@@ -1,3 +1,4 @@
+import { instrumentForRole } from '../../../utils/acShuntInstrumentRole';
 import { InstrumentTableViewport, InstrumentDeleteAction } from "./InstrumentTableActions";
 import { consecutiveCellGroup } from "../../../utils/consecutiveCellGroup";
 import { cutQualifierRows, formatQualifierValue, formatQualifierPath, editQualifierRange, instrumentQualifierDepth, instrumentQualifierNames, qualifierAt, qualifierDepth, qualifierGroupKey, qualifierRowSpan } from "../../../utils/qualifierRanges";
@@ -7112,6 +7113,7 @@ const SummaryDashboard = ({
   };
 
   const replaceSyncedItem = (kind, item, syncedInstrument) => {
+    syncedInstrument = instrumentForRole(syncedInstrument, kind);
     if (!onSessionSave || !syncedInstrument) return;
     const listKey = kind === "uut" ? "uuts" : "tmdes";
     const updatedItem = {
@@ -7498,6 +7500,7 @@ const SummaryDashboard = ({
     "Instrument";
 
   const applyPickedLibraryUut = (uutId, inst, options = {}) => {
+    inst = instrumentForRole(inst, "uut");
     if (!onSessionSave) return;
     let updatedItem = null;
     const uuts = (sessionData.uuts || []).map(item => item.id === uutId
@@ -11466,6 +11469,7 @@ function DetailedView({
   };
 
   const replaceSyncedItem = (kind, item, syncedInstrument) => {
+    syncedInstrument = instrumentForRole(syncedInstrument, kind);
     if (!onSessionSave || !syncedInstrument) return;
     const listKey = kind === "uut" ? "uuts" : "tmdes";
     const updatedItem = {
@@ -11864,6 +11868,7 @@ function DetailedView({
     `${inst.manufacturer || ""} ${inst.model || ""}`.trim() ||
     "Instrument";
   const applyPickedLibraryUut = (uutId, inst, options = {}) => {
+    inst = instrumentForRole(inst, "uut");
     if (!onSessionSave) return;
     let updatedItem = null;
     const uuts = (sessionData.uuts || []).map(item => item.id === uutId

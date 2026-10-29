@@ -14,6 +14,18 @@ from .serializers import instrument_to_dict
 from .shunt_identity import matching_uncertainty_records
 
 
+def backup_instruments(items, reason, prefix='ac-shunt-unsupported'):
+    backup = Path(settings.CREDENTIALS_DIR) / 'backups' / f'{prefix}-{uuid4().hex}.json'
+    payload = {'format': 'uncertalytics-ac-shunt-library-backup', 'version': 1,
+        'exportedAt': now(), 'reason': reason,
+        'previousLibraryEntries': [instrument_to_dict(item) for item in items]}
+    serialized = json.dumps(payload, cls=DjangoJSONEncoder, ensure_ascii=False, indent=2, allow_nan=False)
+    backup.parent.mkdir(parents=True, exist_ok=True)
+    with backup.open('x', encoding='utf-8') as stream:
+        stream.write(serialized + '\n')
+    return backup
+
+
 def has_calibration_evidence(item, catalog):
     identity = (item.column_metadata or {}).get('acShuntIdentity', {})
     if matching_uncertainty_records(identity, catalog + identity.get('calibrationEvidence', [])):
@@ -56,13 +68,6 @@ def remove_unsupported_generated_instruments(catalog, *, candidate_ids=None):
             item.scope == Instrument.SCOPE_LOCAL and item.source_id in unsupported)]
         if not removed:
             return 0, None
-        backup = Path(settings.CREDENTIALS_DIR) / 'backups' / f'ac-shunt-unsupported-{uuid4().hex}.json'
-        payload = {'format': 'uncertalytics-ac-shunt-library-backup', 'version': 1,
-            'exportedAt': now(), 'reason': 'Generated entries without reported calibration uncertainty',
-            'previousLibraryEntries': [instrument_to_dict(item) for item in removed]}
-        serialized = json.dumps(payload, cls=DjangoJSONEncoder, ensure_ascii=False, indent=2, allow_nan=False)
-        backup.parent.mkdir(parents=True, exist_ok=True)
-        with backup.open('x', encoding='utf-8') as stream:
-            stream.write(serialized + '\n')
+        backup = backup_instruments(removed, 'Generated entries without reported calibration uncertainty')
         Instrument.objects.using(alias).filter(id__in=[item.id for item in removed]).delete()
     return len(removed), backup

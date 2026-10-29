@@ -200,8 +200,9 @@ class AcShuntReferenceSetupTests(TestCase):
         manual = Shunt.objects.create(model_name='Y5020',serial_number='NIST-10',range=10,is_manual=True)
         report = ShuntReport.objects.create(shunt=manual,report_number='MANUAL')
         ShuntCorrection.objects.create(report=report,current=10,frequency=1000,uncertainty=42)
-        self.assertEqual(seed_ac_shunt_references(),1)
-        self.assertEqual(Instrument.objects.get().functions[0]['ranges'][0]['tolerances']['reading']['high'],42)
+        self.assertEqual(seed_ac_shunt_references(),2)
+        self.assertEqual(Instrument.objects.get(description='NIST-10 10 A MANUAL').functions[0]['ranges'][0]['tolerances']['reading']['high'],42)
+        self.assertTrue(Instrument.objects.filter(description='NIST-10 10 A NIST').exists())
 
     def test_adds_check_standards_from_catalog_without_saved_sessions(self):
         check = Shunt.objects.create(model_name='Shunt', serial_number='CHECK-1', range=.01, remark='Check Standard')
@@ -283,85 +284,78 @@ class AcShuntTestInstrumentSetupTests(TestCase):
                     frequency=frequency, direction=direction)
         return session
 
-    def test_creates_one_shared_ti_per_serial_with_combined_current_frequency_ranges(self):
-        self.make_catalog()
-        self.make_catalog('TI-20')
+    def test_one_library_entry_keeps_report_and_ti_specifications_separate(self):
+        self.make_catalog(uncertainty=35)
         self.make_session()
         self.make_session(points=((20, 1000), (10, 1000)))
-        self.make_session(serial='TI-20')
-        self.assertEqual(seed_ac_shunt_test_instruments(), 2)
-        item = Instrument.objects.get(description='TI-10 20 A CHECK STD')
-        self.assertEqual((item.manufacturer, item.instrument_type, item.scope), ('Fluke', 'uut', 'validated'))
-        ranges = item.functions[0]['ranges']
-        self.assertEqual([(r['value'], r['qualifier']['value']) for r in ranges], [(10, 60), (10, 1000), (20, 1000)])
-        self.assertEqual(ranges[0]['qualifierGroupId'], ranges[1]['qualifierGroupId'])
-        self.assertNotEqual(ranges[1]['qualifierGroupId'], ranges[2]['qualifierGroupId'])
+        self.assertEqual(seed_ac_shunt_test_instruments(), 0)
+        item = Instrument.objects.get()
+        self.assertEqual((item.description, item.instrument_type), ('TI-10 20 A NIST', 'tmde'))
+        self.assertEqual(item.functions[0]['ranges'][0]['tolerances']['reading']['high'], 35)
+        identity = item.column_metadata['acShuntIdentity']
+        self.assertEqual(identity['roles'], ['tmde', 'uut'])
+        ranges = identity['uutFunctions'][0]['ranges']
+        self.assertEqual(sorted((row['value'], row['qualifier']['value']) for row in ranges), [(10, 60), (10, 1000), (20, 1000)])
         for row in ranges:
-            self.assertEqual(row['qualifier']['unit'], 'Hz')
             self.assertEqual(row['tolerances']['reading'], {'high':100, 'low':-100,
                 'unit':'ppm', 'symmetric':True, 'distribution':'not_set'})
-            self.assertEqual(row['acShuntSource']['serial'], 'TI-10')
-        item.functions[0]['ranges'][0]['tolerances']['reading']['high'] = 90
+        ranges[0]['tolerances']['reading']['high'] = 90
         item.save()
-        self.assertEqual(seed_ac_shunt_test_instruments(), 0)
+        seed_ac_shunt_test_instruments()
         item.refresh_from_db()
-        self.assertEqual(item.functions[0]['ranges'][0]['tolerances']['reading']['high'], 90)
+        self.assertEqual(item.column_metadata['acShuntIdentity']['uutFunctions'][0]['ranges'][0]['tolerances']['reading']['high'], 90)
+        self.assertEqual(Instrument.objects.count(), 1)
 
-    def test_reuses_authored_ti_and_keeps_reference_definitions_separate(self):
+    def test_authored_ti_is_preserved_but_no_separate_ti_is_generated(self):
         self.make_catalog()
         self.make_session()
-        Instrument.objects.create(id='reference', model='Y5020 · TI-10', instrument_type='tmde')
-        self.assertEqual(seed_ac_shunt_test_instruments(), 1)
+        authored = Instrument.objects.create(id='authored-ti', model='Y5020 · TI-10', instrument_type='uut', functions=[])
+        seed_ac_shunt_test_instruments()
         self.assertEqual(Instrument.objects.count(), 2)
-        Instrument.objects.filter(instrument_type='uut').delete()
-        Instrument.objects.create(id='authored-ti', model='Y5020 · TI-10', instrument_type='uut', functions=[])
-        self.assertEqual(seed_ac_shunt_test_instruments(), 0)
-        self.assertEqual(Instrument.objects.get(pk='authored-ti').functions, [])
+        self.assertEqual(Instrument.objects.get(instrument_type='tmde').description, 'TI-10 20 A CHECK STD')
+        authored.refresh_from_db()
+        self.assertEqual(authored.functions, [])
+        self.assertEqual(authored.model, 'Y5020 · TI-10')
 
-    def test_ti_uses_actual_rating_and_catalog_label_and_migrates_existing_name(self):
-        self.make_session(points=((10, 1000), (18, 1000)))
-        self.make_catalog()
-        item = Instrument.objects.create(id='existing-ti', manufacturer='Fluke', model='Y5020 · TI-10',
-            description='AC shunt TI · Lab ±100 ppm', instrument_type='uut', functions=[])
-        self.assertEqual(seed_ac_shunt_test_instruments(), 0)
+    def test_existing_generated_ti_is_merged_with_backup_and_edited_limits(self):
+        self.make_catalog(uncertainty=35)
+        self.make_session()
+        legacy = seed_ac_shunt_test_instruments(export_only=True)[0]
+        legacy.functions[0]['ranges'][0]['tolerances']['reading']['high'] = 90
+        legacy.save(force_insert=True)
+        old_id = legacy.id
+        seed_ac_shunt_test_instruments()
+        item = Instrument.objects.get()
+        self.assertEqual(item.instrument_type, 'tmde')
+        self.assertIn(old_id, item.column_metadata['acShuntIdentity']['formerLibraryIds'])
+        self.assertEqual(item.functions[0]['ranges'][0]['tolerances']['reading']['high'], 35)
+        self.assertEqual(item.column_metadata['acShuntIdentity']['uutFunctions'][0]['ranges'][0]['tolerances']['reading']['high'], 90)
+        seed_ac_shunt_test_instruments()
         item.refresh_from_db()
-        self.assertEqual((item.model, item.description), ('Y5020', 'TI-10 20 A CHECK STD'))
-        self.assertEqual(item.column_metadata['acShuntIdentity']['shuntRange'], 20)
-        self.assertEqual(item.functions, [])
+        self.assertEqual(item.column_metadata['acShuntIdentity']['uutFunctions'][0]['ranges'][0]['tolerances']['reading']['high'], 90)
 
     def test_skips_sessions_without_identity_or_points(self):
         CalibrationSession.objects.create(session_name='Empty', test_instrument_model='Y5020', test_instrument_serial='EMPTY')
         self.make_session(serial='')
         self.assertEqual(seed_ac_shunt_test_instruments(), 0)
+        self.assertEqual(Instrument.objects.count(), 0)
 
-    def test_unique_catalog_rating_repairs_missing_name_and_preserves_all_measurement_points(self):
+    def test_unique_catalog_rating_keeps_all_ti_measurement_points(self):
         self.make_catalog()
         session = self.make_session(points=((.001, 60),))
         CalibrationConfigurations.objects.filter(calibration__session=session).update(ac_shunt_range=.002)
         self.make_session(points=((20, 1000),))
         seed_ac_shunt_test_instruments()
         item = Instrument.objects.get()
-        # Simulate the old seed's missing physical rating, before this fix.
-        item.description = 'TI-10'
-        item.column_metadata['acShuntIdentity'].update(shuntRange=None, standardType='')
-        item.save()
-        original_ranges = item.functions
-        self.assertEqual(seed_ac_shunt_test_instruments(), 0)
-        item.refresh_from_db()
         self.assertEqual(item.description, 'TI-10 20 A CHECK STD')
-        self.assertEqual(item.functions, original_ranges)
-        generated = seed_ac_shunt_test_instruments(export_only=True)[0]
-        self.assertEqual(generated.description, 'TI-10 20 A CHECK STD')
-        self.assertEqual([row['value'] for row in generated.functions[0]['ranges']], [.001, 20])
+        self.assertEqual(sorted(row['value'] for row in item.column_metadata['acShuntIdentity']['uutFunctions'][0]['ranges']), [.001, 10, 20])
 
-    def test_rating_repair_preserves_a_customized_name(self):
+    def test_consolidation_preserves_a_customized_reference_name(self):
         self.make_catalog(uncertainty=35)
-        session = self.make_session()
-        CalibrationConfigurations.objects.filter(calibration__session=session).update(ac_shunt_range=None)
+        self.make_session()
         seed_ac_shunt_test_instruments()
         item = Instrument.objects.get()
         item.description = 'My custom name'
-        item.column_metadata['acShuntIdentity']['shuntRange'] = None
         item.save()
         seed_ac_shunt_test_instruments()
         item.refresh_from_db()

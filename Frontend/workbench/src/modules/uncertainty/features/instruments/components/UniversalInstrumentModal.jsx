@@ -1,4 +1,5 @@
 import LibraryInstrumentRow from "./LibraryInstrumentRow";
+import { instrumentForRole } from "../../../utils/acShuntInstrumentRole";
 import { instrumentDeleteTarget } from "../../../utils/instrumentIdentity";
 import { normalizeInstrumentTypeBComponents } from "../../../utils/instrumentBudgetComponents";
 import { withInstrumentEditorDrafts } from "../../../utils/instrumentBudgetComponents";
@@ -718,7 +719,7 @@ const UniversalInstrumentModal = ({
         if (!pendingSync?.instrument) return;
         const result = await syncToShared(pendingSync.instrument, password);
         if (result.ok && result.instrument) {
-            const synced = result.instrument;
+            const synced = instrumentForRole(result.instrument, effectiveMode);
             setSelectedIds([synced.id]);
             setSelectionAnchor(synced.id);
             setLibraryInstrumentId(synced.id);
@@ -770,7 +771,7 @@ const UniversalInstrumentModal = ({
     };
 
     const handleEditLibraryItem = (inst) => {
-        const newDef = JSON.parse(JSON.stringify(inst));
+        const newDef = JSON.parse(JSON.stringify(instrumentForRole(inst, effectiveMode)));
         
         // --- FIX: Fully populate MetaData from Library Item ---
         setMetaData({

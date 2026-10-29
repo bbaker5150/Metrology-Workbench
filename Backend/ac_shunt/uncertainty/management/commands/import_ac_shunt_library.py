@@ -11,12 +11,14 @@ from django.db import router, transaction
 from uncertainty.ac_shunt_instruments import (
     catalog_record, instrument_identity, matches_instrument, rename_instrument_once,
     remember_calibration_evidence, retain_canonical_instrument, shunt_catalog,
+    matches_correction_variant,
 )
 from uncertainty.ac_shunt_library_cleanup import remove_unsupported_generated_instruments
-from uncertainty.shunt_identity import (catalog_key, correction_aliases, definition_signature,
-    matching_uncertainty_records, reported_uncertainty_points, serial_aliases)
+from uncertainty.shunt_identity import (catalog_key, catalog_variant_key, catalog_standard_type, correction_aliases, definition_signature,
+    matching_uncertainty_records, reported_uncertainty_points, serial_aliases, manual_corrections)
 from uncertainty.models import Instrument
 from uncertainty.serializers import save_instrument
+from uncertainty.ac_shunt_roles import consolidate_role_definitions, consolidate_library_roles
 
 
 def prepare_definitions(payload, *, live_catalog=None, excluded=None):
@@ -48,15 +50,15 @@ def prepare_definitions(payload, *, live_catalog=None, excluded=None):
             raise ValueError('Invalid physical shunt range.')
         identity['shuntRange'] = float(rating) if rating is not None else None
         label = identity.get('standardType', '')
-        if label not in ('', 'CHECK STD', 'NIST'):
+        if label not in ('', 'CHECK STD', 'NIST', 'MANUAL'):
             raise ValueError('Invalid standard classification.')
-        key = (model, serial.strip().casefold(), role, identity['shuntRange'] if role == 'tmde' else None)
+        key = (model, serial.strip().casefold(), role, identity['shuntRange'] if role == 'tmde' else None, identity.get('isManual'))
         if key in seen_identities:
             raise ValueError('Duplicate physical instrument/role in the export.')
         seen_identities.add(key)
         item.update(instrument_identity(model, serial, identity['shuntRange'], label))
         item.update(owner='', sourceId='', localOverride=False, validatedSnapshot=None)
-        identity['namingVersion'] = 2
+        identity['namingVersion'] = 3
         if not isinstance(item.get('functions'), list) or not item['functions']:
             raise ValueError('Missing instrument function definitions.')
         for function in item['functions']:
@@ -81,6 +83,13 @@ def prepare_definitions(payload, *, live_catalog=None, excluded=None):
     # recover them only from the same report and unchanged point/uncertainty set.
     for row in catalog:
         report = row.get('report') or {}
+        row['isManual'] = manual_corrections(row)
+        # The old export omitted the authoritative manual flag. Recover it
+        # only from the matching source report, never from its uncertainty.
+        for live in live_catalog or []:
+            if catalog_key(row) == catalog_key(live) and report.get('id') == (live.get('report') or {}).get('id'):
+                row['isManual'] = live.get('isManual', False)
+                break
         if report.get('points') and all('correctionPpm' in point for point in report['points']):
             continue
         for live in live_catalog or []:
@@ -98,7 +107,17 @@ def prepare_definitions(payload, *, live_catalog=None, excluded=None):
     definitions.sort(key=lambda item: (len(item['acShuntIdentity']['serial']), item['acShuntIdentity']['serial'].casefold()))
     for item in definitions:
         identity = item['acShuntIdentity']
+        report_ids = {row.get('acShuntSource', {}).get('reportId') for function in item['functions'] for row in function['ranges']} - {None}
+        report_ids.update((row.get('report') or {}).get('id') for row in identity.get('calibrationEvidence', []))
+        physical = {key: value for key, value in identity.items() if key != 'isManual'}
+        exact = [row for row in matching_uncertainty_records(physical, catalog) if (row.get('report') or {}).get('id') in report_ids]
+        if len(exact) == 1:
+            identity['isManual'] = bool(exact[0].get('isManual', False))
         evidence = matching_uncertainty_records(identity, catalog) or matching_uncertainty_records(identity, live_catalog or [])
+        if len(evidence) > 1:
+            report_ids = {row.get('acShuntSource', {}).get('reportId') for function in item['functions'] for row in function['ranges']}
+            exact = [row for row in evidence if (row.get('report') or {}).get('id') in report_ids]
+            evidence = exact or [row for row in evidence if row.get('isManual')] or evidence[:1]
         if not evidence:
             if excluded is not None:
                 excluded.append(item)
@@ -106,14 +125,13 @@ def prepare_definitions(payload, *, live_catalog=None, excluded=None):
         # Never trust a generated TI's 100 ppm limit or an old display label as
         # calibration evidence. Retain the source report for portable installs.
         identity['calibrationEvidence'] = evidence
-        uncertainties = [float(point['uncertaintyPpm']) for row in evidence for point in reported_uncertainty_points(row)]
-        identity['standardType'] = 'CHECK STD' if all(math.isclose(value, 100, rel_tol=0, abs_tol=1e-9)
-                                                     for value in uncertainties) else 'NIST'
+        identity['isManual'] = bool(evidence[0].get('isManual', False))
+        identity['standardType'] = catalog_standard_type(evidence[0])
         item.update(instrument_identity(identity['model'], identity['serial'], identity['shuntRange'], identity['standardType']))
         for function in item['functions']:
             for row in function['ranges']:
                 row['acShuntSource']['standardType'] = identity['standardType']
-        key = (identity['model'], identity['serial'].casefold(), identity['shuntRange'])
+        key = (identity['model'], identity['serial'].casefold(), identity['shuntRange'], identity['isManual'])
         canonical = aliases.get(key)
         target = next((old for old in retained if canonical and old['type'] == item['type']
                        and old['acShuntIdentity']['model'] == canonical['model']
@@ -121,13 +139,13 @@ def prepare_definitions(payload, *, live_catalog=None, excluded=None):
                        and old['acShuntIdentity']['shuntRange'] == canonical['rangeA']), None)
         if target and definition_signature(target['functions']) == definition_signature(item['functions']) and target.get('typeBComponents') == item.get('typeBComponents'):
             continue
-        record = next((row for row in catalog if catalog_key(row) == key), None)
+        record = next((row for row in catalog if catalog_variant_key(row) == key), None)
         names = serial_aliases(record, aliases) if record else []
         identity.pop('serialAliases', None)
         if names:
             identity['serialAliases'] = names
         retained.append(item)
-    return retained
+    return consolidate_role_definitions(retained)[0]
 
 
 class Command(BaseCommand):
@@ -160,7 +178,7 @@ class Command(BaseCommand):
                 source = item['acShuntIdentity']
                 names = [source['serial'], *source.get('serialAliases', [])]
                 matches = [old for old in existing if old.scope == Instrument.SCOPE_VALIDATED
-                           and old.instrument_type == item['type'] and any(matches_instrument(old, source['model'], serial,
+                           and old.instrument_type == item['type'] and matches_correction_variant(old, source['calibrationEvidence'][0]) and any(matches_instrument(old, source['model'], serial,
                                source['shuntRange'] if item['type'] == 'tmde' else None) for serial in names)]
                 collision = next((old for old in existing if old.id == item['id']), None)
                 if collision and collision not in matches:
@@ -185,6 +203,7 @@ class Command(BaseCommand):
                     created += 1
             removed, backup = remove_unsupported_generated_instruments(
                 payload.get('catalog', []) + live_catalog, candidate_ids={item['id'] for item in excluded})
+            consolidate_library_roles()
         self.stdout.write(self.style.SUCCESS(f'Created {created} instruments; retained {retained} existing definitions. Saved budgets unchanged.'))
         if removed:
             self.stdout.write(f'Removed {removed} unsupported generated entries/local copies. Backup: {backup}.')

@@ -2,6 +2,7 @@ import { buildValidatedSnapshot } from './instrumentSync';
 import { getInstrumentRangeRows, isDraftInstrumentRange } from './instrumentFunctionSelection';
 import { assessRangeCompatibility } from './tmdeCompatibility';
 import { unitSystem } from './uncertaintyMath';
+import { instrumentForRole } from './acShuntInstrumentRole';
 
 const normalized = value => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 const shuntModel = value => normalized(String(value || '').match(/A40B|Y5020/i)?.[0] || value);
@@ -25,8 +26,8 @@ export function acShuntInstrumentRoles(snapshot) {
 // Older imported definitions stored the serial in `model` and model in description.
 export function matchAcShuntInstrument(role, instruments) {
   if (!normalized(role.serial)) return null;
-  const candidates = sharedAcShuntInstruments(instruments).filter(item => {
-    if (role.kind === 'uut' && item.type === 'tmde') return false;
+  let candidates = sharedAcShuntInstruments(instruments).filter(item => {
+    if (role.kind === 'uut' && item.type === 'tmde' && !item.acShuntIdentity?.roles?.includes('uut')) return false;
     if (role.kind === 'shunt' && item.type === 'uut') return false;
     const sources = [item.acShuntIdentity, ...(item.functions || []).flatMap(fn => (fn.ranges || []).map(range => range.acShuntSource))].filter(Boolean);
     const physicalRanges = sources.map(source => source.shuntRange).filter(value => Number(value) > 0).map(Number);
@@ -38,6 +39,14 @@ export function matchAcShuntInstrument(role, instruments) {
     return (serials.includes(normalized(role.serial)) || aliasMatch || normalized(item.model) === normalized(`${role.model} ${role.serial}`)) &&
       [item.model, item.description, ...sources.map(source => source.model)].some(value => normalized(value).includes(shuntModel(role.model))) && Boolean(role.model);
   });
+  const reports = (role.reportIds || []).map(String);
+  const exactReports = reports.length ? candidates.filter(item =>
+    (item.acShuntIdentity?.calibrationEvidence || []).some(row => reports.includes(String(row.report?.id))) ||
+    (item.functions || []).some(fn => (fn.ranges || []).some(row => reports.includes(String(row.acShuntSource?.reportId))))) : [];
+  // A saved report selection takes precedence; legacy sessions without one
+  // use the same manual-first default as the AC-shunt module.
+  if (exactReports.length) candidates = exactReports;
+  else if (candidates.some(item => item.acShuntIdentity?.isManual)) candidates = candidates.filter(item => item.acShuntIdentity?.isManual);
   return candidates.length === 1 ? candidates[0] : null;
 }
 
@@ -50,9 +59,9 @@ export function selectAcShuntDefinitions(snapshot, instruments, selections = {})
   }));
 }
 
-export function linkAcShuntDefinition(item, definition) {
+export function linkAcShuntDefinition(item, definition, role) {
   if (!definition) return item;
-  const copy = JSON.parse(JSON.stringify(definition));
+  const copy = JSON.parse(JSON.stringify(instrumentForRole(definition, role)));
   return { ...item, libraryInstrumentId: definition.id,
     instrument: { ...copy, sourceId: definition.id, validatedSnapshot: buildValidatedSnapshot(copy), localOverride: false } };
 }

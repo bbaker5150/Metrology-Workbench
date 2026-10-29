@@ -36,8 +36,8 @@ class ShuntDeduplicationTests(TestCase):
         partial = self.make_shunt('5965004 partial')
         ShuntCorrection.objects.create(report=partial, current=20, frequency=60, correction=1, uncertainty=100)
         aliases = correction_aliases(self.catalog())
-        self.assertEqual(set(aliases), {('Y5020', '5965004-2', 20)})
-        self.assertEqual(aliases[('Y5020', '5965004-2', 20)]['serial'], '5965004')
+        self.assertEqual(set(aliases), {('Y5020', '5965004-2', 20, False)})
+        self.assertEqual(aliases[('Y5020', '5965004-2', 20, False)]['serial'], '5965004')
         self.assertEqual(seed_ac_shunt_references(), 6)
         self.assertEqual(seed_ac_shunt_references(), 0)
         primary = Instrument.objects.get(description='5965004 20 A CHECK STD')
@@ -117,10 +117,10 @@ class ShuntDeduplicationTests(TestCase):
             session = CalibrationSession.objects.create(session_name=serial, test_instrument_model='Y5020', test_instrument_serial=serial)
             points = TestPointSet.objects.create(session=session)
             TestPoint.objects.create(test_point_set=points, current=index * 10, frequency=60, direction='Forward')
-        self.assertEqual(seed_ac_shunt_test_instruments(), 1)
+        self.assertEqual(seed_ac_shunt_test_instruments(), 0)
         item = Instrument.objects.get()
         self.assertEqual(item.description, '5965004 20 A CHECK STD')
-        self.assertEqual([row['value'] for row in item.functions[0]['ranges']], [10, 20])
+        self.assertEqual([row['value'] for row in item.column_metadata['acShuntIdentity']['uutFunctions'][0]['ranges']], [10, 20])
         self.assertEqual(item.column_metadata['acShuntIdentity']['serialAliases'], ['5965004-2'])
 
     def test_same_serial_on_different_models_does_not_merge_or_collide(self):

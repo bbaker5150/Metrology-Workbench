@@ -78,10 +78,10 @@ class ShuntEligibilityTests(TestCase):
         self.make_session()
         self.make_session('12345-2')  # Unverified tag does not establish report evidence.
         self.assertEqual(seed_ac_shunt_references(), 1)
-        self.assertEqual(seed_ac_shunt_test_instruments(), 1)
-        uut = Instrument.objects.get(instrument_type='uut')
+        self.assertEqual(seed_ac_shunt_test_instruments(), 0)
+        uut = Instrument.objects.get(instrument_type='tmde')
         self.assertEqual(uut.description, '12345 1 A NIST')
-        self.assertEqual(uut.functions[0]['ranges'][0]['tolerances']['reading']['high'], 100)
+        self.assertEqual(uut.column_metadata['acShuntIdentity']['uutFunctions'][0]['ranges'][0]['tolerances']['reading']['high'], 100)
         evidence = uut.column_metadata['acShuntIdentity']['calibrationEvidence'][0]
         self.assertEqual(evidence['report']['points'][0]['uncertaintyPpm'], 0)
 
@@ -115,7 +115,7 @@ class ShuntEligibilityTests(TestCase):
         Uut.objects.create(session=saved, cid='uut', instrument=snapshot)
         for _ in range(2):
             call_command('seed_ac_shunt_references', stdout=StringIO())
-        self.assertEqual(Instrument.objects.count(), 3)  # Supported reference/TI + authored item.
+        self.assertEqual(Instrument.objects.count(), 2)  # One physical shunt + authored item.
         self.assertFalse(Instrument.objects.filter(pk__in=[legacy.id, 'local']).exists())
         backups = list((self.directory / 'backups').glob('*.json'))
         self.assertEqual(len(backups), 1)
@@ -155,7 +155,7 @@ class ShuntEligibilityTests(TestCase):
         # Stored report evidence permits a portable installation on a computer
         # without AC-shunt source tables; lab tolerance alone never does.
         self.assertEqual(remove_unsupported_generated_instruments([]), (0, None))
-        self.assertEqual(Instrument.objects.count(), 2)
+        self.assertEqual(Instrument.objects.count(), 1)
 
     def test_legacy_tmde_report_uncertainties_remain_valid_evidence(self):
         self.make_report()

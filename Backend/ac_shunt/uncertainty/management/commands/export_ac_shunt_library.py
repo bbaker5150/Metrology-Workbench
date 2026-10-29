@@ -13,6 +13,7 @@ from uncertainty.ac_shunt_instruments import (
 )
 from uncertainty.models import Instrument, TestPoint, Uut, SessionTmde
 from uncertainty.serializers import instrument_to_dict
+from uncertainty.ac_shunt_roles import consolidate_role_definitions
 
 
 def imported_shunt(item):
@@ -75,6 +76,7 @@ class Command(BaseCommand):
         definitions = [instrument_to_dict(item) for item in (
             seed_ac_shunt_references(export_only=True) + seed_ac_shunt_test_instruments(export_only=True))
             if shunt_model(item.model) in ('A40B', 'Y5020')]
+        definitions, _ = consolidate_role_definitions(definitions)
         if not catalog and not definitions:
             raise CommandError('No A40B/Y5020 source data found. No library entries were changed.')
         alias = router.db_for_write(Instrument)

@@ -39,5 +39,6 @@ def session_snapshot(session_id):
     config = getattr(getattr(session, 'calibration', None), 'configurations', None)
     return {"id": session.pk, "name": session.session_name, "createdAt": session.created_at.isoformat(),
             "instruments": {**{field: getattr(session, field) for field in fields},
+                            "referenceReportIds": sorted({point.correction_report_id for point in points if point.correction_report_id}),
                             "shuntRange": getattr(config, 'ac_shunt_range', None)},
             "points": result_points}
