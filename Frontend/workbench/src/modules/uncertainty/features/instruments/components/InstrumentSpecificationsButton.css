@@ -1,0 +1,6 @@
+.instrument-library-specifications { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 26px; width: 26px; height: 26px; padding: 0; }
+.instrument-simplified-description { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.instrument-simplified-description > .instrument-simplified-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.instrument-view-menu { position: relative; }
+.instrument-view-menu-options { position: fixed; inset: auto; margin: 0; padding: 8px; min-width: 230px; width: max-content; max-width: calc(100vw - 16px); overflow: auto; border: 1px solid var(--border-color); border-radius: 6px; background: var(--content-background-solid, #fff); color: var(--text-color); box-shadow: 0 4px 16px #0003; z-index: 10000; }
+.instrument-view-menu-options label { display: flex; align-items: center; gap: 8px; padding: 7px; cursor: pointer; white-space: nowrap; }

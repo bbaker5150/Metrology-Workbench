@@ -51,6 +51,7 @@ vi.mock("axios", () => {
 });
 
 import UncertaintyApp from "./UncertaintyApp";
+import { generic5790, nominalY5020Resolution } from "./utils/testFixtures/generic5790";
 import { ThemeProvider } from "../../shared/ThemeContext";
 import { NotificationProvider } from "../../shared/NotificationContext";
 import { readEditorDraft, saveEditorDraft } from "./utils/editorRecovery";
@@ -95,6 +96,46 @@ beforeEach(() => {
 });
 
 describe("UncertaintyApp", () => {
+  test("imports AC-shunt measurements directly into the first point budget with simplified tables and a blank Doc ID", async () => {
+    const ti = { id: 'import-ti', type: 'uut', scope: 'validated', manufacturer: 'Fluke', model: 'Y5020 · TI',
+      functions: [{ id: 'current', name: 'Current', unit: 'A', ranges: [10, 20].map(value => ({ id: `range-${value}`, min: value, max: value, unit: 'A',
+        qualifier: { value: 1000, unit: 'Hz', isSingleValue: true },
+        tolerances: { reading: { high: 100, low: -100, unit: 'ppm', symmetric: true, distribution: 'not_set' } } })) }] };
+    apiMock.state.instruments = [ti];
+    apiMock.state.sessions = [{ id: 100, name: 'Existing budget', testPoints: [], uuts: [], tmdes: [], uncReq: {} }];
+    const snapshot = { id: 49, name: 'Imported shunt run', generic5790Instrument: generic5790,
+      instruments: { test_instrument_model: 'Y5020', test_instrument_serial: 'TI' },
+      points: [10, 20].map(current => ({ current, frequency: 1000, readerResolution: nominalY5020Resolution(current),
+        analytics: { pair_delta_uut_ppm: current, pair_type_a_uncertainty_ppm: 2, n_pairs_used: 5 } })) };
+    const originalGet = apiMock.get.getMockImplementation();
+    apiMock.get.mockImplementation((url, ...args) => {
+      if (String(url).includes('/ac-shunt/sessions/49/')) return Promise.resolve({ data: snapshot });
+      if (String(url).includes('/ac-shunt/sessions/')) return Promise.resolve({ data: { available: true, pages: 1, sessions: [{ id: 49, session_name: snapshot.name, test_instrument_model: 'Y5020', test_instrument_serial: 'TI' }] } });
+      return originalGet(url, ...args);
+    });
+    try {
+      render(<ThemeProvider><NotificationProvider><MemoryRouter><UncertaintyApp /></MemoryRouter></NotificationProvider></ThemeProvider>);
+      await screen.findByRole('button', { name: 'Instrument Overview' });
+      fireEvent.click(screen.getByRole('button', { name: 'Import AC/DC shunt session' }));
+      fireEvent.click(await screen.findByRole('button', { name: /Imported shunt run/ }));
+      fireEvent.click(await screen.findByRole('button', { name: 'Create budget' }));
+      await waitFor(() => expect(screen.getByRole('button', { name: 'Uncertainty Budget' })).toHaveClass('active'));
+      await waitFor(() => expect(document.querySelectorAll('.point-grid-item')).toHaveLength(2));
+      const rows = [...document.querySelectorAll('.point-grid-item')];
+      expect(rows[0]).toHaveClass('active-point');
+      expect(document.querySelectorAll('.instrument-simplified-row')).toHaveLength(2);
+      expect(document.querySelectorAll('[data-range-id]')).toHaveLength(0);
+      const saved = apiMock.put.mock.calls.map(([, body]) => body).find(body => body?.name?.includes('Imported shunt run'));
+      expect(saved.document).toBe('');
+      expect(screen.getByText('Doc ID').closest('.session-header-field').querySelector('.session-header-value')).toHaveTextContent('–');
+      expect(saved.simplifiedInstrumentTables).toBe(true);
+      fireEvent.click(rows[1]);
+      await waitFor(() => expect(document.querySelectorAll('.point-grid-item')[1]).toHaveClass('active-point'));
+      expect(document.querySelectorAll('[data-range-id]')).toHaveLength(0);
+      expect(screen.getByRole('button', { name: 'Uncertainty Budget' })).toHaveClass('active');
+    } finally { apiMock.get.mockImplementation(originalGet); }
+  }, 30000);
+
   test.each([
     ['first visit', null, ['voltage','current']],
     ['collapsed list', {isGlobalExpanded:false,expandedFunctions:[],expandedUuts:[]}, []],
@@ -1800,8 +1841,9 @@ describe("UncertaintyApp", () => {
     });
     expect(within(detailUutCard).queryByText("Pressure")).not.toBeInTheDocument();
     fireEvent.click(
-      within(detailUutCard).getByRole("button", { name: "Show all UUT measurement areas" }),
+      within(detailUutCard).getByRole("button", { name: "UUT table view" }),
     );
+    fireEvent.click(within(detailUutCard).getByRole("checkbox", { name: "Show all measurement areas" }));
     expect(await within(detailUutCard).findByText("Pressure")).toBeInTheDocument();
 
     const activeUutRow = document.querySelector("tr.active-point-uut-row");

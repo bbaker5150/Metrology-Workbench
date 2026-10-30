@@ -1,8 +1,14 @@
 import { recoveryNamespace } from "./recoveryNamespace";
 const key = () => `uncertainty:recovery:v1:${recoveryNamespace()}`;
+const navigationKey = () => `uncertainty:navigation:v1:${recoveryNamespace()}`;
 export function readRecovery() {
-  try { return JSON.parse(localStorage.getItem(key()) || "{}") || {}; }
-  catch { return {}; }
+  let state = {};
+  try { state = JSON.parse(localStorage.getItem(key()) || "{}") || {}; } catch { /* Recover navigation independently. */ }
+  try {
+    const navigation = JSON.parse(localStorage.getItem(navigationKey()) || "null");
+    if (navigation && Object.hasOwn(navigation, "sessionId") && Object.hasOwn(navigation, "pointId")) state.navigation = navigation;
+  } catch { /* Older journals still contain usable navigation. */ }
+  return state;
 }
 function write(state) {
   try { localStorage.setItem(key(), JSON.stringify(state)); }
@@ -35,5 +41,7 @@ export function recoverSessions(remote, recovery = readRecovery()) {
   return [...sessions.values()];
 }
 export function saveNavigation(sessionId, pointId) {
-  write({ ...readRecovery(), navigation: { sessionId, pointId } });
+  // Point selection must not parse/serialize pending sessions with large instruments.
+  try { localStorage.setItem(navigationKey(), JSON.stringify({ sessionId, pointId })); }
+  catch (error) { console.warn("Unable to retain browser navigation", error); }
 }

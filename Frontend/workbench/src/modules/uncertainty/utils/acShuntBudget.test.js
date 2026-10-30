@@ -37,6 +37,13 @@ const buildAcShuntBudget = (source, options = {}) => buildBudget(source, {
 });
 
 describe('simple AC-shunt measurement import', () => {
+  it('starts at the first point budget with simplified instrument tables and a blank document ID', () => {
+    const { session } = buildAcShuntBudget(snapshot());
+    expect(session.document).toBe('');
+    expect(session.initialAnalysisMode).toBe('uncertaintyTool');
+    expect(session.simplifiedInstrumentTables).toBe(true);
+    expect(session.testPoints[0].testPointInfo.parameter.value).toBe(10);
+  });
   it('automatically matches proven tagged aliases without treating other tagged correction sets as equivalent', () => {
     const source = snapshot();
     source.instruments.standard_instrument_serial = '5965004-2';

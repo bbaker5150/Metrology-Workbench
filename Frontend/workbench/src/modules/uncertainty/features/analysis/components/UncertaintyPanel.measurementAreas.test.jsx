@@ -1,7 +1,12 @@
 import { useState } from 'react';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import UncertaintyPanel, { EditableDescriptionCell, buildFunctionGroupedRows } from './UncertaintyPanel';
+
+const toggleAll = kind => {
+  if (!screen.queryByRole('group', {name: `${kind} table view options`})) fireEvent.click(screen.getByRole('button', {name: `${kind} table view`}));
+  fireEvent.click(within(screen.getByRole('group', {name: `${kind} table view options`})).getByRole('checkbox', {name:'Show all measurement areas'}));
+};
 
 const lengthInstrument = { id: 'length-library', manufacturer: 'Acme', model: 'L100', description: 'Rule', scope: 'validated',
   functions: [{ id: 'length', name: 'Length', ranges: [{ id: 'length-range', min: 0, max: 10, unit: 'm', resolution: '0.01' }] },
@@ -50,7 +55,7 @@ describe.each(['session', 'point'])('independent Measurement Areas in %s view', 
     const { container } = render(<Harness viewMode={viewMode} save={save} initialSession={{
       id:'empty', measurementAreaGroups:[], measurementAreas:[], uuts:[], tmdes:[], testPoints:[], uncReq:{},
     }} />);
-    if (viewMode === 'point') for (const kind of ['UUT','TMDE']) fireEvent.click(screen.getByRole('button', {name:`Show all ${kind} measurement areas`}));
+    if (viewMode === 'point') for (const kind of ['UUT','TMDE']) toggleAll(kind);
     const hints=screen.getAllByText(/Click \+ to add a measurement area/);
     expect(hints).toHaveLength(2);
     for (const hint of hints) {
@@ -70,12 +75,12 @@ describe.each(['session', 'point'])('independent Measurement Areas in %s view', 
     if (viewMode === 'point') {
       expect(screen.queryByRole('textbox', { name: 'New UUT measurement area name' })).not.toBeInTheDocument();
       expect(screen.queryByRole('textbox', { name: 'New TMDE measurement area name' })).not.toBeInTheDocument();
-      fireEvent.click(screen.getByRole('button', { name: 'Show all TMDE measurement areas' }));
+      toggleAll('TMDE');
       expect(screen.getByRole('textbox', { name: 'New TMDE measurement area name' })).toBeInTheDocument();
       expect(screen.queryByRole('textbox', { name: 'New UUT measurement area name' })).not.toBeInTheDocument();
-      fireEvent.click(screen.getByRole('button', { name: 'Show this TMDE measurement area' }));
+      toggleAll('TMDE');
       expect(screen.queryByRole('textbox', { name: 'New TMDE measurement area name' })).not.toBeInTheDocument();
-      fireEvent.click(screen.getByRole('button', { name: 'Show all UUT measurement areas' }));
+      toggleAll('UUT');
     }
     fireEvent.change(screen.getByRole('textbox', { name: 'New UUT measurement area name' }), { target: { value: 'Inspection' } });
     fireEvent.click(screen.getByRole('button', { name: 'Add Measurement Area from UUT table' }));
@@ -92,7 +97,7 @@ describe.each(['session', 'point'])('independent Measurement Areas in %s view', 
       uuts: [original, { id: 'target', description: 'Target standard', measurementAreaNames: ['Inspection'], instrument: weightInstrument }],
       tmdes: [], testPoints: [], uncReq: {},
     }} />);
-    if (viewMode === 'point') fireEvent.click(screen.getByRole('button', { name: 'Show all UUT measurement areas' }));
+    if (viewMode === 'point') toggleAll('UUT');
     const target = viewMode === 'session'
       ? screen.getByRole('button', { name: 'Other W200 Target standard' }).closest('tr')
       : screen.getAllByLabelText('Measurement area subsection name').find(node => node.textContent === 'Inspection').closest('tr');

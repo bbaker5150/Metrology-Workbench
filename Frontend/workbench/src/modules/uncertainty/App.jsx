@@ -1,3 +1,4 @@
+import { createRiskEvaluationCache } from "./utils/riskEvaluationCache";
 import { instrumentForRole } from './utils/acShuntInstrumentRole';
 import InstrumentLibraryModal from "./features/instruments/components/InstrumentLibraryModal";
 import { buildSidebarCellGroups } from "./utils/sidebarCellGroups";
@@ -139,7 +140,6 @@ import {
   resolveInstrumentSelection,
 } from "./utils/instrumentFunctionSelection";
 import {
-  computeRiskEvaluationMap,
   recalculatePointUncertaintyFields,
 } from "./utils/riskCompute";
 import {
@@ -587,6 +587,8 @@ const UNCERTAINTY_UI_SIZING_KEY = "uncertalytics.uiSizing.v1";
 const INSTRUMENT_SIZE_RESET_EVENT = "uncert-reset-ui-sizes";
 const INSTRUMENT_SIZE_STORAGE_KEYS = [
   "uncertalytics:uut:instrument-column-widths:v2",
+  "uncertalytics:simplified:uut:instrument-column-widths:v2",
+  "uncertalytics:simplified:tmde:instrument-column-widths:v2",
   "uncertalytics:tmde:instrument-column-widths:v2",
   "uncertalytics:overview:uut:instrument-table-height:v1",
   "uncertalytics:overview:tmde:instrument-table-height:v1",
@@ -2184,7 +2186,7 @@ const SidebarSessionHeader = ({
             className="session-header-value"
             title={helpText}
           >
-            {inputType === "date" ? formatDate(value) : value === "" || value == null ? "-" : `${value}${unitSuffix === "mo." ? " " : ""}${unitSuffix}`}
+            {inputType === "date" ? formatDate(value) : value === "" || value == null ? (field === "document" ? "–" : "-") : `${value}${unitSuffix === "mo." ? " " : ""}${unitSuffix}`}
           </div>
         )}
         </span>
@@ -2455,26 +2457,15 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
     sidebarColumns.noGbPfr ||
     sidebarColumns.noGbCalInt ||
     sidebarColumns.noGbMeasRel;
+  const evaluatePointRisks = useMemo(() => createRiskEvaluationCache(), []);
   const { metrics: pointRiskMap, statuses: pointRiskStatusMap, uncertainties: pointUncertaintyMap } = useMemo(
     () =>
-      computeRiskEvaluationMap(
+      evaluatePointRisks(
         currentTestPoints,
         currentSessionData,
         mitigationColumnsEnabled,
       ),
-    [
-      currentTestPoints,
-      currentSessionData?.uncReq,
-      currentSessionData?.uutTolerance,
-      // Derived points can keep linked TMDE error sources in their manual
-      // budget instead of tmdeTolerances. Include the live master collection
-      // so editing an instrument invalidates the sidebar risk map even when
-      // the point's own snapshot array is unchanged.
-      currentSessionData?.tmdes,
-      currentSessionData?.uuts,
-      currentSessionData?.dynamicBudgetDefinitions,
-      mitigationColumnsEnabled,
-    ],
+    [evaluatePointRisks, currentTestPoints, currentSessionData, mitigationColumnsEnabled],
   );
 
   const pointDiagnosticsMap = useMemo(
@@ -4881,7 +4872,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
       new Set(preferences.collapsedDetailInstrumentFunctionKeys || []),
     );
     setActiveRangeIndices(preferences.activeRangeIndices || {});
-    setAnalysisMode(preferences.analysisMode || "overview");
+    setAnalysisMode(preferences.analysisMode || currentSessionData.initialAnalysisMode || "overview");
     setShowContribution(preferences.showContribution ?? true);
     setScopedZoomLevels(
       sizingPreferences.scopedZoomLevels || normalizeSizingPreferences(preferences).scopedZoomLevels || {},

@@ -1,5 +1,5 @@
 import React, { Profiler } from 'react';
-import { render, fireEvent } from '@testing-library/react';
+import { render, fireEvent, within } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import UncertaintyPanel from './UncertaintyPanel';
 import { qualified5790, nominalY5020Resolution } from '../../../utils/testFixtures/generic5790';
@@ -8,7 +8,7 @@ import { resolvePointBudgetComponents } from '../../../utils/resolvePointBudgetC
 
 vi.mock('plotly.js-dist', () => ({ default: {} }));
 
-it.each(['session', 'point'])('keeps a 720-spec instrument editable without workspace rerenders on hover in %s view', viewMode => {
+function largeSession() {
   const source = qualified5790.functions[0];
   const ranges = Array.from({ length: 60 }, (_, copy) => source.ranges.map(range => ({ ...range,
     id: copy ? `${range.id}-copy-${copy}` : range.id, qualifierGroupId: `${range.qualifierGroupId}-${copy}`,
@@ -23,6 +23,12 @@ it.each(['session', 'point'])('keeps a 720-spec instrument editable without work
     points: [{ current: 10, frequency: 1000, readerResolution: nominalY5020Resolution(10),
       analytics: { pair_delta_uut_ppm: 1, pair_type_a_uncertainty_ppm: 2, n_pairs_used: 5 } }],
   }, { instruments: [ti] });
+  return session;
+}
+
+it.each(['session', 'point'])('keeps a 720-spec instrument editable without workspace rerenders on hover in %s view', viewMode => {
+  const session = largeSession();
+  session.simplifiedInstrumentTables = false;
   const point = session.testPoints[0], save = vi.fn(), commit = vi.fn();
   const start = performance.now();
   const { container } = render(<Profiler id="workspace" onRender={commit}>
@@ -54,4 +60,58 @@ it.each(['session', 'point'])('keeps a 720-spec instrument editable without work
   const updated = save.mock.calls.at(-1)[0];
   expect(resolvePointBudgetComponents(point, updated).at(-1).value).toBeCloseTo(2 * Math.SQRT2 / Math.sqrt(12), 10);
   expect(updated.tmdes[0].instrument.functions[0].ranges).toHaveLength(720);
+}, 20000);
+
+
+it('switches large imported budgets with no hidden spec rows and expands live editors on demand', () => {
+  const session = { ...largeSession(), id: 'simplified-large' };
+  const first = session.testPoints[0];
+  const save = vi.fn();
+  const pointView = point => <UncertaintyPanel key={point.id} testPointData={{ ...point, viewMode: 'point' }}
+    sessionData={session} onSessionSave={save} tmdeTolerancesData={[]} uutNominal={point.testPointInfo.parameter} />;
+  const start = performance.now();
+  const { container, rerender } = render(pointView(first));
+  for (const kind of ['uut', 'tmde']) {
+    const table = container.querySelector(`[data-tour="${kind}-table"]`);
+    expect([...table.querySelectorAll('thead th')].map(th => th.getAttribute('aria-label'))).toEqual(['Description', 'Sync']);
+    expect(table.querySelectorAll('[data-range-id]')).toHaveLength(0);
+    const resize = within(table).getByRole('button', { name: 'Resize Description column' });
+    const initialWidth = table.querySelector('col').style.width;
+    fireEvent.keyDown(resize, { key: 'ArrowRight' });
+    expect(table.querySelector('col').style.width).not.toBe(initialWidth);
+    expect(JSON.parse(localStorage.getItem(`uncertalytics:simplified:${kind}:instrument-column-widths:v2`)).description).toBeGreaterThan(0);
+  }
+  const mountMs = performance.now() - start;
+  const switching = performance.now();
+  for (let index = 0; index < 5; index++) {
+    rerender(pointView({ ...first, id: `point-${index}`, testPointInfo: { ...first.testPointInfo, parameter: { value: 10 + index, unit: 'A' } } }));
+    expect(container.querySelectorAll('[data-range-id]')).toHaveLength(0);
+    expect(container.querySelectorAll('.instrument-simplified-row')).toHaveLength(2);
+  }
+  if (process.env.REPORT_INSTRUMENT_TIMINGS) process.stdout.write(`Simplified 720 specs: mount ${mountMs.toFixed(0)} ms; five point switches ${(performance.now() - switching).toFixed(0)} ms (jsdom).\n`);
+  const tmde = container.querySelector('[data-tour="tmde-table"]');
+  fireEvent.click(within(tmde).getByRole('button', { name: /View or Edit Instrument Specifications Fluke 5790B/ }));
+  expect(tmde.querySelectorAll('[data-range-id]')).toHaveLength(720);
+  const linked = tmde.querySelector('[data-range-id="fluke-5790b-generic-medium-slow-2.2"]');
+  fireEvent.click(linked.querySelector('[title="Edit resolution"]'));
+  fireEvent.change(linked.querySelector('.inline-resolution-input'), { target: { value: '0.0000002' } });
+  fireEvent.blur(linked.querySelector('.inline-resolution-input'));
+  expect(resolvePointBudgetComponents(first, save.mock.calls.at(-1)[0]).at(-1).value).toBeCloseTo(2 * Math.SQRT2 / Math.sqrt(12), 10);
+  const hide = tmde.querySelector('[title="Hide Instrument Specifications"]');
+  expect(hide).toHaveAttribute('aria-expanded', 'true');
+  const savedCalls = save.mock.calls.length;
+  fireEvent.mouseDown(hide);
+  fireEvent.click(hide);
+  expect(save).toHaveBeenCalledTimes(savedCalls);
+  expect(tmde.querySelectorAll('[data-range-id]')).toHaveLength(0);
+  const trigger = tmde.closest('.panel-card').querySelector('[aria-label="TMDE table view"]');
+  fireEvent.click(trigger);
+  const menu = within(tmde.closest('.panel-card')).getByRole('group', { name: 'TMDE table view options' });
+  expect(within(menu).getByRole('checkbox', { name: 'Show all measurement areas' })).not.toBeChecked();
+  expect(within(menu).getByRole('checkbox', { name: 'Show simplified view' })).toBeChecked();
+  fireEvent.click(within(menu).getByRole('checkbox', { name: 'Show simplified view' }));
+  expect(tmde.querySelectorAll('[data-range-id]')).toHaveLength(720);
+  rerender(pointView({ ...first, id: 'next-point' }));
+  expect(container.querySelector('[data-tour="tmde-table"]').querySelectorAll('[data-range-id]')).toHaveLength(720);
+  expect(container.querySelector('[data-tour="uut-table"]').querySelectorAll('[data-range-id]')).toHaveLength(0);
 }, 20000);

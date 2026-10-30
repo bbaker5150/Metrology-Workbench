@@ -16,6 +16,7 @@ it.each(['session', 'point'].flatMap(viewMode=>[generic5790,qualified5790].map(r
     instruments:{test_instrument_model:'Y5020',test_instrument_serial:'TI'},
     points:[{current:10,frequency:1000,readerResolution:nominalY5020Resolution(10),
       analytics:{pair_delta_uut_ppm:1,pair_type_a_uncertainty_ppm:2,n_pairs_used:5}}]}, {instruments:[ti]});
+  session.simplifiedInstrumentTables = false;
   const point = session.testPoints[0];
   const save = vi.fn();
   const {container, rerender} = render(<UncertaintyPanel testPointData={{...point,viewMode}}
@@ -79,6 +80,7 @@ it.each(['session','point'].flatMap(viewMode => ['new','legacy','edited','conven
       test_instrument_model:'Y5020',test_instrument_serial:'3845014',standard_instrument_model:'Y5020',standard_instrument_serial:'5965004'},
       points:[{current:10,frequency:1000,analytics:{pair_delta_uut_ppm:1,pair_type_a_uncertainty_ppm:2,n_pairs_used:5}}]},
     {instruments:[instrument('uut','3845014','AC shunt TI · Lab ±100 ppm'),instrument('tmde','5965004','NIST reference AC shunt · 20 A')]});
+    session.simplifiedInstrumentTables = false;
     const uut = session.uuts[0], tmde = session.tmdes[0];
     if (state==='legacy') {
       uut.name='Fluke Y5020 · 3845014 AC shunt TI · Lab ±100 ppm';

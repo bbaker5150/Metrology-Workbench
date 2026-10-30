@@ -1,3 +1,5 @@
+import InstrumentSpecificationsButton from "../../instruments/components/InstrumentSpecificationsButton";
+import InstrumentTableViewMenu, { useInstrumentTableView } from "./InstrumentTableViewMenu";
 import { instrumentForRole } from '../../../utils/acShuntInstrumentRole';
 import { InstrumentTableViewport, InstrumentDeleteAction } from "./InstrumentTableActions";
 import { consecutiveCellGroup } from "../../../utils/consecutiveCellGroup";
@@ -74,8 +76,6 @@ import {
   faRedo,
   faArrowUp,
   faArrowDown,
-  faEye,
-  faEyeSlash,
 } from "@fortawesome/free-solid-svg-icons";
 import ContextMenu from "../../../components/common/ContextMenu";
 import useInstrumentTableLayout from "../../../hooks/useInstrumentTableLayout";
@@ -2743,7 +2743,7 @@ const useInstrumentColumnWidths = (kind, customColumns = [], qualifierEnabled = 
   }, [kind, customSignature]);
   // Keep existing proportional defaults until the user resizes a column.
   // Explicit resizing stores pixels so neighboring columns retain their widths.
-  const storageKey = `uncertalytics:${scope === "library" ? "library:" : ""}${kind}:instrument-column-widths:v2`;
+  const storageKey = `uncertalytics:${scope === "workspace" ? "" : `${scope}:`}${kind}:instrument-column-widths:v2`;
   const instanceIdRef = useRef(uuidv4());
   const [widths, setWidths] = useState(() => {
     try {
@@ -2794,10 +2794,10 @@ const useInstrumentColumnWidths = (kind, customColumns = [], qualifierEnabled = 
   }, []);
 
   const keys = useMemo(
-    () => getInstrumentColumnOrder(kind, customColumns, qualifierEnabled),
+    () => scope === "simplified" ? ["description", "sync"] : getInstrumentColumnOrder(kind, customColumns, qualifierEnabled),
     // customSignature intentionally captures insertion positions.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [kind, customSignature, qualifierEnabled],
+    [kind, customSignature, qualifierEnabled, scope],
   );
   const resolvedWidths = useMemo(
     () =>
@@ -2868,6 +2868,7 @@ const useInstrumentColumnWidths = (kind, customColumns = [], qualifierEnabled = 
   );
 
   return {
+    keys,
     qualifierEnabled,
     fillColumn: widths.__fillColumn || keys[keys.length - 1],
     widthFor: (key) =>
@@ -2948,9 +2949,9 @@ const ResizableInstrumentHeader = ({
   </th>
 );
 
-const InstrumentTableColgroup = ({ kind, customColumns, columns }) => (
+const InstrumentTableColgroup = ({ columns }) => (
   <colgroup>
-    {getInstrumentColumnOrder(kind, customColumns, columns.qualifierEnabled).map((columnKey) => (
+    {columns.keys.map((columnKey) => (
       <col key={columnKey} data-fill={columns.fillColumn === columnKey} style={{ width: columns.widthFor(columnKey) }} />
     ))}
   </colgroup>
@@ -2971,7 +2972,7 @@ const InstrumentTableHeader = ({
   const customByKey = new Map(
     customColumns.map((column) => [instrumentColumnKey(column), column]),
   );
-  const order = getInstrumentColumnOrder(kind, customColumns, columns.qualifierEnabled);
+  const order = columns.keys;
   const labelFor = (columnKey) => {
     const custom = customByKey.get(columnKey);
     if (custom) return custom.label || "Name";
@@ -10686,10 +10687,14 @@ function DetailedView({
     return () => window.removeEventListener("keydown", clearSelection, true);
   }, [keyboardShortcutsEnabled, setSelectedUutIds]);
 
-  const [showIrrelevantUutFunctions, setShowIrrelevantUutFunctions] =
-    useState(false);
-  const [showIrrelevantTmdeFunctions, setShowIrrelevantTmdeFunctions] =
-    useState(false);
+  const [uutView, changeUutView] = useInstrumentTableView(sessionData, "uut");
+  const [tmdeView, changeTmdeView] = useInstrumentTableView(sessionData, "tmde");
+  const showIrrelevantUutFunctions = uutView.showAll;
+  const showIrrelevantTmdeFunctions = tmdeView.showAll;
+  const [expandedSpecifications, setExpandedSpecifications] = useState(() => new Set());
+  const specificationsExpanded = (kind, item) => expandedSpecifications.has(itemStateKey(kind, item.id));
+  const uutNamesOnly = uutView.simplified && !(sessionData.uuts || []).some(item => specificationsExpanded("uut", item));
+  const tmdeNamesOnly = tmdeView.simplified && !(sessionData.tmdes || []).some(item => specificationsExpanded("tmde", item));
   const [budgetTmdePicker, setBudgetTmdePicker] = useState(null);
   useExclusiveMenu(Boolean(budgetTmdePicker), () => setBudgetTmdePicker(null));
   const budgetTmdeMenuRef = useRef(null);
@@ -10737,16 +10742,20 @@ function DetailedView({
   const [editingCustomColumnKey, setEditingCustomColumnKey] = useState(null);
   const customColumnsFor = (kind) =>
     sessionData.instrumentCustomColumns?.[kind] || [];
-  const uutTableColumns = useInstrumentColumnWidths(
+  const uutFullColumns = useInstrumentColumnWidths(
     "uut",
     customColumnsFor("uut"),
-    instrumentQualifierDepth(sessionData.uuts),
+    useMemo(() => instrumentQualifierDepth(sessionData.uuts), [sessionData.uuts]),
   );
-  const tmdeTableColumns = useInstrumentColumnWidths(
+  const tmdeFullColumns = useInstrumentColumnWidths(
     "tmde",
     customColumnsFor("tmde"),
-    instrumentQualifierDepth(sessionData.tmdes),
+    useMemo(() => instrumentQualifierDepth(sessionData.tmdes), [sessionData.tmdes]),
   );
+  const uutSimpleColumns = useInstrumentColumnWidths("uut", [], false, "simplified");
+  const tmdeSimpleColumns = useInstrumentColumnWidths("tmde", [], false, "simplified");
+  const uutTableColumns = uutNamesOnly ? uutSimpleColumns : uutFullColumns;
+  const tmdeTableColumns = tmdeNamesOnly ? tmdeSimpleColumns : tmdeFullColumns;
   const uutTableHeight = useInstrumentTableHeight(
     "detail",
     "uut",
@@ -13005,6 +13014,51 @@ function DetailedView({
     );
   };
 
+  const renderSpecificationsButton = (kind, item) => <InstrumentSpecificationsButton
+    name={formatInstrumentIdentity(item, "Untitled instrument")}
+    expanded={specificationsExpanded(kind, item)}
+    onClick={event => {
+      event.stopPropagation(); document.activeElement?.blur?.();
+      const key = itemStateKey(kind, item.id);
+      setExpandedSpecifications(current => {
+        const next = new Set(current);
+        if (next.has(key)) next.delete(key); else next.add(key);
+        return next;
+      });
+    }} />;
+
+  const renderSimplifiedInstrument = (kind, item, rowKey, functionKey) => {
+    const selected = (kind === "uut" ? selectedUutIds : selectedTmdeIds).includes(item.id);
+    const activeUut = kind === "uut" && isActivePointUutForFunction(item, null);
+    const usageCount = kind === "tmde" ? getTmdeBudgetUsageCount(item) : 0;
+    const columns = kind === "uut" ? uutTableColumns : tmdeTableColumns;
+    return <React.Fragment key={rowKey}>
+      {renderInstrumentDeleteButton(kind, item, functionKey)}
+      <tr className={`instrument-function-row instrument-simplified-row${selected ? " instrument-selected" : ""}${activeUut ? " active-point-uut-row" : ""}`}
+        data-instrument-id={item.id} data-measurement-area={functionKey}
+        data-selection-key={itemStateKey(kind, item.id)}
+        style={functionBadgeStyle(functionKey)}
+        onClick={event => (kind === "uut" ? handleUutClick : handleTmdeClick)(event, item.id)}
+        onContextMenu={event => openInstrumentRowMenu(event, kind, item)}
+        draggable={false} onDragStart={handleDetailInstrumentDragStart(kind, item, functionKey)} onDragEnd={handleDetailInstrumentDragEnd}
+        onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = event.dataTransfer.types?.includes(BUDGET_COMPONENT_MIME) ? "copy" : "move"; }}
+        onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === functionKey); if (area) handleDetailInstrumentDropOnFunction(kind, area, item.id)(event); }}
+        onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, kind, item, functionKey, selectedInstrumentAreasRef.current); }}>
+        <td className="cell-description has-order-controls" colSpan={columns.keys.length - 1}>
+          <InstrumentOrderControls onMoveUp={() => moveInstrument(kind, item.id, functionKey, -1)} onMoveDown={() => moveInstrument(kind, item.id, functionKey, 1)} />
+          <div className="instrument-simplified-description">
+            <span className="instrument-simplified-name">{formatInstrumentIdentity(item, "Untitled instrument")}
+              {activeUut && <span className="active-uut-badge instrument-usage-badge">Active UUT</span>}
+              {usageCount > 0 && <span className="instrument-usage-badge">In Budget{usageCount > 1 ? ` ×${usageCount}` : ""}</span>}
+            </span>
+            {renderSpecificationsButton(kind, item)}
+          </div>
+        </td>
+        <td className="cell-sync"><SyncBadge item={item} onSync={() => handleSyncItem(kind, item)} onDemote={() => handleDemoteItem(kind, item)} /></td>
+      </tr>
+    </React.Fragment>;
+  };
+
   const renderFunctionDeleteButton = (fn) =>
     onSessionSave ? (
       <button
@@ -13207,9 +13261,8 @@ function DetailedView({
   );
 
   useEffect(() => {
-    setShowIrrelevantUutFunctions(false);
-    setShowIrrelevantTmdeFunctions(false);
-  }, [testPointData?.id]);
+    setExpandedSpecifications(current => current.size ? new Set() : current);
+  }, [sessionData.id, testPointData?.id]);
 
   const visibleDetailUutRows = useMemo(
     () =>
@@ -15681,29 +15734,7 @@ function DetailedView({
             <span>{uutTableTitle(sessionData.uuts?.length)}</span>
           </div>
           <div className="panel-card-actions">
-            <button
-              type="button"
-              className="btn-add-item btn-add-column instrument-visibility-toggle"
-              onClick={() =>
-                setShowIrrelevantUutFunctions((current) => !current)
-              }
-              title={
-                showIrrelevantUutFunctions
-                  ? "Hide other measurement areas"
-                  : "Show all UUT measurement areas"
-              }
-              data-ui-toggle
-              aria-pressed={showIrrelevantUutFunctions}
-              aria-label={
-                showIrrelevantUutFunctions
-                  ? "Show this UUT measurement area"
-                  : "Show all UUT measurement areas"
-              }
-            >
-              <FontAwesomeIcon
-                icon={showIrrelevantUutFunctions ? faEye : faEyeSlash}
-              />
-            </button>
+            <InstrumentTableViewMenu kind="uut" value={uutView} onChange={changeUutView} />
             {showIrrelevantUutFunctions && (<MeasurementAreaEntry kind="uut" onAdd={handleAddFunction} />)}
           </div>
         </div>
@@ -15737,7 +15768,7 @@ function DetailedView({
               customColumns={customColumnsFor("uut")}
               columns={uutTableColumns}
               renderCustomColumnHeader={renderCustomColumnHeader}
-              onInsertAfter={(columnKey) => requestCustomColumn("uut", columnKey)}
+              onInsertAfter={uutNamesOnly ? undefined : (columnKey) => requestCustomColumn("uut", columnKey)}
             />
             <tbody>
               {visibleDetailUutRows.length === 0 ? null : (
@@ -15746,12 +15777,13 @@ function DetailedView({
                     return renderFunctionHeaderRow(
                       "uut",
                       row.fn,
-                      getInstrumentColumnOrder("uut", customColumnsFor("uut"), uutTableColumns.qualifierEnabled).length,
+                      uutTableColumns.keys.length,
                     );
                   }
                   const uut = row.item;
                   const uutRowKey = row.rowKey ?? uut.id;
                   const uutFnKey = row.functionKey ?? null;
+                  if (uutView.simplified && !specificationsExpanded("uut", uut)) return renderSimplifiedInstrument("uut", uut, uutRowKey, uutFnKey);
                   const { ranges, activeIndex, activeRange } =
                     resolveUutRange(uut, uutFnKey);
                   const isPointFunctionRow = pointFunctionMatchesRow(uutFnKey);
@@ -15798,7 +15830,8 @@ function DetailedView({
                                 openInstrumentRowMenu(event, "uut", uut)
                               }
                               onMouseDownCapture={(e) => {
-                                selectRangeRowDetail(e, "uut", uut, index, rangeIdOf(range), uutRowKey);
+                                if (e.target.closest(".instrument-library-specifications")) return;
+                                    selectRangeRowDetail(e, "uut", uut, index, rangeIdOf(range), uutRowKey);
                                 // With the in-cell range switcher removed, clicking a
                                 // range row is how the active point picks which range
                                 // applies to it (mirrors the old switcher's onSelect).
@@ -15840,6 +15873,7 @@ function DetailedView({
                                     onMoveDown={() => moveInstrument("uut", uut.id, uutFnKey, 1)}
                                   />
                                   <div className="uut-description-content">
+                            {uutView.simplified && renderSpecificationsButton("uut", uut)}
                                     <EditableDescriptionCell
                                       name={getUutDescription(uut)}
                                       nickname={uut.nickname}
@@ -15941,6 +15975,7 @@ function DetailedView({
                             onMoveDown={() => moveInstrument("uut", uut.id, uutFnKey, 1)}
                           />
                           <div className="uut-description-content">
+                                    {uutView.simplified && renderSpecificationsButton("uut", uut)}
                             {onSessionSave ? (
                               <EditableDescriptionCell
                                 name={getUutDescription(uut)}
@@ -16442,29 +16477,7 @@ function DetailedView({
               <span>Test, Measurement, and Diagnostic Equipment</span>
             </div>
             <div className="panel-card-actions">
-              <button
-                type="button"
-                className="btn-add-item btn-add-column instrument-visibility-toggle"
-                onClick={() =>
-                  setShowIrrelevantTmdeFunctions((current) => !current)
-                }
-                title={
-                  showIrrelevantTmdeFunctions
-                    ? "Hide other measurement areas"
-                    : "Show all TMDE measurement areas"
-                }
-                data-ui-toggle
-                aria-pressed={showIrrelevantTmdeFunctions}
-                aria-label={
-                  showIrrelevantTmdeFunctions
-                    ? "Show this TMDE measurement area"
-                    : "Show all TMDE measurement areas"
-                }
-              >
-                <FontAwesomeIcon
-                  icon={showIrrelevantTmdeFunctions ? faEye : faEyeSlash}
-                />
-              </button>
+              <InstrumentTableViewMenu kind="tmde" value={tmdeView} onChange={changeTmdeView} />
               {showIrrelevantTmdeFunctions && (<MeasurementAreaEntry kind="tmde" onAdd={handleAddFunction} />)}
             </div>
           </div>
@@ -16499,7 +16512,7 @@ function DetailedView({
               customColumns={customColumnsFor("tmde")}
                 columns={tmdeTableColumns}
                 renderCustomColumnHeader={renderCustomColumnHeader}
-                onInsertAfter={(columnKey) => requestCustomColumn("tmde", columnKey)}
+                onInsertAfter={tmdeNamesOnly ? undefined : (columnKey) => requestCustomColumn("tmde", columnKey)}
               />
               <tbody>
                 {visibleDetailTmdeRows.length === 0 ? null : (
@@ -16508,12 +16521,13 @@ function DetailedView({
                       return renderFunctionHeaderRow(
                         "tmde",
                         row.fn,
-                      getInstrumentColumnOrder("tmde", customColumnsFor("tmde"), tmdeTableColumns.qualifierEnabled).length,
+                      tmdeTableColumns.keys.length,
                       );
                     }
                     const masterTmde = row.item;
                     const tmdeRowKey = row.rowKey ?? masterTmde.id;
                     const tmdeFnKey = row.functionKey ?? null;
+                  if (tmdeView.simplified && !specificationsExpanded("tmde", masterTmde)) return renderSimplifiedInstrument("tmde", masterTmde, tmdeRowKey, tmdeFnKey);
                     // Check selection state
                     const isSelectedRow = selectedTmdeIds.includes(
                       masterTmde.id,
@@ -16611,6 +16625,7 @@ function DetailedView({
                                     openInstrumentRowMenu(event, "tmde", masterTmde)
                                   }
                                   onMouseDownCapture={(e) => {
+                                    if (e.target.closest(".instrument-library-specifications")) return;
                                     selectRangeRowDetail(e, "tmde", masterTmde, index, rangeIdOf(range), tmdeRowKey);
                                     // Range switcher removed: activating a range row
                                     // is now how a TMDE's applied range is chosen for
@@ -16654,6 +16669,7 @@ function DetailedView({
                                         onMoveDown={() => moveInstrument("tmde", masterTmde.id, tmdeFnKey, 1)}
                                       />
                                       <div className="uut-description-content">
+                                        {tmdeView.simplified && renderSpecificationsButton("tmde", masterTmde)}
                                         <EditableDescriptionCell
                                           name={masterTmde.name}
                                           nickname={masterTmde.nickname}
@@ -16772,6 +16788,7 @@ function DetailedView({
                                 onMoveDown={() => moveInstrument("tmde", masterTmde.id, tmdeFnKey, 1)}
                               />
                               <div className="uut-description-content">
+                                {tmdeView.simplified && renderSpecificationsButton("tmde", masterTmde)}
                                 {onSessionSave ? (
                                   <EditableDescriptionCell
                                     name={masterTmde.name}

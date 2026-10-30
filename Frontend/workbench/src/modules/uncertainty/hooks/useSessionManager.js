@@ -26,6 +26,7 @@ const getSessionChangeGroup = (previousSession, updatedSession) => {
   const changedKeys = [...keys]
     .filter(
       (key) =>
+        previousSession?.[key] !== updatedSession?.[key] &&
         JSON.stringify(previousSession?.[key]) !==
         JSON.stringify(updatedSession?.[key]),
     )
@@ -735,7 +736,8 @@ const useSessionManager = () => {
         },
       );
       const rangeStructure = session => ["uuts", "tmdes"].flatMap(key => (session?.[key] || []).map(item => [item.id, getInstrumentRangeRows(item).map(range => [range.rangeId ?? range.id, Boolean(range.qualifier)])]));
-      const isRangeStructureChange = JSON.stringify(rangeStructure(previousSession)) !== JSON.stringify(rangeStructure(updatedSession));
+      const instrumentsChanged = previousSession?.uuts !== updatedSession.uuts || previousSession?.tmdes !== updatedSession.tmdes;
+      const isRangeStructureChange = instrumentsChanged && JSON.stringify(rangeStructure(previousSession)) !== JSON.stringify(rangeStructure(updatedSession));
       const undoGroup = isDiscreteCollectionChange || isRangeStructureChange
         ? `${changeGroup}:discrete:${++undoSequenceRef.current}`
         : changeGroup;
