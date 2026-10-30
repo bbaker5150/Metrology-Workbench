@@ -1,6 +1,6 @@
 .instrument-library-specifications { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 26px; width: 26px; height: 26px; padding: 0; opacity: 0; pointer-events: none; border: 0; background: transparent; box-shadow: none; transition: none; }
-.instrument-simplified-description { display: flex; align-items: center; gap: 8px; min-width: 0; }
-.instrument-simplified-description > .instrument-simplified-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.instrument-simplified-description { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 8px; min-width: 0; }
+.instrument-simplified-description > .instrument-simplified-name { min-width: 0; overflow: hidden; overflow-wrap: anywhere; }
 .instrument-equipment-table .instrument-simplified-name { display: flex; flex-direction: column; align-items: flex-start; gap: 3px; }
 .instrument-view-menu { position: relative; }
 .panel-card-header .instrument-view-menu > .btn-add-item { width: max-content; min-width: 38px; padding-inline: 6px; gap: 5px; flex: 0 0 auto; }
@@ -15,17 +15,24 @@
 .instrument-equipment-table .cell-description:is(:hover, :focus-within, [data-cell-hovered]) .instrument-library-specifications { opacity: 1; pointer-events: auto; }
 .instrument-equipment-table .cell-description.instrument-library-expanded-description { position: relative; padding-right: 44px; }
 .instrument-library-expanded-description > .instrument-library-specifications { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); }
-.instrument-library-name-and-range { flex: 1; min-width: 0; padding-bottom: 10px; }
+.instrument-library-name-and-range { min-width: 0; overflow: hidden; padding-bottom: 10px; }
 .instrument-library-name-and-range .instrument-library-name { padding-bottom: 0; }
 .instrument-library-name-and-range .instrument-range-menu { margin-left: 16px; }
 .instrument-simplified-name > .instrument-range-menu { align-self: flex-start; }
 
-/* Reserve the specifications button's space even with long qualifier paths. */
-.uncertainty-module .budget-range-selector.instrument-range-menu,
-.uncertainty-module .budget-range-selector.instrument-range-menu .inline-menu-select-trigger {
+/* Keep long range/qualifier paths inside the text track beside the spec action.
+   The full details remain in the trigger's title and its portaled dropdown. */
+.uncertainty-module .budget-range-selector.instrument-range-menu {
   width: max-content !important;
   min-width: 0;
   max-width: 100%;
+  overflow: hidden;
+}
+.uncertainty-module .budget-range-selector.instrument-range-menu .inline-menu-select-trigger {
+  width: 100% !important;
+  min-width: 0;
+  max-width: 100%;
+  box-sizing: border-box;
 }
 .uncertainty-module .budget-range-selector.instrument-range-menu .inline-menu-select-trigger > span {
   min-width: 0;
