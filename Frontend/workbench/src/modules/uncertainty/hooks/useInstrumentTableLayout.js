@@ -74,7 +74,7 @@ export default function useInstrumentTableLayout(containerRef) {
   useLayoutEffect(() => {
     const table = container?.querySelector(":scope > table");
     if (!table) return undefined;
-    const claim = () => claimWorkspaceSelection("instruments");
+    const claim = () => claimWorkspaceSelection(container.closest('.instrument-library-window') ? "library" : "instruments");
     table.addEventListener("pointerdown", claim, true);
     const releaseTextSelection = preserveTableTextSelection(table);
     const releasePointerDrag = attachInstrumentPointerDrag(table);

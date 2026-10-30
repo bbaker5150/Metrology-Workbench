@@ -481,6 +481,17 @@ class InstrumentLibraryScopeTests(APITestCase):
         self.assertEqual(ok.status_code, status.HTTP_201_CREATED)
         self.assertEqual(ok.data["scope"], "validated")
 
+    def test_validated_delete_requires_password(self):
+        models.Instrument.objects.create(id="delete-shared", scope="validated", model="Meter")
+        url = "/api/uncertainty/instruments/delete-shared/"
+        for payload in ({}, {"password": "wrong"}):
+            response = self.client.delete(url, payload, format="json")
+            self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+            self.assertTrue(models.Instrument.objects.filter(id="delete-shared").exists())
+        response = self.client.delete(url, {"password": "calibrate"}, format="json")
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertFalse(models.Instrument.objects.filter(id="delete-shared").exists())
+
     def test_legacy_resave_does_not_demote_validated(self):
         self.client.post(
             "/api/uncertainty/instruments/",

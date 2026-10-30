@@ -533,3 +533,25 @@ it('clears a pending library edit when the instrument is deleted so reopening ca
  await act(async()=>{await result.current.deleteInstrument('removed');});
  expect(readRecovery().libraryEdits.removed).toBeUndefined();
 });
+
+it('sends a shared deletion password only in the request body and retains the instrument on rejection', async () => {
+  const instrument = { id: 'shared-delete', scope: 'validated', description: 'Shared meter', functions: [] };
+  axios.get.mockImplementation(url => Promise.resolve({ data: url.endsWith('/instruments/') ? [instrument] : [] }));
+  const { result } = renderHook(() => useSessionManager());
+  await waitFor(() => expect(result.current.instruments).toHaveLength(1));
+  const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+  try {
+    axios.delete.mockRejectedValueOnce(new Error('Invalid shared-library password.'));
+    await act(async () => { await expect(result.current.deleteInstrument(instrument.id, { password: 'wrong' })).rejects.toThrow('Invalid shared-library password.'); });
+    expect(result.current.instruments).toEqual([instrument]);
+    expect(axios.delete).toHaveBeenLastCalledWith(expect.stringMatching(/instruments\/shared-delete\/$/), {
+      params: { owner: expect.any(String) }, data: { password: 'wrong' },
+    });
+    await act(async () => { await result.current.deleteInstrument(instrument.id, { password: 'calibrate' }); });
+    expect(result.current.instruments).toEqual([]);
+    expect(axios.delete).toHaveBeenLastCalledWith(expect.stringMatching(/instruments\/shared-delete\/$/), {
+      params: { owner: expect.any(String) }, data: { password: 'calibrate' },
+    });
+    expect(JSON.stringify(readRecovery())).not.toContain('password');
+  } finally { log.mockRestore(); }
+});

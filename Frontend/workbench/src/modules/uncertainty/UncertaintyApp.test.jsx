@@ -133,8 +133,18 @@ describe("UncertaintyApp", () => {
       await waitFor(() => expect(document.querySelectorAll('.point-grid-item')[1]).toHaveClass('active-point'));
       expect(document.querySelectorAll('[data-range-id]')).toHaveLength(0);
       expect(screen.getByRole('button', { name: 'Uncertainty Budget' })).toHaveClass('active');
+      fireEvent.click(screen.getByRole('button',{name:'Instrument Library'}));
+      const instrumentLibrary=await screen.findByRole('dialog',{name:'Instrument library'});
+      fireEvent.click(instrumentLibrary.querySelector('.instrument-specifications-toggle'));
+      expect(instrumentLibrary).toHaveAttribute('data-specifications-expanded','true');
+      fireEvent.keyDown(document.body,{key:'Escape'});
+      expect(instrumentLibrary.querySelectorAll('[data-range-id]')).toHaveLength(0);
+      expect(screen.getByRole('button',{name:'Uncertainty Budget'})).toHaveClass('active');
+      expect(document.querySelectorAll('.point-grid-item')[1]).toHaveClass('active-point');
+      fireEvent.click(within(instrumentLibrary).getByRole('button',{name:'Close instrument library'}));
       // Escape belongs to open specifications, not the app's point deselection.
       for (const table of document.querySelectorAll('[data-tour="uut-table"], [data-tour="tmde-table"]')) {
+        if (table.closest('.instrument-library-window')) continue;
         fireEvent.click(table.querySelector('.instrument-library-specifications'));
       }
       expect(document.querySelectorAll('[data-range-id]').length).toBeGreaterThan(0);
@@ -1451,7 +1461,7 @@ describe("UncertaintyApp", () => {
     });
   }, 15000);
 
-  test("keeps Delete scoped to the open instrument builder", async () => {
+  test("keeps Delete scoped to the selected library or workspace instrument", async () => {
     apiMock.state.sessions = [
       {
         id: 3,
@@ -1534,8 +1544,18 @@ describe("UncertaintyApp", () => {
       screen.getByRole("alertdialog", { name: "Remove instruments" }),
     ).toBeInTheDocument();
     expect(
-      screen.queryByRole("alertdialog", { name: "Delete UUT" }),
+      screen.queryByRole("alertdialog", { name: "Delete Instrument" }),
     ).not.toBeInTheDocument();
+    fireEvent.click(within(screen.getByRole("alertdialog", { name: "Remove instruments" })).getByTitle("Close"));
+    fireEvent.pointerDown(uutRow, { button: 0 });
+    fireEvent.mouseDown(uutRow, { button: 0 });
+    fireEvent.click(uutRow);
+    expect(uutRow).toHaveClass("selected-row");
+    expect(library.querySelector(".selected-row")).toBeNull();
+    fireEvent.keyDown(window, { key: "Delete" });
+    expect(screen.getByRole("alertdialog", { name: "Delete Instrument" })).toBeInTheDocument();
+    expect(screen.queryByRole("alertdialog", { name: "Remove instruments" })).not.toBeInTheDocument();
+    expect(apiMock.state.instruments).toHaveLength(1);
   });
 
   test.each(["10", ""])("adds manual components with measurement value %s", async (measurementValue) => {

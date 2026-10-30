@@ -182,9 +182,12 @@ export function sharePointInstrumentOwnerKey(user) {
  * exists so tests can drive it with a fake fetch.
  */
 export class SharePointStore {
-  constructor({ webUrl, prefix = DEFAULT_PREFIX, fetchImpl = fetch, currentUser } = {}) {
+  constructor({ webUrl, prefix = DEFAULT_PREFIX, fetchImpl = fetch, currentUser, libraryPassword = 'calibrate' } = {}) {
     this.webUrl = String(webUrl || '').replace(/\/+$/, '');
     this.prefix = prefix;
+    // Match the standard library confirmation password. SharePoint's own
+    // permissions remain the access boundary for this browser-only build.
+    this.libraryPassword = libraryPassword;
     this.fetchImpl = fetchImpl;
     this._folderCache = null;
     this._storageTitles = new Map();
@@ -691,7 +694,7 @@ export class SharePointStore {
     return canonical;
   }
 
-  async deleteInstrument(recordId) {
+  async deleteInstrument(recordId, password) {
     const user = await this.currentUser();
     const rows = await this.instrumentRows(recordId);
     const ownLocal = rows.find(({ item, record }) =>
@@ -702,6 +705,9 @@ export class SharePointStore {
     // Another user's local row is intentionally indistinguishable from an
     // absent record and can never be deleted through the app.
     if (!target) return;
+    if (target === shared && (!password || password !== this.libraryPassword)) {
+      throw new SharePointError('Invalid shared-library password.', 403);
+    }
     await this.archiveListItem('instruments', target.item);
   }
 

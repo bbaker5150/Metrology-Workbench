@@ -170,6 +170,12 @@ def instruments(request):
 @permission_classes([AllowAny])
 def instrument_detail(request, instrument_id):
     instrument = models.Instrument.objects.filter(pk=str(instrument_id)).first()
+    if instrument and instrument.scope == models.Instrument.SCOPE_VALIDATED:
+        if (request.data.get("password") or "") != _library_password():
+            return Response(
+                {"detail": "Invalid shared-library password."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
     if instrument and instrument.scope == models.Instrument.SCOPE_LOCAL:
         owner = request.query_params.get("owner") or ""
         if not owner or owner != instrument.owner:

@@ -1,6 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import {
   buildSessionReportModel,
+  generateOverviewReport,
   resolvePdfColumnGroups,
   resolvePdfTableLayout,
 } from "./pdfGenerator";
@@ -12,6 +13,19 @@ const helpers = {
     high: "10.5 in-oz",
   }),
 };
+
+it('omits range headings on the first and continuation pages without dropping measurements',async()=>{
+  const texts=[],pages=[];
+  const pdf={addPage:()=>{const page={drawText:text=>texts.push(text),drawLine:vi.fn(),drawRectangle:vi.fn()};pages.push(page);return page;},getPages:()=>pages};
+  const font={widthOfTextAtSize:(text,size)=>text.length*size/2};
+  const session={name:'Report',uuts:[{id:'u',description:'Meter'}],testPoints:Array.from({length:80},(_,index)=>({id:`p${index}`,associatedUutIds:['u'],
+    testPointInfo:{parameter:{name:'Current',value:index+1,unit:'A'}},uutTolerance:{min:0,max:3500,unit:'A'}}))};
+  await generateOverviewReport(pdf,session,{regular:font,bold:font},helpers,{}, {value:true});
+  expect(pages.length).toBeGreaterThan(1);
+  expect(texts.some(text=>text.includes('Range:'))).toBe(false);
+  expect(texts).toContain('UUT: Meter');
+  for(let index=1;index<=80;index++)expect(texts).toContain(`${index} A`);
+});
 
 describe("buildSessionReportModel", () => {
   it("uses authored measurement areas without filtering out other instrument functions", () => {

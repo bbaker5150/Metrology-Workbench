@@ -32,7 +32,7 @@ function buildRoutes(store) {
 
     ['GET', /^\/instruments\/$/, () => store.listInstruments()],
     ['POST', /^\/instruments\/$/, (_m, body) => store.saveInstrument(body)],
-    ['DELETE', /^\/instruments\/([^/]+)\/$/, (m) => store.deleteInstrument(decodeURIComponent(m[1]))],
+    ['DELETE', /^\/instruments\/([^/]+)\/$/, (m, body) => store.deleteInstrument(decodeURIComponent(m[1]), body?.password)],
 
     ['GET', /^\/equations\/$/, () => store.listRecords('equations')],
     ['POST', /^\/equations\/$/, (_m, body) => store.saveRecord('equations', body)],

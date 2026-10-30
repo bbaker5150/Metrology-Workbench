@@ -2,11 +2,23 @@
 .instrument-simplified-description { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .instrument-simplified-description > .instrument-simplified-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .instrument-view-menu { position: relative; }
-.instrument-view-menu-options { position: fixed; inset: auto; margin: 0; padding: 8px; min-width: 230px; width: max-content; max-width: calc(100vw - 16px); overflow: auto; border: 1px solid var(--border-color); border-radius: 6px; background: var(--content-background-solid, #fff); color: var(--text-color); box-shadow: 0 4px 16px #0003; z-index: 10000; }
-.instrument-view-menu-options label { display: flex; align-items: center; gap: 8px; padding: 7px; cursor: pointer; white-space: nowrap; }
+.panel-card-header .instrument-view-menu > .btn-add-item { width: max-content; min-width: 38px; padding-inline: 6px; gap: 5px; flex: 0 0 auto; }
+.instrument-view-menu > button svg { flex-shrink: 0; }
+.instrument-view-menu-options { position: fixed; inset: auto; margin: 0; padding: 6px; min-width: 230px; width: max-content; max-width: calc(100vw - 16px); overflow: auto; border: 1px solid var(--border-color); border-radius: 6px; background: var(--component-bg); color: var(--text-color); box-shadow: 0 12px 30px #00000047; z-index: 10000; box-sizing: border-box; font-size: .82rem; }
+.instrument-view-menu-options label { display: flex; align-items: center; gap: 10px; min-height: 28px; padding: 5px 8px; border-radius: 4px; box-sizing: border-box; cursor: pointer; white-space: nowrap; }
+.instrument-view-menu-options label:is(:hover, :focus-within) { background: rgba(var(--primary-rgb), .1); }
+.instrument-view-menu-options input { margin: 0; accent-color: var(--primary-color); }
 
 /* Shared by library and budget tables: reveal on row/cell hover or keyboard focus. */
 .instrument-equipment-table tr:hover > .cell-description .instrument-library-specifications,
 .instrument-equipment-table .cell-description:is(:hover, :focus-within, [data-cell-hovered]) .instrument-library-specifications { opacity: 1; pointer-events: auto; }
 .instrument-equipment-table .cell-description.instrument-library-expanded-description { position: relative; padding-right: 44px; }
 .instrument-library-expanded-description > .instrument-library-specifications { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); }
+.instrument-specifications-toggle { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 26px; flex: 0 0 24px; border: 0; border-radius: 4px; padding: 0; background: transparent; color: var(--text-color-muted); font-size: .7rem; cursor: pointer; }
+.instrument-specifications-toggle:is(:hover, :focus-visible) { color: var(--primary-color); background: rgba(var(--primary-rgb), .1); }
+.instrument-library-description > .instrument-specifications-toggle { margin-left: 8px; }
+.instrument-library-description:has(.instrument-specifications-toggle) > .instrument-library-name { padding-left: 4px; }
+.instrument-equipment-table .cell-description.instrument-library-expanded-description:has(> .instrument-specifications-toggle) { padding-left: 40px; }
+.instrument-library-expanded-description > .instrument-specifications-toggle { position: absolute; left: 8px; top: 50%; transform: translateY(-50%); }
+.instrument-equipment-table .cell-description.instrument-library-expanded-description.has-order-controls:has(> .instrument-specifications-toggle) { padding-left: 88px; }
+.instrument-library-expanded-description.has-order-controls > .instrument-specifications-toggle { left: 56px; }

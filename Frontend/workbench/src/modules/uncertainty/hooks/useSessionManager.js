@@ -544,10 +544,11 @@ const useSessionManager = () => {
   }, [dedupeLibraryInstruments, replaceInstruments]);
 
   // --- 2.2 Delete Instrument ---
-  const deleteInstrument = useCallback(async (instrumentId) => {
+  const deleteInstrument = useCallback(async (instrumentId, { password } = {}) => {
     try {
       await axios.delete(`${UNCERTAINTY_API}/instruments/${instrumentId}/`, {
         params: { owner: getDeviceKey() },
+        ...(password ? { data: { password } } : {}),
       });
       const pending = readRecovery().libraryEdits?.[String(instrumentId)];
       if (pending) acknowledgeSession("libraryEdits", String(instrumentId), pending.token);

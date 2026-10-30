@@ -815,13 +815,11 @@ export const generateOverviewReport = async (
       renderer.banner(`UUT: ${uut.name}`, COLORS.uutFill, 8.5);
       uut.ranges.forEach((range) => {
         renderer.ensure(48);
-        renderer.text(`Range: ${range.label}`, PAGE.margin + 5, renderer.y - 8, 8, renderer.bold);
-        renderer.y -= 16;
         renderer.tableHeader(reportColumns);
         const repeatContext = () => {
           renderer.text(functionHeading(fn), PAGE.margin, renderer.y - 8, 8, renderer.bold);
           renderer.y -= 13;
-          renderer.text(`UUT: ${uut.name} | Range: ${range.label}`, PAGE.margin, renderer.y - 8, 7.5, renderer.bold);
+          renderer.text(`UUT: ${uut.name}`, PAGE.margin, renderer.y - 8, 7.5, renderer.bold);
           renderer.y -= 14;
           renderer.tableHeader(reportColumns);
         };

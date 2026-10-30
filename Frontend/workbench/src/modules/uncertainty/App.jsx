@@ -2741,6 +2741,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
   useEffect(() => {
     const deselectArea = event => {
       if (event.key !== "Escape" || event.defaultPrevented) return;
+      if (document.querySelector('.instrument-library-window:not([hidden])[data-specifications-expanded="true"]')) return;
       // Instrument tables collapse expanded specifications on Escape. Keep
       // the current point/context mounted until that workspace handles it.
       if (document.querySelector('[data-budget-instrument-specifications-expanded="true"], [data-overview-instrument-specifications-expanded="true"]')) return;
@@ -2761,7 +2762,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
     return () => window.removeEventListener("keydown", deselectArea, true);
   }, [selectedPointArea]);
   useEffect(() => {
-    const clear = event => { if (event.detail?.owner === "instruments") { setSelectedPointArea(null); setSelectedSidebarPointIds([]); setSelectedTablePointIds([]); setSelectedUutId(null); } };
+    const clear = event => { if (["instruments", "library"].includes(event.detail?.owner)) { setSelectedPointArea(null); setSelectedSidebarPointIds([]); setSelectedTablePointIds([]); setSelectedUutId(null); if (event.detail.owner === "library") setCurrentUutSelection([]); } };
     window.addEventListener(WORKSPACE_SELECTION_EVENT, clear);
     document.addEventListener("mouseover", exposeDecimalOnHover);
     return () => { window.removeEventListener(WORKSPACE_SELECTION_EVENT, clear); document.removeEventListener("mouseover", exposeDecimalOnHover); };
@@ -6603,7 +6604,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
                     setOverviewCollapsedFunctionKeys={setCollapsedOverviewInstrumentFunctionKeys}
                     detailCollapsedFunctionKeys={collapsedDetailInstrumentFunctionKeys}
                     setDetailCollapsedFunctionKeys={setCollapsedDetailInstrumentFunctionKeys}
-                    keyboardShortcutsEnabled={!isInstrumentBuilderOpen}
+                    keyboardShortcutsEnabled={!isInstrumentBuilderOpen || instrumentModalConfig.mode === "library"}
                     scrollPositionsRef={analysisScrollPositionsRef}
                     onSelectUut={handleSelectUut}
                     onSelectTestPoint={handleSelectTestPoint}

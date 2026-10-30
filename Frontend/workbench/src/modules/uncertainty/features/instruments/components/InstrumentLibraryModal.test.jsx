@@ -11,7 +11,7 @@ function Harness({ save=vi.fn(), remove=vi.fn(), close=vi.fn(), confirmDeletes=f
  const [instruments,setInstruments]=useState(initial);
  return <ConfirmRecordDeletesContext.Provider value={confirmDeletes}><InstrumentLibraryModal isOpen instruments={instruments} onClose={close}
  onSaveToLibrary={async(value,options)=>{await save(value,options);setInstruments(previous=>[...previous.filter(item=>item.id!==value.id),value]);return value;}}
- onBatchAdd={vi.fn()} onDelete={async id=>{await remove(id);setInstruments(previous=>previous.filter(item=>item.id!==id));}} /></ConfirmRecordDeletesContext.Provider>;
+ onBatchAdd={vi.fn()} onDelete={async (id,options)=>{await (options ? remove(id,options) : remove(id));setInstruments(previous=>previous.filter(item=>item.id!==id));}} /></ConfirmRecordDeletesContext.Provider>;
 }
 it('selects names without expansion and opens details from its row specifications control',()=>{
  render(<Harness/>);
@@ -333,9 +333,71 @@ it('removes only the selected records using table selection and Delete',async()=
  expect(first).toHaveClass("selected-row");
  expect(third).toHaveClass("selected-row");
  fireEvent.keyDown(window,{key:'Delete'});
+ expect(remove).not.toHaveBeenCalled();
+ fireEvent.click(within(screen.getByRole('alertdialog',{name:'Remove instruments'})).getByRole('button',{name:'Remove',exact:true}));
  await waitFor(()=>expect(remove).toHaveBeenCalledTimes(2));
  expect(remove.mock.calls.map(([id])=>id)).toEqual(['A','C']);
  expect(document.querySelector('tr[data-instrument-id="B"]')).toHaveTextContent('Meter B');
+});
+
+it('requires a masked password and explicit confirmation for shared library deletion',async()=>{
+ const remove=vi.fn().mockRejectedValueOnce({response:{data:{detail:'Invalid shared-library password.'}}});
+ render(<Harness remove={remove}/>);
+ const select=()=>fireEvent.click(document.querySelector('tr[data-instrument-id="B"] .instrument-library-name'));
+ select(); fireEvent.keyDown(window,{key:'Delete'});
+ let dialog=screen.getByRole('alertdialog',{name:'Remove instruments'});
+ const password=within(dialog).getByLabelText('Shared library password');
+ expect(password).toHaveAttribute('type','password');
+ fireEvent.click(within(dialog).getByRole('button',{name:'Remove',exact:true}));
+ expect(remove).not.toHaveBeenCalled();
+ fireEvent.change(password,{target:{value:'wrong'}});
+ fireEvent.click(within(dialog).getByRole('button',{name:'Remove',exact:true}));
+ await screen.findByText('Invalid shared-library password.');
+ expect(document.querySelector('tr[data-instrument-id="B"]')).not.toBeNull();
+ fireEvent.click(within(screen.getByRole('alertdialog')).getByTitle('Close'));
+ fireEvent.keyDown(window,{key:'Delete'});
+ dialog=screen.getByRole('alertdialog',{name:'Remove instruments'});
+ fireEvent.change(within(dialog).getByLabelText('Shared library password'),{target:{value:'calibrate'}});
+ fireEvent.click(within(dialog).getByRole('button',{name:'Remove',exact:true}));
+ await waitFor(()=>expect(document.querySelector('tr[data-instrument-id="B"]')).toBeNull());
+ expect(remove).toHaveBeenLastCalledWith('B',{password:'calibrate'});
+});
+
+it.each(['session','point'])('deletes a dropped workspace instrument instead of a stale library selection in %s view',viewMode=>{
+ const remove=vi.fn(), deleteWorkspace=vi.fn();
+ function Workspace(){const [session,setSession]=useState({id:'drop-delete',uuts:[],tmdes:[],testPoints:[],measurementAreas:[]});
+  return <><Harness remove={remove}/><UncertaintyPanel testPointData={{id:'p',viewMode,testPointInfo:{parameter:{name:'Voltage',value:5,unit:'V'}},components:[],tmdeTolerances:[]}} sessionData={session}
+    onSessionSave={setSession} onDeleteTmdeDefinition={deleteWorkspace} tmdeTolerancesData={[]} uutNominal={{value:5,unit:'V'}} /></>;}
+ render(<Workspace/>);
+ const library=screen.getByRole('dialog',{name:'Instrument library'});
+ const source=library.querySelector('tr[data-instrument-id="A"]');
+ fireEvent.click(source.querySelector('.instrument-library-name'));
+ const values={};const dataTransfer={setData:(key,value)=>{values[key]=value;},getData:key=>values[key]||'',types:[]};
+ const drag=new Event('dragstart',{bubbles:true,cancelable:true});
+ Object.assign(drag,{dataTransfer,workbenchPointerDrag:true});fireEvent(source,drag);dataTransfer.types=Object.keys(values);
+ const target=[...document.querySelectorAll('[data-tour="tmde-table"]')].find(node=>!library.contains(node));
+ fireEvent.drop(target.querySelector('th'),{dataTransfer});
+ fireEvent.click(library.querySelector('tr[data-instrument-id="C"] .instrument-library-name'));
+ const row=target.querySelector('tr[data-instrument-id]');
+ const cell=row.querySelector('.cell-description');
+ fireEvent.pointerDown(cell,{button:0});fireEvent.mouseDown(cell,{button:0});fireEvent.click(cell);
+ expect(row).toHaveClass('instrument-selected');
+ expect(library.querySelectorAll('tr.selected-row, tr.instrument-selected')).toHaveLength(0);
+ fireEvent.keyDown(window,{key:'Delete'});
+ expect(deleteWorkspace).toHaveBeenCalledWith([row.dataset.instrumentId]);
+ expect(remove).not.toHaveBeenCalled();
+ expect(screen.queryByRole('alertdialog',{name:'Remove instruments'})).toBeNull();
+});
+
+it('expands and collapses library specifications with a name-row accordion',()=>{
+ render(<Harness/>);
+ const row=()=>document.querySelector('tr[data-instrument-id="A"]');
+ fireEvent.click(row().querySelector('.instrument-specifications-toggle'));
+ expect(row().querySelector('.cell-tolerance')).not.toBeNull();
+ expect(row().querySelector('.instrument-specifications-toggle')).toHaveAttribute('aria-expanded','true');
+ fireEvent.click(row().querySelector('.instrument-specifications-toggle'));
+ expect(row().querySelector('.cell-tolerance')).toBeNull();
+ expect(row().querySelector('.instrument-specifications-toggle')).toHaveAttribute('aria-expanded','false');
 });
 it('keeps failed saves available to retry',async()=>{
  const save=vi.fn().mockRejectedValueOnce(new Error('Offline')).mockResolvedValue(undefined);

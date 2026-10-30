@@ -27,6 +27,16 @@ function setup(viewMode = 'point', simplifyOverview = true) {
   return { ...rendered, session, save, panel };
 }
 const specifications = table => table.querySelector('.instrument-library-specifications');
+it.each(['session','point'])('expands and collapses simplified instrument accordions in %s view',viewMode=>{
+  const {container}=setup(viewMode);
+  for(const kind of ['uut','tmde']){
+    const table=container.querySelector(`[data-tour="${kind}-table"]`);
+    fireEvent.click(table.querySelector('.instrument-specifications-toggle'));
+    expect(table.querySelectorAll('[data-range-id]').length).toBeGreaterThan(0);
+    fireEvent.click(table.querySelector('.instrument-specifications-toggle'));
+    expect(table.querySelectorAll('[data-range-id]')).toHaveLength(0);
+  }
+});
 function toggleSimplified(kind) {
   fireEvent.click(screen.getByRole('button', { name: `${kind.toUpperCase()} table view` }));
   const menu = screen.getByRole('group', { name: `${kind.toUpperCase()} table view options` });

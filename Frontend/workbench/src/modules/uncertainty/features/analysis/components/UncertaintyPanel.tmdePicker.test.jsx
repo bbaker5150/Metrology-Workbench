@@ -3,6 +3,29 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import UncertaintyPanel from "./UncertaintyPanel";
 
+it('anchors Add to the current budget title and trigger at document zoom, including after resize',()=>{
+  const point={id:'p',measurementType:'direct',testPointInfo:{parameter:{name:'Current Indication',value:10,unit:'A'}},components:[]};
+  document.body.style.zoom='1.5';
+  try {
+    render(<UncertaintyPanel testPointData={point} sessionData={{id:'s',uuts:[],tmdes:[],testPoints:[point],measurementAreas:[],uncReq:{}}}
+      uutNominal={point.testPointInfo.parameter} tmdeTolerancesData={[]} onAddManualComponent={vi.fn()}
+      calcResults={{combined_uncertainty:0,expanded_uncertainty:0,k_value:2,effective_dof:Infinity}}/>);
+    const trigger=screen.getByRole('button',{name:'Add component to budget'});
+    let rect={left:900,right:924,top:500,bottom:524};
+    trigger.getBoundingClientRect=()=>rect;
+    fireEvent.click(trigger);
+    const menu=screen.getByRole('dialog',{name:'Add component to budget'});
+    const title=trigger.closest('.budget-section-title-row').querySelector('h4').textContent;
+    expect(menu.querySelector('.budget-picker-heading')).toHaveTextContent(`Add to ${title}`);
+    expect(parseFloat(menu.style.bottom)).toBeCloseTo((window.innerHeight-rect.top+6)/1.5);
+    expect(parseFloat(menu.style.left)).toBeCloseTo((rect.right-630)/1.5);
+    rect={left:700,right:724,top:100,bottom:124};
+    fireEvent(window,new Event('resize'));
+    expect(parseFloat(menu.style.top)).toBeCloseTo((rect.bottom+6)/1.5);
+    expect(menu.style.bottom).toBe('auto');
+  } finally {document.body.style.zoom='';}
+});
+
 it.each([1, 2])("requires a range choice only when the TMDE has multiple ranges (%s)", (count) => {
   const range = index => ({ id: `range-${index}`, min: 0, max: index * 10, unit: "V", tolerances: { floor: { high: 1, low: -1, unit: "V", symmetric: true, distribution: "1.732" } } });
   const tmde = { id: "meter", name: "Reference meter", instrument: { functions: [{ name: "Voltage", unit: "V", ranges: Array.from({ length: count }, (_, i) => range(i + 1)) }] } };

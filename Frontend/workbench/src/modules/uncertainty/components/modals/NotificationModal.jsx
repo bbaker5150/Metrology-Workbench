@@ -21,6 +21,7 @@ const NotificationModal = ({
   onSecondary,
   secondaryIsPrimary = false,
   inputLabel,
+  inputType = "text",
   inputPlaceholder = "",
   initialInputValue = "",
   validateInput,
@@ -133,7 +134,7 @@ const NotificationModal = ({
             <span>{inputLabel}</span>
             <input
               autoFocus
-              type="text"
+              type={inputType}
               value={inputValue}
               placeholder={inputPlaceholder}
               onChange={(event) => {

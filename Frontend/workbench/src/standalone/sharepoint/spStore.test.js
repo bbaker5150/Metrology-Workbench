@@ -655,6 +655,18 @@ describe("user-scoped instrument records", () => {
     expect(archived).toMatchObject({ id: 'same', scope: 'local', _uncertaintyArchive: { userId: 41 } });
     expect(http.find(/items\(72\)/)).toHaveLength(0);
   });
+  it("requires the shared-library password before archiving a shared instrument", async () => {
+    http.on(/\$filter=RecordId/, { json: { value: [
+      { Id: 74, AuthorId: 99, RecordId: "shared", PayloadJson: '{"id":"shared","scope":"validated"}' },
+    ] } });
+    await expect(store.deleteInstrument("shared")).rejects.toMatchObject({status:403});
+    await expect(store.deleteInstrument("shared", "wrong")).rejects.toMatchObject({status:403});
+    expect(http.find(/ValidateUpdateListItem/)).toHaveLength(0);
+    await store.deleteInstrument("shared", "calibrate");
+    const saved=JSON.parse(formValueObject(http.find(/items\(74\)\/ValidateUpdateListItem/)[0]).PayloadJson);
+    expect(saved._uncertaintyArchive).toBeDefined();
+    expect(saved).not.toHaveProperty('password');
+  });
 
   it("never requests deletion, recycling, bulk operations, or mutation override headers", async () => {
     http.on(/\$filter=RecordId/, {

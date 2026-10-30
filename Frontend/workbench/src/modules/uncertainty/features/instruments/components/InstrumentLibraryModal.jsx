@@ -8,10 +8,10 @@ import NotificationModal from "../../../components/modals/NotificationModal";
 import { useFloatingWindow } from "../../../hooks/useFloatingWindow";
 import { instrumentMatchesSearch } from "../../../utils/functionGrouping";
 import { formatInstrumentIdentity } from "../../../utils/instrumentIdentity";
-import { useConfirmRecordDeletes } from "../../../contexts/RecordDeletePolicy";
 import { journalSession, acknowledgeSession } from "../../../utils/sessionRecovery";
 import "./InstrumentLibraryModal.css";
 import InstrumentSpecificationsButton from "./InstrumentSpecificationsButton";
+import { claimWorkspaceSelection, WORKSPACE_SELECTION_EVENT } from "../../../utils/workspaceSelection";
 
 const libraryEntries = instruments => instruments.filter(item => item.scope !== "session");
 const rowFor = instrument => ({ id: instrument.id, name: instrument.description || "", nickname: instrument.nickname || "", instrument,
@@ -42,20 +42,30 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
   const latestQueuedEdit = useRef(new Map());
   const failed = useRef(new Map());
   const lastLibrary = useRef(instruments);
-  const confirmDeletes = useConfirmRecordDeletes();
+  const removing = useRef(false);
   const windowRef = useRef(null);
   const hasOpened = useRef(false);
   const { position, setPosition, handleMouseDown } = useFloatingWindow({ isOpen, defaultWidth: 560, defaultHeight: 440, retainPosition: true });
   useLayoutEffect(() => {
     if (!isOpen) return;
     const collapse = event => {
-      if (event.key !== "Escape" || document.querySelector('[role="alertdialog"]')) return;
+      if (event.key !== "Escape" || !expandedIds.length || event.defaultPrevented || document.querySelector('[role="alertdialog"], [role="menu"], [role="listbox"]')) return;
+      event.preventDefault(); event.stopImmediatePropagation();
       const active = document.activeElement;
       if (windowRef.current?.contains(active)) active.blur?.();
       setExpandedIds([]);
+      setSelection([]);
     };
     window.addEventListener("keydown", collapse, true);
     return () => window.removeEventListener("keydown", collapse, true);
+  }, [isOpen, expandedIds.length]);
+  useEffect(() => {
+    if (!isOpen) return;
+    const release = event => {
+      if (event.detail?.owner !== "library") setSelection([]);
+    };
+    window.addEventListener(WORKSPACE_SELECTION_EVENT, release);
+    return () => window.removeEventListener(WORKSPACE_SELECTION_EVENT, release);
   }, [isOpen]);
   useLayoutEffect(() => {
     if (!isOpen || !windowRef.current || hasOpened.current) return;
@@ -161,22 +171,31 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
   }, [isOpen, selection.length, expandedIds.length]);
   const remove = async ids => {
     const rows = current.current.tmdes.filter(row => ids.includes(row.id));
-    const perform = async () => {
+    if (!rows.length || removing.current) return;
+    const isShared = row => ["validated", "shared"].includes(row.instrument.scope);
+    const requiresPassword = rows.some(isShared);
+    const perform = async password => {
+      if (removing.current) return;
+      removing.current = true;
       try {
         // Complete queued edits before removing records so a late save cannot
         // recreate an archived instrument.
         await queue.current;
-        for (const row of rows) {
-          await onDelete(row.instrument.id);
+        // Check the password at the shared storage boundary before deleting
+        // local rows from a mixed selection.
+        for (const row of [...rows].sort((a, b) => Number(isShared(b)) - Number(isShared(a)))) {
+          await onDelete(row.instrument.id, isShared(row) ? { password } : undefined);
           failed.current.delete(row.instrument.id);
           replace({ ...current.current, tmdes: current.current.tmdes.filter(item => item.id !== row.id) });
         }
         setSelection(previous => previous.filter(id => !ids.includes(id)));
         if (!failed.current.size) setError("");
-      } catch (failure) { setNotification({ title: "Could not remove instrument", message: failure.message || "Please try again." }); }
+      } catch (failure) { setNotification({ title: "Could not remove instrument", message: failure.response?.data?.detail || failure.message || "Please try again." }); }
+      finally { removing.current = false; }
     };
-    if (confirmDeletes) setNotification({ title: "Remove instruments", message: `Remove ${rows.length} selected instrument${rows.length === 1 ? "" : "s"} from the library?`, confirmText: "Remove", onConfirm: () => { setNotification(null); return perform(); } });
-    else await perform();
+    setNotification({ title: "Remove instruments", message: `Remove ${rows.length} selected instrument${rows.length === 1 ? "" : "s"} from the library?${requiresPassword ? " Enter the shared-library password to remove shared instruments." : ""}`,
+      confirmText: "Remove", ...(requiresPassword ? { inputLabel: "Shared library password", inputType: "password", validateInput: value => value.trim() ? "" : "Enter the shared-library password." } : {}),
+      onConfirm: password => { setNotification(null); return perform(password); } });
   };
   const close = () => {
     if (saving || failed.current.size) { setNotification({ title: "Changes have not been saved", message: saving ? "Wait for saving to finish before closing the library." : "Retry the failed save before closing the library." }); return; }
@@ -194,11 +213,12 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
   // Keep the table mounted while minimized so its editors, selection and
   // scroll position survive reopening along with the floating position.
   if (!isOpen && !hasOpened.current) return null;
-  return ReactDOM.createPortal(<div ref={windowRef} className={`uncertainty-module instrument-library-window modal-content floating-window-content${!expandedIds.length ? " is-names-only" : ""}`} role="dialog" aria-label="Instrument library"
+  return ReactDOM.createPortal(<div ref={windowRef} data-specifications-expanded={isOpen && expandedIds.length > 0 || undefined} className={`uncertainty-module instrument-library-window modal-content floating-window-content${!expandedIds.length ? " is-names-only" : ""}`} role="dialog" aria-label="Instrument library"
     onPointerDownCapture={event => {
       const id = event.target.closest?.('tr[data-instrument-id]')?.dataset.instrumentId;
       const row = current.current.tmdes.find(item => String(item.id) === id);
       if (row) {
+        claimWorkspaceSelection("library");
         // Commit a header edit to its original instrument before changing owner.
         const active = document.activeElement;
         if (windowRef.current?.contains(active) && active.matches?.(".instrument-custom-column-name-input")) active.blur();
@@ -212,13 +232,14 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
     {error && <div className="instrument-library-save-error"><span role="alert">{error}</span><button onClick={() => [...failed.current.values()].forEach(enqueue)}>Retry save</button></div>}
     <UncertaintyPanel libraryMode testPointData={libraryPoint} sessionData={session}
       libraryExpandedIds={expandedIds} libraryActiveId={activeId} onLibraryExpand={id => { setActiveId(id); setExpandedIds(previous => previous.includes(id) ? previous : [...previous, id]); }}
-      libraryRenderSpecifications={id => {
+      libraryRenderSpecifications={(id, accordion = false) => {
         const expanded = expandedIds.includes(id);
         const row = session.tmdes.find(item => item.id === id);
         const name = formatInstrumentIdentity(row, "Untitled instrument");
-        return <InstrumentSpecificationsButton name={name} expanded={expanded}
+        return <InstrumentSpecificationsButton name={name} expanded={expanded} accordion={accordion}
           onClick={event => {
             event.stopPropagation(); document.activeElement?.blur?.();
+            claimWorkspaceSelection("library");
             setActiveId(id);
             if (!selection.includes(id)) setSelection([id]);
             setExpandedIds(previous => previous.includes(id) ? previous.filter(item => item !== id) : [...previous, id]);

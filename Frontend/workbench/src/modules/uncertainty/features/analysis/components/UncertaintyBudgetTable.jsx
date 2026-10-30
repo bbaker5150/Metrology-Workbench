@@ -1365,6 +1365,7 @@ const UncertaintyBudgetTable = ({
     variableType: group.variableType,
     variableSymbol: group.variableSymbol || group.variable,
     label: group.label.replace(/\s+Uncertainty Budget$/i, ""),
+    tableLabel: simplifyBudgetLabel(group.label),
     nominalPoint: group.nominalPoint || (group.kind === "final" ? referencePoint : {
       value: group.nominalValue,
       unit: group.unit,

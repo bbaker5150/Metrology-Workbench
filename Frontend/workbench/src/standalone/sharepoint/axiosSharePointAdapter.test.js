@@ -203,12 +203,16 @@ describe("record routes", () => {
     await call("delete", "/instruments/mine/");
     expect(store.listInstruments).toHaveBeenCalledOnce();
     expect(store.saveInstrument).toHaveBeenCalledWith({ id: "mine", scope: "local" });
-    expect(store.deleteInstrument).toHaveBeenCalledWith("mine");
+    expect(store.deleteInstrument).toHaveBeenCalledWith("mine", undefined);
   });
 
   it("decodes an instrument id that was percent-encoded into the path", async () => {
     await call("delete", "/instruments/a%2Fb/");
-    expect(store.deleteInstrument).toHaveBeenCalledWith("a/b");
+    expect(store.deleteInstrument).toHaveBeenCalledWith("a/b", undefined);
+  });
+  it("forwards the shared deletion password in the request body", async () => {
+    await call("delete", "/instruments/shared/", { password: "test-password" });
+    expect(store.deleteInstrument).toHaveBeenCalledWith("shared", "test-password");
   });
 });
 

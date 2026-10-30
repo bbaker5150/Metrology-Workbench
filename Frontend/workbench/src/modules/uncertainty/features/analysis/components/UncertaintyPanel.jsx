@@ -1,6 +1,7 @@
 import InstrumentSpecificationsButton from "../../instruments/components/InstrumentSpecificationsButton";
 import InstrumentTableViewMenu, { useInstrumentTableView } from "./InstrumentTableViewMenu";
 import useInstrumentSpecificationsEscape from "../../../hooks/useInstrumentSpecificationsEscape";
+import useBudgetPickerPosition from "../../../hooks/useBudgetPickerPosition";
 import { instrumentForRole } from '../../../utils/acShuntInstrumentRole';
 import { InstrumentTableViewport, InstrumentDeleteAction } from "./InstrumentTableActions";
 import { consecutiveCellGroup } from "../../../utils/consecutiveCellGroup";
@@ -6922,8 +6923,9 @@ const SummaryDashboard = ({
   collapsedFunctionKeys,
   setCollapsedFunctionKeys,
   keyboardShortcutsEnabled = true,
-  onInstrumentSelection = () => {},
+  onInstrumentSelection: onWorkspaceInstrumentSelection = () => {},
 }) => {
+  const onInstrumentSelection = () => { claimWorkspaceSelection(libraryMode ? "library" : "instruments"); onWorkspaceInstrumentSelection(); };
   sessionData = useMemo(() => migrateMeasurementAreas(sessionData), [sessionData]);
   const getRangeView = useMemo(() => createInstrumentRangeViewCache(), [sessionData.uuts, sessionData.tmdes]);
   const latestSessionDataRef = useRef(sessionData);
@@ -8387,6 +8389,7 @@ const SummaryDashboard = ({
     setIdx((prev) => ({ ...prev, [itemId]: index }));
   };
   const selectRangeRow = (event, kind, item, index, rangeId, stateItemId = item.id) => {
+    onInstrumentSelection();
     if (event.button !== undefined && event.button !== 0) return;
     if (libraryMode && event.target.closest('.inline-tolerance-editor, .inline-resolution-editor, .inline-range-editor.is-editing, .dynamic-budget-editor')) return;
     if (libraryMode && kind === "tmde" && event.target.closest('.cell-description, .cell-sync')) {
@@ -9027,13 +9030,13 @@ const SummaryDashboard = ({
   useEffect(() => {
     if (!keyboardShortcutsEnabled) return undefined;
     const clear = event => {
-      if (event.detail?.owner !== "points") return;
+      if (!["points", libraryMode ? "instruments" : "library"].includes(event.detail?.owner)) return;
       setSelectedUutIds([]); setSelectedTmdeIds([]); setSelectedRangeIds({});
       setSelectedInstrumentArea(null); pasteDestinationRef.current = null;
     };
     window.addEventListener(WORKSPACE_SELECTION_EVENT, clear);
     return () => window.removeEventListener(WORKSPACE_SELECTION_EVENT, clear);
-  }, [keyboardShortcutsEnabled]);
+  }, [keyboardShortcutsEnabled, libraryMode]);
   const pasteDestinationRef = useRef(null);
   const selectedInstrumentAreasRef = useRef({});
   const instrumentDragSelectionRef = useRef(null);
@@ -9390,7 +9393,7 @@ const SummaryDashboard = ({
     return resolveUutRangeHelper(uut, indices, savedTol, nominal);
   };
 
-  const renderSpecificationsButton = (kind, item) => <InstrumentSpecificationsButton
+  const renderSpecificationsButton = (kind, item, accordion = false) => <InstrumentSpecificationsButton accordion={accordion}
     name={formatInstrumentIdentity(item, "Untitled instrument")}
     expanded={specificationsExpanded(kind, item)}
     onClick={event => {
@@ -9420,6 +9423,7 @@ const SummaryDashboard = ({
         <td className="cell-description has-order-controls" colSpan={columns.keys.length - 1}>
           <InstrumentOrderControls onMoveUp={() => moveInstrument(kind, item.id, functionKey, -1)} onMoveDown={() => moveInstrument(kind, item.id, functionKey, 1)} />
           <div className="instrument-simplified-description">
+            {renderSpecificationsButton(kind, item, true)}
             <span className="instrument-simplified-name">{formatInstrumentIdentity(item, "Untitled instrument")}</span>
             {renderSpecificationsButton(kind, item)}
           </div>
@@ -9635,6 +9639,7 @@ const SummaryDashboard = ({
                                   title={formatInstrumentIdentity(uut)}
                                 >
                                   {simplifiedUut && renderSpecificationsButton("uut", uut)}
+                                  {simplifiedUut && renderSpecificationsButton("uut", uut, true)}
                                   <InstrumentOrderControls
                                     onMoveUp={() => moveInstrument("uut", uut.id, uutFnKey, -1)}
                                     onMoveDown={() => moveInstrument("uut", uut.id, uutFnKey, 1)}
@@ -9723,6 +9728,7 @@ const SummaryDashboard = ({
                           title={formatInstrumentIdentity(uut)}
                         >
                           {simplifiedUut && renderSpecificationsButton("uut", uut)}
+                          {simplifiedUut && renderSpecificationsButton("uut", uut, true)}
                           <InstrumentOrderControls
                             onMoveUp={() => moveInstrument("uut", uut.id, uutFnKey, -1)}
                             onMoveDown={() => moveInstrument("uut", uut.id, uutFnKey, 1)}
@@ -10053,6 +10059,7 @@ const SummaryDashboard = ({
                       <tr data-instrument-id={tmde.id} data-measurement-area={tmdeFnKey} style={functionRowStyle(tmdeFnKey)} draggable onDragStart={event => onLibraryDragStart?.(event, tmde.id)} className={`instrument-function-row instrument-library-name-row${selectedTmdeIds.includes(tmde.id) ? " selected-row" : ""}`}>
                       <td className="cell-description" colSpan={!libraryExpandedIds.length ? 1 : getInstrumentColumnOrder("tmde", customColumnsFor("tmde"), tmdeTableColumns.qualifierEnabled).length - 1}>
                         <div className="instrument-library-description">
+                          {libraryRenderSpecifications?.(tmde.id, true)}
                           <button className="instrument-library-name" onClick={event => {
                             handleTmdeClick(event, tmde.id, true);
                             // Shift can reveal the previous name button's keyboard
@@ -10146,6 +10153,7 @@ const SummaryDashboard = ({
                                   title={tmde.name}
                                 >
                                   {libraryMode ? libraryRenderSpecifications?.(tmde.id) : simplifiedTmde && renderSpecificationsButton("tmde", tmde)}
+                                  {libraryMode ? libraryRenderSpecifications?.(tmde.id, true) : simplifiedTmde && renderSpecificationsButton("tmde", tmde, true)}
                                   {!libraryMode && <InstrumentOrderControls
                                     onMoveUp={() => moveInstrument("tmde", tmde.id, tmdeFnKey, -1)}
                                     onMoveDown={() => moveInstrument("tmde", tmde.id, tmdeFnKey, 1)}
@@ -10255,6 +10263,7 @@ const SummaryDashboard = ({
                           title={tmde.name}
                         >
                           {libraryMode ? libraryRenderSpecifications?.(tmde.id) : simplifiedTmde && renderSpecificationsButton("tmde", tmde)}
+                          {libraryMode ? libraryRenderSpecifications?.(tmde.id, true) : simplifiedTmde && renderSpecificationsButton("tmde", tmde, true)}
                           {!libraryMode && <InstrumentOrderControls
                             onMoveUp={() => moveInstrument("tmde", tmde.id, tmdeFnKey, -1)}
                             onMoveDown={() => moveInstrument("tmde", tmde.id, tmdeFnKey, 1)}
@@ -10705,9 +10714,10 @@ function DetailedView({
   collapsedFunctionKeys,
   setCollapsedFunctionKeys,
   keyboardShortcutsEnabled = true,
-  onInstrumentSelection = () => {},
+  onInstrumentSelection: onWorkspaceInstrumentSelection = () => {},
 }) {
   const uutNominal = useMemo(() => rawUutNominal ? { ...rawUutNominal, qualifier: testPointData.testPointInfo?.qualifier } : rawUutNominal, [rawUutNominal, testPointData.testPointInfo?.qualifier]);
+  const onInstrumentSelection = () => { claimWorkspaceSelection("instruments"); onWorkspaceInstrumentSelection(); };
   sessionData = useMemo(() => migrateMeasurementAreas(sessionData), [sessionData]);
   const getRangeView = useMemo(() => createInstrumentRangeViewCache(), [sessionData.uuts, sessionData.tmdes]);
   const latestSessionDataRef = useRef(sessionData);
@@ -10767,6 +10777,7 @@ function DetailedView({
   const [budgetTmdePicker, setBudgetTmdePicker] = useState(null);
   useExclusiveMenu(Boolean(budgetTmdePicker), () => setBudgetTmdePicker(null));
   const budgetTmdeMenuRef = useRef(null);
+  useBudgetPickerPosition(budgetTmdeMenuRef, budgetTmdePicker);
   useEffect(() => {
     if (!budgetTmdePicker) return;
     const closeOnEscape = event => {
@@ -10781,16 +10792,13 @@ function DetailedView({
     const closeOnScroll = event => {
       if (!budgetTmdeMenuRef.current?.contains(event.target)) setBudgetTmdePicker(null);
     };
-    const closeOnResize = () => setBudgetTmdePicker(null);
     document.addEventListener("keydown", closeOnEscape);
     document.addEventListener("pointerdown", closeOutside);
     document.addEventListener("scroll", closeOnScroll, true);
-    window.addEventListener("resize", closeOnResize);
     return () => {
       document.removeEventListener("keydown", closeOnEscape);
       document.removeEventListener("pointerdown", closeOutside);
       document.removeEventListener("scroll", closeOnScroll, true);
-      window.removeEventListener("resize", closeOnResize);
     };
   }, [budgetTmdePicker]);
 
@@ -11110,7 +11118,7 @@ function DetailedView({
   }, [selectedInstrumentArea]);
   useEffect(() => {
     const clear = event => {
-      if (event.detail?.owner !== "points") return;
+      if (!["points", "library"].includes(event.detail?.owner)) return;
       setSelectedUutIds([]); setSelectedTmdeIds([]); setSelectedRangeIds({});
       setSelectedInstrumentArea(null); pasteDestinationRef.current = null;
     };
@@ -13083,7 +13091,7 @@ function DetailedView({
     );
   };
 
-  const renderSpecificationsButton = (kind, item) => <InstrumentSpecificationsButton
+  const renderSpecificationsButton = (kind, item, accordion = false) => <InstrumentSpecificationsButton accordion={accordion}
     name={formatInstrumentIdentity(item, "Untitled instrument")}
     expanded={specificationsExpanded(kind, item)}
     onClick={event => {
@@ -13116,6 +13124,7 @@ function DetailedView({
         <td className="cell-description has-order-controls" colSpan={columns.keys.length - 1}>
           <InstrumentOrderControls onMoveUp={() => moveInstrument(kind, item.id, functionKey, -1)} onMoveDown={() => moveInstrument(kind, item.id, functionKey, 1)} />
           <div className="instrument-simplified-description">
+            {renderSpecificationsButton(kind, item, true)}
             <div className="uut-description-content instrument-simplified-name">
               <span>{formatInstrumentIdentity(item, "Untitled instrument")}</span>
               {activeUut && <span className="active-uut-badge instrument-usage-badge" style={functionBadgeStyle(functionKey)}>Active UUT</span>}
@@ -15089,7 +15098,7 @@ function DetailedView({
 
   const renderBudgetTmdePicker = () => {
     if (!budgetTmdePicker) return null;
-    const scopeLabel = budgetTmdePicker.scope?.label || "Budget";
+    const scopeLabel = budgetTmdePicker.scope?.tableLabel || budgetTmdePicker.scope?.label || "Budget";
     const itemStyle = {
       display: "flex",
       alignItems: "center",
@@ -15107,19 +15116,6 @@ function DetailedView({
       cursor: "pointer",
       fontSize: "0.85em",
     };
-    // Keep the picker wide enough for its descriptions while respecting a
-    // narrow Electron/browser viewport.  The previous fixed width could be
-    // clipped by the viewport, which made the add-to-budget controls look
-    // truncated and pushed the scrollbar into the option text.
-    const visualViewport = window.visualViewport;
-    const viewportWidth = visualViewport?.width || window.innerWidth || 1024;
-    const viewportHeight = visualViewport?.height || window.innerHeight || 768;
-    const rect = budgetTmdePicker.rect;
-    const placement = getAnchoredMenuPlacement({
-      anchorRect: rect,
-      viewportWidth,
-      viewportHeight,
-    });
     return ReactDOM.createPortal(
       <>
         <div
@@ -15130,12 +15126,9 @@ function DetailedView({
           data-tour="budget-component-menu"
           style={{
             position: "fixed",
-            top: placement.top ?? "auto",
-            bottom: placement.bottom ?? "auto",
-            left: placement.left,
-            width: `${placement.width}px`,
-            maxWidth: "calc(100vw - 16px)",
-            maxHeight: `${placement.maxHeight}px`,
+            inset: "auto",
+            minWidth: 0,
+            margin: 0,
             boxSizing: "border-box",
             display: "flex",
             flexDirection: "column",
@@ -15940,6 +15933,7 @@ function DetailedView({
                                   }}
                                 >
                                   {uutView.simplified && renderSpecificationsButton("uut", uut)}
+                                  {uutView.simplified && renderSpecificationsButton("uut", uut, true)}
                                   <InstrumentOrderControls
                                     onMoveUp={() => moveInstrument("uut", uut.id, uutFnKey, -1)}
                                     onMoveDown={() => moveInstrument("uut", uut.id, uutFnKey, 1)}
@@ -16042,6 +16036,7 @@ function DetailedView({
                           }}
                         >
                           {uutView.simplified && renderSpecificationsButton("uut", uut)}
+                          {uutView.simplified && renderSpecificationsButton("uut", uut, true)}
                           <InstrumentOrderControls
                             onMoveUp={() => moveInstrument("uut", uut.id, uutFnKey, -1)}
                             onMoveDown={() => moveInstrument("uut", uut.id, uutFnKey, 1)}
@@ -16736,6 +16731,7 @@ function DetailedView({
                                       className={`cell-description has-order-controls${tmdeView.simplified ? " instrument-library-expanded-description" : ""}`}
                                     >
                                       {tmdeView.simplified && renderSpecificationsButton("tmde", masterTmde)}
+                                      {tmdeView.simplified && renderSpecificationsButton("tmde", masterTmde, true)}
                                       <InstrumentOrderControls
                                         onMoveUp={() => moveInstrument("tmde", masterTmde.id, tmdeFnKey, -1)}
                                         onMoveDown={() => moveInstrument("tmde", masterTmde.id, tmdeFnKey, 1)}
@@ -16855,6 +16851,7 @@ function DetailedView({
                               className={`cell-description has-order-controls${tmdeView.simplified ? " instrument-library-expanded-description" : ""}`}
                             >
                               {tmdeView.simplified && renderSpecificationsButton("tmde", masterTmde)}
+                              {tmdeView.simplified && renderSpecificationsButton("tmde", masterTmde, true)}
                               <InstrumentOrderControls
                                 onMoveUp={() => moveInstrument("tmde", masterTmde.id, tmdeFnKey, -1)}
                                 onMoveDown={() => moveInstrument("tmde", masterTmde.id, tmdeFnKey, 1)}
