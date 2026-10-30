@@ -2741,9 +2741,9 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
   useEffect(() => {
     const deselectArea = event => {
       if (event.key !== "Escape" || event.defaultPrevented) return;
-      // The budget collapses expanded specifications on Escape. Keep its
-      // selected point mounted instead of rebuilding the instrument overview.
-      if (document.querySelector('[data-budget-instrument-specifications-expanded="true"]')) return;
+      // Instrument tables collapse expanded specifications on Escape. Keep
+      // the current point/context mounted until that workspace handles it.
+      if (document.querySelector('[data-budget-instrument-specifications-expanded="true"], [data-overview-instrument-specifications-expanded="true"]')) return;
       // Editors/popovers own the first Escape (cancel or dismiss). Outside
       // those controls, clear both the multi-selection and the active point;
       // clearing only the former leaves the active-point glow behind.

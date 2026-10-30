@@ -1,5 +1,6 @@
 import InstrumentSpecificationsButton from "../../instruments/components/InstrumentSpecificationsButton";
 import InstrumentTableViewMenu, { useInstrumentTableView } from "./InstrumentTableViewMenu";
+import useInstrumentSpecificationsEscape from "../../../hooks/useInstrumentSpecificationsEscape";
 import { instrumentForRole } from '../../../utils/acShuntInstrumentRole';
 import { InstrumentTableViewport, InstrumentDeleteAction } from "./InstrumentTableActions";
 import { consecutiveCellGroup } from "../../../utils/consecutiveCellGroup";
@@ -6928,6 +6929,19 @@ const SummaryDashboard = ({
   const latestSessionDataRef = useRef(sessionData);
   latestSessionDataRef.current = sessionData;
   const [localLibraryChoices, setLocalLibraryChoices] = useState({});
+  const [uutView, changeUutView] = useInstrumentTableView(sessionData, "uut", "overview");
+  const [tmdeView, changeTmdeView] = useInstrumentTableView(sessionData, "tmde", "overview");
+  const simplifiedUut = !libraryMode && uutView.simplified;
+  const simplifiedTmde = !libraryMode && tmdeView.simplified;
+  const [expandedSpecifications, setExpandedSpecifications] = useState(() => new Set());
+  const specificationsExpanded = (kind, item) => expandedSpecifications.has(itemStateKey(kind, item.id));
+  const uutNamesOnly = simplifiedUut && !(sessionData.uuts || []).some(item => specificationsExpanded("uut", item));
+  const tmdeNamesOnly = simplifiedTmde && !(sessionData.tmdes || []).some(item => specificationsExpanded("tmde", item));
+  const hasExpandedSpecifications = (simplifiedUut && !uutNamesOnly) || (simplifiedTmde && !tmdeNamesOnly);
+  const summaryWorkspaceRef = useInstrumentSpecificationsEscape(hasExpandedSpecifications && keyboardShortcutsEnabled, setExpandedSpecifications);
+  useEffect(() => {
+    setExpandedSpecifications(current => current.size ? new Set() : current);
+  }, [sessionData.id, viewMode, contextId]);
   const [editingCustomColumnKey, setEditingCustomColumnKey] = useState(null);
   const summaryFunctionColorByKey = useMemo(
     () =>
@@ -6967,17 +6981,21 @@ const SummaryDashboard = ({
     const names = [...(item.instrument.qualifierColumnNames || [])]; names[index] = name;
     saveLibraryColumns(item, { qualifierColumnNames: names });
   };
-  const uutTableColumns = useInstrumentColumnWidths(
+  const uutFullColumns = useInstrumentColumnWidths(
     "uut",
     customColumnsFor("uut"),
     instrumentQualifierDepth(sessionData.uuts),
   );
-  const tmdeTableColumns = useInstrumentColumnWidths(
+  const tmdeFullColumns = useInstrumentColumnWidths(
     "tmde",
     customColumnsFor("tmde"),
     instrumentQualifierDepth(libraryColumnItems),
     libraryMode ? "library" : "workspace",
   );
+  const uutSimpleColumns = useInstrumentColumnWidths("uut", [], false, "simplified");
+  const tmdeSimpleColumns = useInstrumentColumnWidths("tmde", [], false, "simplified");
+  const uutTableColumns = uutNamesOnly ? uutSimpleColumns : uutFullColumns;
+  const tmdeTableColumns = tmdeNamesOnly ? tmdeSimpleColumns : tmdeFullColumns;
   const uutTableHeight = useInstrumentTableHeight(
     "overview",
     "uut",
@@ -7709,6 +7727,9 @@ const SummaryDashboard = ({
     const key = kind === "uut" ? "uuts" : "tmdes";
     onSessionSave({ ...sessionData, [key]: [...(sessionData[key] || []), item] });
     if (libraryMode) { setSelectedTmdeIds([item.id]); onLibraryExpand?.(item.id); setLastSelectionTarget("tmde"); }
+    else if (kind === "uut" ? simplifiedUut : simplifiedTmde) {
+      setExpandedSpecifications(current => new Set([...current, itemStateKey(kind, item.id)]));
+    }
   };
 
   // Remove this area and its scoped rows/points. Instruments assigned to
@@ -8203,7 +8224,7 @@ const SummaryDashboard = ({
   useEffect(() => {
     if (!keyboardShortcutsEnabled) return undefined;
     const clearSelection = (event) => {
-      if (event.key !== "Escape") return;
+      if (event.key !== "Escape" || event.defaultPrevented || hasExpandedSpecifications) return;
       if (libraryMode) {
         if (document.querySelector('[role="alertdialog"]')) return;
         document.activeElement?.blur?.();
@@ -8217,7 +8238,7 @@ const SummaryDashboard = ({
     };
     window.addEventListener("keydown", clearSelection, true);
     return () => window.removeEventListener("keydown", clearSelection, true);
-  }, [keyboardShortcutsEnabled, setSelectedUutIds, libraryMode]);
+  }, [keyboardShortcutsEnabled, setSelectedUutIds, libraryMode, hasExpandedSpecifications]);
 
   // Keep the current selection through Add and through a delete confirmation.
   // Prune it only after the backing session rows have actually disappeared.
@@ -9369,8 +9390,48 @@ const SummaryDashboard = ({
     return resolveUutRangeHelper(uut, indices, savedTol, nominal);
   };
 
+  const renderSpecificationsButton = (kind, item) => <InstrumentSpecificationsButton
+    name={formatInstrumentIdentity(item, "Untitled instrument")}
+    expanded={specificationsExpanded(kind, item)}
+    onClick={event => {
+      event.stopPropagation(); document.activeElement?.blur?.();
+      const key = itemStateKey(kind, item.id);
+      setExpandedSpecifications(current => {
+        const next = new Set(current);
+        if (next.has(key)) next.delete(key); else next.add(key);
+        return next;
+      });
+    }} />;
+
+  const renderSimplifiedInstrument = (kind, item, rowKey, functionKey) => {
+    const selected = (kind === "uut" ? selectedUutIds : selectedTmdeIds).includes(item.id);
+    const columns = kind === "uut" ? uutTableColumns : tmdeTableColumns;
+    return <React.Fragment key={rowKey}>
+      {renderInstrumentDeleteButton(kind, item, functionKey)}
+      <tr className={`instrument-function-row instrument-simplified-row${selected ? " instrument-selected" : ""}`}
+        data-instrument-id={item.id} data-measurement-area={functionKey}
+        data-selection-key={itemStateKey(kind, item.id)} style={functionRowStyle(functionKey)}
+        onClick={event => (kind === "uut" ? handleUutClick : handleTmdeClick)(event, item.id)}
+        onContextMenu={event => openInstrumentRowMenu(event, kind, item)}
+        draggable={false} onDragStart={handleInstrumentDragStart(kind, item, functionKey)} onDragEnd={handleInstrumentDragEnd}
+        onDragOverCapture={event => { event.preventDefault(); event.dataTransfer.dropEffect = event.dataTransfer.types?.includes(BUDGET_COMPONENT_MIME) ? "copy" : "move"; }}
+        onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === functionKey); if (area) handleInstrumentDropOnFunction(kind, area, item.id)(event); }}
+        onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, kind, item, functionKey, selectedInstrumentAreasRef.current); }}>
+        <td className="cell-description has-order-controls" colSpan={columns.keys.length - 1}>
+          <InstrumentOrderControls onMoveUp={() => moveInstrument(kind, item.id, functionKey, -1)} onMoveDown={() => moveInstrument(kind, item.id, functionKey, 1)} />
+          <div className="instrument-simplified-description">
+            <span className="instrument-simplified-name">{formatInstrumentIdentity(item, "Untitled instrument")}</span>
+            {renderSpecificationsButton(kind, item)}
+          </div>
+        </td>
+        <td className="cell-sync"><SyncBadge item={item} onSync={() => handleSyncItem(kind, item)} onDemote={() => handleDemoteItem(kind, item)} /></td>
+      </tr>
+    </React.Fragment>;
+  };
+
   return (
-    <div className={`configuration-panel${libraryMode ? " instrument-library-table" : ""}`}>
+    <div ref={summaryWorkspaceRef} data-overview-instrument-specifications-expanded={hasExpandedSpecifications || undefined}
+      className={`configuration-panel${libraryMode ? " instrument-library-table" : ""}`}>
       {!libraryMode && viewMode !== "session" && (
         <div
           style={{
@@ -9409,6 +9470,7 @@ const SummaryDashboard = ({
             <span>{uutTableTitle(sessionData.uuts?.length)}</span>
           </div>
           <div className="panel-card-actions">
+            <InstrumentTableViewMenu kind="uut" value={uutView} onChange={changeUutView} showMeasurementAreas={false} />
             <MeasurementAreaEntry kind="uut" onAdd={handleAddFunction} />
           </div>
         </div>
@@ -9442,7 +9504,7 @@ const SummaryDashboard = ({
               customColumns={customColumnsFor("uut")}
               columns={uutTableColumns}
               renderCustomColumnHeader={renderCustomColumnHeader}
-              onInsertAfter={(columnKey) => requestCustomColumn("uut", columnKey)}
+              onInsertAfter={uutNamesOnly ? undefined : (columnKey) => requestCustomColumn("uut", columnKey)}
             />
             <tbody>
               {groupedUutRows.length === 0 ? null : (
@@ -9451,7 +9513,7 @@ const SummaryDashboard = ({
                     return renderFunctionHeaderRow(
                       "uut",
                       row.fn,
-                      getInstrumentColumnOrder("uut", customColumnsFor("uut"), uutTableColumns.qualifierEnabled).length,
+                      uutTableColumns.keys.length,
                     );
                   }
 
@@ -9460,6 +9522,7 @@ const SummaryDashboard = ({
                   // instruments; it equals uut.id for single-function ones.
                   const uutRowKey = row.rowKey ?? uut.id;
                   const uutFnKey = row.functionKey ?? null;
+                  if (simplifiedUut && !specificationsExpanded("uut", uut)) return renderSimplifiedInstrument("uut", uut, uutRowKey, uutFnKey);
                   let resolution = resolveUutRangeHelper(
                     uut,
                     { [uut.id]: localRangeIndices[uutRowKey] },
@@ -9568,9 +9631,10 @@ const SummaryDashboard = ({
                               {i === 0 && (
                                 <td
                                   rowSpan={spanRows}
-                                  className="cell-description has-order-controls"
+                                  className={`cell-description has-order-controls${simplifiedUut ? " instrument-library-expanded-description" : ""}`}
                                   title={formatInstrumentIdentity(uut)}
                                 >
+                                  {simplifiedUut && renderSpecificationsButton("uut", uut)}
                                   <InstrumentOrderControls
                                     onMoveUp={() => moveInstrument("uut", uut.id, uutFnKey, -1)}
                                     onMoveDown={() => moveInstrument("uut", uut.id, uutFnKey, 1)}
@@ -9655,9 +9719,10 @@ const SummaryDashboard = ({
                       >
                         <td
                           rowSpan={rowSpan}
-                          className="cell-description has-order-controls"
+                          className={`cell-description has-order-controls${simplifiedUut ? " instrument-library-expanded-description" : ""}`}
                           title={formatInstrumentIdentity(uut)}
                         >
+                          {simplifiedUut && renderSpecificationsButton("uut", uut)}
                           <InstrumentOrderControls
                             onMoveUp={() => moveInstrument("uut", uut.id, uutFnKey, -1)}
                             onMoveDown={() => moveInstrument("uut", uut.id, uutFnKey, 1)}
@@ -9916,6 +9981,7 @@ const SummaryDashboard = ({
             <span>Test, Measurement, and Diagnostic Equipment</span>
           </div>
           <div className="panel-card-actions">
+            <InstrumentTableViewMenu kind="tmde" value={tmdeView} onChange={changeTmdeView} showMeasurementAreas={false} />
             <MeasurementAreaEntry kind="tmde" onAdd={handleAddFunction} />
           </div>
         </div>
@@ -9952,7 +10018,7 @@ const SummaryDashboard = ({
               customColumns={customColumnsFor("tmde")}
               columns={tmdeTableColumns}
               renderCustomColumnHeader={renderCustomColumnHeader}
-              onInsertAfter={(columnKey) => requestCustomColumn("tmde", columnKey)}
+              onInsertAfter={tmdeNamesOnly ? undefined : (columnKey) => requestCustomColumn("tmde", columnKey)}
             /></>}
             {libraryMode && !libraryExpandedIds.length && <>
               <colgroup><col /><col style={{ "--instrument-live-column-width": "92px" }} /></colgroup>
@@ -9971,7 +10037,7 @@ const SummaryDashboard = ({
                     return renderFunctionHeaderRow(
                       "tmde",
                       row.fn,
-                      getInstrumentColumnOrder("tmde", customColumnsFor("tmde"), tmdeTableColumns.qualifierEnabled).length,
+                      tmdeTableColumns.keys.length,
                     );
                   }
 
@@ -9979,6 +10045,7 @@ const SummaryDashboard = ({
                   const idx = row.index;
                   const tmdeRowKey = row.rowKey ?? tmde.id;
                   const tmdeFnKey = row.functionKey ?? null;
+                  if (simplifiedTmde && !specificationsExpanded("tmde", tmde)) return renderSimplifiedInstrument("tmde", tmde, tmdeRowKey, tmdeFnKey);
                   if (libraryMode && !libraryExpandedIds.includes(tmde.id)) {
                     const name = formatInstrumentIdentity(tmde, "Untitled instrument");
                     return <React.Fragment key={tmdeRowKey}>
@@ -10075,10 +10142,10 @@ const SummaryDashboard = ({
                               {i === 0 && (
                                 <td
                                   rowSpan={spanRows}
-                                  className={`cell-description${libraryMode ? " instrument-library-expanded-description" : " has-order-controls"} `}
+                                  className={`cell-description${libraryMode ? "" : " has-order-controls"}${libraryMode || simplifiedTmde ? " instrument-library-expanded-description" : ""}`}
                                   title={tmde.name}
                                 >
-                                  {libraryMode && libraryRenderSpecifications?.(tmde.id)}
+                                  {libraryMode ? libraryRenderSpecifications?.(tmde.id) : simplifiedTmde && renderSpecificationsButton("tmde", tmde)}
                                   {!libraryMode && <InstrumentOrderControls
                                     onMoveUp={() => moveInstrument("tmde", tmde.id, tmdeFnKey, -1)}
                                     onMoveDown={() => moveInstrument("tmde", tmde.id, tmdeFnKey, 1)}
@@ -10184,10 +10251,10 @@ const SummaryDashboard = ({
                       >
                         <td
                           rowSpan={rowSpan}
-                          className={`cell-description${libraryMode ? " instrument-library-expanded-description" : " has-order-controls"} `}
+                          className={`cell-description${libraryMode ? "" : " has-order-controls"}${libraryMode || simplifiedTmde ? " instrument-library-expanded-description" : ""}`}
                           title={tmde.name}
                         >
-                          {libraryMode && libraryRenderSpecifications?.(tmde.id)}
+                          {libraryMode ? libraryRenderSpecifications?.(tmde.id) : simplifiedTmde && renderSpecificationsButton("tmde", tmde)}
                           {!libraryMode && <InstrumentOrderControls
                             onMoveUp={() => moveInstrument("tmde", tmde.id, tmdeFnKey, -1)}
                             onMoveDown={() => moveInstrument("tmde", tmde.id, tmdeFnKey, 1)}
@@ -10696,25 +10763,7 @@ function DetailedView({
   const uutNamesOnly = uutView.simplified && !(sessionData.uuts || []).some(item => specificationsExpanded("uut", item));
   const tmdeNamesOnly = tmdeView.simplified && !(sessionData.tmdes || []).some(item => specificationsExpanded("tmde", item));
   const hasExpandedSpecifications = (uutView.simplified && !uutNamesOnly) || (tmdeView.simplified && !tmdeNamesOnly);
-  const detailWorkspaceRef = useRef(null);
-  useEffect(() => {
-    if (!hasExpandedSpecifications) return;
-    const collapse = event => {
-      if (event.key !== "Escape" || event.defaultPrevented) return;
-      // Floating editors and menus keep their own Escape behavior. Ordinary
-      // inline specification edits commit on blur, just as in the library.
-      if (document.querySelector('dialog[open], [role="alertdialog"], [role="dialog"]:not([hidden]), [role="menu"], [role="listbox"], .instrument-view-menu-options')) return;
-      const active = document.activeElement;
-      const inInstrumentTable = detailWorkspaceRef.current?.contains(active) && active?.closest('.instrument-equipment-table');
-      if (!inInstrumentTable && active?.matches('input, textarea, select, [contenteditable="true"]')) return;
-      event.preventDefault();
-      event.stopPropagation();
-      if (inInstrumentTable) active.blur?.();
-      setExpandedSpecifications(new Set());
-    };
-    window.addEventListener("keydown", collapse, true);
-    return () => window.removeEventListener("keydown", collapse, true);
-  }, [hasExpandedSpecifications]);
+  const detailWorkspaceRef = useInstrumentSpecificationsEscape(hasExpandedSpecifications, setExpandedSpecifications);
   const [budgetTmdePicker, setBudgetTmdePicker] = useState(null);
   useExclusiveMenu(Boolean(budgetTmdePicker), () => setBudgetTmdePicker(null));
   const budgetTmdeMenuRef = useRef(null);

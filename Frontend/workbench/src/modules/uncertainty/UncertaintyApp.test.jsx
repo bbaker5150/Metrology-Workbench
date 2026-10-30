@@ -142,6 +142,21 @@ describe("UncertaintyApp", () => {
       expect(document.querySelectorAll('[data-range-id]')).toHaveLength(0);
       expect(document.querySelectorAll('.point-grid-item')[1]).toHaveClass('active-point');
       expect(screen.getByRole('button', { name: 'Uncertainty Budget' })).toHaveClass('active');
+      fireEvent.click(screen.getByRole('button', { name: 'Instrument Overview' }));
+      for (const kind of ['uut', 'tmde']) {
+        fireEvent.click(screen.getByRole('button', { name: `${kind.toUpperCase()} table view` }));
+        fireEvent.click(screen.getByRole('checkbox', { name: 'Show simplified view' }));
+        fireEvent.pointerDown(document.body);
+        fireEvent.click(document.querySelector(`[data-tour="${kind}-table"] .instrument-library-specifications`));
+      }
+      expect(document.querySelector('[data-overview-instrument-specifications-expanded="true"]')).not.toBeNull();
+      fireEvent.keyDown(document.body, { key: 'Escape' });
+      expect(document.querySelectorAll('.instrument-simplified-row')).toHaveLength(2);
+      expect(document.querySelectorAll('[data-range-id]')).toHaveLength(0);
+      expect(screen.getByRole('button', { name: 'Instrument Overview' })).toHaveClass('active');
+      fireEvent.click(screen.getByRole('button', { name: 'Uncertainty Budget' }));
+      expect(document.querySelectorAll('.point-grid-item')[1]).toHaveClass('active-point');
+      expect(document.querySelectorAll('.instrument-simplified-row')).toHaveLength(2);
     } finally { apiMock.get.mockImplementation(originalGet); }
   }, 30000);
 

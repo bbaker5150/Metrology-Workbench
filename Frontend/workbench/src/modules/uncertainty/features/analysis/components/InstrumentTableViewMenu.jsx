@@ -5,18 +5,19 @@ import useExclusiveMenu from "../../../hooks/useExclusiveMenu";
 import { getAnchoredMenuPlacement } from "../../../utils/anchoredMenuPosition";
 import { recoveryNamespace } from "../../../utils/recoveryNamespace";
 
-const readView = (key, session) => {
+const readView = (key, session, scope) => {
+    const simplifiedDefault = scope === "overview" ? false : Boolean(session.simplifiedInstrumentTables);
     try {
       const saved = JSON.parse(localStorage.getItem(key) || "null");
-      return { showAll: saved?.showAll === true, simplified: typeof saved?.simplified === "boolean" ? saved.simplified : Boolean(session.simplifiedInstrumentTables) };
-    } catch { return { showAll: false, simplified: Boolean(session.simplifiedInstrumentTables) }; }
+      return { showAll: saved?.showAll === true, simplified: typeof saved?.simplified === "boolean" ? saved.simplified : simplifiedDefault };
+    } catch { return { showAll: false, simplified: simplifiedDefault }; }
 };
 
-export function useInstrumentTableView(session, kind) {
-  const key = `uncertainty:instrument-view:v1:${recoveryNamespace()}:${session.id}:${kind}`;
-  const [state, setState] = useState(() => ({ key, view: readView(key, session) }));
+export function useInstrumentTableView(session, kind, scope = "budget") {
+  const key = `uncertainty:instrument-view:v1:${recoveryNamespace()}:${session.id}:${kind}${scope === "overview" ? ":overview" : ""}`;
+  const [state, setState] = useState(() => ({ key, view: readView(key, session, scope) }));
   // Copied sessions may keep the same point IDs and reuse the mounted view.
-  const view = state.key === key ? state.view : readView(key, session);
+  const view = state.key === key ? state.view : readView(key, session, scope);
   if (state.key !== key) setState({ key, view });
   const change = patch => {
     const next = { ...view, ...patch };
@@ -26,7 +27,7 @@ export function useInstrumentTableView(session, kind) {
   return [view, change];
 }
 
-export default function InstrumentTableViewMenu({ kind, value, onChange }) {
+export default function InstrumentTableViewMenu({ kind, value, onChange, showMeasurementAreas = true }) {
   const [open, setOpen] = useState(false);
   const root = useRef(null), menu = useRef(null), trigger = useRef(null);
   useExclusiveMenu(open, () => setOpen(false));
@@ -57,10 +58,10 @@ export default function InstrumentTableViewMenu({ kind, value, onChange }) {
   return <div ref={root} className="instrument-view-menu">
     <button ref={trigger} type="button" className="btn-add-item btn-add-column" aria-label={`${kind.toUpperCase()} table view`}
       title={`${kind.toUpperCase()} table view`} aria-haspopup="true" aria-expanded={open} onClick={() => setOpen(!open)}>
-      <FontAwesomeIcon icon={value.showAll ? faEye : faEyeSlash} /><FontAwesomeIcon icon={faChevronDown} />
+      <FontAwesomeIcon icon={(showMeasurementAreas ? value.showAll : !value.simplified) ? faEye : faEyeSlash} /><FontAwesomeIcon icon={faChevronDown} />
     </button>
     {open && <div ref={menu} popover="manual" className="instrument-view-menu-options" role="group" aria-label={`${kind.toUpperCase()} table view options`}>
-      <label><input type="checkbox" checked={value.showAll} onChange={event => onChange({ showAll: event.target.checked })} />Show all measurement areas</label>
+      {showMeasurementAreas && <label><input type="checkbox" checked={value.showAll} onChange={event => onChange({ showAll: event.target.checked })} />Show all measurement areas</label>}
       <label><input type="checkbox" checked={value.simplified} onChange={event => onChange({ simplified: event.target.checked })} />Show simplified view</label>
     </div>}
   </div>;
