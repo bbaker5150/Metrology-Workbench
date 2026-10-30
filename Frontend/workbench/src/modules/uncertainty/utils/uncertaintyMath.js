@@ -3,6 +3,7 @@ import { toleranceUnitMismatch } from "./incompleteBudget";
 import { registerUnitPrefixes } from "./siPrefixes";
 import { getUnitSearchNames } from "./unitNames";
 import * as math from "./equationMath";
+import { getDerivedEquationPlan } from "./derivedEquationCache";
 
 // ==========================================
 // 1. Unit Systems & Conversions
@@ -2110,7 +2111,8 @@ export const calculateDerivedUncertainty = (
       throw new Error("Equation expression is empty.");
     }
 
-    const node = math.parse(expressionToParse);
+    const equationPlan = getDerivedEquationPlan(expressionToParse);
+    const node = equationPlan.node;
     const variables = Object.keys(variableMappings);
 
     // Get Target Unit Conversion Factor (to convert final result back to user's unit)
@@ -2122,7 +2124,7 @@ export const calculateDerivedUncertainty = (
     // Handle Constant Expressions (e.g. "1 + 1")
     if (variables.length === 0) {
       try {
-        const constantResultBase = node.compile().evaluate({});
+        const constantResultBase = equationPlan.evaluate({});
         const constantResultConverted = unitSystem.fromBaseUnit(constantResultBase, targetUnit);
         return {
           combinedUncertaintyNative: 0,
@@ -2441,20 +2443,20 @@ export const calculateDerivedUncertainty = (
       let derivativeStr = "";
       let sensitivityCoeffBase;
       try {
-        derivativeNode = math.derivative(node, variableSymbol);
-        derivativeStr = derivativeNode.toString();
-        sensitivityCoeffBase = derivativeNode.compile().evaluate(nominalScope);
+        const derivative = equationPlan.getDerivative(variableSymbol);
+        derivativeNode = derivative.node;
+        derivativeStr = derivative.expression;
+        sensitivityCoeffBase = derivative.compiled.evaluate(nominalScope);
       } catch (derivativeError) {
         if (!allowFiniteDifference) throw derivativeError;
         const mean = nominalScope[variableSymbol];
         let scale = Math.max(Math.abs(mean), Math.abs(ui_base));
         if (scale <= 0) scale = 1;
         const h = Math.max(scale * 1e-6, 1e-15);
-        const compiledEquation = node.compile();
         const plusScope = { ...nominalScope, [variableSymbol]: mean + h };
         const minusScope = { ...nominalScope, [variableSymbol]: mean - h };
-        const yPlus = compiledEquation.evaluate(plusScope);
-        const yMinus = compiledEquation.evaluate(minusScope);
+        const yPlus = equationPlan.evaluate(plusScope);
+        const yMinus = equationPlan.evaluate(minusScope);
         sensitivityCoeffBase = (yPlus - yMinus) / (2 * h);
         derivativeStr = `central finite difference (h=${h})`;
       }
@@ -2484,10 +2486,10 @@ export const calculateDerivedUncertainty = (
       let secondDerivativeBase = null;
       try {
         if (!derivativeNode) throw new Error("No symbolic second derivative");
-        const secondDerivNode = math.derivative(derivativeNode, variableSymbol);
-        const secondDeriv = secondDerivNode.compile().evaluate(nominalScope);
+        const secondDerivative = equationPlan.getDerivative(variableSymbol, 2);
+        const secondDeriv = secondDerivative.compiled.evaluate(nominalScope);
         if (typeof secondDeriv === "number" && Number.isFinite(secondDeriv)) {
-          secondDerivativeString = secondDerivNode.toString();
+          secondDerivativeString = secondDerivative.expression;
           secondDerivativeBase = secondDeriv;
           secondOrderTermBase = 0.5 * Math.abs(secondDeriv) * ui_base ** 2;
         }
@@ -2613,7 +2615,7 @@ export const calculateDerivedUncertainty = (
     // Calculate Nominal Result in Base Units
     let nominalResultBase = NaN;
     try {
-      nominalResultBase = node.compile().evaluate(nominalScope);
+      nominalResultBase = equationPlan.evaluate(nominalScope);
     } catch (evalError) {
       console.error("Error evaluating nominal equation result:", evalError);
     }

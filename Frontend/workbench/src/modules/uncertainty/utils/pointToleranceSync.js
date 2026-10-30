@@ -8,17 +8,35 @@ const sameId = (a, b) => a != null && b != null && String(a) === String(b);
 // edit, so every sidebar row and its risk calculation see the new specification.
 export function syncPointTolerances(session, previous) {
   if (!previous) return session;
+  if (session.uuts === previous.uuts && session.tmdes === previous.tmdes) return session;
+  const indexItems = items => {
+    const index = new Map();
+    for (const item of items || []) {
+      if (item.id != null && !index.has(String(item.id))) index.set(String(item.id), item);
+    }
+    return index;
+  };
   const changed = new Map();
-  for (const uut of session.uuts || []) {
-    const old = (previous.uuts || []).find(item => sameId(item.id, uut.id));
-    if (JSON.stringify(old) !== JSON.stringify(uut)) changed.set(String(uut.id), uut);
+  if (session.uuts !== previous.uuts) {
+    const previousUuts = indexItems(previous.uuts);
+    for (const uut of session.uuts || []) {
+      const old = uut.id == null ? undefined : previousUuts.get(String(uut.id));
+      if (old !== uut && JSON.stringify(old) !== JSON.stringify(uut)) changed.set(String(uut.id), uut);
+    }
   }
   const changedTmdeIds = new Set();
-  for (const tmde of [...(session.tmdes || []), ...(previous.tmdes || [])]) {
-    const old = (previous.tmdes || []).find(item => sameId(item.id, tmde.id));
-    const next = (session.tmdes || []).find(item => sameId(item.id, tmde.id));
-    if (JSON.stringify(old) !== JSON.stringify(next)) {
-      for (const value of [tmde.id, tmde.sourceId, tmde.instrument?.id]) if (value != null) changedTmdeIds.add(String(value));
+  if (session.tmdes !== previous.tmdes) {
+    const previousTmdes = indexItems(previous.tmdes);
+    const nextTmdes = indexItems(session.tmdes);
+    const changedIds = new Set();
+    for (const id of new Set([...previousTmdes.keys(), ...nextTmdes.keys()])) {
+      const old = previousTmdes.get(id), next = nextTmdes.get(id);
+      if (old !== next && JSON.stringify(old) !== JSON.stringify(next)) changedIds.add(id);
+    }
+    for (const tmde of [...(session.tmdes || []), ...(previous.tmdes || [])]) {
+      if (tmde.id != null && changedIds.has(String(tmde.id))) {
+        for (const value of [tmde.id, tmde.sourceId, tmde.instrument?.id]) if (value != null) changedTmdeIds.add(String(value));
+      }
     }
   }
   if (!changed.size && !changedTmdeIds.size) return session;

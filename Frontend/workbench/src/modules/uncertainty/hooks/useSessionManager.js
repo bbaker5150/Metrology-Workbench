@@ -18,7 +18,22 @@ const cloneSession = (session) => {
   return JSON.parse(JSON.stringify(session));
 };
 
-const getSessionChangeGroup = (previousSession, updatedSession) => {
+// Session collections share unchanged rows. Compare only replacement rows so a
+// point edit does not serialize every other point and its instrument snapshots.
+const sameSessionValue = (before, after) => {
+  if (before === after) return true;
+  if (Array.isArray(before) && Array.isArray(after)) {
+    if (before.length !== after.length) return false;
+    for (let index = 0; index < before.length; index += 1) {
+      if (before[index] !== after[index] &&
+          JSON.stringify([before[index]]) !== JSON.stringify([after[index]])) return false;
+    }
+    return true;
+  }
+  return JSON.stringify(before) === JSON.stringify(after);
+};
+
+export const getSessionChangeGroup = (previousSession, updatedSession) => {
   const keys = new Set([
     ...Object.keys(previousSession || {}),
     ...Object.keys(updatedSession || {}),
@@ -26,9 +41,7 @@ const getSessionChangeGroup = (previousSession, updatedSession) => {
   const changedKeys = [...keys]
     .filter(
       (key) =>
-        previousSession?.[key] !== updatedSession?.[key] &&
-        JSON.stringify(previousSession?.[key]) !==
-        JSON.stringify(updatedSession?.[key]),
+        !sameSessionValue(previousSession?.[key], updatedSession?.[key]),
     )
     .sort();
 
@@ -200,7 +213,16 @@ const useSessionManager = () => {
   }, []);
 
   const replaceSessions = useCallback((updater) => {
-    const nextSessions = (typeof updater === "function" ? updater(sessionsRef.current) : updater).map(session => trackInstrumentOnboarding(inheritMissingPointUnits(migrateMeasurementAreas(session)), sessionsRef.current.find(previous => previous.id === session.id)));
+    const previousSessions = sessionsRef.current;
+    const previousById = new Map();
+    for (const session of previousSessions) {
+      if (!previousById.has(session.id)) previousById.set(session.id, session);
+    }
+    const nextSessions = (typeof updater === "function" ? updater(previousSessions) : updater).map(session => {
+      const previous = previousById.get(session.id);
+      return session === previous ? session : trackInstrumentOnboarding(inheritMissingPointUnits(migrateMeasurementAreas(session)), previous);
+    });
+    if (nextSessions.length === previousSessions.length && nextSessions.every((session, index) => session === previousSessions[index])) return previousSessions;
     sessionsRef.current = nextSessions;
     setSessions(nextSessions);
     return nextSessions;
@@ -219,7 +241,12 @@ const useSessionManager = () => {
       now - lastEntry.recordedAt <= UNDO_COALESCE_MS;
 
     if (!shouldCoalesce) {
-      history.push({ ...entry, groupKey, recordedAt: now });
+      // Capture only when retaining an undo step. Cloning before the coalescing
+      // check discarded a full large-session copy on every typing keystroke.
+      const snapshot = entry.kind === "session"
+        ? { session: cloneSession(entry.session) }
+        : { sessions: cloneSession(entry.sessions) };
+      history.push({ ...entry, ...snapshot, groupKey, recordedAt: now });
       if (history.length > MAX_UNDO_STEPS) {
         history.splice(0, history.length - MAX_UNDO_STEPS);
       }
@@ -236,7 +263,7 @@ const useSessionManager = () => {
       {
         kind: "session",
         scopeKey: `session:${session.id}`,
-        session: cloneSession(session),
+        session,
         selectedSessionId: selectedSessionIdRef.current,
         selectedTestPointId: selectedTestPointIdRef.current,
       },
@@ -249,7 +276,7 @@ const useSessionManager = () => {
       {
         kind: "workspace",
         scopeKey: "workspace",
-        sessions: cloneSession(sessionsRef.current),
+        sessions: sessionsRef.current,
         selectedSessionId: selectedSessionIdRef.current,
         selectedTestPointId: selectedTestPointIdRef.current,
       },
@@ -1144,18 +1171,19 @@ const useSessionManager = () => {
       );
       if (!session) return;
 
+      const currentPoint = session.testPoints.find(
+        (testPoint) => testPoint.id === selectedTestPointId,
+      );
+      if (!currentPoint || Object.keys(updatedData).every(key => sameSessionValue(currentPoint[key], updatedData[key]))) return;
+
       const updatedTestPoints = session.testPoints.map((testPoint) =>
         testPoint.id === selectedTestPointId
           ? { ...testPoint, ...updatedData }
           : testPoint,
       );
       const updatedSession = { ...session, testPoints: updatedTestPoints };
-      if (!getSessionChangeGroup(session, updatedSession)) return;
 
       const updatedKeys = Object.keys(updatedData).sort().join(",");
-      const currentPoint = session.testPoints.find(
-        (testPoint) => testPoint.id === selectedTestPointId,
-      );
       const isDiscreteBudgetChange = ["components", "tmdeTolerances"].some(
         (key) => {
           if (!Object.prototype.hasOwnProperty.call(updatedData, key)) return false;

@@ -35,6 +35,47 @@ it('ignores its own layout styles while still responding to authored widths and 
   expect(change(col, 'width: 100px;', 'width: 200px;')).toBe(true);
 });
 
+it('updates range selection and mode without cloning or remeasuring library content', async () => {
+  const frames = new Map(); let id = 0;
+  vi.stubGlobal('requestAnimationFrame', callback => { frames.set(++id, callback); return id; });
+  vi.stubGlobal('cancelAnimationFrame', key => frames.delete(key));
+  vi.spyOn(Element.prototype, 'getClientRects').mockReturnValue([{}]);
+  measureTableColumnWidths.mockReturnValue({ description: 300, range: 120 });
+  function Fixture() {
+    const ref = useRef(null), attach = useInstrumentTableLayout(ref);
+    return <div className="instrument-library-window"><div ref={attach}><table data-selection-mode="instrument">
+      <colgroup><col style={{ width: '50%' }}/><col style={{ width: '50%' }}/></colgroup>
+      <thead><tr><th data-instrument-column="description">Description</th><th data-instrument-column="range">Range</th></tr></thead>
+      <tbody><tr data-selection-key="meter" data-range-id="a" data-range-selected="false"><td rowSpan={2} className="cell-description">Meter</td><td>A</td></tr>
+        <tr data-selection-key="meter" data-range-id="b" data-range-selected="false"><td>B</td></tr></tbody>
+    </table></div></div>;
+  }
+  const { container, unmount } = render(<Fixture/>);
+  const table = container.querySelector('table');
+  const description = table.tBodies[0].rows[0].cells[0];
+  const row = table.tBodies[0].rows[1];
+  const flush = async () => {
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => { const pending = [...frames.values()]; frames.clear(); pending.forEach(callback => callback()); });
+  };
+  await flush();
+  measureTableColumnWidths.mockClear();
+  row.dataset.rangeSelected = 'true'; row.className = 'instrument-selected is-selected-range';
+  await flush();
+  expect(row.cells[0]).toHaveAttribute('data-cell-selected');
+  expect(description).toHaveAttribute('data-cell-selected');
+  table.dataset.selectionMode = 'range';
+  await flush();
+  expect(row.cells[0]).toHaveAttribute('data-cell-selected');
+  expect(description).not.toHaveAttribute('data-cell-selected');
+  row.dataset.rangeSelected = 'false'; row.className = '';
+  await flush();
+  expect(row.cells[0]).not.toHaveAttribute('data-cell-selected');
+  expect(measureTableColumnWidths).not.toHaveBeenCalled();
+  expect(frames.size).toBe(0);
+  unmount();
+});
+
 it('settles after initial measurement with real mutation observation and positioned header controls', async () => {
   const frames = new Map(); let id = 0;
   vi.stubGlobal('requestAnimationFrame', callback => { frames.set(++id, callback); return id; });

@@ -16,7 +16,13 @@ export const qualifierColumnKey = cell => {
   return depth > 1 ? `qualifier${depth}` : 'qualifier';
 };
 const HOVER_CLASSES = new Set(['row-hovered', 'col-hovered', 'hovered-spec-row']);
-const layoutClasses = value => (value || '').split(/\s+/).filter(name => name && !HOVER_CLASSES.has(name)).sort().join(' ');
+const SELECTION_CLASSES = new Set(['instrument-selected', 'is-selected-range', 'is-active-range']);
+const layoutClasses = value => (value || '').split(/\s+/).filter(name => name && !HOVER_CLASSES.has(name) && !SELECTION_CLASSES.has(name)).sort().join(' ');
+const selectionClasses = value => (value || '').split(/\s+/).filter(name => SELECTION_CLASSES.has(name)).sort().join(' ');
+const instrumentMutationAffectsSelection = record => record.type === 'attributes' && (
+  record.attributeName === 'data-range-selected' || record.attributeName === 'data-selection-mode' ||
+  (record.attributeName === 'class' && selectionClasses(record.oldValue) !== selectionClasses(record.target.getAttribute('class')))
+);
 
 // Measure a detached copy at its intrinsic width. Never feed an editor's
 // allocated column width back into that column's next size requirement.
@@ -43,6 +49,7 @@ const authoredStyle = value => (value || '').split(';')
   .map(rule => rule.trim()).filter(rule => rule && !rule.startsWith('--instrument-live-') && !rule.startsWith('--instrument-natural-')).sort().join(';');
 export const instrumentMutationAffectsLayout = record => {
   if (record.type !== 'attributes') return true;
+  if (record.attributeName === 'data-range-selected' || record.attributeName === 'data-selection-mode') return false;
   if (record.attributeName === 'class') return layoutClasses(record.oldValue) !== layoutClasses(record.target.getAttribute('class'));
   if (record.attributeName === 'style') {
     // These are our own positioning/measurement writes. Observing them caused
@@ -118,6 +125,8 @@ export default function useInstrumentTableLayout(containerRef) {
     table.addEventListener("pointerleave", leave);
     const card = container.closest(".panel-card");
     let frame = null;
+    let needsLayout = false;
+    let selectionRows = new Set();
     const setProperty = (node, name, value) => {
       if (node.style.getPropertyValue(name) !== value) node.style.setProperty(name, value);
     };
@@ -181,6 +190,8 @@ export default function useInstrumentTableLayout(containerRef) {
         setProperty(table, '--instrument-live-table-width', '100%');
         setProperty(table, '--instrument-natural-table-width', '100%');
         syncHeaderOffset();
+        highlighter.syncSelection();
+        highlighter.hover(hoveredRow, hoveredCell);
         syncActions();
         return;
       }
@@ -300,32 +311,52 @@ export default function useInstrumentTableLayout(containerRef) {
       // action rail, so an arrow inside the table would create scroll overflow.
       alignEmptyHintArrows(card || table);
       syncHeaderOffset();
-      highlighter.refresh();
+      highlighter.syncSelection();
       highlighter.hover(hoveredRow, hoveredCell);
       syncActions();
     };
-    const schedule = () => {
+    const scheduleFrame = () => {
       if (frame !== null) return;
       frame = requestAnimationFrame(() => {
         frame = null;
-        sync();
+        if (needsLayout) sync();
+        else if (container.getClientRects().length) {
+          highlighter.syncSelection(selectionRows);
+          highlighter.hover(hoveredRow, hoveredCell);
+          syncActions();
+        }
+        needsLayout = false;
+        selectionRows = new Set();
       });
     };
+    const schedule = () => { needsLayout = true; scheduleFrame(); };
     // Layout writes also notify this observer. Never recalculate in the
     // mutation microtask itself: drag/zoom changes must yield to input/paint,
     // and a burst of row changes only needs one measurement per frame.
     // Hover changes color only. Re-measuring every cell on mouse movement can
     // feed rounding/scrollbar changes back into the widths of a large table.
     const mutation = new MutationObserver(records => {
-      if (!records || records.some(record => record.type === 'childList' || record.attributeName === 'rowspan' || record.attributeName === 'colspan')) highlighter.invalidate();
+      if (!records || records.some(record =>
+        (record.type === 'childList' && record.target.matches?.('table, thead, tbody, tfoot, tr')) ||
+        record.attributeName === 'rowspan' || record.attributeName === 'colspan' ||
+        record.attributeName === 'data-selection-key' || record.attributeName === 'data-range-id' ||
+        (record.attributeName === 'class' && record.target.matches?.('tr, td, th') && instrumentMutationAffectsLayout(record))
+      )) highlighter.invalidate();
       if (library && records?.some(record =>
         instrumentMutationAffectsLayout(record) &&
         !(record.type === 'attributes' && record.attributeName === 'style' &&
           (record.target === table || record.target.matches('col, .instrument-column-insert-button')))
       )) contentWidths = null;
       if (!records || records.some(instrumentMutationAffectsLayout)) schedule();
+      else if (records.some(instrumentMutationAffectsSelection)) {
+        for (const record of records.filter(instrumentMutationAffectsSelection)) {
+          if (record.target === table) selectionRows = null;
+          else selectionRows?.add(record.target.closest('tr'));
+        }
+        scheduleFrame();
+      }
     });
-    mutation.observe(table, { childList: true, characterData: true, subtree: true, attributes: true, attributeOldValue: true, attributeFilter: ["class", "style", "rowspan", "colspan", "data-range-selected", "data-selection-mode"] });
+    mutation.observe(table, { childList: true, characterData: true, subtree: true, attributes: true, attributeOldValue: true, attributeFilter: ["class", "style", "rowspan", "colspan", "data-selection-key", "data-range-id", "data-range-selected", "data-selection-mode"] });
     const contentChanged = () => { contentWidths = null; schedule(); };
     // Web fonts can finish after the first intrinsic measurement. Refresh the
     // fit once they settle so cached fallback-font widths don't wrap labels.
@@ -337,7 +368,6 @@ export default function useInstrumentTableLayout(containerRef) {
     const resize = typeof ResizeObserver === "undefined" ? null : new ResizeObserver(schedule);
     resize?.observe(container);
     resize?.observe(table);
-    container.addEventListener("focusin", schedule);
     container.addEventListener("input", contentChanged);
     // Scroll only changes the sticky offset, not column widths. Update it in
     // the scroll event instead of deferring an entire table measurement a frame.
@@ -374,7 +404,6 @@ export default function useInstrumentTableLayout(containerRef) {
       mutation.disconnect();
       theme.disconnect();
       resize?.disconnect();
-      container.removeEventListener("focusin", schedule);
       container.removeEventListener("input", contentChanged);
       window.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("resize", schedule);

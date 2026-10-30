@@ -72,6 +72,20 @@ export function createInstrumentCellHighlighter(table) {
     }
     columnCells = update(columnCells, next, 'data-column-hovered');
   };
+  const syncSelection = (rows = null) => {
+    if (!grid) { refresh(); return; }
+    // Selection changes do not change row spans. Reuse the occupancy grid and,
+    // when the observer supplies changed rows, touch only their real/shared cells.
+    const entries = rows
+      ? new Set([...rows].flatMap(row => (byRow.get(row) || []).map(cell => byCell.get(cell))))
+      : grid.cells;
+    for (const { cell, covered } of entries) {
+      const selected = covered.some(row => row.dataset.rangeSelected === 'true' ||
+        (!row.dataset.selectionKey && row.matches('.selected-row, .selected-spec-row'))) &&
+        !(table.dataset.selectionMode === 'range' && cell.classList.contains('cell-description'));
+      toggle(cell, 'data-cell-selected', selected);
+    }
+  };
   const refresh = () => {
     grid = instrumentCellGrid(table);
     hoveredColumn = undefined;
@@ -87,14 +101,11 @@ export function createInstrumentCellHighlighter(table) {
         if (!byColumn.has(col)) byColumn.set(col, []);
         byColumn.get(col).push(cell);
       }
-      const selected = covered.some(row => row.dataset.rangeSelected === 'true' ||
-        (!row.dataset.selectionKey && row.matches('.selected-row, .selected-spec-row'))) &&
-        !(table.dataset.selectionMode === 'range' && cell.classList.contains('cell-description'));
-      toggle(cell, 'data-cell-selected', selected);
       toggle(cell, 'data-before-sync', end === syncColumn);
     });
+    syncSelection();
   };
-  return { refresh, hover, invalidate() { grid = null; }, get rows() { if (!grid) refresh(); return grid.rows; } };
+  return { refresh, syncSelection, hover, invalidate() { grid = null; }, get rows() { if (!grid) refresh(); return grid.rows; } };
 }
 
 // Shared description/qualifier cells can cover hundreds of physical rows.

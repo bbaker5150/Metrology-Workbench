@@ -3,6 +3,7 @@ import axios from "axios";
 import { journalSession, readRecovery } from "../utils/sessionRecovery";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import useSessionManager, {
+  getSessionChangeGroup,
   prepareImportedSession,
 } from "./useSessionManager";
 import { linkAcShuntDefinition } from '../utils/acShuntLibrary';
@@ -124,6 +125,22 @@ describe("prepareImportedSession", () => {
 });
 
 describe("session undo history", () => {
+  it("coalesces typing before cloning while retaining the original undo snapshot", async () => {
+    const { result } = renderHook(() => useSessionManager());
+    await waitFor(() => expect(result.current.currentSessionData?.name).toBe("Original"));
+    const clone = vi.spyOn(globalThis, "structuredClone");
+    const now = vi.spyOn(Date, "now").mockReturnValue(1000);
+    try {
+      for (const name of ["E", "Ed", "Edited"]) {
+        act(() => result.current.updateSession({ ...result.current.currentSessionData, name }));
+      }
+      expect(clone).toHaveBeenCalledTimes(1);
+      act(() => expect(result.current.undoLastSessionChange()).toBe(true));
+      expect(result.current.currentSessionData.name).toBe("Original");
+      act(() => expect(result.current.undoLastSessionChange()).toBe(false));
+    } finally { clone.mockRestore(); now.mockRestore(); }
+  });
+
   it("restores the active session's previous snapshot", async () => {
     const { result } = renderHook(() => useSessionManager());
 
@@ -220,6 +237,26 @@ describe("session undo history", () => {
       expect(result.current.undoLastSessionChange()).toBe(true);
     });
     expect(result.current.sessions).toHaveLength(1);
+  });
+});
+
+describe("session change detection", () => {
+  it("does not serialize unchanged point snapshots when one of many points changes", () => {
+    const points = Array.from({ length: 2000 }, (_, id) => ({ id, section: "4.1", snapshot: "x".repeat(1000) }));
+    const updated = points.slice();
+    updated[1000] = { ...points[1000], section: "4.2" };
+    const stringify = vi.spyOn(JSON, "stringify");
+    try {
+      expect(getSessionChangeGroup({ testPoints: points }, { testPoints: updated })).toBe("session:testPoints");
+      expect(stringify).toHaveBeenCalledTimes(2);
+      expect(stringify.mock.calls.every(([value]) => value.length === 1 && value[0].id === 1000)).toBe(true);
+    } finally { stringify.mockRestore(); }
+  });
+
+  it("keeps serialized equality for replacement rows, null array entries and missing fields", () => {
+    expect(getSessionChangeGroup({ testPoints: [{ id: 1, empty: undefined }, null, NaN] }, { testPoints: [{ id: 1 }, undefined, null] })).toBeNull();
+    expect(getSessionChangeGroup({ testPoints: [{ id: 1 }] }, { testPoints: [{ id: 1 }, { id: 2 }] })).toBe("session:testPoints");
+    expect(getSessionChangeGroup({ testPoints: [{ id: 1, units: "V" }] }, { testPoints: [{ id: 1, units: "A" }] })).toBe("session:testPoints");
   });
 });
 

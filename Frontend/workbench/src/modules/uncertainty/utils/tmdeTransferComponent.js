@@ -15,7 +15,7 @@ export function resolveTmdeTransferComponent(component, session, nominal) {
     const divisors = new Set();
     for (const source of component.tmdeTransferSources || []) {
       const master = session.tmdes.find(t => String(t.id) === String(source.sourceId));
-      const range = master && getInstrumentRangeRows(master,{flattenTolerances:true}).find(r =>
+      const range = master && getInstrumentRangeRows(master,{flattenTolerances:true,rangeIds:[source.rangeId]}).find(r =>
         String(r.rangeId) === String(source.rangeId) && String(r.functionId) === String(source.functionId));
       if (!range) throw Error('The linked TMDE range is missing.');
       const resolved = getBudgetComponentsFromTolerance(range,source.nominal).filter(c=>Boolean(c.isResolution) === Boolean(component.isResolution) && !c.isManual);

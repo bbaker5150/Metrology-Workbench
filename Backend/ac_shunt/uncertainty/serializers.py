@@ -13,6 +13,7 @@ place rather than rebuilt, because their large base64 ``data`` is written by a
 separate endpoint and must survive a metadata-only session save.
 """
 from django.db import transaction
+from django.db.models import prefetch_related_objects
 
 from . import models
 
@@ -158,6 +159,13 @@ def note_image_ref_to_dict(img):
 
 
 def session_to_dict(s):
+    # Reuse endpoint prefetches. Chaining prefetch_related() onto the related
+    # queryset clones it and discards its result cache, reloading every point
+    # and component for each session in an otherwise batched list response.
+    points = list(s.test_points.all())
+    # Direct callers (for example import round-trips) may not have prefetched.
+    # This batches their components while leaving already-cached rows alone.
+    prefetch_related_objects(points, "components")
     return {
         "id": s.id,
         "name": s.name,
@@ -188,7 +196,7 @@ def session_to_dict(s):
         "tmdes": [tmde_to_dict(t) for t in s.tmdes.all()],
         "testPoints": [
             test_point_to_dict(tp)
-            for tp in s.test_points.all().prefetch_related("components")
+            for tp in points
         ],
         "noteImages": [note_image_ref_to_dict(i) for i in s.note_images.all()],
     }

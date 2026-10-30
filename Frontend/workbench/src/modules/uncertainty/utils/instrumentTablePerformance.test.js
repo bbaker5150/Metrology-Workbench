@@ -93,6 +93,31 @@ it('locates a physical row beneath a shared cell with logarithmic geometry reads
   expect(instrumentRowAtY(rows, 100, 'another')).toBeNull();
 });
 
+it('updates selected cells in a large shared-row table without rebuilding its occupancy grid', () => {
+  const table = document.createElement('table');
+  table.dataset.selectionMode = 'instrument';
+  table.innerHTML = `<tbody>${Array.from({ length: 1000 }, (_, i) =>
+    `<tr data-selection-key="meter" data-range-id="${i}">${i === 0 ? '<td class="cell-description" rowspan="1000">Meter</td>' : ''}<td>Range ${i}</td></tr>`).join('')}</tbody>`;
+  document.body.appendChild(table);
+  const highlighter = createInstrumentCellHighlighter(table);
+  highlighter.refresh();
+  const query = vi.spyOn(table, 'querySelectorAll');
+  const writes = vi.spyOn(Element.prototype, 'toggleAttribute');
+  table.rows[500].dataset.rangeSelected = 'true';
+  highlighter.syncSelection(new Set([table.rows[500]]));
+  expect(query).not.toHaveBeenCalled();
+  expect(writes).toHaveBeenCalledTimes(2);
+  expect(table.rows[500].cells[0]).toHaveAttribute('data-cell-selected');
+  expect(table.rows[0].cells[0]).toHaveAttribute('data-cell-selected');
+  table.dataset.selectionMode = 'range';
+  highlighter.syncSelection();
+  expect(table.rows[0].cells[0]).not.toHaveAttribute('data-cell-selected');
+  expect(table.rows[500].cells[0]).toHaveAttribute('data-cell-selected');
+  table.rows[500].dataset.rangeSelected = 'false';
+  highlighter.syncSelection(new Set([table.rows[500]]));
+  expect(table.querySelectorAll('[data-cell-selected]')).toHaveLength(0);
+});
+
 it('measures repeated qualifier labels with one attached probe batch', () => {
   const labels = Array.from({ length: 1000 }, (_, i) => {
     const label = document.createElement('span'); label.textContent = ['90 Days','1 Year','2 Years'][i % 3]; return label;

@@ -1,9 +1,21 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import { syncPointTolerances } from "./pointToleranceSync";
 const range = (id, unit, high) => ({ id, unit, min: 0, max: 10, tolerances: { floor: { high, low: -high, unit } } });
 const uut = ranges => ({ id: "u", instrument: { functions: [{ id: "f", name: "Electrical", ranges }] } });
 const point = (id, unit, source) => ({ id, associatedUutIds: ["u"], testPointInfo: { parameter: { value: 5, unit } }, uutTolerance: source });
 describe("live UUT tolerance snapshots", () => {
+  it("does not serialize unchanged instrument definitions for point edits or copied collections", () => {
+    const before = { uuts: [uut([range("v", "V", 1)])], tmdes: [{ id: "tmde", instrument: { functions: [] } }], testPoints: [point(1, "V", null)] };
+    const stringify = vi.spyOn(JSON, "stringify");
+    try {
+      const pointEdit = { ...before, testPoints: [{ ...before.testPoints[0], section: "Changed" }] };
+      expect(syncPointTolerances(pointEdit, before)).toBe(pointEdit);
+      const copiedCollections = { ...pointEdit, uuts: [...before.uuts], tmdes: [...before.tmdes] };
+      expect(syncPointTolerances(copiedCollections, before)).toBe(copiedCollections);
+      expect(stringify).not.toHaveBeenCalled();
+    } finally { stringify.mockRestore(); }
+  });
+
   it("refreshes all matching points and fills absent tolerances while preserving other units and manual specifications", () => {
     const before = { uuts: [uut([range("v", "V", 1), range("a", "A", 2)])], testPoints: [
       point(1, "V", { rangeId: "v", includeResolutionInBudget: false }),

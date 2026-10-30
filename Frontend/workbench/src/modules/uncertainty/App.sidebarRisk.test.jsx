@@ -27,6 +27,28 @@ import {
 
 vi.mock("plotly.js-dist", () => ({ default: {} }));
 
+test('retains column hover when crossing rows without rescanning or repainting the point list', () => {
+  const { container } = render(<div className="sidebar-points-scroll-wrapper">
+    {['a', 'b'].map(id => <SidebarPointItem key={id}
+      point={{ id, testPointInfo: { parameter: { value: 1, unit: 'V' } } }}
+      visibleColumns={{ value: true, section: true }} onSelect={vi.fn()} onSave={vi.fn()} />)}
+  </div>);
+  const list = container.firstChild;
+  const cells = list.querySelectorAll('[data-sidebar-column="value"]');
+  fireEvent.mouseOver(cells[0]);
+  expect(cells[0]).toHaveClass('is-cell-hovered');
+  expect(cells[1]).toHaveClass('is-cell-hovered');
+  const query = vi.spyOn(list, 'querySelectorAll');
+  fireEvent.mouseOut(cells[0], { relatedTarget: cells[1] });
+  fireEvent.mouseOver(cells[1], { relatedTarget: cells[0] });
+  expect(query).not.toHaveBeenCalled();
+  expect(cells[1]).toHaveClass('is-cell-hovered');
+  fireEvent.mouseOut(cells[1], { relatedTarget: document.body });
+  expect(cells[0]).not.toHaveClass('is-cell-hovered');
+  expect(cells[1]).not.toHaveClass('is-cell-hovered');
+  query.mockRestore();
+});
+
 describe("measurement-point value editing", () => {
   test('migrates saved TMDE limits to named columns while preserving dynamic defaults, order and explicit hidden choices', () => {
     const session = {tmdes:[{id:'meter',name:'Meter'}]};

@@ -1,4 +1,5 @@
 import { createRiskEvaluationCache } from "./utils/riskEvaluationCache";
+import { createIndependentPointCache } from "./utils/independentPointCache";
 import { instrumentForRole } from './utils/acShuntInstrumentRole';
 import InstrumentLibraryModal from "./features/instruments/components/InstrumentLibraryModal";
 import { buildSidebarCellGroups } from "./utils/sidebarCellGroups";
@@ -809,6 +810,7 @@ export const SidebarPointItem = ({
   columnOrder = DEFAULT_SIDEBAR_COLUMN_ORDER,
   fillWidth = false,
   highlightedPointIds = [],
+  highlightedPointIdSet: sharedHighlightedPointIds,
   valueColumnWidth = "80px",
   isSelected,
   isActivePoint = false,
@@ -1157,7 +1159,7 @@ export const SidebarPointItem = ({
     visibleColumns.qualifier,
   ]);
 
-  const highlightedPointIdSet = new Set(
+  const highlightedPointIdSet = sharedHighlightedPointIds || new Set(
     (highlightedPointIds || []).filter(Boolean).map(String),
   );
   // A merged cell belongs to every point in its run, so selecting any one of
@@ -1358,7 +1360,8 @@ export const SidebarPointItem = ({
   const setRunHover = (row, target) => {
     const list = row?.closest?.(".sidebar-points-scroll-wrapper");
     if (!list) return;
-    const hovered = target?.closest?.("[data-sidebar-column]");
+    const hovered = list.contains(target instanceof Node ? target : null)
+      ? target?.closest?.("[data-sidebar-column]") : null;
     const column = hovered?.dataset.sidebarColumn;
     // Match the instrument table's whole-column hover without rerendering
     // the workspace. Measure only when the pointer enters a different column.
@@ -1384,7 +1387,7 @@ export const SidebarPointItem = ({
       tabIndex={0}
       className={`point-grid-item ${isSelected ? "active" : ""} ${isActivePoint ? "active-point" : ""} ${isTableSelected ? "table-highlight" : ""}`}
       onMouseOver={(e) => setRunHover(e.currentTarget, e.target)}
-      onMouseLeave={(e) => setRunHover(e.currentTarget, null)}
+      onMouseLeave={(e) => setRunHover(e.currentTarget, e.relatedTarget)}
       style={{
         gridTemplateColumns: getSidebarGridTemplate(
           visibleColumns,
@@ -2498,25 +2501,23 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
     [evaluatePointRisks, currentTestPoints, currentSessionData, mitigationColumnsEnabled],
   );
 
+  const evaluatePointDiagnostics = useMemo(() => createIndependentPointCache(
+    (point, session, riskMetrics, riskStatus, visibleColumns) =>
+      getPointDiagnosticEntries(point, session || {}, { riskMetrics, riskStatus, visibleColumns }),
+  ), []);
   const pointDiagnosticsMap = useMemo(
-    () => Object.fromEntries(currentTestPoints.map(point => [
-      point.id,
-      getPointDiagnosticEntries(point, currentSessionData || {}, {
-        riskMetrics: pointRiskMap[point.id],
-        riskStatus: pointRiskStatusMap[point.id],
-        visibleColumns: sidebarColumns,
-      }),
-    ])),
-    [currentTestPoints, currentSessionData, pointRiskMap, pointRiskStatusMap, sidebarColumns],
+    () => Object.fromEntries(evaluatePointDiagnostics(currentTestPoints, currentSessionData,
+      point => [pointRiskMap[point.id], pointRiskStatusMap[point.id], sidebarColumns])),
+    [evaluatePointDiagnostics, currentTestPoints, currentSessionData, pointRiskMap, pointRiskStatusMap, sidebarColumns],
   );
 
-  // These values follow the session data, not the active selection. Reuse them
-  // when moving between points, while invalidating on any session edit.
-  const sidebarPointData = useMemo(() => new Map(currentTestPoints.map(point => [point.id, {
-    tmdeLimits: computePointTmdeLimits(point, currentSessionData),
-    resolution: pointDisplayResolution(point, currentSessionData),
-    requirements: getPointRequirements(point, currentSessionData),
-  }])), [currentTestPoints, currentSessionData]);
+  const evaluateSidebarPoints = useMemo(() => createIndependentPointCache((point, session) => ({
+    tmdeLimits: computePointTmdeLimits(point, session),
+    resolution: pointDisplayResolution(point, session),
+    requirements: getPointRequirements(point, session),
+  })), []);
+  const sidebarPointData = useMemo(() => evaluateSidebarPoints(currentTestPoints, currentSessionData),
+    [evaluateSidebarPoints, currentTestPoints, currentSessionData]);
 
   const sidebarAutoWidths = useSidebarAutoWidths(resultsContainerRef);
   const sidebarRenderedColumnWidths = useMemo(
@@ -5306,11 +5307,16 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
     units: getMeasurementAreaUnits(currentSessionData, group.name),
     uuts: (group.uutGroups || []).filter(uut => !uut.isUnassigned).map(uut => ({ id: uut.id, label: formatInstrumentIdentity(uut) })),
   }])), [sidebarData, currentSessionData]);
+  const sidebarUutsById = useMemo(() => new Map((currentSessionData?.uuts || []).map(uut => [String(uut.id), uut])),
+    [currentSessionData?.uuts]);
+  const sidebarHighlightedPointIds = useMemo(() => new Set([
+    ...selectedSidebarPointIds, selectedTestPointId, ...selectedTablePointIds,
+  ].filter(Boolean).map(String)), [selectedSidebarPointIds, selectedTestPointId, selectedTablePointIds]);
+  const sidebarSelectedPointIds = useMemo(() => new Set(selectedSidebarPointIds), [selectedSidebarPointIds]);
+  const tableSelectedPointIds = useMemo(() => new Set(selectedTablePointIds), [selectedTablePointIds]);
   const renderSidebarPointRow = (tp, fnGroup, points = [], index = 0) => {
     const contextUutId = tp.associatedUutIds?.[0] || null;
-    const currentUut = (currentSessionData?.uuts || []).find(
-      (uut) => String(uut.id) === String(contextUutId),
-    );
+    const currentUut = sidebarUutsById.get(String(contextUutId));
     const cellGroups = sidebarCellGroups.get(fnGroup.id)?.[index] || {};
     return (
     <SidebarPointItem
@@ -5326,11 +5332,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
       columnOrder={sidebarColumnOrder}
       fillWidth={workspacePane === "points" && !sidebarAutoFit}
       authoredColumnWidths={sidebarColumnWidths}
-      highlightedPointIds={[
-        ...selectedSidebarPointIds,
-        selectedTestPointId,
-        ...selectedTablePointIds,
-      ]}
+      highlightedPointIdSet={sidebarHighlightedPointIds}
       preferredSharedEditPointId={selectedTestPointId}
       onRequestSharedMemberEdit={(pointId, field) =>
         setPendingSharedFieldEdit({ pointId, field })
@@ -5388,9 +5390,9 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
       valueColumnWidth={sidebarValueColumnWidth}
       visibleColumns={visibleSidebarColumns}
       tmdeColumnDefinitions={tmdeColumnDefinitions}
-      isSelected={selectedSidebarPointIds.includes(tp.id)}
+      isSelected={sidebarSelectedPointIds.has(tp.id)}
       isActivePoint={selectedTestPointId === tp.id}
-      isTableSelected={selectedTablePointIds.includes(tp.id)}
+      isTableSelected={tableSelectedPointIds.has(tp.id)}
       unitOptions={sidebarInstrumentChoices.get(fnGroup.id)?.units}
       liveRiskMetrics={pointRiskMap[tp.id]}
       liveUncertainty={pointUncertaintyMap[tp.id]}

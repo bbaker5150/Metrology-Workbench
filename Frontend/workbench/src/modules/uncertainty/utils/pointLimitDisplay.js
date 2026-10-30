@@ -22,11 +22,8 @@ const finest = values => { const valid = values.filter(value => Number.isFinite(
 // An explicit selection only breaks ties between overlapping matching ranges.
 export function resolutionRange(master, snapshot = {}, nominal = {}) {
   if (!master) return snapshot;
-  const rows = getInstrumentRangeRows(master, { flattenTolerances: true });
   const id = snapshot.rangeId ?? snapshot.id;
-  const explicit = id != null && rows.find(row => String(row.rangeId ?? row.id) === String(id) &&
-    (!snapshot.functionId || !row.functionId || String(row.functionId) === String(snapshot.functionId)));
-  const candidates = rows.filter(row => {
+  const matchesNominal = row => {
     if (snapshot.functionId && row.functionId && String(snapshot.functionId) !== String(row.functionId)) return false;
     const from = unitSystem.units[nominal.unit], to = unitSystem.units[row.unit];
     if (from && to && from.quantity !== to.quantity) return false;
@@ -35,10 +32,18 @@ export function resolutionRange(master, snapshot = {}, nominal = {}) {
     const filled = v => v != null && v !== "";
     if (row.isSingleValue) return value === Number(row.value ?? row.min);
     return (!filled(row.min) || value >= Number(row.min)) && (!filled(row.max) || value <= Number(row.max));
-  });
-  if (explicit && candidates.includes(explicit)) return explicit;
-  if (candidates.length) return candidates[0];
+  };
+  // Most point rows already select a range. Read that live specification first,
+  // without copying every other range in a large instrument for each point.
+  // Preserve the full search when the nominal has moved outside the selection.
+  const explicit = id != null && getInstrumentRangeRows(master, { flattenTolerances: true, rangeIds: [id] })
+    .find(row => String(row.rangeId ?? row.id) === String(id) &&
+      (!snapshot.functionId || !row.functionId || String(row.functionId) === String(snapshot.functionId)));
+  if (explicit && matchesNominal(explicit)) return explicit;
   if (nominal.value === "" || nominal.value == null) return explicit || snapshot;
+  const rows = getInstrumentRangeRows(master, { flattenTolerances: true });
+  const candidate = rows.find(matchesNominal);
+  if (candidate) return candidate;
   // Do not borrow precision from a range that does not cover this nominal.
   return rows.length ? {} : snapshot;
 }

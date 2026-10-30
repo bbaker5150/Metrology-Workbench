@@ -85,7 +85,7 @@ export function computePointTmdeLimits(point, session = {}) {
         continue;
       }
       const reference = derived ? point.variableNominals?.[Object.keys(point.variableMappings || {}).find(k=>point.variableMappings[k]===c.variableType)] : nominal;
-      const ranges=getInstrumentRangeRows(master,{flattenTolerances:true});
+      const ranges=c.tmdeBudgetRangeId ? getInstrumentRangeRows(master,{flattenTolerances:true,rangeIds:[c.tmdeBudgetRangeId]}) : [];
       const range=c.tmdeBudgetRangeId
         ? ranges.find(r=>String(r.rangeId??r.id)===String(c.tmdeBudgetRangeId) && (!c.tmdeBudgetFunctionId || !r.functionId || String(r.functionId)===String(c.tmdeBudgetFunctionId)))
         : resolutionRange(master, { functionId: c.tmdeBudgetFunctionId }, reference || {});

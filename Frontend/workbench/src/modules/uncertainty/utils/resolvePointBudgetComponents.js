@@ -90,7 +90,10 @@ export function resolvePointBudgetComponents(point, sessionData, instruments = [
             String(tmde.sourceId) === String(sourceId),
         );
         if (!master) return unresolvedComponent(component, "The linked TMDE instrument is missing. Select an error source.");
-        const ranges = getInstrumentRangeRows(master, { flattenTolerances: true });
+        const ranges = getInstrumentRangeRows(master, {
+          flattenTolerances: true,
+          rangeIds: component.tmdeBudgetRangeId ? [component.tmdeBudgetRangeId] : null,
+        });
         const selectedRange =
           ranges.find(
             (range) =>

@@ -7,6 +7,7 @@ persists a session at a time. Instruments (global library), bug reports, and
 note images each get their own small collection endpoints.
 """
 from django.conf import settings
+from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
@@ -63,27 +64,25 @@ def system_info(request):
 # --------------------------------------------------------------------------- #
 # Sessions
 # --------------------------------------------------------------------------- #
+def _session_documents():
+    return models.Session.objects.prefetch_related(
+        "measurement_areas", "uuts", "tmdes", "test_points__components",
+        # The document exposes image references only. Image bodies are fetched
+        # separately by session_images and need not occupy memory on every load.
+        Prefetch("note_images", queryset=models.NoteImage.objects.defer("data")),
+    )
+
+
 @api_view(["GET", "POST"])
 @permission_classes([AllowAny])
 def sessions(request):
     if request.method == "GET":
-        qs = (
-            models.Session.objects.all()
-            .prefetch_related(
-                "measurement_areas", "uuts", "tmdes",
-                "test_points__components", "note_images",
-            )
-        )
+        qs = _session_documents()
         return Response([serializers.session_to_dict(s) for s in qs])
 
     # POST -> create from whole-session payload.
     session = serializers.save_session(request.data)
-    full = (
-        models.Session.objects.prefetch_related(
-            "measurement_areas", "uuts", "tmdes",
-            "test_points__components", "note_images",
-        ).get(pk=session.pk)
-    )
+    full = _session_documents().get(pk=session.pk)
     return Response(serializers.session_to_dict(full), status=status.HTTP_201_CREATED)
 
 
@@ -100,10 +99,7 @@ def session_detail(request, session_id):
         serializers.save_session(data)
 
     session = get_object_or_404(
-        models.Session.objects.prefetch_related(
-            "measurement_areas", "uuts", "tmdes",
-            "test_points__components", "note_images",
-        ),
+        _session_documents(),
         pk=session_id,
     )
     return Response(serializers.session_to_dict(session))

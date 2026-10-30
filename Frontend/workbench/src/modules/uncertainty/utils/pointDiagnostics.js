@@ -56,7 +56,7 @@ export function getBudgetRangeWarnings({
     if (component.tmdeTransferSources) {
       for (const input of component.tmdeTransferSources) {
         const master=tmdes.find(t=>String(t.id)===String(input.sourceId));
-        const range=master && getInstrumentRangeRows(master).find(r=>String(r.rangeId)===String(input.rangeId) && String(r.functionId)===String(input.functionId));
+        const range=master && getInstrumentRangeRows(master, { rangeIds: [input.rangeId] }).find(r=>String(r.rangeId)===String(input.rangeId) && String(r.functionId)===String(input.functionId));
         const reason=!range ? 'The linked TMDE range is missing.'
           : !assessRangeCompatibility(range,input.nominal,'transfer input',selectedBudgetRangeOptions).compatible
             ? `Saved reader input ${label(input.nominal)} is outside ${formatRangeLabel(range,{preferBounds:true})}.` : null;
@@ -81,7 +81,7 @@ export function getBudgetRangeWarnings({
     );
     const rawRange =
       (source &&
-        getInstrumentRangeRows(source, { flattenTolerances: true }).find(
+        getInstrumentRangeRows(source, { flattenTolerances: true, rangeIds: [component.tmdeBudgetRangeId] }).find(
           (r) =>
             String(r.rangeId ?? r.id) === String(component.tmdeBudgetRangeId),
         )) || component.tmdeBudgetRange;

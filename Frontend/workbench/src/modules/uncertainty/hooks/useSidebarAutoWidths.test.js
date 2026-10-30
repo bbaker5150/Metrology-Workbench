@@ -12,5 +12,13 @@ describe("sidebar width invalidation", () => {
     expect(sidebarMutationAffectsWidths({ target: root.querySelector("path") })).toBe(false);
     expect(sidebarMutationAffectsWidths({ target: root, addedNodes: [root.querySelector("svg")] })).toBe(false);
     expect(sidebarMutationAffectsWidths({ target: root.querySelector("button").firstChild })).toBe(false);
+    row.firstChild.className = 'point-value is-cell-hovered';
+    expect(sidebarMutationAffectsWidths({ type: 'attributes', attributeName: 'class', oldValue: 'point-value', target: row.firstChild })).toBe(false);
+    row.firstChild.className = 'point-value is-editing';
+    expect(sidebarMutationAffectsWidths({ type: 'attributes', attributeName: 'class', oldValue: 'point-value', target: row.firstChild })).toBe(true);
+    row.className = 'point-grid-item active active-point table-highlight';
+    expect(sidebarMutationAffectsWidths({ type: 'attributes', attributeName: 'class', oldValue: 'point-grid-item', target: row })).toBe(false);
+    row.firstChild.style.gridArea = 'value';
+    expect(sidebarMutationAffectsWidths({ type: 'attributes', attributeName: 'style', oldValue: row.firstChild.getAttribute('style'), target: row.firstChild })).toBe(false);
   });
 });
