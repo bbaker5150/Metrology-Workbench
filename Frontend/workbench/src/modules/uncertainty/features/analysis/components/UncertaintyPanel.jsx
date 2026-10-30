@@ -6045,6 +6045,34 @@ export const resolveUutRangeHelper = (
   };
 };
 
+// Browse a compact instrument's specifications without expanding the editor or
+// changing a point's budget assignments. Reuse the budget's menu and formatter;
+// only format the complete list while open (large readers have hundreds of rows).
+const instrumentRangeMenuKey = (range, index) => `${range.functionId || range.functionName || ""}:${range.rangeId ?? range.id ?? index}`;
+const InstrumentRangeMenu = React.memo(function InstrumentRangeMenu({ item, functionKey, referencePoint, savedTolerance, qualifierNames, contextKey }) {
+  const [open, setOpen] = useState(false);
+  const [selection, setSelection] = useState(null);
+  const { ranges, activeIndex } = useMemo(() => resolveUutRangeHelper(item, null, savedTolerance, referencePoint, functionKey),
+    [item, savedTolerance, referencePoint, functionKey]);
+  const chosenIndex = selection?.contextKey === contextKey ? ranges.findIndex((range, index) => instrumentRangeMenuKey(range, index) === selection.key) : -1;
+  const index = chosenIndex >= 0 ? chosenIndex : activeIndex;
+  const names = item.instrument?.qualifierColumnNames || qualifierNames;
+  const options = useMemo(() => {
+    const optionFor = (range, rangeIndex) => ({ value: instrumentRangeMenuKey(range, rangeIndex),
+      rangeLabel: [formatRangeLabel(range, { preferBounds: true }), formatQualifierPath(range, names)].filter(Boolean).join(" | "),
+      label: formatRangeToleranceDetail(range, referencePoint, names),
+    });
+    return open ? ranges.map(optionFor) : ranges[index] ? [optionFor(ranges[index], index)] : [];
+  }, [open, ranges, index, names, referencePoint]);
+  if (!ranges.length) return <span className="budget-range-selector instrument-range-menu">Range: Not Set</span>;
+  return <InlineMenuSelect className="budget-range-selector instrument-range-menu"
+    ariaLabel={`Ranges and specifications for ${formatInstrumentIdentity(item, "Untitled instrument")}`}
+    width="max-content" menuWidth={440} showOptionMeta={false}
+    value={instrumentRangeMenuKey(ranges[index], index)} options={options}
+    getDisplayLabel={option => `Range: ${option?.rangeLabel || "Not Set"}`}
+    onOpenChange={setOpen} onChange={key => setSelection({ contextKey, key })} />;
+});
+
 // Group instrument rows by FUNCTION subsection — shared by the Session Overview
 // and the Detailed (point) view so both tables read identically. `groupedItems`
 // are `{ type:"item", item, index }`; returns a flat list of `{type:"function"}`
@@ -9393,7 +9421,7 @@ const SummaryDashboard = ({
     return resolveUutRangeHelper(uut, indices, savedTol, nominal);
   };
 
-  const renderSpecificationsButton = (kind, item, accordion = false) => <InstrumentSpecificationsButton accordion={accordion}
+  const renderSpecificationsButton = (kind, item) => <InstrumentSpecificationsButton
     name={formatInstrumentIdentity(item, "Untitled instrument")}
     expanded={specificationsExpanded(kind, item)}
     onClick={event => {
@@ -9423,8 +9451,10 @@ const SummaryDashboard = ({
         <td className="cell-description has-order-controls" colSpan={columns.keys.length - 1}>
           <InstrumentOrderControls onMoveUp={() => moveInstrument(kind, item.id, functionKey, -1)} onMoveDown={() => moveInstrument(kind, item.id, functionKey, 1)} />
           <div className="instrument-simplified-description">
-            {renderSpecificationsButton(kind, item, true)}
-            <span className="instrument-simplified-name">{formatInstrumentIdentity(item, "Untitled instrument")}</span>
+            <div className="instrument-simplified-name">
+              <span>{formatInstrumentIdentity(item, "Untitled instrument")}</span>
+              <InstrumentRangeMenu item={item} functionKey={functionKey} contextKey={sessionData.id} qualifierNames={sessionData.qualifierColumnNames?.[kind]} />
+            </div>
             {renderSpecificationsButton(kind, item)}
           </div>
         </td>
@@ -9639,7 +9669,6 @@ const SummaryDashboard = ({
                                   title={formatInstrumentIdentity(uut)}
                                 >
                                   {simplifiedUut && renderSpecificationsButton("uut", uut)}
-                                  {simplifiedUut && renderSpecificationsButton("uut", uut, true)}
                                   <InstrumentOrderControls
                                     onMoveUp={() => moveInstrument("uut", uut.id, uutFnKey, -1)}
                                     onMoveDown={() => moveInstrument("uut", uut.id, uutFnKey, 1)}
@@ -9728,7 +9757,6 @@ const SummaryDashboard = ({
                           title={formatInstrumentIdentity(uut)}
                         >
                           {simplifiedUut && renderSpecificationsButton("uut", uut)}
-                          {simplifiedUut && renderSpecificationsButton("uut", uut, true)}
                           <InstrumentOrderControls
                             onMoveUp={() => moveInstrument("uut", uut.id, uutFnKey, -1)}
                             onMoveDown={() => moveInstrument("uut", uut.id, uutFnKey, 1)}
@@ -10059,15 +10087,17 @@ const SummaryDashboard = ({
                       <tr data-instrument-id={tmde.id} data-measurement-area={tmdeFnKey} style={functionRowStyle(tmdeFnKey)} draggable onDragStart={event => onLibraryDragStart?.(event, tmde.id)} className={`instrument-function-row instrument-library-name-row${selectedTmdeIds.includes(tmde.id) ? " selected-row" : ""}`}>
                       <td className="cell-description" colSpan={!libraryExpandedIds.length ? 1 : getInstrumentColumnOrder("tmde", customColumnsFor("tmde"), tmdeTableColumns.qualifierEnabled).length - 1}>
                         <div className="instrument-library-description">
-                          {libraryRenderSpecifications?.(tmde.id, true)}
-                          <button className="instrument-library-name" onClick={event => {
-                            handleTmdeClick(event, tmde.id, true);
-                            // Shift can reveal the previous name button's keyboard
-                            // focus ring inside the shared selection perimeter.
-                            // Mouse selection uses that perimeter; keyboard clicks
-                            // (detail === 0) keep their focus and navigation cue.
-                            if (event.detail > 0) event.currentTarget.closest('table')?.querySelector('.instrument-library-name:focus')?.blur();
-                          }} aria-pressed={selectedTmdeIds.includes(tmde.id)} aria-label={`Select instrument ${name}`}>{name}</button>
+                          <div className="instrument-library-name-and-range">
+                            <button className="instrument-library-name" onClick={event => {
+                              handleTmdeClick(event, tmde.id, true);
+                              // Shift can reveal the previous name button's keyboard
+                              // focus ring inside the shared selection perimeter.
+                              // Mouse selection uses that perimeter; keyboard clicks
+                              // (detail === 0) keep their focus and navigation cue.
+                              if (event.detail > 0) event.currentTarget.closest('table')?.querySelector('.instrument-library-name:focus')?.blur();
+                            }} aria-pressed={selectedTmdeIds.includes(tmde.id)} aria-label={`Select instrument ${name}`}>{name}</button>
+                            <InstrumentRangeMenu item={tmde} contextKey={sessionData.id} qualifierNames={sessionData.qualifierColumnNames?.tmde} />
+                          </div>
                           {libraryRenderSpecifications?.(tmde.id)}
                         </div>
                       </td>
@@ -10153,7 +10183,6 @@ const SummaryDashboard = ({
                                   title={tmde.name}
                                 >
                                   {libraryMode ? libraryRenderSpecifications?.(tmde.id) : simplifiedTmde && renderSpecificationsButton("tmde", tmde)}
-                                  {libraryMode ? libraryRenderSpecifications?.(tmde.id, true) : simplifiedTmde && renderSpecificationsButton("tmde", tmde, true)}
                                   {!libraryMode && <InstrumentOrderControls
                                     onMoveUp={() => moveInstrument("tmde", tmde.id, tmdeFnKey, -1)}
                                     onMoveDown={() => moveInstrument("tmde", tmde.id, tmdeFnKey, 1)}
@@ -10263,7 +10292,6 @@ const SummaryDashboard = ({
                           title={tmde.name}
                         >
                           {libraryMode ? libraryRenderSpecifications?.(tmde.id) : simplifiedTmde && renderSpecificationsButton("tmde", tmde)}
-                          {libraryMode ? libraryRenderSpecifications?.(tmde.id, true) : simplifiedTmde && renderSpecificationsButton("tmde", tmde, true)}
                           {!libraryMode && <InstrumentOrderControls
                             onMoveUp={() => moveInstrument("tmde", tmde.id, tmdeFnKey, -1)}
                             onMoveDown={() => moveInstrument("tmde", tmde.id, tmdeFnKey, 1)}
@@ -13091,7 +13119,7 @@ function DetailedView({
     );
   };
 
-  const renderSpecificationsButton = (kind, item, accordion = false) => <InstrumentSpecificationsButton accordion={accordion}
+  const renderSpecificationsButton = (kind, item) => <InstrumentSpecificationsButton
     name={formatInstrumentIdentity(item, "Untitled instrument")}
     expanded={specificationsExpanded(kind, item)}
     onClick={event => {
@@ -13124,9 +13152,11 @@ function DetailedView({
         <td className="cell-description has-order-controls" colSpan={columns.keys.length - 1}>
           <InstrumentOrderControls onMoveUp={() => moveInstrument(kind, item.id, functionKey, -1)} onMoveDown={() => moveInstrument(kind, item.id, functionKey, 1)} />
           <div className="instrument-simplified-description">
-            {renderSpecificationsButton(kind, item, true)}
             <div className="uut-description-content instrument-simplified-name">
               <span>{formatInstrumentIdentity(item, "Untitled instrument")}</span>
+              <InstrumentRangeMenu item={item} functionKey={functionKey} contextKey={testPointData.id} referencePoint={uutNominal}
+                savedTolerance={activeUut ? testPointData.uutTolerance : kind === "tmde" ? tmdeTolerancesData.find(instance => tmdeInstanceMatchesMaster(instance, item)) : null}
+                qualifierNames={sessionData.qualifierColumnNames?.[kind]} />
               {activeUut && <span className="active-uut-badge instrument-usage-badge" style={functionBadgeStyle(functionKey)}>Active UUT</span>}
               {usageCount > 0 && <span className="instrument-usage-badge" style={functionBadgeStyle(functionKey)}>In Budget{usageCount > 1 ? ` ×${usageCount}` : ""}</span>}
             </div>
@@ -15933,7 +15963,6 @@ function DetailedView({
                                   }}
                                 >
                                   {uutView.simplified && renderSpecificationsButton("uut", uut)}
-                                  {uutView.simplified && renderSpecificationsButton("uut", uut, true)}
                                   <InstrumentOrderControls
                                     onMoveUp={() => moveInstrument("uut", uut.id, uutFnKey, -1)}
                                     onMoveDown={() => moveInstrument("uut", uut.id, uutFnKey, 1)}
@@ -16036,7 +16065,6 @@ function DetailedView({
                           }}
                         >
                           {uutView.simplified && renderSpecificationsButton("uut", uut)}
-                          {uutView.simplified && renderSpecificationsButton("uut", uut, true)}
                           <InstrumentOrderControls
                             onMoveUp={() => moveInstrument("uut", uut.id, uutFnKey, -1)}
                             onMoveDown={() => moveInstrument("uut", uut.id, uutFnKey, 1)}
@@ -16731,7 +16759,6 @@ function DetailedView({
                                       className={`cell-description has-order-controls${tmdeView.simplified ? " instrument-library-expanded-description" : ""}`}
                                     >
                                       {tmdeView.simplified && renderSpecificationsButton("tmde", masterTmde)}
-                                      {tmdeView.simplified && renderSpecificationsButton("tmde", masterTmde, true)}
                                       <InstrumentOrderControls
                                         onMoveUp={() => moveInstrument("tmde", masterTmde.id, tmdeFnKey, -1)}
                                         onMoveDown={() => moveInstrument("tmde", masterTmde.id, tmdeFnKey, 1)}
@@ -16851,7 +16878,6 @@ function DetailedView({
                               className={`cell-description has-order-controls${tmdeView.simplified ? " instrument-library-expanded-description" : ""}`}
                             >
                               {tmdeView.simplified && renderSpecificationsButton("tmde", masterTmde)}
-                              {tmdeView.simplified && renderSpecificationsButton("tmde", masterTmde, true)}
                               <InstrumentOrderControls
                                 onMoveUp={() => moveInstrument("tmde", masterTmde.id, tmdeFnKey, -1)}
                                 onMoveDown={() => moveInstrument("tmde", masterTmde.id, tmdeFnKey, 1)}

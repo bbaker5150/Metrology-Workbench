@@ -1,15 +1,7 @@
 import React from "react";
-import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faChevronRight, faChevronDown } from "@fortawesome/free-solid-svg-icons";
 import "./InstrumentSpecificationsButton.css";
 
-export default function InstrumentSpecificationsButton({ name, expanded, onClick, accordion = false }) {
-  if (accordion) return <button type="button" className="instrument-specifications-toggle"
-    title={`${expanded ? "Collapse" : "Expand"} ranges and specifications`}
-    aria-label={`${expanded ? "Collapse" : "Expand"} ranges and specifications ${name}`} aria-expanded={expanded}
-    onMouseDown={event => event.stopPropagation()} onClick={onClick}>
-    <FontAwesomeIcon icon={expanded ? faChevronDown : faChevronRight} />
-  </button>;
+export default function InstrumentSpecificationsButton({ name, expanded, onClick }) {
   const label = expanded ? "Hide Instrument Specifications" : "View or Edit Instrument Specifications";
   return <button type="button" className="icon-btn-ghost instrument-library-specifications" title={label}
     aria-label={`${label} ${name}`} aria-expanded={expanded} onClick={onClick}>

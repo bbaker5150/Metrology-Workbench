@@ -232,11 +232,11 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
     {error && <div className="instrument-library-save-error"><span role="alert">{error}</span><button onClick={() => [...failed.current.values()].forEach(enqueue)}>Retry save</button></div>}
     <UncertaintyPanel libraryMode testPointData={libraryPoint} sessionData={session}
       libraryExpandedIds={expandedIds} libraryActiveId={activeId} onLibraryExpand={id => { setActiveId(id); setExpandedIds(previous => previous.includes(id) ? previous : [...previous, id]); }}
-      libraryRenderSpecifications={(id, accordion = false) => {
+      libraryRenderSpecifications={id => {
         const expanded = expandedIds.includes(id);
         const row = session.tmdes.find(item => item.id === id);
         const name = formatInstrumentIdentity(row, "Untitled instrument");
-        return <InstrumentSpecificationsButton name={name} expanded={expanded} accordion={accordion}
+        return <InstrumentSpecificationsButton name={name} expanded={expanded}
           onClick={event => {
             event.stopPropagation(); document.activeElement?.blur?.();
             claimWorkspaceSelection("library");

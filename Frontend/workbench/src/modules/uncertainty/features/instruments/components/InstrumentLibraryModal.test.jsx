@@ -389,15 +389,35 @@ it.each(['session','point'])('deletes a dropped workspace instrument instead of 
  expect(screen.queryByRole('alertdialog',{name:'Remove instruments'})).toBeNull();
 });
 
-it('expands and collapses library specifications with a name-row accordion',()=>{
- render(<Harness/>);
+it('browses ranges with specifications and qualifiers beneath the library description without expanding or saving',()=>{
+ const instrument=definition('A');
+ instrument.qualifierColumnNames=['Frequency','Interval'];
+ instrument.functions[0].ranges=[
+   {id:'r1',min:0,max:10,unit:'V',qualifier:{text:'60 Hz',qualifier:{text:'90-day'}},tolerances:{reading:{value:1,unit:'%',distribution:'2'}}},
+   {id:'r2',min:0,max:20,unit:'V',qualifier:{text:'1000 Hz',qualifier:{text:'1-year'}},tolerances:{reading:{value:2,unit:'%',distribution:'2'}}},
+ ];
+ const save=vi.fn();render(<Harness initial={[instrument]} save={save}/>);
  const row=()=>document.querySelector('tr[data-instrument-id="A"]');
- fireEvent.click(row().querySelector('.instrument-specifications-toggle'));
- expect(row().querySelector('.cell-tolerance')).not.toBeNull();
- expect(row().querySelector('.instrument-specifications-toggle')).toHaveAttribute('aria-expanded','true');
- fireEvent.click(row().querySelector('.instrument-specifications-toggle'));
+ const menu=row().querySelector('.instrument-range-menu');
+ expect(menu.previousElementSibling).toHaveClass('instrument-library-name');
+ const trigger=within(menu).getByRole('button');
+ expect(trigger).toHaveTextContent('Range: 0 to 10 V');
+ expect(document.querySelectorAll('[role="option"]')).toHaveLength(0);
+ fireEvent.click(trigger);
+ const list=screen.getByRole('listbox',{name:trigger.getAttribute('aria-label')});
+ const options=within(list).getAllByRole('option');
+ expect(options).toHaveLength(2);
+ expect(options[0]).toHaveTextContent('0 to 10 V | Frequency: 60 Hz | Interval: 90-day | ± 1% IV | Normal (95.45%)');
+ fireEvent.click(options[1]);
+ expect(trigger).toHaveTextContent('Range: 0 to 20 V | Frequency: 1000 Hz | Interval: 1-year');
  expect(row().querySelector('.cell-tolerance')).toBeNull();
- expect(row().querySelector('.instrument-specifications-toggle')).toHaveAttribute('aria-expanded','false');
+ expect(save).not.toHaveBeenCalled();
+ fireEvent.click(trigger);
+ expect(within(screen.getByRole('listbox')).getByRole('option',{selected:true})).toHaveTextContent('0 to 20 V');
+ fireEvent.keyDown(screen.getByRole('option',{selected:true}),{key:'Escape'});
+ expect(screen.queryByRole('listbox')).toBeNull();
+ expect(trigger).toHaveFocus();
+ expect(row().querySelector('.cell-tolerance')).toBeNull();
 });
 it('keeps failed saves available to retry',async()=>{
  const save=vi.fn().mockRejectedValueOnce(new Error('Offline')).mockResolvedValue(undefined);

@@ -17,25 +17,56 @@ function setup(viewMode = 'point', simplifyOverview = true) {
       analytics: { pair_delta_uut_ppm: 1, pair_type_a_uncertainty_ppm: 2, n_pairs_used: 5 } }],
   }, { instruments: [ti] });
   session.id = 'simplified-controls';
-  const point = session.testPoints[0], save = vi.fn();
+  const point = session.testPoints[0], save = vi.fn(), update = vi.fn();
   const panel = (mode = viewMode, data = session) => <UncertaintyPanel testPointData={{ ...point, viewMode: mode }} sessionData={data}
-    onSessionSave={save} uutNominal={point.testPointInfo.parameter} tmdeTolerancesData={[]} />;
+    onSessionSave={save} onUpdateTestPoint={update} uutNominal={point.testPointInfo.parameter} tmdeTolerancesData={[]} />;
   const rendered = render(panel());
   if (viewMode === 'session' && simplifyOverview) {
     for (const kind of ['uut', 'tmde']) toggleSimplified(kind);
   }
-  return { ...rendered, session, save, panel };
+  return { ...rendered, session, save, update, panel };
 }
 const specifications = table => table.querySelector('.instrument-library-specifications');
-it.each(['session','point'])('expands and collapses simplified instrument accordions in %s view',viewMode=>{
+it.each(['session','point'])('shows budget-style range menus below simplified descriptions in %s view',viewMode=>{
   const {container}=setup(viewMode);
   for(const kind of ['uut','tmde']){
     const table=container.querySelector(`[data-tour="${kind}-table"]`);
-    fireEvent.click(table.querySelector('.instrument-specifications-toggle'));
-    expect(table.querySelectorAll('[data-range-id]').length).toBeGreaterThan(0);
-    fireEvent.click(table.querySelector('.instrument-specifications-toggle'));
+    const description=table.querySelector('.instrument-simplified-name');
+    const menu=description.querySelector('.instrument-range-menu');
+    expect(menu.previousElementSibling).toHaveTextContent('Fluke');
+    const trigger=within(menu).getByRole('button');
+    expect(trigger).toHaveTextContent('Range:');
+    fireEvent.click(trigger);
+    const list=screen.getByRole('listbox',{name:trigger.getAttribute('aria-label')});
+    expect(within(list).getAllByRole('option').length).toBeGreaterThan(0);
+    expect(list.closest('.inline-menu-select-menu')).not.toBeNull();
+    fireEvent.keyDown(within(list).getAllByRole('option')[0],{key:'Escape'});
+    expect(screen.queryByRole('listbox')).toBeNull();
     expect(table.querySelectorAll('[data-range-id]')).toHaveLength(0);
   }
+  expect(container.querySelector('.instrument-specifications-toggle')).toBeNull();
+});
+it.each(['session','point'])('browses a different range without expanding tables or rewriting the budget in %s view', viewMode=>{
+  const {container,session,save,update,rerender,panel}=setup(viewMode);
+  const data=structuredClone(session);
+  const fn=data.uuts[0].instrument.functions[0];
+  fn.ranges.push({...fn.ranges[0],id:'20A',min:20,max:20,qualifier:{value:3000,unit:'Hz',isSingleValue:true}});
+  data.uuts[0].instrument.functions.push({id:'voltage',name:'Voltage',unit:'V',ranges:[{id:'100V',min:0,max:100,unit:'V'}]});
+  rerender(panel(viewMode,data));
+  save.mockClear(); update.mockClear();
+  const table=container.querySelector('[data-tour="uut-table"]');
+  const trigger=within(table.querySelector('.instrument-range-menu')).getByRole('button');
+  expect(trigger).toHaveTextContent('Range: 10 A');
+  fireEvent.click(trigger);
+  expect(within(screen.getByRole('listbox')).getAllByRole('option')).toHaveLength(2);
+  fireEvent.click(within(screen.getByRole('listbox')).getByRole('option',{name:/20 A.*3000/}));
+  expect(trigger).toHaveTextContent('Range: 20 A');
+  expect(table.querySelectorAll('[data-range-id]')).toHaveLength(0);
+  expect(save).not.toHaveBeenCalled();
+  expect(update).not.toHaveBeenCalled();
+  fireEvent.click(trigger);
+  expect(within(screen.getByRole('listbox')).getByRole('option',{selected:true})).toHaveTextContent('20 A');
+  fireEvent.keyDown(within(screen.getByRole('listbox')).getByRole('option',{selected:true}),{key:'Escape'});
 });
 function toggleSimplified(kind) {
   fireEvent.click(screen.getByRole('button', { name: `${kind.toUpperCase()} table view` }));

@@ -135,7 +135,12 @@ describe("UncertaintyApp", () => {
       expect(screen.getByRole('button', { name: 'Uncertainty Budget' })).toHaveClass('active');
       fireEvent.click(screen.getByRole('button',{name:'Instrument Library'}));
       const instrumentLibrary=await screen.findByRole('dialog',{name:'Instrument library'});
-      fireEvent.click(instrumentLibrary.querySelector('.instrument-specifications-toggle'));
+      fireEvent.click(instrumentLibrary.querySelector('.instrument-range-menu button'));
+      fireEvent.keyDown(within(screen.getByRole('listbox')).getAllByRole('option')[0], {key:'Escape'});
+      expect(screen.queryByRole('listbox')).toBeNull();
+      expect(screen.getByRole('button',{name:'Uncertainty Budget'})).toHaveClass('active');
+      expect(document.querySelectorAll('.point-grid-item')[1]).toHaveClass('active-point');
+      fireEvent.click(instrumentLibrary.querySelector('.instrument-library-specifications'));
       expect(instrumentLibrary).toHaveAttribute('data-specifications-expanded','true');
       fireEvent.keyDown(document.body,{key:'Escape'});
       expect(instrumentLibrary.querySelectorAll('[data-range-id]')).toHaveLength(0);
