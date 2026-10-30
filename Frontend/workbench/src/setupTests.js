@@ -33,7 +33,7 @@ vi.mock('@heyirisai/docx-editor-react', () => ({
           contentEditable: true,
           suppressContentEditableWarning: true,
           onInput: () => props.onChange?.({}),
-        }, props.document?.text || ''),
+        }, props.document?.text || props.document?.package?.document?.content?.map(paragraph => paragraph.content?.flatMap(run => run.content?.map(part => part.text || '') || []).join('') || '').join('\n') || ''),
       )
     );
   }),

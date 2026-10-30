@@ -3,11 +3,31 @@ import { beforeEach, expect, it } from "vitest";
 import InstrumentTableViewMenu, { useInstrumentTableView } from "./InstrumentTableViewMenu";
 
 beforeEach(() => localStorage.clear());
-function Harness({ session, kind = "uut" }) {
-  const [view, change] = useInstrumentTableView(session, kind);
+function Harness({ session, kind = "uut", scope }) {
+  const [view, change] = useInstrumentTableView(session, kind, scope);
   return <InstrumentTableViewMenu kind={kind} value={view} onChange={change} />;
 }
 const checkbox = name => screen.getByRole("checkbox", { name });
+it.each(['budget','overview'].flatMap(scope => ['uut','tmde'].map(kind => ({scope,kind}))))
+  ('restores both view choices after reopening $kind / $scope and honors saved false', ({scope,kind}) => {
+    const session = {id:'reopen',simplifiedInstrumentTables:true};
+    let view = render(<Harness session={session} kind={kind} scope={scope} />);
+    fireEvent.click(screen.getByRole('button'));
+    expect(checkbox('Show simplified view')).toBeChecked();
+    fireEvent.click(checkbox('Show simplified view'));
+    fireEvent.click(checkbox('Show all measurement areas'));
+    view.unmount();
+    view = render(<Harness session={session} kind={kind} scope={scope} />);
+    fireEvent.click(screen.getByRole('button'));
+    expect(checkbox('Show simplified view')).not.toBeChecked();
+    expect(checkbox('Show all measurement areas')).toBeChecked();
+    view.rerender(<Harness session={{...session,id:'other'}} kind={kind} scope={scope} />);
+    expect(checkbox('Show simplified view')).toBeChecked();
+    expect(checkbox('Show all measurement areas')).not.toBeChecked();
+    view.rerender(<Harness session={session} kind={kind} scope={scope} />);
+    expect(checkbox('Show simplified view')).not.toBeChecked();
+    expect(checkbox('Show all measurement areas')).toBeChecked();
+  });
 it("defaults both choices off, changes them independently, and dismisses with Escape or an outside click", () => {
   render(<Harness session={{ id: "normal" }} />);
   const trigger = screen.getByRole("button", { name: "UUT table view" });

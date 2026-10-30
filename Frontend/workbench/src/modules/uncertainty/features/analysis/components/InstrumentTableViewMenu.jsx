@@ -5,8 +5,8 @@ import useExclusiveMenu from "../../../hooks/useExclusiveMenu";
 import { getAnchoredMenuPlacement } from "../../../utils/anchoredMenuPosition";
 import { recoveryNamespace } from "../../../utils/recoveryNamespace";
 
-const readView = (key, session, scope) => {
-    const simplifiedDefault = scope === "overview" ? false : Boolean(session.simplifiedInstrumentTables);
+const readView = (key, session) => {
+    const simplifiedDefault = Boolean(session.simplifiedInstrumentTables);
     try {
       const saved = JSON.parse(localStorage.getItem(key) || "null");
       return { showAll: saved?.showAll === true, simplified: typeof saved?.simplified === "boolean" ? saved.simplified : simplifiedDefault };
@@ -15,9 +15,9 @@ const readView = (key, session, scope) => {
 
 export function useInstrumentTableView(session, kind, scope = "budget") {
   const key = `uncertainty:instrument-view:v1:${recoveryNamespace()}:${session.id}:${kind}${scope === "overview" ? ":overview" : ""}`;
-  const [state, setState] = useState(() => ({ key, view: readView(key, session, scope) }));
+  const [state, setState] = useState(() => ({ key, view: readView(key, session) }));
   // Copied sessions may keep the same point IDs and reuse the mounted view.
-  const view = state.key === key ? state.view : readView(key, session, scope);
+  const view = state.key === key ? state.view : readView(key, session);
   if (state.key !== key) setState({ key, view });
   const change = patch => {
     const next = { ...view, ...patch };

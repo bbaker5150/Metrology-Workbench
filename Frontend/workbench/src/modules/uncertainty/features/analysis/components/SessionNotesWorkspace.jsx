@@ -11,11 +11,11 @@ import {
 } from "@fortawesome/free-solid-svg-icons";
 import {
   DocxEditor,
-  createDocumentWithText,
   createEmptyDocument,
 } from "@heyirisai/docx-editor-react";
 import { insertImageFromFile } from "@heyirisai/docx-editor-core/prosemirror/commands";
 import "@heyirisai/docx-editor-react/styles.css";
+import { createNotesDocument } from "../../../utils/notesDocument";
 
 export const DOCX_NOTE_PREFIX = "uncertainty-docx:v1;base64,";
 
@@ -166,7 +166,7 @@ const SessionDocxEditor = ({
     const legacyText = legacyNotesToText(sessionData?.notes);
     return {
       type: "document",
-      value: legacyText ? createDocumentWithText(legacyText) : createEmptyDocument(),
+      value: legacyText ? createNotesDocument(legacyText) : createEmptyDocument(),
     };
   });
   const [editorError, setEditorError] = useState("");

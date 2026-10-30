@@ -55,6 +55,7 @@ import { generic5790, nominalY5020Resolution } from "./utils/testFixtures/generi
 import { ThemeProvider } from "../../shared/ThemeContext";
 import { NotificationProvider } from "../../shared/NotificationContext";
 import { readEditorDraft, saveEditorDraft } from "./utils/editorRecovery";
+import { getTmdePointColumns } from "./utils/pointTmdeColumns";
 
 beforeAll(async () => {
   // Resolve the real lazy Notes module before measuring user interaction.
@@ -160,7 +161,7 @@ describe("UncertaintyApp", () => {
       fireEvent.click(screen.getByRole('button', { name: 'Instrument Overview' }));
       for (const kind of ['uut', 'tmde']) {
         fireEvent.click(screen.getByRole('button', { name: `${kind.toUpperCase()} table view` }));
-        fireEvent.click(screen.getByRole('checkbox', { name: 'Show simplified view' }));
+        expect(screen.getByRole('checkbox', { name: 'Show simplified view' })).toBeChecked();
         fireEvent.pointerDown(document.body);
         fireEvent.click(document.querySelector(`[data-tour="${kind}-table"] .instrument-library-specifications`));
       }
@@ -517,8 +518,9 @@ describe("UncertaintyApp", () => {
     fireEvent.click(within(menu).getByRole('button', { name: 'Hide UUT' }));
     fireEvent.click(within(menu).getByRole('button', { name: 'Add UUT column' }));
     expect(displayed().at(-1)).toBe('uut');
-    fireEvent.click(within(menu).getByRole('button', { name: 'Add TMDE Limits column' }));
-    expect(displayed().at(-1)).toBe('tmdeLow');
+    expect(within(menu).queryByRole('button', { name: 'Add TMDE Limits column' })).toBeNull();
+    fireEvent.click(within(menu).getByRole('button', { name: 'Add TAR column' }));
+    expect(displayed().at(-1)).toBe('tar');
     expect(within(menu).getByRole('button', { name: 'Close column settings' }).parentElement).toBe(within(menu).getByRole('button', { name: 'Reset Columns' }).parentElement);
 
     fireEvent.click(within(menu).getByRole("button", { name: "Hide PFA" }));
@@ -2153,6 +2155,50 @@ test("uses personal column defaults for an unconfigured session and preserves se
   expect(within(menu).getByRole("button", { name: "Add PFA column" })).toBeInTheDocument();
   expect(within(menu).getAllByLabelText(/^Move /).slice(0, 2).map(row => row.getAttribute("aria-label"))).toEqual(["Move Value", "Move Section"]);
 });
+
+test('offers named TMDE columns only for session instruments and restores their selection after reopening', async () => {
+  const masters = ['Meter A','Meter B'].map((name,index) => ({id:`meter-${index}`,name,
+    instrument:{functions:[{id:'voltage',name:'Voltage',unit:'V',ranges:[{id:'10V',min:0,max:10,unit:'V',resolution:.001,
+      tolerances:{floor:{high:(index+1)*.01,low:-(index+1)*.01,unit:'V',distribution:'1.960'}}}]}]}}));
+  const point = {id:'column-point',measurementType:'direct',testPointInfo:{parameter:{name:'Voltage',value:5,unit:'V'}},
+    uutTolerance:{floor:{high:.1,low:-.1,unit:'V',distribution:'1.732'}},tmdeTolerances:[],
+    components:masters.map(master=>({id:`c-${master.id}`,tmdeBudgetSourceId:master.id,tmdeBudgetRangeId:'10V'}))};
+  apiMock.state.sessions = [{id:907,name:'Named standards',uuts:[],tmdes:masters,testPoints:[point],uncReq:{}},
+    {id:908,name:'No standards',uuts:[],tmdes:[],testPoints:[],uncReq:{}}];
+  const app = <ThemeProvider><NotificationProvider><MemoryRouter><UncertaintyApp /></MemoryRouter></NotificationProvider></ThemeProvider>;
+  let view = render(app);
+  await screen.findByTitle('Delete Session');
+  fireEvent.click(screen.getByTitle('Columns'));
+  const menu = screen.getByRole('dialog',{name:'Visible measurement point columns'});
+  expect(within(menu).queryByRole('button',{name:'Add TMDE Limits column'})).toBeNull();
+  for (const name of ['Meter A Limits','Meter A Uncertainty','Meter B Limits','Meter B Uncertainty']) {
+    fireEvent.click(within(menu).getByRole('button',{name:`Add ${name} column`}));
+  }
+  fireEvent.keyDown(within(menu).getByLabelText('Move Meter B Uncertainty'), {key:'ArrowUp'});
+  fireEvent.pointerDown(document.body);
+  const definitions = getTmdePointColumns(masters);
+  const cell = key => document.querySelector(`[data-point-id="column-point"] [data-sidebar-column="${key}"]`);
+  expect(cell(definitions[0].key)).toHaveTextContent('4.990 to 5.010 V');
+  expect(cell(definitions[1].key)).toHaveTextContent('± 0.01 V');
+  expect(cell(definitions[2].key)).toHaveTextContent('4.980 to 5.020 V');
+  expect(cell(definitions[3].key)).toHaveTextContent('± 0.02 V');
+  expect(cell(definitions[0].key)).not.toHaveTextContent('Meter A');
+  expect(document.querySelector('.sidebar-column-headers')).toHaveTextContent('Meter A Limits');
+  await waitFor(()=>expect(JSON.parse(localStorage.getItem('uncertalytics.uiPreferences.v1:907')).sidebarColumns[definitions[0].key]).toBe(true));
+  fireEvent.change(screen.getByRole('combobox',{name:'Analysis Session'}),{target:{value:'908'}});
+  await waitFor(()=>expect(screen.getByRole('combobox',{name:'Analysis Session'})).toHaveValue('908'));
+  fireEvent.click(screen.getByTitle('Columns'));
+  expect(screen.queryByRole('button',{name:/Meter [AB]/})).toBeNull();
+  fireEvent.pointerDown(document.body);
+  fireEvent.change(screen.getByRole('combobox',{name:'Analysis Session'}),{target:{value:'907'}});
+  await waitFor(()=>expect(cell(definitions[0].key)).toHaveTextContent('4.990 to 5.010 V'));
+  view.unmount();
+  view = render(app);
+  await waitFor(()=>expect(cell(definitions[2].key)).toHaveTextContent('4.980 to 5.020 V'));
+  expect(document.querySelector('.sidebar-column-headers')).toHaveTextContent('Meter B Uncertainty');
+  const headers = [...document.querySelectorAll('.sidebar-column-header-cell')].map(header => header.textContent);
+  expect(headers.indexOf('Meter B Uncertainty')).toBeLessThan(headers.indexOf('Meter B Limits'));
+}, 20000);
 
 
 test("cycles through point fit, full points and instrument fit while collapsing details", async () => {

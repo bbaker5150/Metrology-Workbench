@@ -3252,7 +3252,8 @@ const InstrumentTableHeightHandle = ({ kind, sizing }) => (
   />
 );
 
-const InstrumentOrderControls = ({ onMoveUp, onMoveDown }) => (
+const InstrumentOrderControls = ({ instruments, functionKey, onMoveUp, onMoveDown }) => (
+  instruments.filter(item => !functionKey || instrumentHasMeasurementArea(item, functionKey)).length > 1 &&
   <span
     className="instrument-order-controls instrument-order-controls--gutter"
     aria-label="Instrument order"
@@ -6067,7 +6068,7 @@ const InstrumentRangeMenu = React.memo(function InstrumentRangeMenu({ item, func
   if (!ranges.length) return <span className="budget-range-selector instrument-range-menu">Range: Not Set</span>;
   return <InlineMenuSelect className="budget-range-selector instrument-range-menu"
     ariaLabel={`Ranges and specifications for ${formatInstrumentIdentity(item, "Untitled instrument")}`}
-    width="max-content" menuWidth={440} showOptionMeta={false}
+    width="max-content" menuWidth={440} showOptionMeta={false} blurOnPointerClose
     value={instrumentRangeMenuKey(ranges[index], index)} options={options}
     getDisplayLabel={option => `Range: ${option?.rangeLabel || "Not Set"}`}
     onOpenChange={setOpen} onChange={key => setSelection({ contextKey, key })} />;
@@ -9449,7 +9450,7 @@ const SummaryDashboard = ({
         onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === functionKey); if (area) handleInstrumentDropOnFunction(kind, area, item.id)(event); }}
         onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, kind, item, functionKey, selectedInstrumentAreasRef.current); }}>
         <td className="cell-description has-order-controls" colSpan={columns.keys.length - 1}>
-          <InstrumentOrderControls onMoveUp={() => moveInstrument(kind, item.id, functionKey, -1)} onMoveDown={() => moveInstrument(kind, item.id, functionKey, 1)} />
+          <InstrumentOrderControls instruments={sessionData[kind === "uut" ? "uuts" : "tmdes"] || []} functionKey={functionKey} onMoveUp={() => moveInstrument(kind, item.id, functionKey, -1)} onMoveDown={() => moveInstrument(kind, item.id, functionKey, 1)} />
           <div className="instrument-simplified-description">
             <div className="instrument-simplified-name">
               <span>{formatInstrumentIdentity(item, "Untitled instrument")}</span>
@@ -9669,7 +9670,7 @@ const SummaryDashboard = ({
                                   title={formatInstrumentIdentity(uut)}
                                 >
                                   {simplifiedUut && renderSpecificationsButton("uut", uut)}
-                                  <InstrumentOrderControls
+                                  <InstrumentOrderControls instruments={sessionData.uuts || []} functionKey={uutFnKey}
                                     onMoveUp={() => moveInstrument("uut", uut.id, uutFnKey, -1)}
                                     onMoveDown={() => moveInstrument("uut", uut.id, uutFnKey, 1)}
                                   />
@@ -9757,7 +9758,7 @@ const SummaryDashboard = ({
                           title={formatInstrumentIdentity(uut)}
                         >
                           {simplifiedUut && renderSpecificationsButton("uut", uut)}
-                          <InstrumentOrderControls
+                          <InstrumentOrderControls instruments={sessionData.uuts || []} functionKey={uutFnKey}
                             onMoveUp={() => moveInstrument("uut", uut.id, uutFnKey, -1)}
                             onMoveDown={() => moveInstrument("uut", uut.id, uutFnKey, 1)}
                           />
@@ -10183,7 +10184,7 @@ const SummaryDashboard = ({
                                   title={tmde.name}
                                 >
                                   {libraryMode ? libraryRenderSpecifications?.(tmde.id) : simplifiedTmde && renderSpecificationsButton("tmde", tmde)}
-                                  {!libraryMode && <InstrumentOrderControls
+                                  {!libraryMode && <InstrumentOrderControls instruments={sessionData.tmdes || []} functionKey={tmdeFnKey}
                                     onMoveUp={() => moveInstrument("tmde", tmde.id, tmdeFnKey, -1)}
                                     onMoveDown={() => moveInstrument("tmde", tmde.id, tmdeFnKey, 1)}
                                   />}
@@ -10292,7 +10293,7 @@ const SummaryDashboard = ({
                           title={tmde.name}
                         >
                           {libraryMode ? libraryRenderSpecifications?.(tmde.id) : simplifiedTmde && renderSpecificationsButton("tmde", tmde)}
-                          {!libraryMode && <InstrumentOrderControls
+                          {!libraryMode && <InstrumentOrderControls instruments={sessionData.tmdes || []} functionKey={tmdeFnKey}
                             onMoveUp={() => moveInstrument("tmde", tmde.id, tmdeFnKey, -1)}
                             onMoveDown={() => moveInstrument("tmde", tmde.id, tmdeFnKey, 1)}
                           />}
@@ -13150,7 +13151,7 @@ function DetailedView({
         onDropCapture={event => { const area = resolveSessionMeasurementAreas(latestSessionDataRef.current).find(area => area.key === functionKey); if (area) handleDetailInstrumentDropOnFunction(kind, area, item.id)(event); }}
         onPointerDownCapture={event => { if (event.button === 0) instrumentDragSelectionRef.current = selectedInstrumentEntries(latestSessionDataRef.current, selectedUutIds, selectedTmdeIds, kind, item, functionKey, selectedInstrumentAreasRef.current); }}>
         <td className="cell-description has-order-controls" colSpan={columns.keys.length - 1}>
-          <InstrumentOrderControls onMoveUp={() => moveInstrument(kind, item.id, functionKey, -1)} onMoveDown={() => moveInstrument(kind, item.id, functionKey, 1)} />
+          <InstrumentOrderControls instruments={sessionData[kind === "uut" ? "uuts" : "tmdes"] || []} functionKey={functionKey} onMoveUp={() => moveInstrument(kind, item.id, functionKey, -1)} onMoveDown={() => moveInstrument(kind, item.id, functionKey, 1)} />
           <div className="instrument-simplified-description">
             <div className="uut-description-content instrument-simplified-name">
               <span>{formatInstrumentIdentity(item, "Untitled instrument")}</span>
@@ -15963,7 +15964,7 @@ function DetailedView({
                                   }}
                                 >
                                   {uutView.simplified && renderSpecificationsButton("uut", uut)}
-                                  <InstrumentOrderControls
+                                  <InstrumentOrderControls instruments={sessionData.uuts || []} functionKey={uutFnKey}
                                     onMoveUp={() => moveInstrument("uut", uut.id, uutFnKey, -1)}
                                     onMoveDown={() => moveInstrument("uut", uut.id, uutFnKey, 1)}
                                   />
@@ -16065,7 +16066,7 @@ function DetailedView({
                           }}
                         >
                           {uutView.simplified && renderSpecificationsButton("uut", uut)}
-                          <InstrumentOrderControls
+                          <InstrumentOrderControls instruments={sessionData.uuts || []} functionKey={uutFnKey}
                             onMoveUp={() => moveInstrument("uut", uut.id, uutFnKey, -1)}
                             onMoveDown={() => moveInstrument("uut", uut.id, uutFnKey, 1)}
                           />
@@ -16759,7 +16760,7 @@ function DetailedView({
                                       className={`cell-description has-order-controls${tmdeView.simplified ? " instrument-library-expanded-description" : ""}`}
                                     >
                                       {tmdeView.simplified && renderSpecificationsButton("tmde", masterTmde)}
-                                      <InstrumentOrderControls
+                                      <InstrumentOrderControls instruments={sessionData.tmdes || []} functionKey={tmdeFnKey}
                                         onMoveUp={() => moveInstrument("tmde", masterTmde.id, tmdeFnKey, -1)}
                                         onMoveDown={() => moveInstrument("tmde", masterTmde.id, tmdeFnKey, 1)}
                                       />
@@ -16878,7 +16879,7 @@ function DetailedView({
                               className={`cell-description has-order-controls${tmdeView.simplified ? " instrument-library-expanded-description" : ""}`}
                             >
                               {tmdeView.simplified && renderSpecificationsButton("tmde", masterTmde)}
-                              <InstrumentOrderControls
+                              <InstrumentOrderControls instruments={sessionData.tmdes || []} functionKey={tmdeFnKey}
                                 onMoveUp={() => moveInstrument("tmde", masterTmde.id, tmdeFnKey, -1)}
                                 onMoveDown={() => moveInstrument("tmde", masterTmde.id, tmdeFnKey, 1)}
                               />

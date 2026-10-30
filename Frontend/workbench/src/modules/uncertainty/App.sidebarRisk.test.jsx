@@ -1,4 +1,5 @@
 import { biasFixture } from "./utils/measurementBias.fixtures";
+import { getTmdePointColumns } from "./utils/pointTmdeColumns";
 import React from "react";
 import {
   fireEvent,
@@ -27,6 +28,18 @@ import {
 vi.mock("plotly.js-dist", () => ({ default: {} }));
 
 describe("measurement-point value editing", () => {
+  test('migrates saved TMDE limits to named columns while preserving dynamic defaults, order and explicit hidden choices', () => {
+    const session = {tmdes:[{id:'meter',name:'Meter'}]};
+    const [limits,uncertainty] = getTmdePointColumns(session.tmdes);
+    const migrated = getSessionPointColumns(session, {}, {sidebarColumns:{tmdeLow:true}});
+    expect(migrated.columns).toMatchObject({tmdeLow:false,tmdeHigh:false,[limits.key]:true});
+    const defaults = {columns:{[limits.key]:true,[uncertainty.key]:true},order:[uncertainty.key,'value',limits.key]};
+    const restored = getSessionPointColumns(session, defaults, {sidebarColumns:{[limits.key]:false}});
+    expect(restored.columns).toMatchObject({[limits.key]:false,[uncertainty.key]:true});
+    expect(restored.order.slice(0,3)).toEqual(defaults.order);
+    expect(getSidebarGridTemplate({[limits.key]:true,[uncertainty.key]:true},'80px',{[limits.key]:200},defaults.order))
+      .toBe('minmax(160px, 1fr) 200px');
+  });
   test('initializes AC-shunt columns after loading a session and preserves later user preferences', () => {
     const session = { testPoints: [{ testPointInfo: { acShuntSource: { sessionId: 1 } } }] };
     const defaults = { columns: { section: true, qualifier: false, value: false, warningIcons: true }, order: ['qualifier','section','value'] };

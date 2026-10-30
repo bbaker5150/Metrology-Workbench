@@ -21,12 +21,25 @@ function setup(viewMode = 'point', simplifyOverview = true) {
   const panel = (mode = viewMode, data = session) => <UncertaintyPanel testPointData={{ ...point, viewMode: mode }} sessionData={data}
     onSessionSave={save} onUpdateTestPoint={update} uutNominal={point.testPointInfo.parameter} tmdeTolerancesData={[]} />;
   const rendered = render(panel());
-  if (viewMode === 'session' && simplifyOverview) {
+  if (viewMode === 'session' && !simplifyOverview) {
     for (const kind of ['uut', 'tmde']) toggleSimplified(kind);
   }
   return { ...rendered, session, save, update, panel };
 }
 const specifications = table => table.querySelector('.instrument-library-specifications');
+it.each(['session','point'])('hides ordering arrows until a second instrument can be reordered in %s view', viewMode => {
+  const {container,session,rerender,panel} = setup(viewMode);
+  expect(screen.queryByRole('button',{name:'Move instrument up'})).toBeNull();
+  const data = {...session,tmdes:[...session.tmdes,{...session.tmdes[0],id:'second-reader'}]};
+  rerender(panel(viewMode,data));
+  const table = container.querySelector('[data-tour="tmde-table"]');
+  expect(within(table).getAllByRole('button',{name:'Move instrument up'})).toHaveLength(2);
+  expect(container.querySelector('[data-tour="uut-table"] .instrument-order-controls')).toBeNull();
+  fireEvent.click(specifications(table));
+  expect(within(table).getAllByRole('button',{name:'Move instrument up'})).toHaveLength(2);
+  rerender(panel(viewMode));
+  expect(within(table).queryByRole('button',{name:'Move instrument up'})).toBeNull();
+});
 it.each(['session','point'])('shows budget-style range menus below simplified descriptions in %s view',viewMode=>{
   const {container}=setup(viewMode);
   for(const kind of ['uut','tmde']){
@@ -94,7 +107,7 @@ it('offers resizable simplified Overview tables and restores their choices indep
   rerender(panel('session'));
   expect(container.querySelectorAll('.instrument-simplified-row')).toHaveLength(2);
   expect(container.querySelectorAll('[data-range-id]')).toHaveLength(0);
-  rerender(panel('session', { ...session, id: 'other-overview' }));
+  rerender(panel('session', { ...session, id: 'other-overview', simplifiedInstrumentTables: false }));
   expect(container.querySelectorAll('.instrument-simplified-row')).toHaveLength(0);
   rerender(panel('session'));
   expect(container.querySelectorAll('.instrument-simplified-row')).toHaveLength(2);

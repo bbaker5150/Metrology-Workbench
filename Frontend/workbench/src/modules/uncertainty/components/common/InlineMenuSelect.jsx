@@ -26,6 +26,7 @@ const InlineMenuSelect = ({
   showOptionMeta = true,
   onOpenChange,
   getDisplayLabel,
+  blurOnPointerClose = false,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [menuRect, setMenuRect] = useState(null);
@@ -195,7 +196,10 @@ const InlineMenuSelect = ({
         title={title || selectedOption?.label || displayValue}
         onClick={(event) => {
           event.stopPropagation();
-          if (isOpen) closeMenu();
+          if (isOpen) {
+            closeMenu();
+            if (blurOnPointerClose && event.detail > 0) event.currentTarget.blur();
+          }
           else openMenu();
         }}
         onKeyDown={handleKeyDown}
@@ -271,12 +275,14 @@ const InlineMenuSelect = ({
                     role="option"
                     aria-selected={isSelected}
                     className={`inline-unit-option${isSelected ? " is-selected" : ""}${prefixTable && option.value === "" ? " is-base-unit" : ""}`}
-                    onClick={() => {
+                    onClick={(event) => {
                       onChange?.(option.value);
                       closeMenu();
                       // Options live in a portal that is about to unmount. Put
                       // focus back on the field so Tab continues from this cell.
-                      rootRef.current?.querySelector("button")?.focus({ preventScroll: true });
+                      if (!blurOnPointerClose || event.detail === 0) {
+                        rootRef.current?.querySelector("button")?.focus({ preventScroll: true });
+                      }
                     }}
                   >
                     <span>{option.label}</span>

@@ -4,7 +4,8 @@ import InstrumentLibraryModal from "./features/instruments/components/Instrument
 import { buildSidebarCellGroups } from "./utils/sidebarCellGroups";
 import { newMeasurementAreaColor } from "./utils/measurementAreaGrouping";
 import MeasurementAreaEmptyHint from "./components/common/MeasurementAreaEmptyHint";
-import { UnitSelect } from "./features/analysis/components/UncertaintyPanel";
+import { UnitSelect, getCollapsedSpecRows, formatRangeToleranceDetail } from "./features/analysis/components/UncertaintyPanel";
+import { getTmdePointColumns, isTmdePointColumn, availableTmdePointColumns, getPointTmdeSpecifications } from "./utils/pointTmdeColumns";
 import { getUutBiasDefault, getPointBiasSources } from "./utils/measurementBias";
 import useSidebarAutoWidths from "./hooks/useSidebarAutoWidths";
 import { syncInstrumentBudgetComponents } from "./utils/instrumentBudgetComponents";
@@ -494,7 +495,7 @@ export const normalizeSidebarColumnOrder = (order) => {
   const valid = new Set(DEFAULT_SIDEBAR_COLUMN_ORDER);
   const normalized = [];
   (Array.isArray(order) ? order : []).forEach((key) => {
-    if (valid.has(key) && !normalized.includes(key)) normalized.push(key);
+    if ((valid.has(key) || isTmdePointColumn(key)) && !normalized.includes(key)) normalized.push(key);
   });
   DEFAULT_SIDEBAR_COLUMN_ORDER.forEach((key) => {
     if (!normalized.includes(key)) normalized.push(key);
@@ -509,16 +510,20 @@ export const getSessionPointColumns = (session, defaults = {}, preferences = {})
     order.splice(order.indexOf('qualifier'), 1);
     order.splice(order.indexOf('value') + 1, 0, 'qualifier');
   }
+  const tmdeColumns = getTmdePointColumns(session?.tmdes);
+  const previous = { ...defaults.columns, ...preferences.sidebarColumns };
+  const migrateLimits = previous.tmdeLow || previous.tmdeHigh;
   return {
     columns: { ...DEFAULT_SIDEBAR_COLUMNS, ...defaults.columns,
+      ...Object.fromEntries(tmdeColumns.filter(column => column.kind === "limits").map(column => [column.key, Boolean(previous[column.key] ?? migrateLimits)])),
       ...(isAcShunt ? { section: false, value: true, qualifier: true, warningIcons: false } : {}),
-      ...preferences.sidebarColumns },
-    order: normalizeSidebarColumnOrder(preferences.sidebarColumnOrder || order),
+      ...preferences.sidebarColumns, tmdeLow: false, tmdeHigh: false },
+    order: normalizeSidebarColumnOrder([...(preferences.sidebarColumnOrder || order), ...tmdeColumns.map(column => column.key)]),
   };
 };
 
 const getVisibleSidebarColumnOrder = (visibleColumns, columnOrder) =>
-  normalizeSidebarColumnOrder(columnOrder).filter(
+  normalizeSidebarColumnOrder([...(columnOrder || []), ...Object.keys(visibleColumns)]).filter(
     (key) => Boolean(visibleColumns[key]),
   );
 
@@ -550,7 +555,7 @@ export const getSidebarGridTemplate = (
     const custom = Number(columnWidths?.[key]);
     const track = Number.isFinite(custom) && custom > 0
       ? `${Math.max(getSidebarColumnMinWidth(key), Math.round(custom))}px`
-      : tracks[key];
+      : tracks[key] || "minmax(160px, 1fr)";
     if (authoredWidths !== null) {
       // Content-sized columns share spare space in proportion to their widths.
       // Manual widths stay fixed; if every column is pinned, the final column
@@ -811,6 +816,7 @@ export const SidebarPointItem = ({
   liveRiskMetrics,
   liveUncertainty,
   liveTmdeLimits,
+  tmdeColumnDefinitions,
   limitResolution = 0,
   diagnostics = [],
   isLiveRiskTarget = false,
@@ -875,6 +881,15 @@ export const SidebarPointItem = ({
     columnOrder,
   );
   const orderedVisibleColumnsKey = orderedVisibleColumns.join("|");
+  const tmdeColumns = useMemo(() => tmdeColumnDefinitions || getTmdePointColumns(requirementSession.tmdes), [tmdeColumnDefinitions, requirementSession.tmdes]);
+  const visibleTmdeColumns = tmdeColumns.filter(column => visibleColumns[column.key]);
+  const visibleTmdeIds = [...new Set(visibleTmdeColumns.map(column => column.masterId))].join('|');
+  const tmdeSpecifications = useMemo(() => new Map(
+    (requirementSession.tmdes || []).filter(master => visibleTmdeColumns.some(column => column.masterId === master.id))
+      .map(master => [master.id, getPointTmdeSpecifications(point, master, requirementSession)])),
+    // Switching Limits/Uncertainty for the same instrument reuses its resolved data.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [point, requirementSession, visibleTmdeIds]);
 
   // The cell JSX intentionally stays grouped by feature for readability. Map
   // each rendered cell into a named grid area before paint so users can move
@@ -883,7 +898,7 @@ export const SidebarPointItem = ({
   useLayoutEffect(() => {
     const row = pointRowRef.current;
     if (!row) return;
-    const renderedKeys = SIDEBAR_COLUMN_GROUPS.flatMap(group => group.columns).filter((key) =>
+    const renderedKeys = [...SIDEBAR_COLUMN_GROUPS.flatMap(group => group.columns), ...tmdeColumns.map(column => column.key)].filter((key) =>
       Boolean(visibleColumns[key]),
     );
     const cells = [...row.children];
@@ -897,7 +912,7 @@ export const SidebarPointItem = ({
       );
     });
     row.dataset.valueLeading = String(orderedVisibleColumns[0] === "value");
-  }, [editingField, orderedVisibleColumnsKey, visibleColumns]);
+  }, [editingField, orderedVisibleColumnsKey, visibleColumns, tmdeColumns]);
 
   // Consume both mount-time and later focus requests. Pre-created blank rows
   // are already mounted, so relying only on the useState initializer prevented
@@ -1983,6 +1998,20 @@ export const SidebarPointItem = ({
         </span></span>
       )}
       {POINT_REQUIREMENT_FIELDS.filter(field => visibleColumns[requirementColumn(field)]).map(field => <PointRequirementCell key={field.name} field={field} point={point} session={requirementSession} onSave={onSave} />)}
+      {visibleTmdeColumns.map(column => {
+        const entries = tmdeSpecifications.get(column.masterId) || [];
+        return <span key={column.key} className="point-metric point-metric-list" title={entries.length ? column.label : `${column.label}: This TMDE is not used at this point.`}>
+          <span className="point-metric-content">{entries.length ? entries.map(entry => {
+            const text = column.kind === 'limits' ? entry.limits
+              : entry.specification || (entry.range ? getCollapsedSpecRows(entry.range, entry.reference).join('; ') : 'Not Set');
+            const detail = column.kind === 'limits' ? entry.reason || entry.fullLimits
+              : entry.reason || formatRangeToleranceDetail(entry.range, entry.reference);
+            return <span key={entry.key} className="point-metric-entry" title={detail}>
+              {entries.length > 1 && entry.label && <strong>{entry.label}</strong>}{text}
+            </span>;
+          }) : '—'}</span>
+        </span>;
+      })}
     </div>
   );
 };
@@ -2438,7 +2467,8 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
   // Keep explicitly enabled columns visible even if their current values are
   // blank. Hiding Section in that state made its filter appear broken and
   // prevented users from entering the first section value.
-  const visibleSidebarColumns = sidebarColumns;
+  const tmdeColumnDefinitions = useMemo(() => getTmdePointColumns(currentSessionData?.tmdes), [currentSessionData?.tmdes]);
+  const visibleSidebarColumns = useMemo(() => availableTmdePointColumns(sidebarColumns, tmdeColumnDefinitions), [sidebarColumns, tmdeColumnDefinitions]);
   // Reactive per-point risk metrics for the sidebar columns. Recomputed purely
   // in memory (no DB hits) whenever the points or the session's requirements /
   // shared tolerance change, so every row reflects the latest inputs without
@@ -5357,6 +5387,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
       }}
       valueColumnWidth={sidebarValueColumnWidth}
       visibleColumns={visibleSidebarColumns}
+      tmdeColumnDefinitions={tmdeColumnDefinitions}
       isSelected={selectedSidebarPointIds.includes(tp.id)}
       isActivePoint={selectedTestPointId === tp.id}
       isTableSelected={selectedTablePointIds.includes(tp.id)}
@@ -5498,7 +5529,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
       ),
     );
     const visibleGroups = orderedVisibleColumns.reduce((runs, column) => {
-      const group = groupByColumn[column];
+      const group = groupByColumn[column] || { key: 'measurement', label: 'Measurement' };
       const previous = runs[runs.length - 1];
       if (previous?.key === group.key) {
         previous.visibleCount += 1;
@@ -5576,6 +5607,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
     };
 
     POINT_REQUIREMENT_FIELDS.forEach(field => { headerConfig[requirementColumn(field)] = [field.sidebarLabel, { title: field.tooltip }]; });
+    tmdeColumnDefinitions.forEach(column => { headerConfig[column.key] = [column.label]; });
     return (
       <div className="sidebar-column-header-stack">
         <div
@@ -5608,12 +5640,12 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
       </div>
     );
   }, [visibleSidebarColumns, sidebarValueColumnWidth, sidebarRenderedColumnWidths,
-    sidebarColumnOrder, workspacePane, sidebarAutoFit, sidebarColumnWidths, renderSidebarColumnHeader]);
+    sidebarColumnOrder, workspacePane, sidebarAutoFit, sidebarColumnWidths, renderSidebarColumnHeader, tmdeColumnDefinitions]);
 
-  const sidebarSortGroups = sidebarColumnOrder.filter(key => sidebarColumns[key]).reduce((groups, key) => {
+  const sidebarSortGroups = getVisibleSidebarColumnOrder(visibleSidebarColumns, sidebarColumnOrder).reduce((groups, key) => {
     const pairs = { lowLimit: ["lowLimit", "highLimit"], highLimit: ["lowLimit", "highLimit"], tmdeLow: ["tmdeLow", "tmdeHigh"], tmdeHigh: ["tmdeLow", "tmdeHigh"], gbLow: ["gbLow", "gbHigh"], gbHigh: ["gbLow", "gbHigh"] };
     const keys = (pairs[key] || [key]).filter(k => sidebarColumns[k]);
-    if (!groups.some(g => g.keys.includes(key))) groups.push({ key: keys[0], keys, label: keys.includes("lowLimit") || keys.includes("highLimit") ? "Tolerance (Limits)" : keys.includes("tmdeLow") || keys.includes("tmdeHigh") ? "TMDE Limits" : keys.includes("gbLow") || keys.includes("gbHigh") ? "GB Limits" : SIDEBAR_COLUMN_LABELS[key] });
+    if (!groups.some(g => g.keys.includes(key))) groups.push({ key: keys[0], keys, label: keys.includes("lowLimit") || keys.includes("highLimit") ? "Tolerance (Limits)" : keys.includes("tmdeLow") || keys.includes("tmdeHigh") ? "TMDE Limits" : keys.includes("gbLow") || keys.includes("gbHigh") ? "GB Limits" : tmdeColumnDefinitions.find(column => column.key === key)?.label || SIDEBAR_COLUMN_LABELS[key] });
     return groups;
   }, []);
   const moveSidebarSortGroup = (source, target, addedKeys, position) => {
@@ -5625,7 +5657,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
     }
     if (!to) return;
     setSidebarColumnOrder(previous => {
-      const next = previous.filter(key => !from.keys.includes(key));
+      const next = normalizeSidebarColumnOrder([...previous, ...tmdeColumnDefinitions.map(column => column.key)]).filter(key => !from.keys.includes(key));
       const movingDown = position ? position === "after" : sidebarSortGroups.indexOf(from) < sidebarSortGroups.indexOf(to);
       const insertion = movingDown ? next.indexOf(to.keys.at(-1)) + 1 : next.indexOf(to.keys[0]);
       next.splice(insertion, 0, ...from.keys);
@@ -6302,13 +6334,13 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
                                   key: "measurementUncertainty",
                                   label: "Exp. Uncertainty",
                                 },
-                                { key: "tmdeLow", keys: ["tmdeLow", "tmdeHigh"], label: "TMDE Limits" },
                                 { key: "uutBias", label: "UUT Bias" },
                                 { key: "tmdeBias", label: "TMDE Bias" },
                                 { key: "tur", label: "TUR" },
                                 { key: "tar", label: "TAR" },
                               ],
                             },
+                            ...(tmdeColumnDefinitions.length ? [{ group: "TMDE", cols: tmdeColumnDefinitions }] : []),
                             {
                               group: "Risk",
                               cols: [
@@ -6353,7 +6385,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
                           ]} columns={sidebarColumns} setColumns={setSidebarColumns}
                               selectedGroups={sidebarSortGroups} moveGroup={moveSidebarSortGroup}
                               onClose={() => setIsColumnMenuOpen(false)}
-                              onReset={() => { const defaults = readPointColumnDefaults(); setSidebarColumnOrder(normalizeSidebarColumnOrder(defaults.order)); setSidebarColumns({ ...DEFAULT_SIDEBAR_COLUMNS, ...defaults.columns }); }}
+                              onReset={() => { const defaults = getSessionPointColumns(currentSessionData, readPointColumnDefaults()); setSidebarColumnOrder(defaults.order); setSidebarColumns(defaults.columns); }}
                               onSetDefault={() => {
                                 try { window.localStorage.setItem(POINT_COLUMN_DEFAULTS_KEY, JSON.stringify({ columns: sidebarColumns, order: sidebarColumnOrder })); showToast("Default point columns saved"); }
                                 catch { showToast("Unable to save default columns", "error"); }

@@ -19,3 +19,20 @@
 .instrument-library-name-and-range .instrument-library-name { padding-bottom: 0; }
 .instrument-library-name-and-range .instrument-range-menu { margin-left: 16px; }
 .instrument-simplified-name > .instrument-range-menu { align-self: flex-start; }
+
+/* Reserve the specifications button's space even with long qualifier paths. */
+.uncertainty-module .budget-range-selector.instrument-range-menu,
+.uncertainty-module .budget-range-selector.instrument-range-menu .inline-menu-select-trigger {
+  width: max-content !important;
+  min-width: 0;
+  max-width: 100%;
+}
+.uncertainty-module .budget-range-selector.instrument-range-menu .inline-menu-select-trigger > span {
+  min-width: 0;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.instrument-range-menu .inline-menu-select-trigger > svg { flex-shrink: 0; }
+.uncertainty-module .instrument-library-name-and-range .instrument-range-menu { max-width: calc(100% - 16px); }
