@@ -62,6 +62,22 @@ it.each(['session', 'point'])('keeps a 720-spec instrument editable without work
   expect(updated.tmdes[0].instrument.functions[0].ranges).toHaveLength(720);
 }, 20000);
 
+it('collapses a 720-spec expansion on Escape without rebuilding the specification rows', () => {
+  const session = { ...largeSession(), id: 'large-escape' }, point = session.testPoints[0];
+  const { container } = render(<UncertaintyPanel testPointData={{ ...point, viewMode: 'point' }} sessionData={session}
+    onSessionSave={vi.fn()} tmdeTolerancesData={[]} uutNominal={point.testPointInfo.parameter} />);
+  const table = container.querySelector('[data-tour="tmde-table"]');
+  fireEvent.click(table.querySelector('.instrument-library-specifications'));
+  expect(table.querySelectorAll('[data-range-id]')).toHaveLength(720);
+  const start = performance.now();
+  fireEvent.keyDown(document.body, { key: 'Escape' });
+  if (process.env.REPORT_INSTRUMENT_TIMINGS) process.stdout.write(`Escape collapsed 720 specs in ${(performance.now() - start).toFixed(0)} ms (jsdom).\n`);
+  expect(table.querySelectorAll('[data-range-id]')).toHaveLength(0);
+  expect(table.querySelectorAll('thead th')).toHaveLength(2);
+  expect(table.querySelector('.instrument-library-specifications')).toHaveAttribute('aria-expanded', 'false');
+  expect(container.querySelector('[data-budget-instrument-specifications-expanded]')).toBeNull();
+}, 20000);
+
 
 it('switches large imported budgets with no hidden spec rows and expands live editors on demand', () => {
   const session = { ...largeSession(), id: 'simplified-large' };

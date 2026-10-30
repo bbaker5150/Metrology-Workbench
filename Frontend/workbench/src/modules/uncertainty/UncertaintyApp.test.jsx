@@ -133,6 +133,15 @@ describe("UncertaintyApp", () => {
       await waitFor(() => expect(document.querySelectorAll('.point-grid-item')[1]).toHaveClass('active-point'));
       expect(document.querySelectorAll('[data-range-id]')).toHaveLength(0);
       expect(screen.getByRole('button', { name: 'Uncertainty Budget' })).toHaveClass('active');
+      // Escape belongs to open specifications, not the app's point deselection.
+      for (const table of document.querySelectorAll('[data-tour="uut-table"], [data-tour="tmde-table"]')) {
+        fireEvent.click(table.querySelector('.instrument-library-specifications'));
+      }
+      expect(document.querySelectorAll('[data-range-id]').length).toBeGreaterThan(0);
+      fireEvent.keyDown(document.body, { key: 'Escape' });
+      expect(document.querySelectorAll('[data-range-id]')).toHaveLength(0);
+      expect(document.querySelectorAll('.point-grid-item')[1]).toHaveClass('active-point');
+      expect(screen.getByRole('button', { name: 'Uncertainty Budget' })).toHaveClass('active');
     } finally { apiMock.get.mockImplementation(originalGet); }
   }, 30000);
 

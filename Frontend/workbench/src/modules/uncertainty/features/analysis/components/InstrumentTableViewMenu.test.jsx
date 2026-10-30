@@ -11,6 +11,8 @@ const checkbox = name => screen.getByRole("checkbox", { name });
 it("defaults both choices off, changes them independently, and dismisses with Escape or an outside click", () => {
   render(<Harness session={{ id: "normal" }} />);
   const trigger = screen.getByRole("button", { name: "UUT table view" });
+  expect(trigger.querySelector('[data-icon="eye-slash"]')).toBeInTheDocument();
+  expect(trigger.querySelector('[data-icon="chevron-down"]')).toBeInTheDocument();
   fireEvent.click(trigger);
   expect(checkbox("Show all measurement areas")).not.toBeChecked();
   expect(checkbox("Show simplified view")).not.toBeChecked();
@@ -18,6 +20,7 @@ it("defaults both choices off, changes them independently, and dismisses with Es
   expect(checkbox("Show simplified view")).toBeChecked();
   expect(checkbox("Show all measurement areas")).not.toBeChecked();
   fireEvent.click(checkbox("Show all measurement areas"));
+  expect(trigger.querySelector('[data-icon="eye"]')).toBeInTheDocument();
   expect(checkbox("Show all measurement areas")).toBeChecked();
   expect(checkbox("Show simplified view")).toBeChecked();
   fireEvent.keyDown(checkbox("Show simplified view"), { key: "Escape" });

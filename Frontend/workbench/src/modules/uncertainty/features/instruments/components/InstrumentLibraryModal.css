@@ -37,18 +37,12 @@
 .instrument-library-save-error { display: flex; align-items: center; gap: 10px; padding: 8px 16px; color: var(--danger-color, #e76b6b); font-size: .8rem; }
 .instrument-library-save-error button { border: 0; background: transparent; color: inherit; cursor: pointer; }
 
-.instrument-library-window .instrument-library-specifications { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 26px; width: 26px; height: 26px; padding: 0; }
 
 .instrument-library-search .function-header-action-btn.btn-add-item { height: 20px; gap: 3px; padding: 0 3px; }
 
 .instrument-library-description { display: flex; align-items: center; min-width: 0; }
 .instrument-library-description .instrument-library-name { flex: 1; min-width: 0; }
 .instrument-library-description .instrument-library-specifications { margin: 0 8px; }
-.instrument-library-window .instrument-library-expanded-description { position: relative; padding-right: 44px; }
-.instrument-library-expanded-description > .instrument-library-specifications { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); }
-.instrument-library-window .instrument-library-specifications { opacity: 0; pointer-events: none; border: 0; background: transparent; box-shadow: none; transition: none; }
-.instrument-library-window tr:hover > .cell-description .instrument-library-specifications,
-.instrument-library-window .cell-description:is(:hover, :focus-within, [data-cell-hovered]) .instrument-library-specifications { opacity: 1; pointer-events: auto; }
 
 .instrument-library-window .instrument-equipment-table .cell-sync .instrument-row-tools { position: relative; width: 100%; min-height: 26px; padding-right: 28px; box-sizing: border-box; }
 .instrument-library-window .instrument-equipment-table th.cell-sync { padding-right: 34px; }

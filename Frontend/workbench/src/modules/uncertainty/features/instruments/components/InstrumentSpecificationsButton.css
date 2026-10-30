@@ -1,6 +1,12 @@
-.instrument-library-specifications { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 26px; width: 26px; height: 26px; padding: 0; }
+.instrument-library-specifications { display: inline-flex; align-items: center; justify-content: center; flex: 0 0 26px; width: 26px; height: 26px; padding: 0; opacity: 0; pointer-events: none; border: 0; background: transparent; box-shadow: none; transition: none; }
 .instrument-simplified-description { display: flex; align-items: center; gap: 8px; min-width: 0; }
 .instrument-simplified-description > .instrument-simplified-name { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .instrument-view-menu { position: relative; }
 .instrument-view-menu-options { position: fixed; inset: auto; margin: 0; padding: 8px; min-width: 230px; width: max-content; max-width: calc(100vw - 16px); overflow: auto; border: 1px solid var(--border-color); border-radius: 6px; background: var(--content-background-solid, #fff); color: var(--text-color); box-shadow: 0 4px 16px #0003; z-index: 10000; }
 .instrument-view-menu-options label { display: flex; align-items: center; gap: 8px; padding: 7px; cursor: pointer; white-space: nowrap; }
+
+/* Shared by library and budget tables: reveal on row/cell hover or keyboard focus. */
+.instrument-equipment-table tr:hover > .cell-description .instrument-library-specifications,
+.instrument-equipment-table .cell-description:is(:hover, :focus-within, [data-cell-hovered]) .instrument-library-specifications { opacity: 1; pointer-events: auto; }
+.instrument-equipment-table .cell-description.instrument-library-expanded-description { position: relative; padding-right: 44px; }
+.instrument-library-expanded-description > .instrument-library-specifications { position: absolute; right: 8px; top: 50%; transform: translateY(-50%); }

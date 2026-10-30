@@ -10695,6 +10695,26 @@ function DetailedView({
   const specificationsExpanded = (kind, item) => expandedSpecifications.has(itemStateKey(kind, item.id));
   const uutNamesOnly = uutView.simplified && !(sessionData.uuts || []).some(item => specificationsExpanded("uut", item));
   const tmdeNamesOnly = tmdeView.simplified && !(sessionData.tmdes || []).some(item => specificationsExpanded("tmde", item));
+  const hasExpandedSpecifications = (uutView.simplified && !uutNamesOnly) || (tmdeView.simplified && !tmdeNamesOnly);
+  const detailWorkspaceRef = useRef(null);
+  useEffect(() => {
+    if (!hasExpandedSpecifications) return;
+    const collapse = event => {
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      // Floating editors and menus keep their own Escape behavior. Ordinary
+      // inline specification edits commit on blur, just as in the library.
+      if (document.querySelector('dialog[open], [role="alertdialog"], [role="dialog"]:not([hidden]), [role="menu"], [role="listbox"], .instrument-view-menu-options')) return;
+      const active = document.activeElement;
+      const inInstrumentTable = detailWorkspaceRef.current?.contains(active) && active?.closest('.instrument-equipment-table');
+      if (!inInstrumentTable && active?.matches('input, textarea, select, [contenteditable="true"]')) return;
+      event.preventDefault();
+      event.stopPropagation();
+      if (inInstrumentTable) active.blur?.();
+      setExpandedSpecifications(new Set());
+    };
+    window.addEventListener("keydown", collapse, true);
+    return () => window.removeEventListener("keydown", collapse, true);
+  }, [hasExpandedSpecifications]);
   const [budgetTmdePicker, setBudgetTmdePicker] = useState(null);
   useExclusiveMenu(Boolean(budgetTmdePicker), () => setBudgetTmdePicker(null));
   const budgetTmdeMenuRef = useRef(null);
@@ -13047,10 +13067,11 @@ function DetailedView({
         <td className="cell-description has-order-controls" colSpan={columns.keys.length - 1}>
           <InstrumentOrderControls onMoveUp={() => moveInstrument(kind, item.id, functionKey, -1)} onMoveDown={() => moveInstrument(kind, item.id, functionKey, 1)} />
           <div className="instrument-simplified-description">
-            <span className="instrument-simplified-name">{formatInstrumentIdentity(item, "Untitled instrument")}
-              {activeUut && <span className="active-uut-badge instrument-usage-badge">Active UUT</span>}
-              {usageCount > 0 && <span className="instrument-usage-badge">In Budget{usageCount > 1 ? ` ×${usageCount}` : ""}</span>}
-            </span>
+            <div className="uut-description-content instrument-simplified-name">
+              <span>{formatInstrumentIdentity(item, "Untitled instrument")}</span>
+              {activeUut && <span className="active-uut-badge instrument-usage-badge" style={functionBadgeStyle(functionKey)}>Active UUT</span>}
+              {usageCount > 0 && <span className="instrument-usage-badge" style={functionBadgeStyle(functionKey)}>In Budget{usageCount > 1 ? ` ×${usageCount}` : ""}</span>}
+            </div>
             {renderSpecificationsButton(kind, item)}
           </div>
         </td>
@@ -15711,7 +15732,8 @@ function DetailedView({
 
   return (
     <div className="configuration-panel">
-      <div className="detailed-view-section-layout">
+      <div className="detailed-view-section-layout" ref={detailWorkspaceRef}
+        data-budget-instrument-specifications-expanded={hasExpandedSpecifications || undefined}>
       <DetailWorkspaceSectionToggle
         label="Instrument Tables"
         collapsed={collapsedDetailSections.has("instruments")}
@@ -15861,19 +15883,19 @@ function DetailedView({
                               {i === 0 && (
                                 <td
                                   rowSpan={spanRows}
-                                  className="cell-description has-order-controls"
+                                  className={`cell-description has-order-controls${uutView.simplified ? " instrument-library-expanded-description" : ""}`}
                                   style={{
                                     color: isLinked
                                       ? "var(--primary-color)"
                                       : undefined,
                                   }}
                                 >
+                                  {uutView.simplified && renderSpecificationsButton("uut", uut)}
                                   <InstrumentOrderControls
                                     onMoveUp={() => moveInstrument("uut", uut.id, uutFnKey, -1)}
                                     onMoveDown={() => moveInstrument("uut", uut.id, uutFnKey, 1)}
                                   />
                                   <div className="uut-description-content">
-                            {uutView.simplified && renderSpecificationsButton("uut", uut)}
                                     <EditableDescriptionCell
                                       name={getUutDescription(uut)}
                                       nickname={uut.nickname}
@@ -15963,19 +15985,19 @@ function DetailedView({
                       >
                         <td
                           rowSpan={rowSpan}
-                          className="cell-description has-order-controls"
+                          className={`cell-description has-order-controls${uutView.simplified ? " instrument-library-expanded-description" : ""}`}
                           style={{
                             color: isLinked
                               ? "var(--primary-color)"
                               : undefined,
                           }}
                         >
+                          {uutView.simplified && renderSpecificationsButton("uut", uut)}
                           <InstrumentOrderControls
                             onMoveUp={() => moveInstrument("uut", uut.id, uutFnKey, -1)}
                             onMoveDown={() => moveInstrument("uut", uut.id, uutFnKey, 1)}
                           />
                           <div className="uut-description-content">
-                                    {uutView.simplified && renderSpecificationsButton("uut", uut)}
                             {onSessionSave ? (
                               <EditableDescriptionCell
                                 name={getUutDescription(uut)}
@@ -16662,14 +16684,14 @@ function DetailedView({
                                   {i === 0 && (
                                     <td
                                       rowSpan={spanRows}
-                                      className="cell-description has-order-controls"
+                                      className={`cell-description has-order-controls${tmdeView.simplified ? " instrument-library-expanded-description" : ""}`}
                                     >
+                                      {tmdeView.simplified && renderSpecificationsButton("tmde", masterTmde)}
                                       <InstrumentOrderControls
                                         onMoveUp={() => moveInstrument("tmde", masterTmde.id, tmdeFnKey, -1)}
                                         onMoveDown={() => moveInstrument("tmde", masterTmde.id, tmdeFnKey, 1)}
                                       />
                                       <div className="uut-description-content">
-                                        {tmdeView.simplified && renderSpecificationsButton("tmde", masterTmde)}
                                         <EditableDescriptionCell
                                           name={masterTmde.name}
                                           nickname={masterTmde.nickname}
@@ -16781,14 +16803,14 @@ function DetailedView({
                           >
                             <td
                               rowSpan={rowSpan}
-                              className="cell-description has-order-controls"
+                              className={`cell-description has-order-controls${tmdeView.simplified ? " instrument-library-expanded-description" : ""}`}
                             >
+                              {tmdeView.simplified && renderSpecificationsButton("tmde", masterTmde)}
                               <InstrumentOrderControls
                                 onMoveUp={() => moveInstrument("tmde", masterTmde.id, tmdeFnKey, -1)}
                                 onMoveDown={() => moveInstrument("tmde", masterTmde.id, tmdeFnKey, 1)}
                               />
                               <div className="uut-description-content">
-                                {tmdeView.simplified && renderSpecificationsButton("tmde", masterTmde)}
                                 {onSessionSave ? (
                                   <EditableDescriptionCell
                                     name={masterTmde.name}

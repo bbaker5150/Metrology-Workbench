@@ -1,6 +1,6 @@
 import React, { useLayoutEffect, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faChevronDown } from "@fortawesome/free-solid-svg-icons";
+import { faChevronDown, faEye, faEyeSlash } from "@fortawesome/free-solid-svg-icons";
 import useExclusiveMenu from "../../../hooks/useExclusiveMenu";
 import { getAnchoredMenuPlacement } from "../../../utils/anchoredMenuPosition";
 import { recoveryNamespace } from "../../../utils/recoveryNamespace";
@@ -56,7 +56,9 @@ export default function InstrumentTableViewMenu({ kind, value, onChange }) {
   }, [open]);
   return <div ref={root} className="instrument-view-menu">
     <button ref={trigger} type="button" className="btn-add-item btn-add-column" aria-label={`${kind.toUpperCase()} table view`}
-      aria-expanded={open} onClick={() => setOpen(!open)}>View <FontAwesomeIcon icon={faChevronDown} /></button>
+      title={`${kind.toUpperCase()} table view`} aria-haspopup="true" aria-expanded={open} onClick={() => setOpen(!open)}>
+      <FontAwesomeIcon icon={value.showAll ? faEye : faEyeSlash} /><FontAwesomeIcon icon={faChevronDown} />
+    </button>
     {open && <div ref={menu} popover="manual" className="instrument-view-menu-options" role="group" aria-label={`${kind.toUpperCase()} table view options`}>
       <label><input type="checkbox" checked={value.showAll} onChange={event => onChange({ showAll: event.target.checked })} />Show all measurement areas</label>
       <label><input type="checkbox" checked={value.simplified} onChange={event => onChange({ simplified: event.target.checked })} />Show simplified view</label>

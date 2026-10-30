@@ -2740,7 +2740,10 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
   const [selectedPointArea, setSelectedPointArea] = useState(null);
   useEffect(() => {
     const deselectArea = event => {
-      if (event.key !== "Escape") return;
+      if (event.key !== "Escape" || event.defaultPrevented) return;
+      // The budget collapses expanded specifications on Escape. Keep its
+      // selected point mounted instead of rebuilding the instrument overview.
+      if (document.querySelector('[data-budget-instrument-specifications-expanded="true"]')) return;
       // Editors/popovers own the first Escape (cancel or dismiss). Outside
       // those controls, clear both the multi-selection and the active point;
       // clearing only the former leaves the active-point glow behind.
