@@ -40,7 +40,7 @@ export default defineConfig({
   // is uploaded into without knowing that path at build time.
   base: './',
   plugins: [react(), emitAsIndexHtml(), docxRuntime()],
-  optimizeDeps: docxOptimizeDeps,
+  optimizeDeps: { ...docxOptimizeDeps, force: true },
   build: {
     outDir: 'build-standalone',
     emptyOutDir: true,

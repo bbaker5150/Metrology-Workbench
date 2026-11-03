@@ -1,6 +1,21 @@
 import { createRequire } from 'node:module';
-import { readFileSync, rmSync } from 'node:fs';
+import { createHash } from 'node:crypto';
+import { readdirSync, readFileSync, rmSync } from 'node:fs';
 import path from 'node:path';
+
+const readPackage = (entry) => {
+  let directory = path.dirname(entry);
+  while (directory !== path.dirname(directory)) {
+    try {
+      const pkg = JSON.parse(readFileSync(path.join(directory, 'package.json'), 'utf8'));
+      if (pkg.name) return { ...pkg, directory };
+    } catch (error) {
+      if (error.code !== 'ENOENT') throw error;
+    }
+    directory = path.dirname(directory);
+  }
+  throw new Error(`Cannot find package metadata for ${entry}`);
+};
 
 // The React adapter's agents dependency uses a caret range. Version 1.12.0
 // bundled its own table-selection implementation, which registers "cell" a
@@ -8,19 +23,6 @@ import path from 'node:path';
 // not replace an existing lab/offline node_modules directory.
 const inspectDocxRuntime = (root) => {
   const require = createRequire(path.join(root, 'package.json'));
-  const readPackage = (entry) => {
-    let directory = path.dirname(entry);
-    while (directory !== path.dirname(directory)) {
-      try {
-        const pkg = JSON.parse(readFileSync(path.join(directory, 'package.json'), 'utf8'));
-        if (pkg.name) return { ...pkg, directory };
-      } catch (error) {
-        if (error.code !== 'ENOENT') throw error;
-      }
-      directory = path.dirname(directory);
-    }
-    throw new Error(`Cannot find package metadata for ${entry}`);
-  };
   const reactEntry = require.resolve('@heyirisai/docx-editor-react');
   const reactDirectory = readPackage(reactEntry).directory;
   const fromReact = createRequire(reactEntry);
@@ -32,12 +34,13 @@ const inspectDocxRuntime = (root) => {
     fromReact.resolve('@heyirisai/docx-editor-agents/react'),
     fromReact.resolve('@heyirisai/docx-editor-i18n'),
   ];
-  const mismatches = entries.map(readPackage).filter(pkg => pkg.version !== expected);
-  return { expected, mismatches, reactDirectory };
+  const packages = entries.map(readPackage);
+  const mismatches = packages.filter(pkg => pkg.version !== expected);
+  return { expected, mismatches, reactDirectory, packages };
 };
 
 export function verifyDocxRuntime(root) {
-  const { expected, mismatches } = inspectDocxRuntime(root);
+  const { expected, mismatches, packages } = inspectDocxRuntime(root);
   if (mismatches.length) {
     throw new Error(
       `The installed Notes editor dependencies do not match this checkout: ` +
@@ -47,6 +50,7 @@ export function verifyDocxRuntime(root) {
       `then restart the same Electron command. The targeted repair needs no network connection.`,
     );
   }
+  return packages;
 }
 
 export function repairDocxRuntime(root) {
@@ -79,10 +83,48 @@ export function repairDocxRuntime(root) {
   return [...removable.values()].map((pkg) => `${pkg.name}@${pkg.version}`);
 }
 
-export const docxRuntime = () => ({
+// An offline repair can replace a distribution without changing package-lock.
+// Include the actual installed editor files in Vite's dependency cache key.
+function installedEditorHash(root, packages) {
+  const hash = createHash('sha256');
+  const visit = directory => {
+    const entries = readdirSync(directory, { withFileTypes: true });
+    for (const entry of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+      if (entry.name === 'node_modules') continue;
+      const filename = path.join(directory, entry.name);
+      if (entry.isDirectory()) visit(filename);
+      else if (/\.(?:[mc]?js|json|css)$/.test(entry.name)) {
+        hash.update(filename).update('\0').update(readFileSync(filename)).update('\0');
+      }
+    }
+  };
+  const directories = new Set(packages.map(pkg => pkg.directory));
+  // Offline layouts may have peers only beside the importing editor package.
+  // Fingerprint the copies present without making hoisted peers mandatory.
+  for (const origin of [root, ...directories]) {
+    const require = createRequire(path.join(origin, 'package.json'));
+    for (const name of docxDedupe) {
+      const entry = name === '@heyirisai/docx-editor-agents' ? name + '/react' : name;
+      try {
+        directories.add(readPackage(require.resolve(entry)).directory);
+      } catch (error) {
+        if (error.code !== 'MODULE_NOT_FOUND' && error.code !== 'ERR_PACKAGE_PATH_NOT_EXPORTED') throw error;
+      }
+    }
+  }
+  for (const directory of directories) visit(directory);
+  return hash.digest('hex');
+}
+
+export const docxRuntime = ({ reuseOptimizer = false } = {}) => ({
   name: 'verified-docx-runtime',
-  configResolved(config) {
-    verifyDocxRuntime(config.root);
+  config(config, { command }) {
+    const root = path.resolve(config.root || process.cwd());
+    const packages = verifyDocxRuntime(root);
+    if (command === 'serve' && reuseOptimizer) {
+      const define = { __WORKBENCH_NOTES_RUNTIME_HASH__: JSON.stringify(installedEditorHash(root, packages)) };
+      return { optimizeDeps: { esbuildOptions: { define } } };
+    }
   },
 });
 
@@ -97,9 +139,6 @@ export const docxDedupe = [
 ];
 
 export const docxOptimizeDeps = {
-  // Rebuild on server startup so an optimized editor left by an older manual
-  // installation cannot survive a source update/restart on the same port.
-  force: true,
   include: [
     '@heyirisai/docx-editor-react',
     '@heyirisai/docx-editor-core/prosemirror/commands',

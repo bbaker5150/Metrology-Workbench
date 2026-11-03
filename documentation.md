@@ -295,18 +295,21 @@ The `bootstrap` command does this for every entry in `APP_DB_MAP`.
 
 ### 6.3 Boot sequence
 
-There are two equivalent boot paths:
+Browser development runs `manage.py bootstrap && manage.py runserver` so the
+server can reload on Python edits. Electron development uses
+`manage.py bootstrap --serve 0.0.0.0:8000` (port 8100 for remote mode).
+It initializes Django once and starts Daphne in the same process after bootstrap.
 
-- **Development:** `manage.py bootstrap && manage.py runserver` (chained by npm scripts).
-  `api/management/commands/bootstrap.py` runs these steps in order:
+- **Development.** `api/management/commands/bootstrap.py` runs these steps in order.
   1. `migrate` on `default` (errors are logged; boot continues if MSSQL is down)
   2. `migrate <app> --database=<alias>` for each module database
   3. Create the outbox schema if it is missing
   4. Ensure the "Local Workstation" row exists, and optionally seed benches from
      `Portal/workstations.json` (only when no non-default benches exist)
   5. In mock mode, seed the mock calibration session if it is missing
-- **Packaged:** `entry_point.py` (frozen to `ac_shunt_backend.exe`) runs the same
-  steps, refuses to start if port 8000 is taken, then calls
+  6. Seed AC-shunt reference instruments
+- **Packaged.** `entry_point.py` (frozen to `ac_shunt_backend.exe`) handles
+  backend initialization, refuses to start if port 8000 is taken, then calls
   `runserver 0.0.0.0:8000 --noreload`. (Daphne is in `INSTALLED_APPS`, so
   `runserver` serves ASGI.)
 

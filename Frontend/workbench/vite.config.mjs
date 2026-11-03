@@ -42,8 +42,9 @@ export default defineConfig(({ mode }) => {
 
   return {
     base: './',
-    plugins: [react(), tolerateAbortedClientSockets(), docxRuntime()],
-    optimizeDeps: docxOptimizeDeps,
+    plugins: [react(), tolerateAbortedClientSockets(), docxRuntime({ reuseOptimizer: true })],
+    // Scan both shipped entrypoints without crawling local scratch/preview HTML.
+    optimizeDeps: { ...docxOptimizeDeps, entries: ['index.html', 'index.standalone.html'] },
     server: {
       host: '0.0.0.0',
       allowedHosts: ['.trycloudflare.com'],

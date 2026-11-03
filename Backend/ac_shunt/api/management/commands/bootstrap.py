@@ -6,9 +6,12 @@ PyInstaller build — migrations, outbox schema, Local Workstation seed,
 optional mock calibration session — but packaged as a ``manage.py``
 command so it composes cleanly with ``runserver``.
 
-Chained in ``Frontend/workbench/package.json`` as::
+In ``Frontend/workbench/package.json``, browser development uses::
 
     manage.py bootstrap && manage.py runserver 0.0.0.0:8000
+
+Electron development uses ``bootstrap --serve 0.0.0.0:8000`` to run the
+same bootstrap and non-reloading server in one interpreter.
 
 This way ``npm run dev``, ``npm run dev:mock``, ``npm run electron:dev``,
 and ``npm run electron:dev:mock`` all perform the same startup work as a
@@ -24,11 +27,9 @@ strictly better than failing to boot.
 """
 from __future__ import annotations
 
-import os
-import sys
-
 from django.core.management import call_command
 from django.core.management.base import BaseCommand
+from django.db import connections
 
 
 class Command(BaseCommand):
@@ -36,6 +37,12 @@ class Command(BaseCommand):
         "Run pre-runserver bootstrap work (migrate, outbox, "
         "Local Workstation, optional mock session). Idempotent."
     )
+
+    def add_arguments(self, parser):
+        parser.add_argument(
+            "--serve", metavar="ADDRPORT",
+            help="Start the development server at this address after bootstrap, with autoreload disabled.",
+        )
 
     def handle(self, *args, **options):
         self.stdout.write(self.style.MIGRATE_HEADING("--- ac_shunt bootstrap ---"))
@@ -48,6 +55,11 @@ class Command(BaseCommand):
         self._bootstrap_ac_shunt_references()
 
         self.stdout.write(self.style.SUCCESS("Bootstrap complete."))
+        if options["serve"]:
+            # Give the server fresh connections, just as it had when it ran
+            # in its own process. Reuse the already initialized Django apps.
+            connections.close_all()
+            call_command("runserver", options["serve"], "--noreload", skip_checks=False)
 
     def _bootstrap_ac_shunt_references(self):
         try:
@@ -66,8 +78,6 @@ class Command(BaseCommand):
         ``entry_point.main``.
         """
         try:
-            from django.db import connections
-
             db_conn = connections['default']
             engine = db_conn.settings_dict.get('ENGINE', 'unknown')
             self.stdout.write(f"Default DB engine: {engine}")
