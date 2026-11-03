@@ -1,7 +1,7 @@
 import React, {
   useCallback,
   useEffect,
-  useMemo,
+  useImperativeHandle,
   useRef,
   useState,
 } from "react";
@@ -138,11 +138,42 @@ const useApplicationColorMode = () => {
   return mode;
 };
 
+const THEME_KEY = "uncertalytics.notesEditorTheme";
+const THEME_CHANGE = "uncertalytics:notes-theme-change";
+const readEditorTheme = () => {
+  try {
+    const saved = localStorage.getItem(THEME_KEY);
+    if (saved === "light" || saved === "dark") return saved;
+  } catch { /* Preferences can be unavailable in a restricted browser. */ }
+  return "auto";
+};
+
+const applyEditorTheme = (theme) => {
+  try { localStorage.setItem(THEME_KEY, theme); } catch { /* Apply for this visit. */ }
+  window.dispatchEvent(new CustomEvent(THEME_CHANGE, { detail: theme }));
+};
+
+const sourceFromNotes = (notes) => {
+  try {
+    const buffer = decodeDocxNotePayload(notes);
+    if (buffer) return { type: "buffer", value: buffer };
+  } catch {
+    // Keep damaged native payloads readable when possible.
+  }
+  const legacyText = legacyNotesToText(notes);
+  return {
+    type: "document",
+    value: legacyText ? createNotesDocument(legacyText) : createEmptyDocument(),
+  };
+};
+
 const SessionDocxEditor = ({
   sessionData,
   sessionImageCache,
   onLoadSessionImages,
   onNotesSave,
+  flushNotesRef,
+  recordHistoryAction,
 }) => {
   const editorRef = useRef(null);
   const saveTimerRef = useRef(null);
@@ -153,24 +184,32 @@ const SessionDocxEditor = ({
   const legacyImagesMigratedRef = useRef(false);
   const isLegacyDocumentRef = useRef(!isDocxNotePayload(sessionData?.notes));
   const lastSavedPayloadRef = useRef(sessionData?.notes || "");
+  const editorPayloadRef = useRef(lastSavedPayloadRef.current);
   const [, setSaveState] = useState("saved");
   const [documentRevision, setDocumentRevision] = useState(0);
-  const [documentSource, setDocumentSource] = useState(() => {
-    try {
-      const buffer = decodeDocxNotePayload(sessionData?.notes);
-      if (buffer) return { type: "buffer", value: buffer };
-    } catch {
-      // A damaged native payload falls back to readable text instead of
-      // preventing the Notes workspace from opening.
-    }
-    const legacyText = legacyNotesToText(sessionData?.notes);
-    return {
-      type: "document",
-      value: legacyText ? createNotesDocument(legacyText) : createEmptyDocument(),
-    };
-  });
+  const [documentSource, setDocumentSource] = useState(() => sourceFromNotes(sessionData?.notes));
+  useEffect(() => {
+    const notes = sessionData?.notes || "";
+    if (notes === editorPayloadRef.current) return;
+    // Undo/redo can replace the document without switching sessions. Echoes
+    // of this editor's own autosaves must preserve the cursor and local edits.
+    editorPayloadRef.current = notes;
+    lastSavedPayloadRef.current = notes;
+    editorReadyRef.current = false;
+    isLegacyDocumentRef.current = !isDocxNotePayload(notes);
+    legacyImagesMigratedRef.current = false;
+    setDocumentSource(sourceFromNotes(notes));
+    setDocumentRevision((value) => value + 1);
+  }, [sessionData?.notes]);
   const [editorError, setEditorError] = useState("");
-  const colorMode = useApplicationColorMode();
+  const appMode = useApplicationColorMode();
+  const [theme, setTheme] = useState(readEditorTheme);
+  useEffect(() => {
+    const onThemeChange = (event) => setTheme(event.detail);
+    window.addEventListener(THEME_CHANGE, onThemeChange);
+    return () => window.removeEventListener(THEME_CHANGE, onThemeChange);
+  }, []);
+  const colorMode = theme === "auto" ? appMode : theme;
   const sessionId = sessionData?.id;
   const documentName = sanitizeFileName(
     `${sessionData?.name || sessionData?.title || "Analysis Session"} Notes`,
@@ -194,6 +233,7 @@ const SessionDocxEditor = ({
 
     setSaveState("saving");
     try {
+      editorPayloadRef.current = payload;
       await onNotesSave?.(sessionId, payload);
       lastSavedPayloadRef.current = payload;
       if (savedChangeVersion === null || savedChangeVersion === changeVersionRef.current) {
@@ -217,14 +257,14 @@ const SessionDocxEditor = ({
       const savedChangeVersion = changeVersionRef.current;
       try {
         const buffer = await editorRef.current?.save({ selective: false });
-        if (buffer) await persistBuffer(buffer, savedChangeVersion);
+        const saved = buffer && await persistBuffer(buffer, savedChangeVersion);
         if (savedChangeVersion !== changeVersionRef.current) {
           dirtyRef.current = true;
           setSaveState("pending");
           clearTimeout(saveTimerRef.current);
           saveTimerRef.current = setTimeout(() => saveNow(), 200);
         }
-        return buffer;
+        return saved ? buffer : null;
       } catch (error) {
         setEditorError(error?.message || "The document could not be saved.");
         setSaveState("error");
@@ -235,6 +275,17 @@ const SessionDocxEditor = ({
     })();
     return savingRef.current;
   }, [persistBuffer]);
+
+  useImperativeHandle(flushNotesRef, () => () => {
+    if (!dirtyRef.current) return null;
+    // Include keystrokes that landed while an earlier save was in flight.
+    return (async () => {
+      while (dirtyRef.current) {
+        if (!(await saveNow())) return false;
+      }
+      return true;
+    })();
+  }, [saveNow]);
 
   const queueSave = useCallback(() => {
     if (!editorReadyRef.current) return;
@@ -335,6 +386,21 @@ const SessionDocxEditor = ({
           className="session-notes-docx-editor"
           documentName={documentName}
           documentNameEditable={false}
+          renderTitleBarRight={() => (
+            <label className="session-notes-theme">
+              Editor theme
+              <select value={theme} onChange={(event) => {
+                const next = event.target.value;
+                if (theme === next) return;
+                recordHistoryAction?.(theme, next, applyEditorTheme, `notes-theme:${next}`);
+                applyEditorTheme(next);
+              }}>
+                <option value="auto">Follow Workbench</option>
+                <option value="light">Light</option>
+                <option value="dark">Dark</option>
+              </select>
+            </label>
+          )}
           showToolbar
           showFileOpen
           showHelpMenu={false}

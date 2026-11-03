@@ -188,7 +188,7 @@ export const getFunctionDeletionConfirmationMessage = (
   const dependencyList = formatFunctionDependencyList(dependencies);
   const functionName = clean(fn.name) || "selected";
   const dependencyText = dependencyList ? ` and its ${dependencyList}` : "";
-  return `Delete the ${functionName} function${dependencyText}? All ranges and specifications belonging to this function will also be removed. This cannot be undone.`;
+  return `Delete the ${functionName} function${dependencyText}? All ranges and specifications belonging to this function will also be removed.`;
 };
 
 const removeFunctionFromInstrument = (source, functionKey) => {

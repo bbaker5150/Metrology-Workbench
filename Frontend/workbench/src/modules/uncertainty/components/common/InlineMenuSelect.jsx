@@ -27,6 +27,7 @@ const InlineMenuSelect = ({
   onOpenChange,
   getDisplayLabel,
   blurOnPointerClose = false,
+  closeOnAncestorScroll = false,
 }) => {
   const [isOpen, setIsOpen] = useState(false);
   const [menuRect, setMenuRect] = useState(null);
@@ -111,18 +112,22 @@ const InlineMenuSelect = ({
     if (rootRef.current) observer?.observe(rootRef.current);
     const table = rootRef.current?.closest("table");
     if (table) observer?.observe(table);
-    window.addEventListener("scroll", reposition, true);
+    const onScroll = event => {
+      if (closeOnAncestorScroll && (event.target === window || event.target.contains?.(rootRef.current))) closeMenu();
+      else if (event.target === window || !menuRef.current?.contains(event.target)) reposition();
+    };
+    window.addEventListener("scroll", onScroll, true);
     window.addEventListener("resize", reposition);
     positionMenu();
     return () => {
       cancelAnimationFrame(frame);
       observer?.disconnect();
-      window.removeEventListener("scroll", reposition, true);
+      window.removeEventListener("scroll", onScroll, true);
       window.removeEventListener("resize", reposition);
     };
     // Geometry does not depend on the selected value.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, menuWidth, fitOptions, options.length]);
+  }, [isOpen, menuWidth, fitOptions, options.length, closeOnAncestorScroll]);
 
   useLayoutEffect(() => {
     if (autoOpen) openMenu();

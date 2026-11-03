@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { parse, derivative } from "./equationMath";
-import { createDerivedEquationCache } from "./derivedEquationCache";
+import { createDerivedEquationCache, getDerivedEquationPlan } from "./derivedEquationCache";
+import { validateEquation } from "./equationValidation";
 import { calculateDerivedUncertainty } from "./uncertaintyMath";
 
 describe("derived equation programs", () => {
@@ -21,6 +22,25 @@ describe("derived equation programs", () => {
       expect(second.compiled.evaluate(scope)).toBe(2);
     }
     expect(compile).toHaveBeenCalledOnce();
+  });
+
+  it("validates a shared large equation once across points and equivalent result labels", () => {
+    const symbols = Array.from({ length: 12 }, (_, i) => `input${i}`);
+    const expression = symbols.map(symbol => `${symbol}^2`).join(" + ");
+    const plan = getDerivedEquationPlan(expression);
+    const differentiate = vi.spyOn(plan, "getDerivative");
+    try {
+      const first = validateEquation(expression);
+      expect(first).toMatchObject({ status: "ok", variables: symbols, nonDifferentiable: [] });
+      expect(differentiate).toHaveBeenCalledTimes(symbols.length);
+      first.variables.pop();
+      for (let i = 0; i < 20; i++) {
+        expect(validateEquation(`output = ${expression}`).variables).toEqual(symbols);
+      }
+      expect(differentiate).toHaveBeenCalledTimes(symbols.length);
+    } finally {
+      differentiate.mockRestore();
+    }
   });
 
   it("bounds retention while keeping recently used equations warm", () => {

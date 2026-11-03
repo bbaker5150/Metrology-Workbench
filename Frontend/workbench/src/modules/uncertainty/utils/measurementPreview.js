@@ -1,4 +1,4 @@
-import * as math from './equationMath';
+import { getDerivedEquationPlan } from './derivedEquationCache';
 import { extractEquationVariables, stripEquationPrefix } from './equationValidation';
 import { unitSystem, validateEquationUnits } from './uncertaintyMath';
 
@@ -8,10 +8,11 @@ export function measurementPreview(point, calculatedValue) {
   const target = point.testPointInfo?.parameter || {};
   try {
     const expression = stripEquationPrefix(point.equationString || '');
+    const plan = getDerivedEquationPlan(expression);
     const symbols = extractEquationVariables(expression);
     const inputs = point.variableNominals || {};
     const units = Object.fromEntries(symbols.map(symbol => [symbol, inputs[symbol]?.unit || '']));
-    const unitsMatch = validateEquationUnits(expression, units, target.unit).status === 'valid';
+    const unitsMatch = validateEquationUnits(plan.node, units, target.unit).status === 'valid';
     let value = calculatedValue;
     if (!Number.isFinite(value) || !unitsMatch) {
       const scope = {};
@@ -20,7 +21,7 @@ export function measurementPreview(point, calculatedValue) {
         if (input?.value == null || String(input.value).trim() === '' || !Number.isFinite(Number(input.value))) return { value: null, unitsMatch };
         scope[symbol] = unitsMatch ? unitSystem.toBaseUnit(Number(input.value), input.unit) : Number(input.value);
       }
-      value = math.evaluate(expression, scope);
+      value = plan.evaluate(scope);
       if (unitsMatch) value = unitSystem.fromBaseUnit(value, target.unit);
     }
     return { value: Number.isFinite(value) ? value : null, unitsMatch };

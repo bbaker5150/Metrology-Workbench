@@ -81,6 +81,9 @@ export function attachInstrumentPointerDrag(table) {
   const move = event => {
     const current = gesture;
     if (!current || event.pointerId !== current.pointerId) return;
+    // A mouse can release outside the window before we capture a drag.
+    // Returning over the row with no held button is an ordinary hover.
+    if (event.pointerType === 'mouse' && !(event.buttons & 1)) { clear(); return; }
     current.last = event;
     if (!current.started) {
       if (Math.hypot(event.clientX - current.x, event.clientY - current.y) < 6) return;

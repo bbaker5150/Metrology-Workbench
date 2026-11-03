@@ -43,6 +43,36 @@ it('selects names without expansion and opens details from its row specification
  expect(screen.queryByText('Type B')).not.toBeInTheDocument();
  expect(screen.queryByRole('combobox')).not.toBeInTheDocument();
 });
+it('selects a collapsed row from its padding or its name and leaves dragging to the pointer handler',()=>{
+ render(<Harness/>);
+ const row=document.querySelector('tr[data-instrument-id="B"]');
+ expect(row.draggable).toBe(false);
+ const name=row.querySelector('.instrument-library-name');
+ const pointer=(target,type,x,buttons)=>fireEvent(target,Object.assign(new MouseEvent(type,{
+   bubbles:true,cancelable:true,button:0,buttons,clientX:x,clientY:20
+ }),{pointerId:1,pointerType:'mouse'}));
+ pointer(name,'pointerdown',20,1);
+ pointer(window,'pointermove',23,1);
+ expect(document.querySelector('.instrument-pointer-drag-preview')).toBeNull();
+ pointer(window,'pointerup',23,0);
+ fireEvent.click(row.querySelector('.cell-description'),{detail:1});
+ fireEvent.click(name,{detail:1});
+ expect(row).toHaveClass('selected-row');
+ pointer(name,'pointerdown',20,1);
+ pointer(window,'pointermove',60,1);
+ expect(document.querySelector('.instrument-pointer-drag-preview')).toHaveTextContent('Add instrument');
+ pointer(window,'pointerup',60,0);
+ expect(document.querySelector('.instrument-pointer-drag-preview')).toBeNull();
+});
+it('keeps a range menu open for option scrolling and dismisses it when the library scrolls',()=>{
+ render(<Harness/>);
+ const trigger=document.querySelector('.instrument-range-menu button');
+ fireEvent.click(trigger);fireEvent.scroll(screen.getByRole('listbox'));
+ expect(trigger).toHaveAttribute('aria-expanded','true');
+ fireEvent.scroll(document.querySelector('.instrument-table-scroll'));
+ expect(trigger).toHaveAttribute('aria-expanded','false');
+ expect(screen.queryByRole('listbox')).toBeNull();
+});
 it('clears the leftover name focus on pointer Shift-selection while preserving keyboard focus',()=>{
  render(<Harness/>);
  const names=[...document.querySelectorAll('.instrument-library-name')];
@@ -308,11 +338,8 @@ it('toggles specifications per row while preserving multi-selection and other ex
 it('creates an instrument through the table and saves it locally',async()=>{
  const save=vi.fn();render(<Harness save={save}/>);
  fireEvent.click(screen.getByRole('button',{name:'Add instrument',exact:true}));
- await waitFor(()=>expect(save).toHaveBeenCalled());
- expect(save.mock.calls[0][0]).toMatchObject({scope:'local',manufacturer:'',model:''});
- expect(save.mock.calls[0][1]).toEqual({requireSaved:true});
+ expect(save).not.toHaveBeenCalled();
  expect(document.querySelectorAll('tr[data-instrument-id]')).toHaveLength(4);
- const createdId=save.mock.calls[0][0].id;
  const row=[...document.querySelectorAll('tr[data-instrument-id]')].find(node=>!['A','B','C'].includes(node.dataset.instrumentId));
  fireEvent.mouseDown(row.querySelector('.inline-desc-combined'),{button:0});
  const make=within(row).getByPlaceholderText('Mfr.');
@@ -320,8 +347,22 @@ it('creates an instrument through the table and saves it locally',async()=>{
  expect(screen.queryByRole('listbox',{name:'Choose instrument'})).not.toBeInTheDocument();
  fireEvent.change(make,{target:{value:'Example'}});
  expect(screen.queryByRole('listbox',{name:'Choose instrument'})).not.toBeInTheDocument();
- fireEvent.blur(make);
- await waitFor(()=>expect(save.mock.calls.at(-1)[0]).toMatchObject({id:createdId,manufacturer:'Example'}));
+ make.focus(); fireEvent.keyDown(make,{key:'Escape'});
+ await waitFor(()=>expect(save).toHaveBeenCalledTimes(1));
+ expect(save.mock.calls[0][0]).toMatchObject({scope:'local',manufacturer:'Example'});
+ expect(save.mock.calls[0][1]).toEqual({requireSaved:true});
+});
+it('discards an untouched new row on Escape without writing a library record',()=>{
+ const save=vi.fn(), remove=vi.fn();
+ const existing={id:'empty',scope:'local',description:'',functions:[]};
+ render(<Harness save={save} remove={remove} initial={[existing]}/>);
+ fireEvent.click(screen.getByRole('button',{name:'Add instrument',exact:true}));
+ expect(document.querySelectorAll('tr[data-instrument-id]')).toHaveLength(2);
+ fireEvent.keyDown(window,{key:'Escape'});
+ expect(document.querySelectorAll('tr[data-instrument-id]')).toHaveLength(1);
+ expect(document.querySelector('tr[data-instrument-id="empty"]')).not.toBeNull();
+ expect(save).not.toHaveBeenCalled();
+ expect(remove).not.toHaveBeenCalled();
 });
 it('removes only the selected records using table selection and Delete',async()=>{
  const remove=vi.fn();render(<Harness remove={remove}/>);
@@ -423,6 +464,9 @@ it('keeps failed saves available to retry',async()=>{
  const save=vi.fn().mockRejectedValueOnce(new Error('Offline')).mockResolvedValue(undefined);
  render(<Harness save={save}/>);
  fireEvent.click(screen.getByRole('button',{name:'Add instrument',exact:true}));
+ fireEvent.mouseDown(document.querySelector('.inline-desc-combined'),{button:0});
+ const model=screen.getByPlaceholderText('Model',{exact:true});
+ fireEvent.change(model,{target:{value:'Test meter'}});fireEvent.blur(model);
  expect(await screen.findByRole('alert')).toHaveTextContent('Offline');
  fireEvent.click(screen.getByRole('button',{name:'Retry save'}));
  await waitFor(()=>expect(screen.queryByRole('alert')).not.toBeInTheDocument());

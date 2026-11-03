@@ -23,6 +23,8 @@ vi.mock('@heyirisai/docx-editor-react', () => ({
       React.createElement('div', {
         className: 'mock-docx-editor',
         'data-testid': 'docx-editor',
+        'data-color-mode': props.colorMode,
+        'data-buffer-size': props.documentBuffer?.byteLength,
         'data-show-file-open': String(Boolean(props.showFileOpen)),
         'data-has-open-handler': String(typeof props.onOpen === 'function'),
       },

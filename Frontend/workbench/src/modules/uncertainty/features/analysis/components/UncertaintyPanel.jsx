@@ -1,5 +1,6 @@
 import InstrumentSpecificationsButton from "../../instruments/components/InstrumentSpecificationsButton";
 import InstrumentTableViewMenu, { useInstrumentTableView } from "./InstrumentTableViewMenu";
+import useBlankInstrumentEscape from "../../../hooks/useBlankInstrumentEscape";
 import useInstrumentSpecificationsEscape from "../../../hooks/useInstrumentSpecificationsEscape";
 import useBudgetPickerPosition from "../../../hooks/useBudgetPickerPosition";
 import { instrumentForRole } from '../../../utils/acShuntInstrumentRole';
@@ -85,6 +86,7 @@ import usePointerResize from "../../../hooks/usePointerResize";
 
 import { getBudgetRangeWarnings } from "../../../utils/pointDiagnostics";
 import { resizeTableColumn } from "../../../utils/fillTrailingColumn";
+import useTableSizeHistory, { TABLE_SIZE_RESET_EVENT } from "../../../hooks/useTableSizeHistory";
 export { getBudgetRangeWarnings } from "../../../utils/pointDiagnostics";
 import { formatRangeLabel } from "../../../utils/rangeFormatting";
 import { getNextInstrumentSelection } from "../../../utils/instrumentSelection";
@@ -2632,7 +2634,7 @@ const EditableCustomColumnHeader = ({
 };
 
 const INSTRUMENT_COLUMN_RESIZE_EVENT = "uncert-size-instrument-column";
-export const INSTRUMENT_SIZE_RESET_EVENT = "uncert-reset-ui-sizes";
+export const INSTRUMENT_SIZE_RESET_EVENT = TABLE_SIZE_RESET_EVENT;
 const INSTRUMENT_COLUMN_DEFAULTS = {
   uut: {
     description: 240,
@@ -2747,6 +2749,7 @@ const useInstrumentColumnWidths = (kind, customColumns = [], qualifierEnabled = 
   // Explicit resizing stores pixels so neighboring columns retain their widths.
   const storageKey = `uncertalytics:${scope === "workspace" ? "" : `${scope}:`}${kind}:instrument-column-widths:v2`;
   const instanceIdRef = useRef(uuidv4());
+  const beginSizeEdit = useTableSizeHistory(storageKey);
   const [widths, setWidths] = useState(() => {
     try {
       const saved = JSON.parse(window.localStorage.getItem(storageKey) || "{}");
@@ -2773,13 +2776,19 @@ const useInstrumentColumnWidths = (kind, customColumns = [], qualifierEnabled = 
   }, [kind, defaults, scope]);
 
   useEffect(() => {
-    const resetWidths = () => {
-      setWidths(defaults);
+    const resetWidths = event => {
+      if (event.detail?.key && event.detail.key !== storageKey) return;
       try {
+        const value = event.detail?.sizes?.[storageKey];
+        if (value != null) {
+          setWidths({ ...defaults, ...JSON.parse(value) });
+          return;
+        }
         window.localStorage.removeItem(storageKey);
       } catch {
         // Reset still applies to the current view when storage is blocked.
       }
+      setWidths(defaults);
     };
     window.addEventListener(INSTRUMENT_SIZE_RESET_EVENT, resetWidths);
     return () =>
@@ -2864,9 +2873,9 @@ const useInstrumentColumnWidths = (kind, customColumns = [], qualifierEnabled = 
           startWidths,
         );
       };
-      beginResize(event, { onMove: handleMove });
+      beginResize(event, { onMove: handleMove, onFinish: beginSizeEdit() });
     },
-    [beginResize, resizePair, resolvedWidths],
+    [beginResize, beginSizeEdit, resizePair, resolvedWidths],
   );
 
   return {
@@ -2878,9 +2887,13 @@ const useInstrumentColumnWidths = (kind, customColumns = [], qualifierEnabled = 
     tableWidth: widths.__absolute ? `${totalWidth}px` : "100%",
     minimumTableWidth: widths.__absolute ? totalWidth : keys.reduce((sum, key) => sum + minimumWidth(key), 0),
     startResize,
-    resizeBy: (key, delta, table) =>
-      resizePair(key, delta, table?.getBoundingClientRect().width, renderedInstrumentColumnWidths(table)),
+    resizeBy: (key, delta, table) => {
+      const finish = beginSizeEdit();
+      resizePair(key, delta, table?.getBoundingClientRect().width, renderedInstrumentColumnWidths(table));
+      finish();
+    },
     fitColumn: (key, table) => {
+      const finish = beginSizeEdit();
       const measured = measureTableColumnWidths(table, "instrumentColumn");
       const current = renderedInstrumentColumnWidths(table) || resolvedWidths;
       const next = { ...resizeTableColumn(widths.__absolute ? resolvedWidths : null, current, key, (measured[key] || current[key]) - current[key], minimumWidth(key)), __absolute: true };
@@ -2888,10 +2901,13 @@ const useInstrumentColumnWidths = (kind, customColumns = [], qualifierEnabled = 
       // left neighbour becomes the sole viewport filler until a different fit.
       next.__fillColumn = key === keys[keys.length - 1] ? keys[keys.length - 2] : keys[keys.length - 1];
       setWidths(next); saveWidths(next);
+      finish();
     },
     resetWidths: () => {
+      const finish = beginSizeEdit();
       setWidths(defaults);
       saveWidths(defaults);
+      finish();
     },
   };
 };
@@ -3104,6 +3120,7 @@ const useInstrumentTableHeight = (view, kind, instrumentCount = 0) => {
   const tableLayoutRef = useInstrumentTableLayout(containerRef);
   const [contentHeight, setContentHeight] = useState(null);
   const [resizing, setResizing] = useState(false);
+  const beginSizeEdit = useTableSizeHistory(storageKey);
   const [height, setHeight] = useState(() => {
     try {
       const saved = Number(window.localStorage.getItem(storageKey));
@@ -3114,15 +3131,18 @@ const useInstrumentTableHeight = (view, kind, instrumentCount = 0) => {
   });
 
   const [resetVersion, setResetVersion] = useState(0);
-  const resetHeight = useCallback(() => {
+  const resetHeight = useCallback(event => {
+    if (event?.detail?.key && event.detail.key !== storageKey) return;
     const container = containerRef.current;
     if (container) {
       container.style.removeProperty("height");
       container.style.removeProperty("max-height");
       container.style.removeProperty("flex");
     }
-    setHeight(null);
+    const savedHeight = Number(event?.detail?.sizes?.[storageKey]);
+    setHeight(Number.isFinite(savedHeight) && savedHeight > 0 ? savedHeight : null);
     setResetVersion(version => version + 1);
+    if (savedHeight > 0) return;
     try {
       window.localStorage.removeItem(storageKey);
     } catch {
@@ -3167,6 +3187,7 @@ const useInstrumentTableHeight = (view, kind, instrumentCount = 0) => {
       const startY = event.clientY;
       const container = containerRef.current;
       if (!container || !Number.isFinite(startY)) return;
+      const finish = beginSizeEdit();
       setResizing(true);
       const startHeight = container.getBoundingClientRect().height || height || 340;
       let nextHeight = startHeight;
@@ -3201,6 +3222,7 @@ const useInstrumentTableHeight = (view, kind, instrumentCount = 0) => {
           container.style.removeProperty("max-height");
           container.style.removeProperty("flex");
           resetHeight();
+          finish();
           return;
         }
         setHeight(nextHeight);
@@ -3209,12 +3231,13 @@ const useInstrumentTableHeight = (view, kind, instrumentCount = 0) => {
         } catch {
           // Resizing remains available for this view when storage is blocked.
         }
+        finish();
       };
       window.addEventListener("pointermove", handleMove);
       window.addEventListener("pointerup", handleUp, { once: true });
       window.addEventListener("pointercancel", handleUp, { once: true });
     },
-    [height, storageKey, resetHeight],
+    [beginSizeEdit, height, storageKey, resetHeight],
   );
 
   const displayedHeight = getDisplayedInstrumentTableHeight({
@@ -3235,7 +3258,11 @@ const useInstrumentTableHeight = (view, kind, instrumentCount = 0) => {
         }
       : { height: "auto", maxHeight: "none", flex: "0 0 auto", overflowY: "hidden" },
     startResize,
-    resetHeight,
+    resetHeight: () => {
+      const finish = beginSizeEdit();
+      resetHeight();
+      finish();
+    },
   };
 };
 
@@ -6050,7 +6077,7 @@ export const resolveUutRangeHelper = (
 // changing a point's budget assignments. Reuse the budget's menu and formatter;
 // only format the complete list while open (large readers have hundreds of rows).
 const instrumentRangeMenuKey = (range, index) => `${range.functionId || range.functionName || ""}:${range.rangeId ?? range.id ?? index}`;
-const InstrumentRangeMenu = React.memo(function InstrumentRangeMenu({ item, functionKey, referencePoint, savedTolerance, qualifierNames, contextKey }) {
+const InstrumentRangeMenu = React.memo(function InstrumentRangeMenu({ item, functionKey, referencePoint, savedTolerance, qualifierNames, contextKey, closeOnAncestorScroll }) {
   const [open, setOpen] = useState(false);
   const [selection, setSelection] = useState(null);
   const { ranges, activeIndex } = useMemo(() => resolveUutRangeHelper(item, null, savedTolerance, referencePoint, functionKey),
@@ -6068,7 +6095,7 @@ const InstrumentRangeMenu = React.memo(function InstrumentRangeMenu({ item, func
   if (!ranges.length) return <span className="budget-range-selector instrument-range-menu">Range: Not Set</span>;
   return <InlineMenuSelect className="budget-range-selector instrument-range-menu"
     ariaLabel={`Ranges and specifications for ${formatInstrumentIdentity(item, "Untitled instrument")}`}
-    width="max-content" menuWidth={440} showOptionMeta={false} blurOnPointerClose
+    width="max-content" menuWidth={440} showOptionMeta={false} blurOnPointerClose closeOnAncestorScroll={closeOnAncestorScroll}
     value={instrumentRangeMenuKey(ranges[index], index)} options={options}
     getDisplayLabel={option => `Range: ${option?.rangeLabel || "Not Set"}`}
     onOpenChange={setOpen} onChange={key => setSelection({ contextKey, key })} />;
@@ -6969,6 +6996,7 @@ const SummaryDashboard = ({
   const uutNamesOnly = simplifiedUut && !(sessionData.uuts || []).some(item => specificationsExpanded("uut", item));
   const tmdeNamesOnly = simplifiedTmde && !(sessionData.tmdes || []).some(item => specificationsExpanded("tmde", item));
   const hasExpandedSpecifications = (simplifiedUut && !uutNamesOnly) || (simplifiedTmde && !tmdeNamesOnly);
+  const rememberBlankInstrument = useBlankInstrumentEscape(sessionData, onSessionSave, keyboardShortcutsEnabled && !libraryMode);
   const summaryWorkspaceRef = useInstrumentSpecificationsEscape(hasExpandedSpecifications && keyboardShortcutsEnabled, setExpandedSpecifications);
   useEffect(() => {
     setExpandedSpecifications(current => current.size ? new Set() : current);
@@ -7756,7 +7784,10 @@ const SummaryDashboard = ({
         functions: [{ name: "", unit: "", ranges: [{ id: uuidv4(), min: "", max: "", unit: "", resolution: "", tolerances: {} }] }] },
     };
     const key = kind === "uut" ? "uuts" : "tmdes";
-    onSessionSave({ ...sessionData, [key]: [...(sessionData[key] || []), item] });
+    rememberBlankInstrument(key, item);
+    const next = { ...sessionData, [key]: [...(sessionData[key] || []), item] };
+    if (libraryMode) onSessionSave(next, { newLibraryRowId: item.id });
+    else onSessionSave(next);
     if (libraryMode) { setSelectedTmdeIds([item.id]); onLibraryExpand?.(item.id); setLastSelectionTarget("tmde"); }
     else if (kind === "uut" ? simplifiedUut : simplifiedTmde) {
       setExpandedSpecifications(current => new Set([...current, itemStateKey(kind, item.id)]));
@@ -8939,6 +8970,11 @@ const SummaryDashboard = ({
       setLastSelectionTarget("tmde");
       if (!(e.ctrlKey || e.metaKey || e.shiftKey)) setSelectedRangeIds({});
     }
+    if (libraryMode && forceSelection && e.detail > 0 && !(e.ctrlKey || e.metaKey || e.shiftKey)) {
+      setSelectedTmdeIds([id]);
+      tmdeSelectionAnchorRef.current = id;
+      return;
+    }
     handleRowSelection(
       e,
       id,
@@ -10085,19 +10121,19 @@ const SummaryDashboard = ({
                     const name = formatInstrumentIdentity(tmde, "Untitled instrument");
                     return <React.Fragment key={tmdeRowKey}>
                       {renderInstrumentDeleteButton("tmde", tmde, tmdeFnKey)}
-                      <tr data-instrument-id={tmde.id} data-measurement-area={tmdeFnKey} style={functionRowStyle(tmdeFnKey)} draggable onDragStart={event => onLibraryDragStart?.(event, tmde.id)} className={`instrument-function-row instrument-library-name-row${selectedTmdeIds.includes(tmde.id) ? " selected-row" : ""}`}>
+                      <tr data-instrument-id={tmde.id} data-measurement-area={tmdeFnKey} style={functionRowStyle(tmdeFnKey)} draggable={false}
+                        onDragStart={event => onLibraryDragStart?.(event, tmde.id)}
+                        onClick={event => {
+                          if (event.target.closest('button:not(.instrument-library-name), input, select, a')) return;
+                          handleTmdeClick(event, tmde.id, true);
+                          if (event.detail > 0) event.currentTarget.closest('table')?.querySelector('.instrument-library-name:focus')?.blur();
+                        }}
+                        className={`instrument-function-row instrument-library-name-row${selectedTmdeIds.includes(tmde.id) ? " selected-row" : ""}`}>
                       <td className="cell-description" colSpan={!libraryExpandedIds.length ? 1 : getInstrumentColumnOrder("tmde", customColumnsFor("tmde"), tmdeTableColumns.qualifierEnabled).length - 1}>
                         <div className="instrument-library-description">
                           <div className="instrument-library-name-and-range">
-                            <button className="instrument-library-name" onClick={event => {
-                              handleTmdeClick(event, tmde.id, true);
-                              // Shift can reveal the previous name button's keyboard
-                              // focus ring inside the shared selection perimeter.
-                              // Mouse selection uses that perimeter; keyboard clicks
-                              // (detail === 0) keep their focus and navigation cue.
-                              if (event.detail > 0) event.currentTarget.closest('table')?.querySelector('.instrument-library-name:focus')?.blur();
-                            }} aria-pressed={selectedTmdeIds.includes(tmde.id)} aria-label={`Select instrument ${name}`}>{name}</button>
-                            <InstrumentRangeMenu item={tmde} contextKey={sessionData.id} qualifierNames={sessionData.qualifierColumnNames?.tmde} />
+                            <button className="instrument-library-name" aria-pressed={selectedTmdeIds.includes(tmde.id)} aria-label={`Select instrument ${name}`}>{name}</button>
+                            <InstrumentRangeMenu item={tmde} contextKey={sessionData.id} qualifierNames={sessionData.qualifierColumnNames?.tmde} closeOnAncestorScroll />
                           </div>
                           {libraryRenderSpecifications?.(tmde.id)}
                         </div>
@@ -10802,6 +10838,7 @@ function DetailedView({
   const uutNamesOnly = uutView.simplified && !(sessionData.uuts || []).some(item => specificationsExpanded("uut", item));
   const tmdeNamesOnly = tmdeView.simplified && !(sessionData.tmdes || []).some(item => specificationsExpanded("tmde", item));
   const hasExpandedSpecifications = (uutView.simplified && !uutNamesOnly) || (tmdeView.simplified && !tmdeNamesOnly);
+  const rememberBlankInstrument = useBlankInstrumentEscape(sessionData, onSessionSave, keyboardShortcutsEnabled);
   const detailWorkspaceRef = useInstrumentSpecificationsEscape(hasExpandedSpecifications, setExpandedSpecifications);
   const [budgetTmdePicker, setBudgetTmdePicker] = useState(null);
   useExclusiveMenu(Boolean(budgetTmdePicker), () => setBudgetTmdePicker(null));
@@ -12978,6 +13015,7 @@ function DetailedView({
         functions: [{ name: "", unit: "", ranges: [{ id: uuidv4(), min: "", max: "", unit: "", resolution: "", tolerances: {} }] }] },
     };
     const key = kind === "uut" ? "uuts" : "tmdes";
+    rememberBlankInstrument(key, item);
     onSessionSave({ ...sessionData, [key]: [...(sessionData[key] || []), item] });
   };
 
@@ -15653,7 +15691,11 @@ function DetailedView({
     [calcResults],
   );
 
-  const nominalPreview = measurementPreview(testPointData, calcResults?.calculatedNominalValue);
+  const nominalPreview = useMemo(
+    () => measurementPreview(testPointData, calcResults?.calculatedNominalValue),
+    [testPointData.equationString, testPointData.variableNominals,
+      testPointData.testPointInfo?.parameter?.unit, calcResults?.calculatedNominalValue],
+  );
   const calculatedNominal = nominalPreview.value;
   const targetNominal = parseFloat(uutNominal?.value);
 

@@ -1,3 +1,4 @@
+import { historyShortcut } from "../../../utils/historyShortcut";
 import LibraryInstrumentRow from "./LibraryInstrumentRow";
 import { instrumentForRole } from "../../../utils/acShuntInstrumentRole";
 import { instrumentDeleteTarget } from "../../../utils/instrumentIdentity";
@@ -320,6 +321,7 @@ const UniversalInstrumentModal = ({
     const [activeFunctionId, setActiveFunctionId] = useState(null);
     const [activeTypeBId, setActiveTypeBId] = useState(null);
     const builderUndoHistoryRef = useRef([]);
+    const builderRedoHistoryRef = useRef([]);
     const builderUndoSnapshotRef = useRef(null);
     const builderUndoStateRef = useRef(null);
     const builderUndoReadyRef = useRef(false);
@@ -442,6 +444,7 @@ const UniversalInstrumentModal = ({
             JSON.stringify(previous.metaData) !== JSON.stringify(snapshot.metaData)
         );
         if (dataChanged) {
+            builderRedoHistoryRef.current = [];
             builderUndoHistoryRef.current.push(previous);
             if (builderUndoHistoryRef.current.length > MAX_BUILDER_UNDO_STEPS) {
                 builderUndoHistoryRef.current.splice(
@@ -456,6 +459,7 @@ const UniversalInstrumentModal = ({
     useEffect(() => {
         builderUndoReadyRef.current = false;
         builderUndoHistoryRef.current = [];
+        builderRedoHistoryRef.current = [];
         builderUndoSnapshotRef.current = null;
         if (!isOpen) return undefined;
 
@@ -474,26 +478,13 @@ const UniversalInstrumentModal = ({
     useEffect(() => {
         if (!isOpen || viewMode !== "edit") return undefined;
         const handleBuilderUndo = (event) => {
-            const key = String(event.key || "").toLowerCase();
-            if (
-                !(event.ctrlKey || event.metaKey) ||
-                event.altKey ||
-                event.shiftKey ||
-                key !== "z"
-            ) {
-                return;
-            }
-
-            const active = document.activeElement;
-            const isTextEntry =
-                active?.tagName === "INPUT" ||
-                active?.tagName === "TEXTAREA" ||
-                active?.isContentEditable;
-            if (isTextEntry) return; // retain the browser's native typing undo
-
-            const previous = builderUndoHistoryRef.current.pop();
+            const direction = historyShortcut(event);
+            if (!direction) return;
+            const redo = direction === "redo";
+            const previous = (redo ? builderRedoHistoryRef : builderUndoHistoryRef).current.pop();
             if (!previous) return;
             event.preventDefault();
+            (redo ? builderUndoHistoryRef : builderRedoHistoryRef).current.push(builderUndoSnapshotRef.current);
             builderApplyingUndoRef.current = true;
             builderUndoSnapshotRef.current = JSON.parse(JSON.stringify(previous));
             setInstrumentDef(previous.instrumentDef);

@@ -22,6 +22,7 @@ beforeAll(() => {
 });
 
 beforeEach(() => {
+  localStorage.clear();
   axios.post.mockReset();
 });
 
@@ -600,6 +601,8 @@ describe("UniversalInstrumentModal library synchronization", () => {
     await waitFor(() => {
       expect(within(rangesTable).getAllByRole("row")).toHaveLength(2);
     });
+    fireEvent.keyDown(window, { key: "y", ctrlKey: true });
+    await waitFor(() => expect(within(rangesTable).getAllByRole("row")).toHaveLength(3));
   });
 
   test("stores the workbook-style single-sided tolerance case", () => {

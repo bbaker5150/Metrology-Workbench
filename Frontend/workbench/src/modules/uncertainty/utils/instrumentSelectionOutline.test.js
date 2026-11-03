@@ -87,6 +87,20 @@ describe('selection perimeter', () => {
     expect(container.querySelector('svg')).toBeNull();
   });
 
+  it('keeps the last library row stroke inside all four clipped table edges', () => {
+    const library = document.createElement('div');
+    library.className = 'instrument-library-window';
+    library.innerHTML = '<div><table><tbody><tr class="instrument-function-row selected-row"><td>Last instrument</td></tr></tbody></table></div>';
+    const container = library.firstChild, table = container.firstChild;
+    const bounds = { left: 0, top: 0, right: 125, bottom: 25, width: 125, height: 25 };
+    Object.defineProperty(container, 'offsetWidth', { value: 100 });
+    container.getBoundingClientRect = table.getBoundingClientRect = table.querySelector('td').getBoundingClientRect = () => bounds;
+    const outline = createInstrumentSelectionOutline(container, table);
+    outline.sync();
+    expect(container.querySelector('path').getAttribute('d')).toBe('M0.6,0.6L99.4,0.6 M0.6,19.4L99.4,19.4 M0.6,0.6L0.6,19.4 M99.4,0.6L99.4,19.4');
+    outline.destroy();
+  });
+
   it.each([0.8, 1, 1.25])('wraps the independent action surface without an internal seam at scale %s', scale => {
     const viewport = document.createElement('div');
     viewport.className = 'instrument-table-viewport';

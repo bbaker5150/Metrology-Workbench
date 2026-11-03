@@ -17809,33 +17809,57 @@ body:not(.dark-mode)
 }
 
 .session-notes-docx-editor.ep-root {
-  --doc-primary: var(--primary-color);
-  --doc-primary-hover: color-mix(in srgb, var(--primary-color) 82%, #000);
-  --doc-primary-light: color-mix(in srgb, var(--primary-color) 12%, transparent);
-  --doc-border: var(--border-color);
-  --doc-border-light: var(--border-color);
-  --doc-bg: color-mix(in srgb, var(--content-background) 90%, var(--primary-color) 2%);
-  --doc-bg-subtle: color-mix(in srgb, var(--content-background) 96%, var(--primary-color) 2%);
-  --doc-bg-hover: color-mix(
-    in srgb,
-    var(--primary-color) 9%,
-    var(--input-background, var(--content-background, #fff))
-  );
-  --doc-bg-input: var(--input-background);
-  /* These surfaces back dropdowns and modal cards. They must resolve to an
-     opaque color; the former card/panel tokens are not defined by every app
-     theme and caused the editor to fall back to transparent backgrounds. */
-  --doc-surface: var(--content-background, var(--input-background, #fff));
-  --doc-card: var(--input-background, var(--content-background, #fff));
-  --doc-text: var(--text-color);
-  --doc-text-muted: var(--text-color-muted);
-  --doc-border-input: var(--border-color-strong, var(--border-color));
-  --doc-focus-ring: color-mix(in srgb, var(--primary-color) 40%, transparent);
+  /* Keep the editor's palette on the same light/dark tokens its portaled
+     menus use, including when Notes overrides the Workbench theme. */
+  color-scheme: light;
+  color: var(--doc-text);
   border-radius: 8px;
+  anchor-name: --notes-editor;
+}
+
+.session-notes-docx-editor.ep-root.dark {
+  color-scheme: dark;
 }
 
 .session-notes-docx-editor .docx-editor__scroll-container {
-  background: color-mix(in srgb, var(--content-background) 92%, var(--primary-color) 2%);
+  background: var(--doc-bg);
+}
+
+.session-notes-theme {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: var(--doc-text-muted);
+}
+
+.session-notes-docx-editor .session-notes-theme select {
+  appearance: auto;
+  padding: 2px 4px;
+  border: 1px solid var(--doc-border);
+  border-radius: 4px;
+  background: var(--doc-surface);
+  color: var(--doc-text);
+}
+
+/* The editing-mode picker positions its fixed menu against the button's
+   right edge. When the toolbar wraps, that button can start a row next to
+   the divider. Constrain the menu to the editor as either pane resizes. */
+.session-notes-docx-editor button[title$="(Ctrl+Shift+E)"] {
+  anchor-name: --notes-mode-button;
+}
+
+@supports (left: anchor(--notes-editor left)) {
+  .session-notes-docx-editor button[title$="(Ctrl+Shift+E)"] + div {
+    --menu-width: min(220px, calc(anchor-size(--notes-editor width) - 4px));
+    box-sizing: border-box;
+    width: var(--menu-width);
+    min-width: 0 !important;
+    left: clamp(calc(anchor(--notes-editor left) + 2px),
+                calc(anchor(--notes-mode-button right) - var(--menu-width)),
+                calc(anchor(--notes-editor right) - var(--menu-width) - 2px)) !important;
+    top: calc(anchor(--notes-mode-button bottom) + 2px) !important;
+  }
 }
 
 .session-notes-docx-actions {

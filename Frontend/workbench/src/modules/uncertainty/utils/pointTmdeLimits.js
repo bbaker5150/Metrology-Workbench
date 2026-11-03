@@ -1,6 +1,6 @@
 import { matchingResolution, resolutionRange } from "./pointLimitDisplay";
 import { dynamicMeasurementValue } from "./dynamicBudgetComponents";
-import { parse } from "./equationMath";
+import { getDerivedEquationPlan } from "./derivedEquationCache";
 import { calculateUncertaintyFromToleranceObject, unitSystem } from "./uncertaintyMath";
 import { getInstrumentRangeRows } from "./instrumentFunctionSelection";
 import { reconcileTmdeInstances, refreshTmdeInstancesFromMasters } from "./tmdeReconcile";
@@ -140,7 +140,7 @@ export function computePointTmdeLimits(point, session = {}) {
         const center=numeric(ref?.value)&&unitSystem.units[ref?.unit] ? unitSystem.toBaseUnit(Number(ref.value),ref.unit) : b.nominal;
         scope[symbol]=[center+b.lo,center+b.hi];
       }
-      [low,high]=interval(parse(validation.expression),scope).map(v=>v/unitSystem.units[nominal.unit].to_si);
+      [low,high]=interval(getDerivedEquationPlan(validation.expression).node,scope).map(v=>v/unitSystem.units[nominal.unit].to_si);
     } else {
       low=Number(nominal.value)+lowDev/unitSystem.units[nominal.unit].to_si;
       high=Number(nominal.value)+highDev/unitSystem.units[nominal.unit].to_si;

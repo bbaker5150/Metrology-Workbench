@@ -217,6 +217,46 @@ describe("session undo history", () => {
     });
   });
 
+  it("restores the stored note image after the pending session deletion finishes", async () => {
+    const session = { id: 1, testPoints: [], noteImages: [{ id: 9, fileName: "chart.png" }] };
+    axios.get.mockImplementation(async (url) => ({
+      data: url.endsWith("/sessions/") ? [session] : url.endsWith("/images/") ? [{ id: 9, data: "chart-data" }] : [],
+    }));
+    let finishDelete;
+    axios.delete.mockImplementationOnce(() => new Promise((resolve) => { finishDelete = resolve; }));
+    const { result } = renderHook(() => useSessionManager());
+    await waitFor(() => expect(result.current.currentSessionData?.id).toBe(1));
+    await act(async () => { await result.current.deleteSession(1); });
+    act(() => { expect(result.current.undoLastSessionChange()).toBe(true); });
+    expect(axios.post).not.toHaveBeenCalled();
+    await act(async () => { finishDelete({}); });
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith(expect.stringMatching(/sessions\/1\/images\/$/), {
+      imageId: 9, fileName: "chart.png", dataBase64: "chart-data",
+    }));
+  });
+
+  it("reuploads legacy note images when an import is undone and redone", async () => {
+    const { result } = renderHook(() => useSessionManager());
+    await waitFor(() => expect(result.current.currentSessionData?.id).toBe(1));
+    let id;
+    await act(async () => {
+      const imported = await result.current.importSession(
+        { testPoints: [], noteImages: [{ id: 9, fileName: "chart.png" }] },
+        new Map([["9", "imported-chart"]]),
+      );
+      id = imported.id;
+    });
+    axios.post.mockClear();
+    act(() => {
+      expect(result.current.undoLastSessionChange()).toBe(true);
+      expect(result.current.redoLastSessionChange()).toBe(true);
+    });
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith(expect.stringContaining(`/sessions/${id}/images/`), {
+      imageId: 9, fileName: "chart.png", dataBase64: "imported-chart",
+    }));
+    expect(result.current.currentSessionData?.id).toBe(id);
+  });
+
   it("keeps rapid discrete workspace actions as separate undo steps", async () => {
     const { result } = renderHook(() => useSessionManager());
 
@@ -591,4 +631,55 @@ it('sends a shared deletion password only in the request body and retains the in
     });
     expect(JSON.stringify(readRecovery())).not.toContain('password');
   } finally { log.mockRestore(); }
+});
+
+it("replays session, workspace and library changes in order and clears redo after a new edit", async () => {
+  const { result } = renderHook(() => useSessionManager());
+  await waitFor(() => expect(result.current.currentSessionData?.name).toBe("Original"));
+  act(() => result.current.addSession());
+  const added = result.current.currentSessionData;
+  act(() => result.current.updateSession({ ...added, name: "Bench" }));
+  await act(async () => result.current.saveInstrument({ id: "meter", scope: "local" }, { requireSaved: true }));
+  await act(async () => result.current.saveCustomEquation({ id: "law", name: "Gain" }));
+  await act(async () => result.current.saveBugReport({ id: "issue", title: "Display" }));
+  for (let step = 0; step < 5; step++) act(() => expect(result.current.undoLastSessionChange()).toBe(true));
+  expect(result.current.sessions).toHaveLength(1);
+  expect(result.current.instruments).toHaveLength(0);
+  expect(result.current.customEquations).toHaveLength(0);
+  expect(result.current.bugReports).toHaveLength(0);
+  for (let step = 0; step < 5; step++) act(() => expect(result.current.redoLastSessionChange()).toBe(true));
+  expect(result.current.currentSessionData).toMatchObject({ id: added.id, name: "Bench" });
+  expect(result.current.instruments[0].id).toBe("meter");
+  expect(result.current.customEquations[0].id).toBe("law");
+  expect(result.current.bugReports[0].id).toBe("issue");
+  act(() => result.current.undoLastSessionChange());
+  act(() => result.current.updateSession({ ...result.current.currentSessionData, name: "Changed" }));
+  expect(result.current.redoLastSessionChange()).toBe(false);
+  await waitFor(() => expect(axios.delete).toHaveBeenCalledWith(expect.stringContaining("/bug_reports/issue/")));
+});
+
+it("undos a library Type B edit and its linked session change together", async () => {
+  const meter = {id:'meter', scope:'local', typeBComponents:[{id:'before'}]};
+  const session = {id:1, name:'Bench', uuts:[], tmdes:[{id:'instance', instrument:{
+    ...meter, typeBComponents:[{id:'instance-before'}]
+  }}], testPoints:[]};
+  axios.get.mockImplementation(async url => ({data: url.endsWith('/sessions/') ? [session] : url.endsWith('/instruments/') ? [meter] : []}));
+  const {result} = renderHook(() => useSessionManager());
+  await waitFor(() => expect(result.current.instruments).toHaveLength(1));
+  let finish;
+  axios.post.mockImplementationOnce((_url, data) => new Promise(resolve => { finish = () => resolve({data}); }));
+  let writing;
+  act(() => { writing = result.current.saveInstrument({...meter, typeBComponents:[{id:'after'}]}, {requireSaved:true, syncSessionId:1}); });
+  await waitFor(() => expect(finish).toBeTypeOf('function'));
+  act(() => result.current.updateSession({...result.current.currentSessionData, name:'Renamed while saving'}));
+  await act(async () => { finish(); await writing; });
+  const linked = () => result.current.currentSessionData.tmdes[0].instrument.typeBComponents;
+  expect(linked()).toEqual([{id:'after'}]);
+  act(() => result.current.undoLastSessionChange());
+  expect(linked()).toEqual([{id:'instance-before'}]);
+  expect(result.current.instruments[0].typeBComponents).toEqual([{id:'before'}]);
+  expect(result.current.currentSessionData.name).toBe('Renamed while saving');
+  act(() => result.current.redoLastSessionChange());
+  expect(linked()).toEqual([{id:'after'}]);
+  expect(result.current.instruments[0].typeBComponents).toEqual([{id:'after'}]);
 });

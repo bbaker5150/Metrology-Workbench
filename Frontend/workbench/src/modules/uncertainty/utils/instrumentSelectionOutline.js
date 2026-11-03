@@ -42,6 +42,7 @@ export function createInstrumentSelectionOutline(container, table) {
   const viewport = container.closest('.instrument-table-viewport');
   const actionLayer = viewport?.querySelector('.instrument-action-layer');
   const host = actionLayer ? viewport : container;
+  const library = container.closest('.instrument-library-window');
   const overlay = document.createElementNS(SVG_NS, 'svg');
   overlay.classList.add('instrument-selection-outline');
   if (actionLayer) overlay.classList.add('instrument-selection-outline--integrated');
@@ -126,10 +127,15 @@ export function createInstrumentSelectionOutline(container, table) {
       // entirely after fractional zoom rounding. Keep its full width inside
       // the surface, after merging cells so shared seams still cancel exactly.
       const rightEdge = bounds.width / scale;
-      const insideRightEdge = x => Math.abs(x - rightEdge) <= 1 / scale
-        ? snap(Math.min(x, rightEdge - 0.75 / scale)) : x;
+      const strokeInset = 0.75 / scale;
+      const bottomEdge = bounds.height / scale;
+      // The library's scroll container also clips the first/last rows and
+      // leftmost cell. Keep the whole outline on the table at those edges.
+      const insideX = x => Math.abs(x - rightEdge) <= 1 / scale
+        ? snap(Math.min(x, rightEdge - strokeInset)) : library ? Math.max(x, snap(strokeInset)) : x;
+      const insideY = y => library ? snap(Math.max(strokeInset, Math.min(y, bottomEdge - strokeInset))) : y;
       const paths = [...groups].map(([color, rectangles]) => ({ color,
-        d: selectionPerimeter(rectangles).map(([x1, y1, x2, y2]) => `M${insideRightEdge(x1)},${y1}L${insideRightEdge(x2)},${y2}`).join(' '),
+        d: selectionPerimeter(rectangles).map(([x1, y1, x2, y2]) => `M${insideX(x1)},${insideY(y1)}L${insideX(x2)},${insideY(y2)}`).join(' '),
       }));
       const geometry = actionLayer ? { left:0, top:0, width:bounds.width / scale, height:bounds.height / scale } : {
         left: (bounds.left - containerBounds.left) / scale + container.scrollLeft - container.clientLeft,

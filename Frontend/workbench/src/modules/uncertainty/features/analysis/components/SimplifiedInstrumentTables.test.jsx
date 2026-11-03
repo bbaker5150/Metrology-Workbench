@@ -206,3 +206,23 @@ it.each(['point', 'session'])('leaves Escape to an editor outside the instrument
   expect(field).toHaveFocus();
   expect(table.querySelectorAll('[data-range-id]').length).toBeGreaterThan(0);
 });
+
+it.each(['session', 'point'])('Escape removes only an untouched new instrument in %s view', viewMode => {
+  const { container, session, save, rerender, panel } = setup(viewMode);
+  const add = container.querySelector('[data-tour="tmde-add-instrument"]');
+  fireEvent.click(add);
+  const next = save.mock.lastCall[0];
+  expect(next.tmdes).toHaveLength(session.tmdes.length + 1);
+  rerender(panel(viewMode, next));
+  fireEvent.keyDown(add, { key: 'Escape' });
+  expect(save.mock.lastCall[0].tmdes).toEqual(session.tmdes);
+
+  rerender(panel(viewMode, session));
+  fireEvent.click(add);
+  const edited = save.mock.lastCall[0];
+  const tmdes = edited.tmdes.map((row, index) => index === edited.tmdes.length - 1 ? { ...row, name: 'Bench meter' } : row);
+  rerender(panel(viewMode, { ...edited, tmdes }));
+  save.mockClear();
+  fireEvent.keyDown(add, { key: 'Escape' });
+  expect(save).not.toHaveBeenCalled();
+});

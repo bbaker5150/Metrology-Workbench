@@ -4,9 +4,9 @@ import { measureTableColumnWidths } from "../../../utils/measureTableColumnWidth
 import { measureDynamicTableEditorWidth } from "../../../utils/measureDynamicTableEditorWidth";
 import { revealBudgetEditor } from "../../../utils/budgetEditorViewport";
 import { resizeTableColumn } from "../../../utils/fillTrailingColumn";
+import useTableSizeHistory, { TABLE_SIZE_RESET_EVENT } from "../../../hooks/useTableSizeHistory";
 
 const STORAGE_PREFIX = "uncertalytics:budget-column-widths:v1:";
-const RESET_EVENT = "uncert-reset-ui-sizes";
 const CHANGE_EVENT = "uncert-size-budget-column";
 const minimumWidth = (key) => key === "actions" ? 36 : 60;
 const EDITORS = "[data-budget-editor], .budget-inline-tolerance-cell .inline-tolerance-editor, .budget-range-selector";
@@ -26,6 +26,7 @@ function readWidths(key) {
 // Capture all rendered widths on the first drag so adjacent columns stay put.
 export default function ResizableBudgetTable({ scope, columns, children }) {
   const storageKey = STORAGE_PREFIX + scope;
+  const beginSizeEdit = useTableSizeHistory(storageKey);
   const tableRef = useRef(null);
   const dragCleanup = useRef(null);
   const [saved, setSaved] = useState(() => ({ key: storageKey, widths: readWidths(storageKey) }));
@@ -119,8 +120,13 @@ export default function ResizableBudgetTable({ scope, columns, children }) {
   };
 
   useEffect(() => {
-    const reset = () => {
+    const reset = event => {
+      if (event.detail?.key && event.detail.key !== storageKey) return;
       dragCleanup.current?.();
+      if (event.detail?.sizes) {
+        setSaved({ key: storageKey, widths: readWidths(storageKey) });
+        return;
+      }
       // Clear hidden budget groups too, so the global reset is complete.
       try {
         Object.keys(localStorage).filter(key => key.startsWith(STORAGE_PREFIX)).forEach(key => localStorage.removeItem(key));
@@ -130,11 +136,11 @@ export default function ResizableBudgetTable({ scope, columns, children }) {
     const sync = (event) => {
       if (event.detail?.key === storageKey) setSaved({ key: storageKey, widths: event.detail.widths });
     };
-    window.addEventListener(RESET_EVENT, reset);
+    window.addEventListener(TABLE_SIZE_RESET_EVENT, reset);
     window.addEventListener(CHANGE_EVENT, sync);
     return () => {
       dragCleanup.current?.();
-      window.removeEventListener(RESET_EVENT, reset);
+      window.removeEventListener(TABLE_SIZE_RESET_EVENT, reset);
       window.removeEventListener(CHANGE_EVENT, sync);
     };
   }, [storageKey]);
@@ -149,16 +155,19 @@ export default function ResizableBudgetTable({ scope, columns, children }) {
   };
   const resizeColumn = (key, delta, sizes) => saveWidths(resizeTableColumn(fixed ? widths : null, sizes, key, delta, minimumWidth(key)));
   const fitColumn = key => {
+    const finish = beginSizeEdit();
     // Expanded editors already have independent content minima. Including
     // their percentage-sized nested tables in the clone recreates the cycle.
     const measured = measureTableColumnWidths(tableRef.current, "budgetColumn", { exclude: EDITORS });
     const { sizes } = snapshot();
     resizeColumn(key, Math.max(measured[key] || sizes[key], editorMinimums[key] || 0) - sizes[key], sizes);
+    finish();
   };
   const startResize = (event, key) => {
     if (event.button !== 0) return;
     event.preventDefault();
     dragCleanup.current?.();
+    const commitSize = beginSizeEdit();
     const { scale, sizes } = snapshot();
     const start = event.clientX;
     const { cursor, userSelect } = document.body.style;
@@ -173,6 +182,7 @@ export default function ResizableBudgetTable({ scope, columns, children }) {
       document.body.style.cursor = cursor;
       document.body.style.userSelect = userSelect;
       dragCleanup.current = null;
+      commitSize();
     };
     dragCleanup.current = finish;
     document.addEventListener("pointermove", move);
@@ -201,7 +211,9 @@ export default function ResizableBudgetTable({ scope, columns, children }) {
             onKeyDown={event => {
               if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
                 event.preventDefault();
+                const finish = beginSizeEdit();
                 resizeColumn(key, event.key === "ArrowLeft" ? -12 : 12, snapshot().sizes);
+                finish();
               }
             }}
           />

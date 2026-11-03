@@ -27,10 +27,13 @@ const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "bas
 
 // The library is an adapter around the actual overview instrument table. Range
 // rendering, editors, selection, clipboard and creation all stay in that table.
-export default function InstrumentLibraryModal({ isOpen, onClose, instruments = [], onSaveToLibrary, onDelete, onInstrumentSynced, zoom = 1 }) {
+export default function InstrumentLibraryModal({ isOpen, onClose, instruments = [], onSaveToLibrary, onDelete, onInstrumentSynced, flushLibraryRef, libraryDraftRows, onChangeDrafts, zoom = 1 }) {
   const dragSelection = useRef(null);
   const [session, setSession] = useState(() => initialSession(instruments));
   const current = useRef(session);
+  // A blank created by Add is local to this window until its first committed
+  // edit. Existing empty library records and pasted records are ordinary rows.
+  const newRows = useRef(new Set());
   const [selection, setSelection] = useState([]);
   const [expandedIds, setExpandedIds] = useState([]);
   const [activeId, setActiveId] = useState(null);
@@ -38,27 +41,47 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
   const [notification, setNotification] = useState(null);
   const [saving, setSaving] = useState(0);
   const [error, setError] = useState("");
-  const queue = useRef(Promise.resolve());
+  const queue = useRef(null);
   const latestQueuedEdit = useRef(new Map());
   const failed = useRef(new Map());
   const lastLibrary = useRef(instruments);
+  const lastDrafts = useRef(null);
   const removing = useRef(false);
   const windowRef = useRef(null);
   const hasOpened = useRef(false);
+  useLayoutEffect(() => {
+    if (!flushLibraryRef) return;
+    flushLibraryRef.current = () => queue.current?.then(saved => saved && !failed.current.size);
+    return () => { flushLibraryRef.current = null; };
+  }, [flushLibraryRef]);
+  const queueWrite = write => {
+    const pending = (queue.current || Promise.resolve()).then(write);
+    queue.current = pending;
+    const release = () => { if (queue.current === pending) queue.current = null; };
+    pending.then(release, release);
+    return pending;
+  };
   const { position, setPosition, handleMouseDown } = useFloatingWindow({ isOpen, defaultWidth: 560, defaultHeight: 440, retainPosition: true });
   useLayoutEffect(() => {
     if (!isOpen) return;
     const collapse = event => {
-      if (event.key !== "Escape" || !expandedIds.length || event.defaultPrevented || document.querySelector('[role="alertdialog"], [role="menu"], [role="listbox"]')) return;
+      if (event.key !== "Escape" || event.defaultPrevented || document.querySelector('[role="alertdialog"], [role="menu"], [role="listbox"]')) return;
+      if (!expandedIds.length && !selection.some(id => newRows.current.has(id))) return;
       event.preventDefault(); event.stopImmediatePropagation();
       const active = document.activeElement;
       if (windowRef.current?.contains(active)) active.blur?.();
+      const discardIds = new Set([...selection, ...expandedIds].filter(id => newRows.current.has(id)));
+      if (discardIds.size) {
+        onChangeDrafts?.(current.current.tmdes.filter(row => discardIds.has(row.id)), false);
+        discardIds.forEach(id => newRows.current.delete(id));
+        replace({ ...current.current, tmdes: current.current.tmdes.filter(row => !discardIds.has(row.id)) });
+      }
       setExpandedIds([]);
       setSelection([]);
     };
     window.addEventListener("keydown", collapse, true);
     return () => window.removeEventListener("keydown", collapse, true);
-  }, [isOpen, expandedIds.length]);
+  }, [isOpen, expandedIds, selection, onChangeDrafts]);
   useEffect(() => {
     if (!isOpen) return;
     const release = event => {
@@ -95,23 +118,33 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
   }, [isOpen, setPosition, zoom]);
   const replace = next => { current.current = next; setSession(next); };
   useEffect(() => {
-    if (saving || error || lastLibrary.current === instruments) return;
+    if (saving || error || (lastLibrary.current === instruments && lastDrafts.current === libraryDraftRows)) return;
     lastLibrary.current = instruments;
+    lastDrafts.current = libraryDraftRows;
     // Keep row identities while a shared edit becomes a new local definition.
     const old = new Map(current.current.tmdes.map(row => [String(row.instrument.id), row]));
     const entries = libraryEntries(instruments);
     const ids = new Set(entries.map(item => String(item.id)));
-    replace({ ...current.current, tmdes: entries.map(instrument => {
+    const drafts = libraryDraftRows ?? current.current.tmdes.filter(row => newRows.current.has(row.id));
+    const restored = drafts.filter(row => !newRows.current.has(row.id));
+    newRows.current = new Set(drafts.map(row => row.id));
+    if (restored.length) {
+      const restoredIds = restored.map(row => row.id);
+      setExpandedIds(previous => [...new Set([...previous, ...restoredIds])]);
+      setSelection(restoredIds);
+      setActiveId(restoredIds.at(-1));
+    }
+    replace({ ...current.current, tmdes: [...entries.map(instrument => {
       const prior = old.get(String(instrument.id));
       const collision = prior && ids.has(String(prior.id)) && String(prior.id) !== String(instrument.id);
       return { ...rowFor(instrument), id: !collision && prior?.id || instrument.id };
-    }) });
-  }, [instruments, saving, error]);
+    }), ...drafts] });
+  }, [instruments, libraryDraftRows, saving, error]);
   const enqueue = definition => {
     const token = journalSession("libraryEdits", String(definition.id), { instrument: definition });
     latestQueuedEdit.current.set(definition.id, token);
     setSaving(count => count + 1);
-    queue.current = queue.current.then(async () => {
+    queueWrite(async () => {
       try {
         // Coalesce typing that is still queued behind a slower network save.
         if (latestQueuedEdit.current.get(definition.id) !== token) return;
@@ -119,21 +152,31 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
         acknowledgeSession("libraryEdits", String(definition.id), token);
         failed.current.delete(definition.id);
         if (!failed.current.size) setError("");
+        return true;
       } catch (failure) {
         failed.current.set(definition.id, definition);
         setError(failure.message || "Could not save changes.");
+        return false;
       } finally { setSaving(count => count - 1); }
     });
   };
-  const updateSession = next => {
+  const updateSession = (next, { newLibraryRowId } = {}) => {
     const previous = new Map(current.current.tmdes.map(row => [row.id, row]));
     replace({ ...next, tmdes: next.tmdes.filter(row => row.instrument?.scope !== "session") });
     for (const row of next.tmdes) {
+      if (row.id === newLibraryRowId) {
+        newRows.current.add(row.id);
+        onChangeDrafts?.([row], true);
+        continue;
+      }
       if (["session", "validated", "shared"].includes(row.instrument?.scope)) continue;
       const old = previous.get(row.id);
       if (old === row) continue;
       const definition = definitionFor(row);
-      if (!old || JSON.stringify(definitionFor(old)) !== JSON.stringify(definition)) enqueue(definition);
+      if (!old || JSON.stringify(definitionFor(old)) !== JSON.stringify(definition)) {
+        newRows.current.delete(row.id);
+        enqueue(definition);
+      }
     }
   };
   const visibleIds = useMemo(() => session.tmdes.map(row => ({ row, instrument: definitionFor(row) }))
@@ -177,21 +220,24 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
     const perform = async password => {
       if (removing.current) return;
       removing.current = true;
-      try {
-        // Complete queued edits before removing records so a late save cannot
-        // recreate an archived instrument.
-        await queue.current;
-        // Check the password at the shared storage boundary before deleting
-        // local rows from a mixed selection.
-        for (const row of [...rows].sort((a, b) => Number(isShared(b)) - Number(isShared(a)))) {
-          await onDelete(row.instrument.id, isShared(row) ? { password } : undefined);
-          failed.current.delete(row.instrument.id);
-          replace({ ...current.current, tmdes: current.current.tmdes.filter(item => item.id !== row.id) });
-        }
-        setSelection(previous => previous.filter(id => !ids.includes(id)));
-        if (!failed.current.size) setError("");
-      } catch (failure) { setNotification({ title: "Could not remove instrument", message: failure.response?.data?.detail || failure.message || "Please try again." }); }
-      finally { removing.current = false; }
+      return queueWrite(async () => {
+        try {
+          // Complete queued edits before removing records so a late save cannot
+          // recreate an archived instrument.
+          // Check the password at the shared storage boundary before deleting
+          // local rows from a mixed selection.
+          for (const row of [...rows].sort((a, b) => Number(isShared(b)) - Number(isShared(a)))) {
+            if (newRows.current.delete(row.id)) onChangeDrafts?.([row], false);
+            else await onDelete(row.instrument.id, isShared(row) ? { password } : undefined);
+            failed.current.delete(row.instrument.id);
+            replace({ ...current.current, tmdes: current.current.tmdes.filter(item => item.id !== row.id) });
+          }
+          setSelection(previous => previous.filter(id => !ids.includes(id)));
+          if (!failed.current.size) setError("");
+          return true;
+        } catch (failure) { setNotification({ title: "Could not remove instrument", message: failure.response?.data?.detail || failure.message || "Please try again." }); return false; }
+        finally { removing.current = false; }
+      });
     };
     setNotification({ title: "Remove instruments", message: `Remove ${rows.length} selected instrument${rows.length === 1 ? "" : "s"} from the library?${requiresPassword ? " Enter the shared-library password to remove shared instruments." : ""}`,
       confirmText: "Remove", ...(requiresPassword ? { inputLabel: "Shared library password", inputType: "password", validateInput: value => value.trim() ? "" : "Enter the shared-library password." } : {}),

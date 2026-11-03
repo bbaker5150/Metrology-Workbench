@@ -19,6 +19,11 @@
 // the mathjs namespace is a constant, except E (the electrical input symbol).
 
 import * as math from "./equationMath";
+import { getDerivedEquationPlan } from "./derivedEquationCache";
+
+// The bounded equation plan cache controls the lifetime of this metadata.
+const planVariables = new WeakMap();
+const planValidations = new WeakMap();
 
 // Constants the editor treats as math constants even though their lowercase
 // names are guarded specially there.
@@ -61,9 +66,10 @@ export function stripEquationPrefix(rawEquation) {
  * equation editor uses. Throws if the expression does not parse.
  */
 export function extractEquationVariables(expression) {
-  const node = math.parse(expression);
+  const plan = getDerivedEquationPlan(expression);
+  if (planVariables.has(plan)) return [...planVariables.get(plan)];
   const vars = new Set();
-  node.traverse((n, path, parent) => {
+  plan.node.traverse((n, path, parent) => {
     if (!n.isSymbolNode) return;
     // A FunctionNode's name is a SymbolNode too — never a variable.
     if (parent && parent.isFunctionNode && parent.fn === n) return;
@@ -73,7 +79,8 @@ export function extractEquationVariables(expression) {
   });
   // Traversal follows the expression, which is also the order users expect in
   // Measurement Inputs. Preserve it when a symbol is renamed.
-  return Array.from(vars);
+  planVariables.set(plan, [...vars]);
+  return [...vars];
 }
 
 /**
@@ -106,15 +113,25 @@ export function validateEquation(rawEquation) {
   }
 
   // --- 1. Parse ---
-  let node;
+  let plan;
   try {
-    node = math.parse(expression);
+    plan = getDerivedEquationPlan(expression);
   } catch (e) {
     result.status = "invalid";
     result.error = `Equation does not parse: ${e.message}`;
     return result;
   }
 
+  let cached = planValidations.get(plan);
+  if (!cached) {
+    cached = validatePlan(plan, result);
+    planValidations.set(plan, cached);
+  }
+  return { ...cached, variables: [...cached.variables], warnings: [...cached.warnings], nonDifferentiable: [...cached.nonDifferentiable] };
+}
+
+function validatePlan(plan, result) {
+  const { node } = plan;
   // --- 2. Structural checks (walk the whole tree) ---
   let structuralError = null;
   const shadowedConstants = new Set();
@@ -180,7 +197,7 @@ export function validateEquation(rawEquation) {
   }
 
   // --- 3. Variables ---
-  result.variables = extractEquationVariables(expression);
+  result.variables = extractEquationVariables(result.expression);
 
   if (shadowedConstants.size > 0) {
     const names = [...shadowedConstants];
@@ -203,7 +220,7 @@ export function validateEquation(rawEquation) {
   let probeTypeError = null;
   let producedComplex = false;
   try {
-    const compiled = node.compile();
+    const compiled = plan.compiled;
     for (const probeValue of [1, 0.5, 2]) {
       const scope = {};
       result.variables.forEach((v) => {
@@ -244,7 +261,7 @@ export function validateEquation(rawEquation) {
   // --- 5. Differentiability probe (linear engine compatibility) ---
   result.variables.forEach((symbol) => {
     try {
-      math.derivative(node, symbol);
+      plan.getDerivative(symbol);
     } catch {
       result.nonDifferentiable.push(symbol);
     }

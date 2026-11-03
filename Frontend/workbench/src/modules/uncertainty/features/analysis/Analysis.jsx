@@ -88,6 +88,8 @@ function Analysis({
   onSaveTestPoint,
   onApplyToSessionPoints,
   onNotesSave,
+  flushNotesRef,
+  recordHistoryAction,
   sessionImageCache,
   onSessionImageCacheChange,
   onLoadSessionImages,
@@ -904,6 +906,8 @@ function Analysis({
         onLoadSessionImages={onLoadSessionImages}
         onSessionSave={onSessionSave}
         onNotesSave={onNotesSave}
+        flushNotesRef={flushNotesRef}
+        recordHistoryAction={recordHistoryAction}
       />
     </Suspense>
   );

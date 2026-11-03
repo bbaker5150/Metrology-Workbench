@@ -9,6 +9,7 @@ import axios from "axios";
 import { UNCERTAINTY_API } from "../constants/constants";
 import { getDeviceKey } from "../utils/deviceKey";
 import { reconcileImportedInstruments } from "../utils/importedInstrumentLibrary";
+import { syncInstrumentBudgetComponents } from "../utils/instrumentBudgetComponents";
 
 const MAX_UNDO_STEPS = 50;
 const UNDO_COALESCE_MS = 800;
@@ -17,6 +18,23 @@ const cloneSession = (session) => {
   if (typeof structuredClone === "function") return structuredClone(session);
   return JSON.parse(JSON.stringify(session));
 };
+
+function sessionImageUploads(session, imageData) {
+  return (session.noteImages || []).flatMap(({ id, fileName, fileObject }) => {
+    const data = imageData.get(id) || imageData.get(String(id)) || fileObject;
+    return data ? [{ id, fileName, fileObject: data }] : [];
+  });
+}
+
+// Undo can be followed immediately by redo. Serialize writes to the same
+// record so a slow DELETE cannot overtake the subsequent restoring POST.
+function queueRecordWrite(queues, key, write) {
+  const pending = (queues.get(key) || Promise.resolve()).catch(() => {}).then(write);
+  queues.set(key, pending);
+  const release = () => { if (queues.get(key) === pending) queues.delete(key); };
+  pending.then(release, release);
+  return pending;
+}
 
 // Session collections share unchanged rows. Compare only replacement rows so a
 // point edit does not serialize every other point and its instrument snapshots.
@@ -170,6 +188,8 @@ const useSessionManager = () => {
   const [sessions, setSessions] = useState([]);
   const [sessionsLoaded, setSessionsLoaded] = useState(false);
   const [instruments, setInstruments] = useState([]);
+  const [libraryDraftRows, setLibraryDraftRows] = useState([]);
+  const libraryDraftRowsRef = useRef([]);
   const [instrumentsLoaded, setInstrumentsLoaded] = useState(false);
   const [customEquations, setCustomEquations] = useState([]);
   const [bugReports, setBugReports] = useState([]);
@@ -179,11 +199,13 @@ const useSessionManager = () => {
   const selectedSessionIdRef = useRef(null);
   const selectedTestPointIdRef = useRef(null);
   const instrumentsRef = useRef([]);
+  const sharedDataRef = useRef({ equations: [], bug_reports: [] });
   const instrumentSaveQueuesRef = useRef(new Map());
   // One chronological history for the whole uncertainty workspace. Keeping a
   // per-session map made Ctrl+Z depend on whichever session happened to be
   // selected and left add/delete/import outside undo entirely.
   const undoHistoryRef = useRef([]);
+  const redoHistoryRef = useRef([]);
   const undoSequenceRef = useRef(0);
   const persistTimersRef = useRef(new Map());
   const pendingPersistRef = useRef(new Map());
@@ -233,9 +255,12 @@ const useSessionManager = () => {
     const now = Date.now();
     const history = undoHistoryRef.current;
     const lastEntry = history[history.length - 1];
+    const afterUndo = redoHistoryRef.current.length > 0;
+    redoHistoryRef.current.length = 0;
     const shouldCoalesce =
-      entry.kind === "session" &&
-      lastEntry?.kind === "session" &&
+      !afterUndo &&
+      (entry.kind === "session" || entry.kind === "action") &&
+      lastEntry?.kind === entry.kind &&
       lastEntry?.groupKey === groupKey &&
       lastEntry?.scopeKey === entry.scopeKey &&
       now - lastEntry.recordedAt <= UNDO_COALESCE_MS;
@@ -245,7 +270,7 @@ const useSessionManager = () => {
       // check discarded a full large-session copy on every typing keystroke.
       const snapshot = entry.kind === "session"
         ? { session: cloneSession(entry.session) }
-        : { sessions: cloneSession(entry.sessions) };
+        : entry.kind === "workspace" ? { sessions: cloneSession(entry.sessions) } : {};
       history.push({ ...entry, ...snapshot, groupKey, recordedAt: now });
       if (history.length > MAX_UNDO_STEPS) {
         history.splice(0, history.length - MAX_UNDO_STEPS);
@@ -254,8 +279,25 @@ const useSessionManager = () => {
       // Preserve the original before-snapshot while extending a typing/editing
       // burst, exactly as a native editor treats it as one undo step.
       lastEntry.recordedAt = now;
+      if (entry.kind === "action") lastEntry.after = entry.after;
     }
   }, []);
+
+  const recordHistoryAction = useCallback((before, after, restore, groupKey) => {
+    pushUndoEntry({ kind: "action", before, after, restore }, groupKey);
+  }, [pushUndoEntry]);
+
+  const setDraftPresence = useCallback((rows, present) => {
+    const ids = new Set(rows.map(row => row.id));
+    const others = libraryDraftRowsRef.current.filter(row => !ids.has(row.id));
+    libraryDraftRowsRef.current = present ? [...others, ...rows] : others;
+    setLibraryDraftRows(libraryDraftRowsRef.current);
+  }, []);
+  const changeLibraryDrafts = useCallback((rows, present) => {
+    const restore = value => setDraftPresence(rows, value);
+    recordHistoryAction(!present, present, restore, `library-drafts:${++undoSequenceRef.current}`);
+    restore(present);
+  }, [setDraftPresence, recordHistoryAction]);
 
   const recordUndoSnapshot = useCallback((session, groupKey) => {
     if (!session || !groupKey) return;
@@ -271,12 +313,13 @@ const useSessionManager = () => {
     );
   }, [pushUndoEntry]);
 
-  const recordWorkspaceUndoSnapshot = useCallback((groupKey) => {
+  const recordWorkspaceUndoSnapshot = useCallback((groupKey, imageBackup) => {
     pushUndoEntry(
       {
         kind: "workspace",
         scopeKey: "workspace",
         sessions: sessionsRef.current,
+        imageBackup,
         selectedSessionId: selectedSessionIdRef.current,
         selectedTestPointId: selectedTestPointIdRef.current,
       },
@@ -290,6 +333,7 @@ const useSessionManager = () => {
       const res = await axios.get(`${UNCERTAINTY_API}/sessions/`);
       const loaded = recoverSessions(Array.isArray(res.data) ? res.data : []);
       undoHistoryRef.current.length = 0;
+      redoHistoryRef.current.length = 0;
       replaceSessions(loaded);
       if (loaded.length > 0) {
         setSelectedSessionId((prev) =>
@@ -345,7 +389,8 @@ const useSessionManager = () => {
         throw equationResult.reason;
       }
       const eqRes = equationResult.value;
-      setCustomEquations(Array.isArray(eqRes.data) ? eqRes.data : []);
+      sharedDataRef.current.equations = Array.isArray(eqRes.data) ? eqRes.data : [];
+      setCustomEquations(sharedDataRef.current.equations);
     } catch (e) {
       console.error("Failed to load custom equations from backend", e);
     }
@@ -356,9 +401,8 @@ const useSessionManager = () => {
       }
       const bugRes = bugResult.value;
       const bugs = Array.isArray(bugRes.data) ? bugRes.data : [];
-      setBugReports(
-        bugs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp))
-      );
+      sharedDataRef.current.bug_reports = bugs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+      setBugReports(bugs);
     } catch (e) {
       console.error("Failed to load bug reports from backend", e);
     }
@@ -485,17 +529,73 @@ const useSessionManager = () => {
     };
   }, []);
 
+  const commitLibrarySession = useCallback(session => {
+    replaceSessions(records => records.map(item => item.id === session.id ? session : item));
+    persistSessionDebounced(session);
+  }, [persistSessionDebounced, replaceSessions]);
+
+  const recordLibraryChange = useCallback((id, before, after, syncSessionId) => {
+    // A matching session instance can have its own Type B collection before a
+    // library edit. Retain the actual row values for both sides of this step.
+    const session = sessionsRef.current.find(item => item.id === syncSessionId);
+    const next = session && after ? syncInstrumentBudgetComponents(session, after) : session;
+    const sessionChanged = next !== session;
+    if (sessionChanged) commitLibrarySession(next);
+    // Shared writes require a fresh authorization at their storage boundary.
+    if ([before, after].some(item => item && (item.password || ["validated", "shared"].includes(item.scope)))) return;
+    if (!sessionChanged && sameSessionValue(before, after)) return;
+    const draft = after && !before && libraryDraftRowsRef.current.find(row => row.instrument.id === id);
+    if (draft) setDraftPresence([draft], false);
+    const snapshot = (record, source) => {
+      if (!sessionChanged) return { record };
+      const rows = { uuts: new Map(), tmdes: new Map() };
+      for (const key of ["uuts", "tmdes"]) {
+        (source[key] || []).forEach((row, index) => {
+          if (session[key][index] !== next[key][index]) rows[key].set(row.id, row.instrument?.typeBComponents);
+        });
+      }
+      return { record, rows };
+    };
+    const restore = ({ record: item, rows }) => {
+      // Undoing the first committed edit returns to the exact blank row added
+      // in the preceding history step, without saving that blank to disk.
+      if (draft) setDraftPresence([draft], !item);
+      const live = rows && sessionsRef.current.find(value => value.id === syncSessionId);
+      if (live) {
+        const restored = { ...live };
+        for (const key of ["uuts", "tmdes"]) {
+          restored[key] = (live[key] || []).map(row => rows[key].has(row.id)
+            ? { ...row, instrument: { ...row.instrument, typeBComponents: rows[key].get(row.id) } } : row);
+        }
+        commitLibrarySession(restored);
+      }
+      replaceInstruments(records => {
+        const other = records.filter(record => String(record.id) !== String(id));
+        return item ? [...other, item] : other;
+      });
+      const url = `${UNCERTAINTY_API}/instruments/`;
+      queueRecordWrite(instrumentSaveQueuesRef.current, String(id), () => item
+        ? axios.post(url, item)
+        : axios.delete(`${url}${encodeURIComponent(id)}/`, { params: { owner: getDeviceKey() } })
+      ).catch(error => console.error("Failed to persist instrument history", error));
+    };
+    recordHistoryAction(snapshot(before, session), snapshot(after, next), restore,
+      `library:${id}:${!sessionChanged && before && after ? "edit" : ++undoSequenceRef.current}`);
+  }, [commitLibrarySession, recordHistoryAction, replaceInstruments, setDraftPresence]);
+
   // --- 2.1 Persist Instrument ---
   // Stamp the owner key and default new instruments to the local library.
   // A validated save (scope === "validated") must additionally carry a
   // `password`; that flow is driven by the caller (sync action), not here.
-  const saveInstrument = useCallback(async (instrument, { requireSaved = false } = {}) => {
+  const saveInstrument = useCallback(async (instrument, { requireSaved = false, recordHistory = true, syncSessionId } = {}) => {
     let payload = {
       ...instrument,
       owner: instrument.owner || getDeviceKey(),
       scope: instrument.scope || "local",
     };
 
+    const before = instrumentsRef.current.find(item => String(item.id) === String(payload.id));
+    if (recordHistory && !requireSaved) recordLibraryChange(payload.id, before, payload, syncSessionId);
     if (!requireSaved) replaceInstruments(prev => prev.some(item => String(item.id) === String(payload.id))
       ? prev.map(item => String(item.id) === String(payload.id) ? payload : item)
       : [...prev, payload]);
@@ -514,25 +614,26 @@ const useSessionManager = () => {
     }
 
     const key = String(payload.id);
-    const previous = instrumentSaveQueuesRef.current.get(key) || Promise.resolve();
-    const request = previous.catch(() => {}).then(() => axios.post(`${UNCERTAINTY_API}/instruments/`, payload));
-    instrumentSaveQueuesRef.current.set(key, request);
+    const request = queueRecordWrite(instrumentSaveQueuesRef.current, key, () => axios.post(`${UNCERTAINTY_API}/instruments/`, payload));
     try {
       const res = await request;
       // Reconcile with the server's canonical record (scope/snapshot resolution).
-      if (res?.data?.id) {
-        replaceInstruments((prev) => prev.some(i => String(i.id) === String(res.data.id))
-          ? prev.map(i => String(i.id) === String(res.data.id) ? res.data : i)
-          : [...prev, res.data]);
+      const saved = res?.data?.id ? res.data : payload;
+      if (requireSaved && recordHistory) {
+        const prior = instrumentsRef.current.find(item => String(item.id) === String(saved.id));
+        recordLibraryChange(saved.id, prior, saved, syncSessionId);
       }
-      return res?.data?.id ? res.data : payload;
+      if (requireSaved || (res?.data?.id && instrumentSaveQueuesRef.current.get(key) == null)) {
+        replaceInstruments((prev) => prev.some(i => String(i.id) === String(saved.id))
+          ? prev.map(i => String(i.id) === String(saved.id) ? saved : i)
+          : [...prev, saved]);
+      }
+      return saved;
     } catch (e) {
       console.error("Failed to save instrument to backend", e);
       if (requireSaved) throw e;
-    } finally {
-      if (instrumentSaveQueuesRef.current.get(key) === request) instrumentSaveQueuesRef.current.delete(key);
     }
-  }, [replaceInstruments]);
+  }, [recordLibraryChange, replaceInstruments]);
 
   // Library edits are journaled before entering the modal's save queue, so an
   // interrupted app can restore even the latest edit that never reached POST.
@@ -540,7 +641,7 @@ const useSessionManager = () => {
     if (!instrumentsLoaded) return;
     const retry = () => {
       for (const [id, entry] of Object.entries(readRecovery().libraryEdits || {})) {
-        saveInstrument(entry.instrument, { requireSaved: true }).then(() => {
+        saveInstrument(entry.instrument, { requireSaved: true, recordHistory: false }).then(() => {
           acknowledgeSession("libraryEdits", id, entry.token);
         }).catch(() => {}); // Keep failed entries for the next reconnect/reopen.
       }
@@ -573,10 +674,12 @@ const useSessionManager = () => {
   // --- 2.2 Delete Instrument ---
   const deleteInstrument = useCallback(async (instrumentId, { password } = {}) => {
     try {
-      await axios.delete(`${UNCERTAINTY_API}/instruments/${instrumentId}/`, {
+      const before = instrumentsRef.current.find(item => String(item.id) === String(instrumentId));
+      await queueRecordWrite(instrumentSaveQueuesRef.current, String(instrumentId), () => axios.delete(`${UNCERTAINTY_API}/instruments/${encodeURIComponent(instrumentId)}/`, {
         params: { owner: getDeviceKey() },
         ...(password ? { data: { password } } : {}),
-      });
+      }));
+      if (before) recordLibraryChange(instrumentId, before, undefined);
       const pending = readRecovery().libraryEdits?.[String(instrumentId)];
       if (pending) acknowledgeSession("libraryEdits", String(instrumentId), pending.token);
       replaceInstruments((prev) => prev.filter((i) => i.id !== instrumentId));
@@ -584,65 +687,32 @@ const useSessionManager = () => {
       console.error("Failed to delete instrument from backend", e);
       throw e;
     }
-  }, [replaceInstruments]);
+  }, [recordLibraryChange, replaceInstruments]);
 
-  // --- 2.2.1 Persist Custom Equation (global library, like instruments) ---
-  const saveCustomEquation = useCallback(async (equation) => {
-    setCustomEquations((prev) => {
-      const existingIdx = prev.findIndex((e) => e.id === equation.id);
-      if (existingIdx > -1) {
-        const next = [...prev];
-        next[existingIdx] = equation;
-        return next;
-      }
-      return [...prev, equation];
-    });
-
-    try {
-      await axios.post(`${UNCERTAINTY_API}/equations/`, equation);
-    } catch (e) {
-      console.error("Failed to save custom equation to backend", e);
-    }
-  }, []);
-
-  const deleteCustomEquation = useCallback(async (equationId) => {
-    setCustomEquations((prev) => prev.filter((e) => e.id !== equationId));
-    try {
-      await axios.delete(`${UNCERTAINTY_API}/equations/${equationId}/`);
-    } catch (e) {
-      console.error("Failed to delete custom equation from backend", e);
-    }
-  }, []);
-
-  // --- 2.3 Save/Update Bug Report ---
-  const saveBugReport = useCallback(async (report) => {
-    setBugReports((prev) => {
-      const idx = prev.findIndex((r) => r.id === report.id);
-      if (idx > -1) {
-        const updated = [...prev];
-        updated[idx] = report;
-        return updated.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-      }
-      return [report, ...prev].sort(
-        (a, b) => new Date(b.timestamp) - new Date(a.timestamp)
-      );
-    });
-
-    try {
-      await axios.post(`${UNCERTAINTY_API}/bug_reports/`, report);
-    } catch (e) {
-      console.error("Failed to save bug report to backend", e);
-    }
-  }, []);
-
-  const deleteBugReport = useCallback(async (reportId) => {
-    setBugReports((prev) => prev.filter((r) => r.id !== reportId));
-    try {
-      await axios.delete(`${UNCERTAINTY_API}/bug_reports/${reportId}/`);
-    } catch (e) {
-      console.error("Failed to delete bug report from backend", e);
-    }
-  }, []);
+  const editSharedRecord = useCallback((collection, id, value) => {
+    const previous = sharedDataRef.current[collection].find(item => item.id === id);
+    if (sameSessionValue(previous, value)) return;
+    const restore = record => {
+      const current = sharedDataRef.current[collection];
+      const exists = current.some(item => item.id === id);
+      const next = record
+        ? (exists ? current.map(item => item.id === id ? record : item) : [...current, record])
+        : current.filter(item => item.id !== id);
+      if (collection === "bug_reports") next.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+      sharedDataRef.current[collection] = next;
+      (collection === "equations" ? setCustomEquations : setBugReports)(next);
+      const url = `${UNCERTAINTY_API}/${collection}/`;
+      return queueRecordWrite(instrumentSaveQueuesRef.current, `${collection}:${id}`, () =>
+        record ? axios.post(url, record) : axios.delete(`${url}${encodeURIComponent(id)}/`)
+      ).catch(error => console.error(`Failed to persist ${collection} change`, error));
+    };
+    recordHistoryAction(previous, value, restore, `${collection}:${id}:${++undoSequenceRef.current}`);
+    return restore(value);
+  }, [recordHistoryAction]);
+  const saveCustomEquation = useCallback(item => editSharedRecord("equations", item.id, item), [editSharedRecord]);
+  const deleteCustomEquation = useCallback(id => editSharedRecord("equations", id, undefined), [editSharedRecord]);
+  const saveBugReport = useCallback(item => editSharedRecord("bug_reports", item.id, item), [editSharedRecord]);
+  const deleteBugReport = useCallback(id => editSharedRecord("bug_reports", id, undefined), [editSharedRecord]);
 
   // --- 3. Image Actions ---
   const loadSessionImages = useCallback(async (sessionId) => {
@@ -790,9 +860,23 @@ const useSessionManager = () => {
     ],
   );
 
-  const undoLastSessionChange = useCallback(() => {
-    const undoEntry = undoHistoryRef.current.pop();
+  const applyHistory = useCallback((from, to) => {
+    const undoEntry = from.current.pop();
     if (!undoEntry) return false;
+
+    const currentSelection = {
+      selectedSessionId: selectedSessionIdRef.current,
+      selectedTestPointId: selectedTestPointIdRef.current,
+    };
+    if (undoEntry.kind === "action") {
+      to.current.push({ ...undoEntry, before: undoEntry.after, after: undoEntry.before, recordedAt: -Infinity });
+      undoEntry.restore(undoEntry.before);
+      return true;
+    }
+    const inverse = undoEntry.kind === "workspace"
+      ? { sessions: sessionsRef.current }
+      : { session: sessionsRef.current.find(session => session.id === undoEntry.session.id) };
+    to.current.push({ ...undoEntry, ...cloneSession(inverse), ...currentSelection, recordedAt: -Infinity });
 
     if (undoEntry.kind === "workspace") {
       const currentSessions = sessionsRef.current;
@@ -804,7 +888,14 @@ const useSessionManager = () => {
       currentSessions.forEach((session) => {
         if (!restoredIds.has(String(session.id))) deleteSessionFromDisk(session.id);
       });
-      restoredSessions.forEach((session) => persistSessionDebounced(session, 0));
+      restoredSessions.forEach((session) => {
+        const backup = undoEntry.imageBackup;
+        if (backup?.sessionId === session.id && backup.images.length) {
+          persistSession(session, backup.images);
+        } else {
+          persistSessionDebounced(session, 0);
+        }
+      });
       replaceSessions(restoredSessions);
 
       const restoredSessionId = restoredSessions.some(
@@ -836,21 +927,20 @@ const useSessionManager = () => {
         : [restoredSession, ...prevSessions],
     );
 
-    const restoredSessionId = undoEntry.selectedSessionId ?? restoredSession.id;
-    const restoredPointId =
-      undoEntry.selectedTestPointId != null &&
-      restoredSession.testPoints?.some(
-        (point) => point.id === undoEntry.selectedTestPointId,
-      )
-        ? undoEntry.selectedTestPointId
-        : null;
+    const selectedSession = sessionsRef.current.find(session => session.id === undoEntry.selectedSessionId) ?? restoredSession;
+    const restoredSessionId = selectedSession.id;
+    const restoredPointId = selectedSession.testPoints?.some(point => point.id === undoEntry.selectedTestPointId)
+      ? undoEntry.selectedTestPointId : null;
     selectedSessionIdRef.current = restoredSessionId;
     selectedTestPointIdRef.current = restoredPointId;
     setSelectedSessionId(restoredSessionId);
     setSelectedTestPointId(restoredPointId);
     persistSessionDebounced(restoredSession, 0);
     return true;
-  }, [deleteSessionFromDisk, persistSessionDebounced, replaceSessions]);
+  }, [deleteSessionFromDisk, persistSession, persistSessionDebounced, replaceSessions]);
+
+  const undoLastSessionChange = useCallback(() => applyHistory(undoHistoryRef, redoHistoryRef), [applyHistory]);
+  const redoLastSessionChange = useCallback(() => applyHistory(redoHistoryRef, undoHistoryRef), [applyHistory]);
 
   const addSession = useCallback(() => {
     recordWorkspaceUndoSnapshot("workspace:add-session");
@@ -863,12 +953,36 @@ const useSessionManager = () => {
   }, [createNewSession, persistSession, recordWorkspaceUndoSnapshot, replaceSessions]);
 
   const deleteSession = useCallback(
-    (sessionId) => {
-      recordWorkspaceUndoSnapshot("workspace:delete-session");
+    async (sessionId, cachedImages = new Map()) => {
+      const session = sessionsRef.current.find(item => item.id === sessionId);
+      if (!session) return;
+      let imageBackup;
+      if (session.noteImages?.length) {
+        // A session DELETE cascades its NoteImage rows. Capture their bodies
+        // before deleting, including any upload still in the recovery journal.
+        const data = new Map(Array.from(cachedImages, ([id, body]) => [String(id), body]));
+        for (const image of readRecovery().saves?.[sessionId]?.images || []) {
+          data.set(String(image.id), image.fileObject);
+        }
+        let images = sessionImageUploads(session, data);
+        if (images.length !== session.noteImages.length) {
+          await persistQueuesRef.current.get(String(sessionId))?.catch(() => {});
+          const response = await axios.get(`${UNCERTAINTY_API}/sessions/${sessionId}/images/`);
+          for (const image of response.data) {
+            if (!data.has(String(image.id))) data.set(String(image.id), image.data);
+          }
+          images = sessionImageUploads(session, data);
+          if (sessionsRef.current.find(item => item.id === sessionId) !== session) {
+            throw new Error("The session changed while its note images were loading. Try deleting it again.");
+          }
+        }
+        imageBackup = { sessionId, images };
+      }
+      recordWorkspaceUndoSnapshot("workspace:delete-session", imageBackup);
       deleteSessionFromDisk(sessionId);
       replaceSessions((prev) => {
         const newSessions = prev.filter((s) => s.id !== sessionId);
-        if (selectedSessionId === sessionId) {
+        if (selectedSessionIdRef.current === sessionId) {
           if (newSessions.length === 0) {
             setSelectedSessionId(null);
           } else {
@@ -883,7 +997,6 @@ const useSessionManager = () => {
       deleteSessionFromDisk,
       recordWorkspaceUndoSnapshot,
       replaceSessions,
-      selectedSessionId,
     ]
   );
 
@@ -909,7 +1022,6 @@ const useSessionManager = () => {
 
   const importSession = useCallback(
     async (loadedSession, importedImages = new Map(), { requireSaved = false, reuseSharedInstruments = false } = {}) => {
-      recordWorkspaceUndoSnapshot("workspace:import-session");
       const saves = [];
       const currentSession = sessions.find(
         (session) => session.id === selectedSessionId,
@@ -923,22 +1035,16 @@ const useSessionManager = () => {
       const { session: importedSession } = reconcileImportedInstruments(prepared, {
         sharedInstruments: reuseSharedInstruments ? instruments : [],
       });
-      if (requireSaved && !(await persistSession(importedSession))) {
+      const imagesToSave = sessionImageUploads(importedSession, importedImages);
+      if (requireSaved && !(await persistSession(importedSession, imagesToSave))) {
         throw new Error("The new budget could not be saved to the database. Your current session is unchanged.");
       }
+      recordWorkspaceUndoSnapshot("workspace:import-session", { sessionId: importedSession.id, images: imagesToSave });
       replaceSessions((prev) => [importedSession, ...prev]);
       setSelectedSessionId(importedSession.id);
       setSelectedTestPointId(importedSession.testPoints?.[0]?.id || null);
 
-      const imagesToSave = (importedSession.noteImages || [])
-        .filter((image) => importedImages.has(image.id))
-        .map((image) => ({
-          id: image.id,
-          fileObject: importedImages.get(image.id),
-          fileName: image.fileName,
-        }));
-
-      if (!requireSaved || imagesToSave.length) saves.push(persistSession(importedSession, imagesToSave));
+      if (!requireSaved) saves.push(persistSession(importedSession, imagesToSave));
       await Promise.all(saves);
       return importedSession;
     },
@@ -1270,6 +1376,8 @@ const useSessionManager = () => {
     deleteCustomEquation,
     bugReports,
     saveInstrument,
+    libraryDraftRows,
+    changeLibraryDrafts,
     reconcileSyncedInstrument,
     saveBugReport,
     deleteBugReport,
@@ -1291,6 +1399,8 @@ const useSessionManager = () => {
     updateSession,
     updateSessionNotes,
     undoLastSessionChange,
+    redoLastSessionChange,
+    recordHistoryAction,
     importSession,
     saveTestPoint,
     deleteTestPoint,

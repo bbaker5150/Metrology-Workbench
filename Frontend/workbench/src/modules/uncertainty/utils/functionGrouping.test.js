@@ -173,7 +173,7 @@ describe("function deletion dependencies", () => {
     expect(dependencies.tmdes).toEqual([]);
     expect(dependencies.measurementPoints).toHaveLength(1);
     expect(getFunctionDeletionConfirmationMessage(dependencies, voltageFunction)).toBe(
-      "Delete the Voltage function and its 1 measurement point? All ranges and specifications belonging to this function will also be removed. This cannot be undone.",
+      "Delete the Voltage function and its 1 measurement point? All ranges and specifications belonging to this function will also be removed.",
     );
   });
 
@@ -200,7 +200,7 @@ describe("function deletion dependencies", () => {
     );
 
     expect(getFunctionDeletionConfirmationMessage(dependencies, voltageFunction)).toBe(
-      "Delete the Voltage function and its 1 UUT, 1 TMDE, and 2 measurement points? All ranges and specifications belonging to this function will also be removed. This cannot be undone.",
+      "Delete the Voltage function and its 1 UUT, 1 TMDE, and 2 measurement points? All ranges and specifications belonging to this function will also be removed.",
     );
   });
 

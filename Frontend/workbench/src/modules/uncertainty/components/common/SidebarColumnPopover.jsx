@@ -2,9 +2,12 @@ import useExclusiveMenu from "../../hooks/useExclusiveMenu";
 import React, { useLayoutEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 
-export default function SidebarColumnPopover({ anchorRef, onClose, children }) {
+export default function SidebarColumnPopover({ anchorRef, savedPosition, onMove, onClose, children }) {
   useExclusiveMenu(true, onClose);
   const dialogRef = useRef(null);
+  const reposition = useRef(null);
+  const callbacks = useRef(null);
+  callbacks.current = { onClose, onMove };
   useLayoutEffect(() => {
     const dialog = dialogRef.current;
     const trigger = anchorRef.current?.querySelector('button');
@@ -37,6 +40,7 @@ export default function SidebarColumnPopover({ anchorRef, onClose, children }) {
       dialog.style.top = `${position.top}px`;
     };
     // Nonmodal popovers use the top layer without making the workspace inert.
+    reposition.current = saved => { position = saved && { ...saved }; fit(); };
     dialog.showPopover?.();
     fit();
     const startDrag = event => {
@@ -50,7 +54,13 @@ export default function SidebarColumnPopover({ anchorRef, onClose, children }) {
       position = { left: drag.left + (event.clientX - drag.x) / currentZoom(), top: drag.top + (event.clientY - drag.y) / currentZoom() };
       fit();
     };
-    const endDrag = () => {
+    const endDrag = event => {
+      if (!drag || (event && event.pointerId !== drag.pointerId)) return;
+      if (event?.type === "pointerup" && (position.left !== drag.left || position.top !== drag.top)) {
+        callbacks.current.onMove?.({ ...position });
+      } else if (event?.type === "pointercancel") {
+        reposition.current(drag);
+      }
       if (drag && dialog.hasPointerCapture?.(drag.pointerId)) dialog.releasePointerCapture(drag.pointerId);
       drag = null;
     };
@@ -62,7 +72,7 @@ export default function SidebarColumnPopover({ anchorRef, onClose, children }) {
     dialog.querySelectorAll('.sidebar-column-order-list, .point-column-menu-actions, .point-column-selected .sidebar-column-order-heading')
       .forEach(node => contentObserver?.observe(node));
     const outside = event => {
-      if (!dialog.contains(event.target) && !anchorRef.current?.contains(event.target)) onClose();
+      if (!dialog.contains(event.target) && !anchorRef.current?.contains(event.target)) callbacks.current.onClose();
     };
     document.addEventListener('pointerdown', outside);
     window.addEventListener('resize', fit);
@@ -77,6 +87,7 @@ export default function SidebarColumnPopover({ anchorRef, onClose, children }) {
       observer.disconnect();
       contentObserver?.disconnect();
       endDrag();
+      reposition.current = null;
       dialog.removeEventListener('pointerdown', startDrag);
       window.removeEventListener('pointermove', moveDrag);
       window.removeEventListener('pointerup', endDrag);
@@ -86,6 +97,7 @@ export default function SidebarColumnPopover({ anchorRef, onClose, children }) {
       trigger?.focus({ preventScroll: true });
     };
   }, [anchorRef]);
+  useLayoutEffect(() => { reposition.current?.(savedPosition); }, [savedPosition]);
   return createPortal(
     <div role="dialog" popover="manual" ref={dialogRef} className="sidebar-filter-dropdown point-columns-dialog"
       aria-label="Visible measurement point columns"

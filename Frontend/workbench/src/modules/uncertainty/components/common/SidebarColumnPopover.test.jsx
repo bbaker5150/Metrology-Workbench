@@ -33,3 +33,29 @@ it('cycles keyboard focus through column settings and restores the trigger on Es
     mocks.forEach(mock => mock.mockRestore());
   }
 });
+
+it('reopens a dragged column dialog at its last position', () => {
+  function Harness() {
+    const anchorRef = useRef(null);
+    const [position, setPosition] = useState(null);
+    const [open, setOpen] = useState(false);
+    return <><div ref={anchorRef}><button onClick={() => setOpen(true)}>Columns</button></div>
+      {open && <SidebarColumnPopover anchorRef={anchorRef} savedPosition={position} onMove={setPosition} onClose={() => setOpen(false)}>
+        <div className="point-column-menu-actions">Move</div>
+      </SidebarColumnPopover>}</>;
+  }
+  render(<Harness />);
+  fireEvent.click(screen.getByText('Columns'));
+  const dialog = screen.getByRole('dialog');
+  const original = parseFloat(dialog.style.left);
+  const pointer = (type, target, x, y) => fireEvent(target, new MouseEvent(type, { bubbles: true, button: 0, clientX: x, clientY: y }));
+  pointer('pointerdown', screen.getByText('Move'), 400, 240);
+  pointer('pointermove', window, 440, 265);
+  pointer('pointerup', window, 440, 265);
+  const { left, top } = dialog.style;
+  expect(parseFloat(left)).toBe(original + 40);
+  fireEvent.keyDown(dialog, { key: 'Escape' });
+  fireEvent.click(screen.getByText('Columns'));
+  expect(screen.getByRole('dialog').style.left).toBe(left);
+  expect(screen.getByRole('dialog').style.top).toBe(top);
+});

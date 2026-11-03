@@ -97,6 +97,56 @@ beforeEach(() => {
 });
 
 describe("UncertaintyApp", () => {
+  test("undoes and redoes Add in the library before and after the first saved edit", async () => {
+    apiMock.state.sessions = [{id:1, name:'Bench', uuts:[], tmdes:[], testPoints:[], uncReq:{}}];
+    render(<ThemeProvider><NotificationProvider><MemoryRouter><UncertaintyApp /></MemoryRouter></NotificationProvider></ThemeProvider>);
+    fireEvent.click(await screen.findByRole('button',{name:'Instrument Library'}));
+    const library = await screen.findByRole('dialog',{name:'Instrument library'});
+    const shortcut = key => fireEvent.keyDown(window,{key,ctrlKey:true});
+    const row = () => library.querySelector('tr[data-instrument-id]');
+    fireEvent.click(within(library).getByRole('button',{name:'Add instrument'}));
+    const id = row().dataset.instrumentId;
+    shortcut('z'); expect(row()).toBeNull();
+    shortcut('y'); expect(row().dataset.instrumentId).toBe(id);
+    expect(apiMock.post).not.toHaveBeenCalled();
+    fireEvent.mouseDown(row().querySelector('.inline-desc-combined'),{button:0});
+    const make = within(row()).getByPlaceholderText('Mfr.');
+    fireEvent.change(make,{target:{value:'Example'}});
+    fireEvent.keyDown(make,{key:'Escape'});
+    await waitFor(() => expect(apiMock.post.mock.calls.at(-1)[1].manufacturer).toBe('Example'));
+    shortcut('z');
+    await waitFor(() => expect(row()?.querySelector('.inline-desc-combined')).toHaveTextContent('Click to add description'));
+    expect(row().dataset.instrumentId).toBe(id);
+    shortcut('z'); expect(row()).toBeNull();
+    shortcut('y'); expect(row().dataset.instrumentId).toBe(id);
+    shortcut('y'); await waitFor(() => expect(row()).toHaveTextContent('Example'));
+    expect(library.querySelectorAll('tr[data-instrument-id]')).toHaveLength(1);
+  });
+  test("waits for an in-flight library edit before applying undo and redo", async () => {
+    apiMock.state.sessions = [{id: 1, name: 'Bench', uuts: [], tmdes: [], testPoints: [], uncReq:{}}];
+    const meter = {id: 'local-meter', scope: 'local', description: 'Bench meter', model: 'Original', functions: []};
+    apiMock.state.instruments = [meter];
+    let finishSave;
+    apiMock.post.mockImplementationOnce((_url, data) => new Promise(resolve => {
+      finishSave = () => resolve({data});
+    }));
+    render(<ThemeProvider><NotificationProvider><MemoryRouter><UncertaintyApp /></MemoryRouter></NotificationProvider></ThemeProvider>);
+    fireEvent.click(await screen.findByRole('button', {name:'Instrument Library'}));
+    const library = await screen.findByRole('dialog', {name:'Instrument library'});
+    fireEvent.click(await within(library).findByRole('button', {name:/View or Edit Instrument Specifications/}));
+    fireEvent.mouseDown(library.querySelector('.inline-desc-combined'), {button:0});
+    const model = within(library).getByPlaceholderText('Model', {exact:true});
+    fireEvent.change(model, {target:{value:'New model'}});
+    act(() => model.focus());
+    fireEvent.keyDown(model, {key:'Escape'});
+    await waitFor(() => expect(finishSave).toBeTypeOf('function'));
+    fireEvent.keyDown(window, {key:'z', ctrlKey:true});
+    await act(async () => finishSave());
+    await waitFor(() => expect(apiMock.post.mock.calls.at(-1)[1].model).toBe('Original'));
+    expect(library.querySelector('.instrument-library-name')).toHaveTextContent('Original');
+    fireEvent.keyDown(window, {key:'y', ctrlKey:true});
+    await waitFor(() => expect(library.querySelector('.instrument-library-name')).toHaveTextContent('New model'));
+  });
   test("imports AC-shunt measurements directly into the first point budget with simplified tables and a blank Doc ID", async () => {
     const ti = { id: 'import-ti', type: 'uut', scope: 'validated', manufacturer: 'Fluke', model: 'Y5020 · TI',
       functions: [{ id: 'current', name: 'Current', unit: 'A', ranges: [10, 20].map(value => ({ id: `range-${value}`, min: value, max: value, unit: 'A',
@@ -514,6 +564,10 @@ describe("UncertaintyApp", () => {
     expect(displayed()).toEqual(['section', 'uut', 'warningIcons', 'value', 'lowLimit', 'measurementUncertainty', 'tur', 'pfa', 'pfr', 'gbMult', 'gbLow', 'gbPfa', 'gbPfr', 'gbCalInt', 'noGbCalInt', 'noGbMeasRel']);
     expect(menu.querySelector('.point-column-selected .filter-option-group-title')).toBeNull();
     fireEvent.click(within(menu).getByRole('button', { name: 'Add Comb. Uncertainty column' }));
+    expect(displayed().at(-1)).toBe('standardUncertainty');
+    fireEvent.keyDown(document.body, { key: "z", ctrlKey: true });
+    expect(displayed()).not.toContain('standardUncertainty');
+    fireEvent.keyDown(document.body, { key: "y", ctrlKey: true });
     expect(displayed().at(-1)).toBe('standardUncertainty');
     fireEvent.click(within(menu).getByRole('button', { name: 'Hide UUT' }));
     fireEvent.click(within(menu).getByRole('button', { name: 'Add UUT column' }));
@@ -1047,6 +1101,10 @@ describe("UncertaintyApp", () => {
     expect(resizedTableWidth).toBeGreaterThan(1000);
     expect(resizedWidths[1]).toBeCloseTo(widths[1] * 12, 5);
     expect(resizedWidths.at(-1)).toBeCloseTo(widths.at(-1) * 12, 5);
+    fireEvent.keyDown(document.body, { key: "z", ctrlKey: true });
+    expect(uutTable.querySelector("col").style.width).toContain("%");
+    fireEvent.keyDown(document.body, { key: "y", ctrlKey: true });
+    expect(parseFloat(uutTable.querySelector("col").style.width)).toBeCloseTo(resizedWidths[0], 5);
     // A reset in the other instrument view must also leave pixel sizing mode.
     fireEvent(window, new CustomEvent("uncert-size-instrument-column", {
       detail: { kind: "uut", source: "other-view", widths: {} },
@@ -1144,6 +1202,17 @@ describe("UncertaintyApp", () => {
         ),
       ).toBeNull();
     });
+
+    fireEvent.pointerDown(heightHandle, { clientY: 150 });
+    fireEvent.pointerMove(document, { clientY: 70 });
+    fireEvent.pointerUp(document);
+    const heightKey = "uncertalytics:overview:uut:instrument-table-height:v2";
+    const resizedHeight = localStorage.getItem(heightKey);
+    expect(Number(resizedHeight)).toBeGreaterThan(0);
+    fireEvent.keyDown(document.body, { key: "z", ctrlKey: true });
+    expect(localStorage.getItem(heightKey)).toBeNull();
+    fireEvent.keyDown(document.body, { key: "y", ctrlKey: true });
+    expect(localStorage.getItem(heightKey)).toBe(resizedHeight);
 
     const currentUutRow = screen.getByText("Layout UUT").closest("tr");
     // Open the editor through the real pointer sequence.
@@ -1726,6 +1795,10 @@ describe("UncertaintyApp", () => {
     fireEvent.keyDown(pointRow, { key: "Escape" });
     await waitFor(() => expect(pointRow).not.toHaveClass("active-point"));
     expect(document.querySelectorAll(".point-grid-item.active")).toHaveLength(0);
+    fireEvent.keyDown(document.body, { key: "Escape" });
+    expect(screen.getByRole("button", { name: "Add component to budget" })).toBeInTheDocument();
+    fireEvent.keyDown(document.body, { key: "Delete" });
+    expect(screen.queryByRole("alertdialog")).not.toBeInTheDocument();
     fireEvent.click(pointRow);
     expect(
       await screen.findByRole("button", { name: "Uncertainty Budget" }),
@@ -2200,6 +2273,37 @@ test('offers named TMDE columns only for session instruments and restores their 
   expect(headers.indexOf('Meter B Uncertainty')).toBeLessThan(headers.indexOf('Meter B Limits'));
 }, 20000);
 
+
+test("previews a workspace resize without laying out the point list until release", async () => {
+  apiMock.state.sessions = [{ id: 950, name: "Resize workspace", testPoints: [], uuts: [], tmdes: [], uncReq: {} }];
+  render(<ThemeProvider><NotificationProvider><MemoryRouter><UncertaintyApp /></MemoryRouter></NotificationProvider></ThemeProvider>);
+  await screen.findByTitle("Delete Session");
+  const divider = screen.getByRole("separator", { name: "Resize measurement point list" });
+  const container = divider.parentElement;
+  const sidebar = container.querySelector(".results-sidebar");
+  const startWidth = parseFloat(sidebar.style.width);
+  vi.spyOn(container, "getBoundingClientRect").mockReturnValue({ width: 1600 });
+  vi.spyOn(sidebar, "getBoundingClientRect").mockReturnValue({ width: startWidth });
+  Object.defineProperties(container, { offsetWidth: { value: 1600 }, clientWidth: { value: 1600 } });
+  fireEvent.pointerDown(divider, { button: 0, clientX: 500, pointerId: 1 });
+  fireEvent.pointerMove(document, { clientX: 610, pointerId: 1 });
+  await waitFor(() => expect(divider.style.transform).toBe("translateX(110px)"));
+  expect(sidebar.style.width).toBe(`${startWidth}px`);
+  fireEvent.pointerUp(document, { pointerId: 1 });
+  expect(divider.style.transform).toBe("");
+  expect(sidebar.style.width).toBe(`${startWidth + 110}px`);
+  fireEvent.keyDown(document.body, { key: "z", ctrlKey: true });
+  expect(sidebar.style.width).toBe(`${startWidth}px`);
+  fireEvent.keyDown(document.body, { key: "y", ctrlKey: true });
+  expect(sidebar.style.width).toBe(`${startWidth + 110}px`);
+  const hiddenTableKey = "uncertalytics:budget-column-widths:v1:hidden-test-table";
+  localStorage.setItem(hiddenTableKey, '{"limit":160}');
+  fireEvent.keyDown(document.body, { key: "0", ctrlKey: true });
+  expect(localStorage.getItem(hiddenTableKey)).toBeNull();
+  fireEvent.keyDown(document.body, { key: "z", ctrlKey: true });
+  expect(localStorage.getItem(hiddenTableKey)).toBe('{"limit":160}');
+  expect(sidebar.style.width).toBe(`${startWidth + 110}px`);
+});
 
 test("cycles through point fit, full points and instrument fit while collapsing details", async () => {
   apiMock.state.sessions = [{ id: 906, name: "Fit modes", measurementAreas: [], uuts: [], tmdes: [], testPoints: [], uncReq: {} }];

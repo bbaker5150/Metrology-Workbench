@@ -2,6 +2,7 @@ import React from "react";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import ResizableBudgetTable from "./ResizableBudgetTable";
+import { TableSizeHistoryContext } from "../../../hooks/useTableSizeHistory";
 
 const columns = [{ key: "source", label: "Source" }, { key: "limit", label: "Error Limit" }];
 const fixture = (scope = "final:length") => (
@@ -48,6 +49,23 @@ describe("budget column resizing", () => {
     localStorage.setItem('uncertalytics:budget-column-widths:v1:final:length', JSON.stringify({ source: 400, limit: 24 }));
     render(fixture());
     expect(widths()).toEqual(['400px', '24px']);
+  });
+
+  it("records a drag as one reversible change and restores it after remount", () => {
+    const record = vi.fn();
+    const table = <TableSizeHistoryContext.Provider value={record}>{fixture()}</TableSizeHistoryContext.Provider>;
+    const view = render(table);
+    fireEvent.pointerDown(screen.getByRole("button", { name: "Resize Source column" }), { button: 0, clientX: 800 });
+    for (const clientX of [750, 730, 700]) fireEvent.pointerMove(document, { clientX });
+    fireEvent.pointerUp(document);
+    expect(record).toHaveBeenCalledTimes(1);
+    const [before, after, restore] = record.mock.calls[0];
+    view.unmount();
+    act(() => restore(before));
+    render(table);
+    expect(widths()).toEqual([]);
+    act(() => restore(after));
+    expect(widths()).toEqual(["350px", "120px"]);
   });
 
   it("keeps every authored width when the workspace is wider than the table", async () => {

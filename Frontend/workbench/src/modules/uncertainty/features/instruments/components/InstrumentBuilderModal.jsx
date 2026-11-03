@@ -242,7 +242,7 @@ const InstrumentBuilderModal = ({ isOpen, onClose, onSave, onDelete, initialData
     setDeleteConfirmation({
       id,
       title: "Delete Instrument",
-      message: `Delete ${instrumentDeleteTarget([id], instruments)}? This cannot be undone.`
+      message: `Delete ${instrumentDeleteTarget([id], instruments)}?`
     });
   };
 

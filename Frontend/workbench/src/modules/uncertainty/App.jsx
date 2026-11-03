@@ -9,7 +9,6 @@ import { UnitSelect, getCollapsedSpecRows, formatRangeToleranceDetail } from "./
 import { getTmdePointColumns, isTmdePointColumn, availableTmdePointColumns, getPointTmdeSpecifications } from "./utils/pointTmdeColumns";
 import { getUutBiasDefault, getPointBiasSources } from "./utils/measurementBias";
 import useSidebarAutoWidths from "./hooks/useSidebarAutoWidths";
-import { syncInstrumentBudgetComponents } from "./utils/instrumentBudgetComponents";
 import usePageExitRecovery from "./hooks/usePageExitRecovery";
 import useWorkspaceScrollRecovery from "./hooks/useWorkspaceScrollRecovery";
 import { scrollPointViewport } from "./utils/pointViewportScroll";
@@ -18,6 +17,7 @@ import { claimWorkspaceClipboard, ownsWorkspaceClipboard, WORKSPACE_CLIPBOARD_EV
 import { normalizeSizingPreferences, physicalScopedZoom } from "./utils/scopedZoom";
 import useSelectInputText from "./hooks/useSelectInputText";
 import usePointBreakdownCursor from "./hooks/usePointBreakdownCursor";
+import { historyShortcut } from "./utils/historyShortcut";
 import PointSelectionOutline from "./components/common/PointSelectionOutline";
 import PointNumericInput from "./components/common/PointNumericInput";
 import PointRequirementCell from "./components/common/PointRequirementCell";
@@ -88,6 +88,7 @@ import { useNotifications } from "../../shared/NotificationContext";
 // --- Utils & Hooks ---
 import useSessionManager from "./hooks/useSessionManager";
 import usePointerResize from "./hooks/usePointerResize";
+import { TableSizeHistoryContext, TABLE_SIZE_RESET_EVENT } from "./hooks/useTableSizeHistory";
 import { preserveTableTextSelection } from "./utils/tableTextSelection";
 import "./App.css";
 
@@ -590,17 +591,6 @@ const SCOPED_ZOOM_SURFACE_SELECTOR = [
 
 const UNCERTAINTY_UI_PREFERENCES_PREFIX = "uncertalytics.uiPreferences.v1";
 const UNCERTAINTY_UI_SIZING_KEY = "uncertalytics.uiSizing.v1";
-const INSTRUMENT_SIZE_RESET_EVENT = "uncert-reset-ui-sizes";
-const INSTRUMENT_SIZE_STORAGE_KEYS = [
-  "uncertalytics:uut:instrument-column-widths:v2",
-  "uncertalytics:simplified:uut:instrument-column-widths:v2",
-  "uncertalytics:simplified:tmde:instrument-column-widths:v2",
-  "uncertalytics:tmde:instrument-column-widths:v2",
-  "uncertalytics:overview:uut:instrument-table-height:v1",
-  "uncertalytics:overview:tmde:instrument-table-height:v1",
-  "uncertalytics:detail:uut:instrument-table-height:v1",
-  "uncertalytics:detail:tmde:instrument-table-height:v1",
-];
 const DEFAULT_SIDEBAR_COLUMNS = Object.fromEntries(
   DEFAULT_SIDEBAR_COLUMN_ORDER.map(key => [key, INITIAL_SIDEBAR_COLUMNS.includes(key)]),
 );
@@ -2321,6 +2311,8 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
     deleteCustomEquation,
     bugReports,
     saveInstrument,
+    libraryDraftRows,
+    changeLibraryDrafts,
     reconcileSyncedInstrument,
     saveBugReport,
     deleteBugReport,
@@ -2337,6 +2329,8 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
     updateSession,
     updateSessionNotes,
     undoLastSessionChange,
+    redoLastSessionChange,
+    recordHistoryAction,
     importSession,
     saveTestPoint,
     updateTestPointData,
@@ -2455,7 +2449,6 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
   );
   const [loadedPreferencesSessionId, setLoadedPreferencesSessionId] =
     useState(null);
-  const isResizingRef = useRef(false);
   // The flex row that holds the sidebar + main pane. The resize math measures
   // the pointer against this element's box (not the viewport) so the divider
   // tracks the cursor exactly regardless of the container's padding or the
@@ -2467,6 +2460,85 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
   // --- SIDEBAR PREFERENCES ---
   const [sidebarColumns, setSidebarColumns] = useState(() => ({ ...DEFAULT_SIDEBAR_COLUMNS, ...readPointColumnDefaults().columns }));
   const [sidebarColumnOrder, setSidebarColumnOrder] = useState(() => normalizeSidebarColumnOrder(readPointColumnDefaults().order));
+  const viewHistory = useRef(null);
+  const pendingViewEdit = useRef(null);
+  const viewEditSequence = useRef(0);
+  viewHistory.current = {
+    sessionId: selectedSessionId,
+    values: { sidebarColumns, sidebarColumnOrder, sidebarColumnWidths, sidebarWidth, workspacePane,
+      sidebarAutoFit, instrumentAutoFit, isSessionInfoOpen, isRequirementsOpen, showContribution, scopedZoomLevels },
+    setters: { sidebarColumns: setSidebarColumns, sidebarColumnOrder: setSidebarColumnOrder, sidebarColumnWidths: setSidebarColumnWidths,
+      sidebarWidth: setSidebarWidth, workspacePane: setWorkspacePane, sidebarAutoFit: setSidebarAutoFit, instrumentAutoFit: setInstrumentAutoFit,
+      isSessionInfoOpen: setIsSessionInfoOpen, isRequirementsOpen: setIsRequirementsOpen, showContribution: setShowContribution, scopedZoomLevels: setScopedZoomLevels },
+  };
+  const restoreView = useCallback((patch, owner) => {
+    const current = viewHistory.current;
+    const inactivePreferences = {};
+    for (const [key, value] of Object.entries(patch)) {
+      if (owner !== current.sessionId && ["sidebarColumns", "sidebarColumnOrder", "isSessionInfoOpen", "isRequirementsOpen", "showContribution"].includes(key)) {
+        inactivePreferences[key] = value;
+      } else {
+        current.values[key] = value;
+        current.setters[key](value);
+      }
+    }
+    if (Object.keys(inactivePreferences).length) {
+      const preferences = { ...readUiPreferences(owner), ...inactivePreferences };
+      try { localStorage.setItem(getUiPreferencesStorageKey(owner), JSON.stringify(preferences)); }
+      catch (error) { console.warn("Unable to restore inactive session layout", error); }
+    }
+  }, []);
+  // Capture explicit user edits only. A column drop can both enable a column
+  // and reorder it in the same event; commit those setters as one undo step.
+  const editView = useCallback((patch, groupKey) => {
+    const { values, sessionId } = viewHistory.current;
+    const before = {}, after = {};
+    for (const [key, update] of Object.entries(patch)) {
+      before[key] = values[key];
+      after[key] = typeof update === "function" ? update(values[key]) : update;
+    }
+    if (Object.keys(after).every(key => Object.is(before[key], after[key]))) return;
+    const pending = pendingViewEdit.current ||= {
+      before: {}, after: {}, owner: sessionId, groupKey: groupKey || `view:${++viewEditSequence.current}`,
+    };
+    pending.before = { ...before, ...pending.before };
+    Object.assign(pending.after, after);
+    restoreView(after, sessionId);
+  }, [restoreView]);
+  useLayoutEffect(() => {
+    const edit = pendingViewEdit.current;
+    if (!edit) return;
+    pendingViewEdit.current = null;
+    recordHistoryAction(edit.before, edit.after, patch => restoreView(patch, edit.owner), edit.groupKey);
+  });
+  const resetWorkspaceSizes = useCallback(() => {
+    const defaults = { sidebarWidth: 550, workspacePane: "split", sidebarAutoFit: false,
+      instrumentAutoFit: false, sidebarColumnWidths: {}, scopedZoomLevels: {} };
+    const previous = Object.fromEntries(Object.keys(defaults).map(key => [key, viewHistory.current.values[key]]));
+    const savedSizes = {};
+    try {
+      const keys = Object.keys(localStorage).filter(key =>
+        key.startsWith("uncertalytics:budget-column-widths:v1:") ||
+        /^uncertalytics:.*:instrument-(?:column-widths|table-height):v\d+$/.test(key));
+      for (const key of keys) {
+        const value = localStorage.getItem(key);
+        if (value !== null) savedSizes[key] = value;
+      }
+    } catch { /* Visible panes can still be resized with storage disabled. */ }
+    const restore = ({ layout, sizes }) => {
+      restoreView(layout, viewHistory.current.sessionId);
+      try {
+        for (const key of Object.keys(savedSizes)) {
+          if (sizes[key] == null) localStorage.removeItem(key);
+          else localStorage.setItem(key, sizes[key]);
+        }
+      } catch { /* The reset event also updates mounted tables. */ }
+      window.dispatchEvent(new CustomEvent(TABLE_SIZE_RESET_EVENT, { detail: { sizes } }));
+    };
+    const next = { layout: defaults, sizes: {} };
+    recordHistoryAction({ layout: previous, sizes: savedSizes }, next, restore, `layout-reset:${++viewEditSequence.current}`);
+    restore(next);
+  }, [recordHistoryAction, restoreView]);
   // Keep explicitly enabled columns visible even if their current values are
   // blank. Hiding Section in that state made its filter appear broken and
   // prevented users from entering the first section value.
@@ -2548,27 +2620,33 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
     const startWidth =
       cell?.getBoundingClientRect().width || getSidebarColumnMinWidth(key);
     const startX = event.clientX;
-
+    const original = viewHistory.current.values.sidebarColumnWidths;
+    let finalWidths = original;
     const handleMove = (moveEvent) => {
       const next = Math.max(
         getSidebarColumnMinWidth(key),
         Math.round(startWidth + (moveEvent.clientX - startX)),
       );
-      setSidebarColumnWidths((current) =>
-        current[key] === next ? current : { ...current, [key]: next },
-      );
+      if (finalWidths[key] !== next) {
+        finalWidths = { ...finalWidths, [key]: next };
+        setSidebarColumnWidths(finalWidths);
+      }
     };
-    beginSidebarColumnResize(event, { onMove: handleMove });
-  }, [beginSidebarColumnResize]);
+    beginSidebarColumnResize(event, { onMove: handleMove, onFinish: () => {
+      if (original[key] !== finalWidths[key]) {
+        recordHistoryAction(original, finalWidths, setSidebarColumnWidths, `column-width:${++viewEditSequence.current}`);
+      }
+    } });
+  }, [beginSidebarColumnResize, recordHistoryAction]);
 
   const resetSidebarColumnWidth = useCallback((key) => {
-    setSidebarColumnWidths((current) => {
+    editView({ sidebarColumnWidths: current => {
       if (!(key in current)) return current;
       const next = { ...current };
       delete next[key];
       return next;
-    });
-  }, []);
+    } });
+  }, [editView]);
 
   const renderSidebarColumnHeader = useCallback(
     (key, label, { title = label, className = "" } = {}) => {
@@ -2617,80 +2695,34 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
 
   const [isGlobalExpanded, setIsGlobalExpanded] = useState(false);
 
-  // Resize Effect
-  useEffect(() => {
-    const handleMouseMove = (e) => {
-      if (!isResizingRef.current) return;
-
-      const container = resultsContainerRef.current;
-      if (!container) return;
-
-      // --- CONFIGURATION ---
-      const MIN_SIDEBAR_WIDTH = 300;
-      const MAX_SIDEBAR_WIDTH = 1800; // Wide workstations can expose the full measurement/risk result set
-      const MIN_CONTENT_WIDTH = 320; // The main pane scrolls cleanly below its comfortable content width
-
-      // Measure against the container's own box, not the viewport. The sidebar
-      // is laid out inside this padded element, so the desired width is the
-      // pointer's distance from the sidebar's left (content) edge:
-      //   sidebarWidth = clientX - rect.left - paddingLeft
-      // Clamping against the container's inner width (rect.width minus its
-      // horizontal padding) — instead of window.innerWidth — keeps the divider
-      // under the cursor and immune to scrollbar width + padding, so it behaves
-      // identically in a browser and in Electron. Padding is read live so it
-      // stays correct if the CSS padding changes.
-      const rect = container.getBoundingClientRect();
-      const cs = window.getComputedStyle(container);
-      const paddingLeft = parseFloat(cs.paddingLeft) || 0;
-      const paddingRight = parseFloat(cs.paddingRight) || 0;
-      const innerWidth = rect.width - paddingLeft - paddingRight;
-
-      const pointer = e.clientX - rect.left - paddingLeft;
-
-      // The available width for the sidebar reserves MIN_CONTENT_WIDTH for the
-      // main panel, capped by the hard maximum.
-      const dynamicMaxWidth = innerWidth - MIN_CONTENT_WIDTH;
-      const effectiveLimit = Math.min(MAX_SIDEBAR_WIDTH, dynamicMaxWidth);
-
-      // Apply constraints
-      const newWidth = Math.max(
-        MIN_SIDEBAR_WIDTH,
-        Math.min(pointer, effectiveLimit),
-      );
-
-      setWorkspacePane("split");
-      setSidebarAutoFit(false); setInstrumentAutoFit(false);
-      setSidebarWidth(newWidth);
-    };
-
-    const handleMouseUp = () => {
-      if (isResizingRef.current) {
-        isResizingRef.current = false;
-        document.body.style.cursor = "default";
-        document.body.style.userSelect = "auto";
-      }
-    };
-
-    window.addEventListener("mousemove", handleMouseMove);
-    window.addEventListener("mouseup", handleMouseUp);
-    window.addEventListener("blur", handleMouseUp);
-    document.addEventListener("dragstart", handleMouseUp, true);
-
-    return () => {
-      window.removeEventListener("mousemove", handleMouseMove);
-      window.removeEventListener("mouseup", handleMouseUp);
-      window.removeEventListener("blur", handleMouseUp);
-      document.removeEventListener("dragstart", handleMouseUp, true);
-      handleMouseUp();
-    };
-  }, []);
-
-  const startResizing = (e) => {
-    if (e.button !== 0) return;
-    e.preventDefault(); // Prevent text selection start
-    isResizingRef.current = true;
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none"; // Disable text selection while dragging
+  const beginWorkspaceResize = usePointerResize();
+  const startResizing = event => {
+    if (event.button !== 0) return;
+    const container = resultsContainerRef.current;
+    const divider = event.currentTarget;
+    const sidebar = container.querySelector(".results-sidebar");
+    const startX = event.clientX;
+    const scale = container.getBoundingClientRect().width / container.offsetWidth || 1;
+    const startWidth = sidebar.getBoundingClientRect().width / scale;
+    const style = getComputedStyle(container);
+    const innerWidth = container.clientWidth - (parseFloat(style.paddingLeft) || 0) - (parseFloat(style.paddingRight) || 0);
+    const maxWidth = Math.min(1800, innerWidth - divider.offsetWidth - 320);
+    let width;
+    divider.focus({ preventScroll: true });
+    // Move only the divider during the gesture. Relaying each pointer event to
+    // the workspace would reflow every visible point, table and equation.
+    beginWorkspaceResize(event, {
+      onMove: next => {
+        if (next.clientX === startX && width === undefined) return;
+        width = Math.max(300, Math.min(maxWidth, startWidth + (next.clientX - startX) / scale));
+        divider.style.transform = `translateX(${width - startWidth}px)`;
+      },
+      onFinish: () => {
+        divider.style.removeProperty("transform");
+        if (width === undefined) return;
+        editView({ workspacePane: "split", sidebarAutoFit: false, instrumentAutoFit: false, sidebarWidth: width });
+      },
+    });
   };
 
   // Unified button handler
@@ -2719,6 +2751,11 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
 
   const [isColumnMenuOpen, setIsColumnMenuOpen] = useState(false);
   const columnMenuRef = useRef(null);
+  const [columnMenuPosition, setColumnMenuPosition] = useState(null);
+  const moveColumnMenu = position => {
+    recordHistoryAction(columnMenuPosition, position, setColumnMenuPosition, `column-menu-position:${++viewEditSequence.current}`);
+    setColumnMenuPosition(position);
+  };
 
   useEffect(() => {
     const handleClickOutside = (event) => {
@@ -2768,6 +2805,10 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
 
   // --- NEW: Sidebar Multi-Select State ---
   const [selectedSidebarPointIds, setSelectedSidebarPointIds] = useState([]);
+  const [dismissedPointId, setDismissedPointId] = useState(null);
+  const highlightedActivePointId = selectedTestPointId !== dismissedPointId || selectedSidebarPointIds.includes(selectedTestPointId)
+    ? selectedTestPointId : null;
+  useEffect(() => { setDismissedPointId(null); }, [selectedTestPointId]);
   const [selectedPointArea, setSelectedPointArea] = useState(null);
   useEffect(() => {
     const deselectArea = event => {
@@ -2776,12 +2817,9 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
       // Instrument tables collapse expanded specifications on Escape. Keep
       // the current point/context mounted until that workspace handles it.
       if (document.querySelector('[data-budget-instrument-specifications-expanded="true"], [data-overview-instrument-specifications-expanded="true"]')) return;
-      // Editors/popovers own the first Escape (cancel or dismiss). Outside
-      // those controls, clear both the multi-selection and the active point;
-      // clearing only the former leaves the active-point glow behind.
+      // Clear the row highlight while keeping the open budget and its UUT context.
       if (event.target.closest?.('input, textarea, select, [aria-haspopup], .sidebar-resizer, [contenteditable="true"], [role="dialog"], [role="listbox"], [role="menu"]')) return;
-      setSelectedTestPointId(null);
-      setSelectedTestPointContextUutId(null);
+      setDismissedPointId(selectedTestPointId);
       setSelectedUutId(null);
       setCurrentUutSelection([]);
       setSidebarSelectionAnchor(null);
@@ -2791,7 +2829,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
     };
     window.addEventListener("keydown", deselectArea, true);
     return () => window.removeEventListener("keydown", deselectArea, true);
-  }, [selectedPointArea]);
+  }, [selectedTestPointId]);
   useEffect(() => {
     const clear = event => { if (["instruments", "library"].includes(event.detail?.owner)) { setSelectedPointArea(null); setSelectedSidebarPointIds([]); setSelectedTablePointIds([]); setSelectedUutId(null); if (event.detail.owner === "library") setCurrentUutSelection([]); } };
     window.addEventListener(WORKSPACE_SELECTION_EVENT, clear);
@@ -3381,12 +3419,14 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
     [clipboardKind, clipboardUut, currentSessionData, updateSession],
   );
 
+  const flushNotesRef = useRef(null);
+  const flushLibraryRef = useRef(null);
   useEffect(() => {
     const handleKeyDown = (e) => {
       // The Universal Instrument editor owns keyboard input while it is open.
       // Its list has its own Delete behavior; allowing this background handler
       // to run would delete the previously selected analysis UUT/point instead.
-      if (isInstrumentBuilderOpen || e.defaultPrevented) return;
+      if (e.defaultPrevented) return;
 
       const key = e.key.toLowerCase();
       const isTextEntry =
@@ -3394,6 +3434,23 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
         document.activeElement?.tagName === "TEXTAREA" ||
         document.activeElement?.isContentEditable;
 
+      const libraryOpen = isInstrumentBuilderOpen && instrumentModalConfig.mode === "library";
+      if (isInstrumentBuilderOpen && !libraryOpen) return;
+      const direction = historyShortcut(e);
+      if (direction) {
+        const replay = direction === "redo" ? redoLastSessionChange : undoLastSessionChange;
+        const flushes = [flushNotesRef, flushLibraryRef].map(ref => {
+          const flush = ref.current;
+          const pending = flush?.();
+          return pending && pending.then(saved => saved && ref.current === flush);
+        }).filter(Boolean);
+        if (flushes.length) {
+          e.preventDefault();
+          Promise.all(flushes).then(results => { if (results.every(Boolean)) replay(); });
+        } else if (replay()) e.preventDefault();
+        return;
+      }
+      if (isInstrumentBuilderOpen) return;
       if (
         (e.ctrlKey || e.metaKey) &&
         !e.altKey &&
@@ -3401,30 +3458,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
         key === "0"
       ) {
         e.preventDefault();
-        setSidebarWidth(550);
-        setWorkspacePane("split");
-        setSidebarAutoFit(false); setInstrumentAutoFit(false);
-        setSidebarColumnWidths({});
-        setScopedZoomLevels({});
-        try {
-          window.localStorage.setItem(
-            UNCERTAINTY_UI_SIZING_KEY,
-            JSON.stringify({
-              sidebarWidth: 550,
-              scopedZoomLevels: {},
-              sidebarColumnWidths: {},
-            }),
-          );
-          INSTRUMENT_SIZE_STORAGE_KEYS.forEach((storageKey) =>
-            window.localStorage.removeItem(storageKey),
-          );
-          Object.keys(window.localStorage)
-            .filter((storageKey) => storageKey.startsWith("uncertalytics:budget-column-widths:v1:"))
-            .forEach((storageKey) => window.localStorage.removeItem(storageKey));
-        } catch {
-          // The visible layout still resets when browser storage is blocked.
-        }
-        window.dispatchEvent(new CustomEvent(INSTRUMENT_SIZE_RESET_EVENT));
+        resetWorkspaceSizes();
         showToast("Layout sizes reset");
         return;
       }
@@ -3445,17 +3479,6 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
             handleCopyBudget(point);
           }
         }
-        return;
-      }
-
-      if (
-        (e.ctrlKey || e.metaKey) &&
-        !e.altKey &&
-        !e.shiftKey &&
-        key === "z" &&
-        (!isTextEntry || (document.activeElement?.closest('[data-qualifier-cell]') && document.activeElement?.value === ''))
-      ) {
-        if (undoLastSessionChange()) e.preventDefault();
         return;
       }
 
@@ -3503,8 +3526,8 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
         if (clipboardKind === "budget" && clipboardBudget) {
           const targetIds = selectedSidebarPointIds.length
             ? selectedSidebarPointIds
-            : selectedTestPointId
-              ? [selectedTestPointId]
+            : highlightedActivePointId
+              ? [highlightedActivePointId]
               : [];
           if (targetIds.length > 0) {
             e.preventDefault();
@@ -3521,12 +3544,12 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
 
           if (selectedUutId) {
             targetUutId = selectedUutId;
-          } else if (selectedTestPointId && selectedTestPointContextUutId) {
+          } else if (highlightedActivePointId && selectedTestPointContextUutId) {
             targetUutId = selectedTestPointContextUutId;
           }
 
-          if (targetUutId || selectedTestPointId) {
-            handlePastePoint(targetUutId, null, null, selectedUutId ? null : selectedTestPointId);
+          if (targetUutId || highlightedActivePointId) {
+            handlePastePoint(targetUutId, null, null, selectedUutId ? null : highlightedActivePointId);
           } else {
             showToast("Select a destination UUT before pasting.", "error");
           }
@@ -3545,9 +3568,9 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
           if (selectedSidebarPointIds.length > 0) {
             e.preventDefault();
             handleDeleteTestPoint(selectedSidebarPointIds);
-          } else if (selectedTestPointId) {
+          } else if (highlightedActivePointId) {
             e.preventDefault();
-            handleDeleteTestPoint(selectedTestPointId);
+            handleDeleteTestPoint(highlightedActivePointId);
           }
         }
       }
@@ -3555,7 +3578,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [
-    selectedTestPointId,
+    highlightedActivePointId,
     selectedUutId,
     selectedSidebarPointIds,
     selectedTestPointContextUutId,
@@ -3575,6 +3598,9 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
     handlePasteUut,
     showToast,
     undoLastSessionChange,
+    redoLastSessionChange,
+    resetWorkspaceSizes,
+    instrumentModalConfig.mode,
     isInstrumentBuilderOpen,
   ]);
 
@@ -3616,10 +3642,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
       });
       const zoomKey = getScopedZoomKey(surface);
       if (zoomKey) {
-        setScopedZoomLevels((current) => ({
-          ...current,
-          [zoomKey]: nextZoom,
-        }));
+        editView({ scopedZoomLevels: current => ({ ...current, [zoomKey]: nextZoom }) }, `zoom:${zoomKey}`);
       }
 
       // Surface this panel's scoped zoom level in the shared bottom-right toast,
@@ -3893,13 +3916,20 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
   };
 
   const handleDeleteSession = (sessionId) => {
-    if (!confirmRecordDeletes) { deleteSession(sessionId); return; }
+    const remove = async () => {
+      try {
+        await deleteSession(sessionId, sessionImageCache.get(sessionId));
+      } catch (error) {
+        showToast(`Could not delete the session. ${error.message}`, "error");
+      }
+    };
+    if (!confirmRecordDeletes) { void remove(); return; }
     setConfirmationModal({
       title: "Delete Session",
       message:
         "Are you sure you want to delete this session and all its measurement points?",
       onConfirm: () => {
-        deleteSession(sessionId);
+        void remove();
         setConfirmationModal(null);
       },
     });
@@ -3910,7 +3940,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
     setAppNotification({
       title: "Delete Report",
       message:
-        "Are you sure you want to delete this report? This action cannot be undone.",
+        "Are you sure you want to delete this report?",
       confirmText: "Delete",
       cancelText: "Cancel",
       isIconConfirm: false,
@@ -4300,11 +4330,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
     }
     // CASE 4: Standard Library Save
     else {
-      saveInstrument(data);
-      if (currentSessionData && data.scope !== "shared") {
-        const next = syncInstrumentBudgetComponents(currentSessionData, data);
-        if (next !== currentSessionData) updateSession(next);
-      }
+      saveInstrument(data, { syncSessionId: data.scope === "shared" ? undefined : currentSessionData?.id });
     }
 
     setIsInstrumentBuilderOpen(false);
@@ -5310,8 +5336,8 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
   const sidebarUutsById = useMemo(() => new Map((currentSessionData?.uuts || []).map(uut => [String(uut.id), uut])),
     [currentSessionData?.uuts]);
   const sidebarHighlightedPointIds = useMemo(() => new Set([
-    ...selectedSidebarPointIds, selectedTestPointId, ...selectedTablePointIds,
-  ].filter(Boolean).map(String)), [selectedSidebarPointIds, selectedTestPointId, selectedTablePointIds]);
+    ...selectedSidebarPointIds, highlightedActivePointId, ...selectedTablePointIds,
+  ].filter(Boolean).map(String)), [selectedSidebarPointIds, highlightedActivePointId, selectedTablePointIds]);
   const sidebarSelectedPointIds = useMemo(() => new Set(selectedSidebarPointIds), [selectedSidebarPointIds]);
   const tableSelectedPointIds = useMemo(() => new Set(selectedTablePointIds), [selectedTablePointIds]);
   const renderSidebarPointRow = (tp, fnGroup, points = [], index = 0) => {
@@ -5391,7 +5417,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
       visibleColumns={visibleSidebarColumns}
       tmdeColumnDefinitions={tmdeColumnDefinitions}
       isSelected={sidebarSelectedPointIds.has(tp.id)}
-      isActivePoint={selectedTestPointId === tp.id}
+      isActivePoint={highlightedActivePointId === tp.id}
       isTableSelected={tableSelectedPointIds.has(tp.id)}
       unitOptions={sidebarInstrumentChoices.get(fnGroup.id)?.units}
       liveRiskMetrics={pointRiskMap[tp.id]}
@@ -5654,36 +5680,31 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
     const from = sidebarSortGroups.find(g => g.key === source) || (addedKeys && { key: source, keys: addedKeys }), to = sidebarSortGroups.find(g => g.key === target);
     if (!from || from === to) return;
     if (!target) {
-      setSidebarColumnOrder(previous => [...previous.filter(key => !from.keys.includes(key)), ...from.keys]);
+      editView({ sidebarColumnOrder: previous => [...previous.filter(key => !from.keys.includes(key)), ...from.keys] });
       return;
     }
     if (!to) return;
-    setSidebarColumnOrder(previous => {
+    editView({ sidebarColumnOrder: previous => {
       const next = normalizeSidebarColumnOrder([...previous, ...tmdeColumnDefinitions.map(column => column.key)]).filter(key => !from.keys.includes(key));
       const movingDown = position ? position === "after" : sidebarSortGroups.indexOf(from) < sidebarSortGroups.indexOf(to);
       const insertion = movingDown ? next.indexOf(to.keys.at(-1)) + 1 : next.indexOf(to.keys[0]);
       next.splice(insertion, 0, ...from.keys);
       return next;
-    });
+    } });
   };
 
   const cycleWorkspaceFit = () => {
-    setSidebarAutoFit(false);
-    setInstrumentAutoFit(false);
+    const next = { workspacePane: "split", sidebarAutoFit: false, instrumentAutoFit: false, sidebarWidth };
     if (sidebarAutoFit) {
-      setWorkspacePane("points");
-      setIsSessionInfoOpen(false);
-      setIsRequirementsOpen(false);
+      Object.assign(next, { workspacePane: "points", isSessionInfoOpen: false, isRequirementsOpen: false });
     } else if (workspacePane === "points") {
-      setWorkspacePane("split");
       // Reveal the instrument pane before measuring its tables; a full-width
       // point list otherwise leaves the pane with no measurable content.
-      setSidebarWidth(300);
-      setInstrumentAutoFit(true);
+      Object.assign(next, { sidebarWidth: 300, instrumentAutoFit: true });
     } else {
-      setWorkspacePane("split");
-      setSidebarAutoFit(true);
+      next.sidebarAutoFit = true;
     }
+    editView(next);
   };
 
   const renderFunctionPointActions = (fnGroup) => {
@@ -5879,6 +5900,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
 
   return (
     <ThemeContext.Provider value={isDarkMode}>
+      <TableSizeHistoryContext.Provider value={recordHistoryAction}>
       <div className="App uncertainty-module">
         {/* ... (Existing Modals) ... */}
         {appNotification && (
@@ -5959,28 +5981,16 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
           zoom={scopedZoomLevels['instrument-library'] || 1}
           isOpen={isInstrumentBuilderOpen}
           onClose={() => setIsInstrumentBuilderOpen(false)}
-          instruments={instruments} onSaveToLibrary={async (instrument, options) => {
-            const saved = await saveInstrument(instrument, options);
-            if (saved && currentSessionData) {
-              const next = syncInstrumentBudgetComponents(currentSessionData, saved);
-              if (next !== currentSessionData) updateSession(next);
-            }
-            return saved;
-          }}
+          instruments={instruments} flushLibraryRef={flushLibraryRef}
+          libraryDraftRows={libraryDraftRows} onChangeDrafts={changeLibraryDrafts}
+          onSaveToLibrary={(instrument, options) => saveInstrument(instrument, { ...options, syncSessionId: currentSessionData?.id })}
           onDelete={deleteInstrument} onBatchAdd={handleBatchAddInstruments}
           onInstrumentSynced={reconcileSyncedInstrument}
         /> : <UniversalInstrumentModal
           isOpen={isInstrumentBuilderOpen}
           onClose={() => setIsInstrumentBuilderOpen(false)}
           onSave={handleUniversalModalSave}
-          onSaveToLibrary={async (instrument, options) => {
-            const saved = await saveInstrument(instrument, options);
-            if (saved && currentSessionData) {
-              const next = syncInstrumentBudgetComponents(currentSessionData, saved);
-              if (next !== currentSessionData) updateSession(next);
-            }
-            return saved;
-          }}
+          onSaveToLibrary={(instrument, options) => saveInstrument(instrument, { ...options, syncSessionId: currentSessionData?.id })}
           onInstrumentSynced={reconcileSyncedInstrument}
           onDelete={deleteInstrument}
           onBatchAdd={handleBatchAddInstruments}
@@ -6273,9 +6283,9 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
                       sessionData={currentSessionData}
                       onUpdate={updateSession}
                       isSessionInfoOpen={isSessionInfoOpen}
-                      onSessionInfoOpenChange={setIsSessionInfoOpen}
+                      onSessionInfoOpenChange={value => editView({ isSessionInfoOpen: value })}
                       isRequirementsOpen={isRequirementsOpen}
-                      onRequirementsOpenChange={setIsRequirementsOpen}
+                      onRequirementsOpenChange={value => editView({ isRequirementsOpen: value })}
                     />
                   </div>
                 </div>
@@ -6316,7 +6326,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
                           <button title="Columns" aria-label="Columns" aria-haspopup="dialog" aria-expanded={isColumnMenuOpen}
                             data-tour="sidebar-columns" className={`sidebar-action-btn-organic ${isColumnMenuOpen ? "active" : ""}`}
                             onClick={() => setIsColumnMenuOpen(open => !open)}><ToolbarLayoutIcon reorder /></button>
-                          {isColumnMenuOpen && <SidebarColumnPopover anchorRef={columnMenuRef} onClose={() => setIsColumnMenuOpen(false)}>
+                          {isColumnMenuOpen && <SidebarColumnPopover savedPosition={columnMenuPosition} onMove={moveColumnMenu} anchorRef={columnMenuRef} onClose={() => setIsColumnMenuOpen(false)}>
                             <PointColumnMenu sections={[
                             {
                               group: "Measurement",
@@ -6384,12 +6394,21 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
                             },
                           { group: "Risk Inputs", cols: RISK_INPUT_FIELDS.map(field => ({ key: requirementColumn(field), label: field.sidebarLabel })) },
                             { group: "Mitigation Inputs", cols: MITIGATION_INPUT_FIELDS.map(field => ({ key: requirementColumn(field), label: field.sidebarLabel })) },
-                          ]} columns={sidebarColumns} setColumns={setSidebarColumns}
+                          ]} columns={sidebarColumns} setColumns={update => editView({ sidebarColumns: update })}
                               selectedGroups={sidebarSortGroups} moveGroup={moveSidebarSortGroup}
                               onClose={() => setIsColumnMenuOpen(false)}
-                              onReset={() => { const defaults = getSessionPointColumns(currentSessionData, readPointColumnDefaults()); setSidebarColumnOrder(defaults.order); setSidebarColumns(defaults.columns); }}
+                              onReset={() => { const defaults = getSessionPointColumns(currentSessionData, readPointColumnDefaults()); editView({ sidebarColumnOrder: defaults.order, sidebarColumns: defaults.columns }); }}
                               onSetDefault={() => {
-                                try { window.localStorage.setItem(POINT_COLUMN_DEFAULTS_KEY, JSON.stringify({ columns: sidebarColumns, order: sidebarColumnOrder })); showToast("Default point columns saved"); }
+                                try {
+                                  const before = localStorage.getItem(POINT_COLUMN_DEFAULTS_KEY);
+                                  const after = JSON.stringify({ columns: sidebarColumns, order: sidebarColumnOrder });
+                                  const restore = value => value == null
+                                    ? localStorage.removeItem(POINT_COLUMN_DEFAULTS_KEY)
+                                    : localStorage.setItem(POINT_COLUMN_DEFAULTS_KEY, value);
+                                  restore(after);
+                                  if (before !== after) recordHistoryAction(before, after, restore, `point-defaults:${++viewEditSequence.current}`);
+                                  showToast("Default point columns saved");
+                                }
                                 catch { showToast("Unable to save default columns", "error"); }
                               }} />
                           </SidebarColumnPopover>}
@@ -6548,7 +6567,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
             </aside>
             <div className="sidebar-resizer" role="separator" aria-orientation="vertical" tabIndex={0}
               aria-label="Resize measurement point list" aria-valuetext={instrumentAutoFit ? "Auto-fit instrument tables" : sidebarAutoFit ? "Auto-fit measurement points" : workspacePane === "points" ? "Measurement points only" : "Free-hand split view"}
-              onMouseDown={startResizing}
+              onPointerDown={startResizing}
               onDoubleClick={() => {
                 cycleWorkspaceFit();
               }}
@@ -6559,23 +6578,21 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
                 }
                 if (event.key === "Escape") {
                   event.preventDefault();
-                  setSidebarAutoFit(false); setInstrumentAutoFit(false);
-                  setWorkspacePane("split");
                   const container = resultsContainerRef.current;
                   const style = window.getComputedStyle(container);
                   const available = container.clientWidth - (parseFloat(style.paddingLeft) || 0) - (parseFloat(style.paddingRight) || 0) - 336;
                   // Auto-fit can occupy the entire workspace. Reserve room for
                   // the instrument pane when returning to a split view.
-                  setSidebarWidth(width => Math.max(300, Math.min(width, available)));
+                  editView({ workspacePane: "split", sidebarAutoFit: false, instrumentAutoFit: false,
+                    sidebarWidth: width => Math.max(300, Math.min(width, available)) });
                 }
                 if (["ArrowLeft", "ArrowRight"].includes(event.key)) {
                   event.preventDefault();
                   const container = resultsContainerRef.current;
                   const style = window.getComputedStyle(container);
                   const available = container.clientWidth - (parseFloat(style.paddingLeft) || 0) - (parseFloat(style.paddingRight) || 0) - 320;
-                  setWorkspacePane("split");
-                  setSidebarAutoFit(false); setInstrumentAutoFit(false);
-                  setSidebarWidth(width => Math.max(300, Math.min(1800, available, width + (event.key === "ArrowLeft" ? -40 : 40))));
+                  editView({ workspacePane: "split", sidebarAutoFit: false, instrumentAutoFit: false,
+                    sidebarWidth: width => Math.max(300, Math.min(1800, available, width + (event.key === "ArrowLeft" ? -40 : 40))) });
                 }
               }}
               title={`Drag to resize. Double-click to ${sidebarAutoFit ? "expand measurement points" : workspacePane === "points" ? "auto-fit instrument tables" : "auto-fit measurement-point columns"}.`} />
@@ -6593,6 +6610,8 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
                     onApplyToSessionPoints={handleApplyToSessionPoints}
                     onSessionSave={updateSession}
                     onNotesSave={updateSessionNotes}
+                    flushNotesRef={flushNotesRef}
+                    recordHistoryAction={recordHistoryAction}
                     sessionImageCache={sessionImageCache}
                     onSessionImageCacheChange={setSessionImageCache}
                     onLoadSessionImages={loadSessionImages}
@@ -6633,7 +6652,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
                     preferredAnalysisMode={analysisMode}
                     onAnalysisModeChange={handleAnalysisModeChange}
                     preferredShowContribution={showContribution}
-                    onShowContributionChange={setShowContribution}
+                    onShowContributionChange={value => editView({ showContribution: value })}
                     overviewCollapsedFunctionKeys={collapsedOverviewInstrumentFunctionKeys}
                     setOverviewCollapsedFunctionKeys={setCollapsedOverviewInstrumentFunctionKeys}
                     detailCollapsedFunctionKeys={collapsedDetailInstrumentFunctionKeys}
@@ -6655,6 +6674,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
           </div>
         </div>
       </div>
+      </TableSizeHistoryContext.Provider>
     </ThemeContext.Provider>
   );
 }

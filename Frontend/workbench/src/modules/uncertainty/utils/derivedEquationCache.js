@@ -22,17 +22,19 @@ export function createDerivedEquationCache(limit = 64) {
       if (!cache.has(symbol)) {
         const source = order === 1 ? node : getDerivative(symbol).node;
         const derivativeNode = derivative(source, symbol);
+        let expression, compiled;
         cache.set(symbol, {
           node: derivativeNode,
-          expression: derivativeNode.toString(),
-          compiled: derivativeNode.compile(),
+          get expression() { return expression ??= derivativeNode.toString(); },
+          get compiled() { return compiled ??= derivativeNode.compile(); },
         });
       }
       return cache.get(symbol);
     };
     plan = {
       node,
-      evaluate: scope => (compiled ||= node.compile()).evaluate(scope),
+      get compiled() { return compiled ??= node.compile(); },
+      evaluate: scope => plan.compiled.evaluate(scope),
       getDerivative,
     };
     plans.set(expression, plan);
