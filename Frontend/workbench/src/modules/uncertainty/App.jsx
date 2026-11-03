@@ -2709,6 +2709,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
     const maxWidth = Math.min(1800, innerWidth - divider.offsetWidth - 320);
     let width;
     divider.focus({ preventScroll: true });
+    divider.classList.add("is-dragging");
     // Move only the divider during the gesture. Relaying each pointer event to
     // the workspace would reflow every visible point, table and equation.
     beginWorkspaceResize(event, {
@@ -2718,6 +2719,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
         divider.style.transform = `translateX(${width - startWidth}px)`;
       },
       onFinish: () => {
+        divider.classList.remove("is-dragging");
         divider.style.removeProperty("transform");
         if (width === undefined) return;
         editView({ workspacePane: "split", sidebarAutoFit: false, instrumentAutoFit: false, sidebarWidth: width });

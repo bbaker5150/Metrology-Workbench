@@ -17825,21 +17825,11 @@ body:not(.dark-mode)
   background: var(--doc-bg);
 }
 
-.session-notes-theme {
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  font-size: 0.8rem;
-  color: var(--doc-text-muted);
-}
-
-.session-notes-docx-editor .session-notes-theme select {
-  appearance: auto;
-  padding: 2px 4px;
-  border: 1px solid var(--doc-border);
-  border-radius: 4px;
-  background: var(--doc-surface);
-  color: var(--doc-text);
+.session-notes-docx-editor .session-notes-theme {
+  --text-color-muted: var(--doc-text-muted);
+  --text-color: var(--doc-text);
+  --primary-color-soft: var(--doc-bg-hover);
+  --primary-color: var(--doc-primary);
 }
 
 /* The editing-mode picker positions its fixed menu against the button's
@@ -21913,6 +21903,14 @@ body.light-mode .uncertainty-module :is(.instrument-equipment-table, .instrument
   border-inline-color: color-mix(in srgb, var(--text-color-muted) 16%, transparent);
 }
 .uncertainty-module .results-workflow-container:where(:not(.workspace-pane-points, .workspace-pane-tables)) > .sidebar-resizer::after { opacity: .45; }
+/* The moving divider crosses the sticky point headers (z-index 120) and
+   selected rows. Paint it on a solid surface throughout the drag. */
+.uncertainty-module .results-workflow-container > .sidebar-resizer.is-dragging {
+  z-index: 121;
+  background: color-mix(in srgb, var(--primary-color) 18%, var(--content-background-solid));
+  transition: none;
+}
+.uncertainty-module .results-workflow-container > .sidebar-resizer.is-dragging::after { opacity: 1; }
 .uncertainty-module .instrument-equipment-table .uut-description-content:has(> .instrument-usage-badge) {
   flex-direction: column; align-items: flex-start; gap: 5px;
 }

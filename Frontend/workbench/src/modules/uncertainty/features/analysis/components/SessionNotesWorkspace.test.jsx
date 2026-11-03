@@ -11,19 +11,26 @@ import SessionNotesWorkspace, {
 } from "./SessionNotesWorkspace";
 
 describe("SessionNotesWorkspace DOCX persistence", () => {
-  it("keeps a light editor across sessions in a dark Workbench and can follow the app again", () => {
+  it("toggles an independent light editor in a dark Workbench and resumes following the app on the second click", async () => {
     document.body.classList.add("dark-mode");
     try {
       const { rerender } = render(<SessionNotesWorkspace sessionData={{ id: 1 }} />);
       const mode = () => screen.getByTestId("docx-editor").getAttribute("data-color-mode");
       expect(mode()).toBe("dark");
-      fireEvent.change(screen.getByLabelText("Editor theme"), { target: { value: "light" } });
+      const light = screen.getByRole("button", { name: "Switch Notes to light mode" });
+      expect(light.querySelector('svg[data-icon="sun"]')).toBeInTheDocument();
+      fireEvent.click(light);
       expect(mode()).toBe("light");
       expect(document.body).toHaveClass("dark-mode");
       rerender(<SessionNotesWorkspace sessionData={{ id: 2 }} />);
       expect(mode()).toBe("light");
-      fireEvent.change(screen.getByLabelText("Editor theme"), { target: { value: "auto" } });
+      const dark = screen.getByRole("button", { name: "Switch Notes to dark mode" });
+      expect(dark.querySelector('svg[data-icon="moon"]')).toBeInTheDocument();
+      expect(dark).toHaveAttribute("title", "Switch Notes to dark mode (follow Workbench)");
+      fireEvent.click(dark);
       expect(mode()).toBe("dark");
+      document.body.classList.remove("dark-mode");
+      await waitFor(() => expect(mode()).toBe("light"));
     } finally {
       localStorage.removeItem("uncertalytics.notesEditorTheme");
       document.body.classList.remove("dark-mode");
@@ -49,14 +56,14 @@ describe("SessionNotesWorkspace DOCX persistence", () => {
     const notes = <SessionNotesWorkspace sessionData={{ id: 1 }} {...{ recordHistoryAction }} />;
     const { rerender } = render(notes);
     try {
-      fireEvent.change(screen.getByLabelText("Editor theme"), { target: { value: "dark" } });
+      fireEvent.click(screen.getByRole("button", { name: "Switch Notes to dark mode" }));
       const [before, after, restore] = recordHistoryAction.mock.calls[0];
       rerender(null);
       act(() => restore(before));
       rerender(notes);
-      expect(screen.getByLabelText("Editor theme")).toHaveValue("auto");
+      expect(screen.getByTestId("docx-editor")).toHaveAttribute("data-color-mode", "light");
       act(() => restore(after));
-      expect(screen.getByLabelText("Editor theme")).toHaveValue("dark");
+      expect(screen.getByRole("button", { name: "Switch Notes to light mode" })).toBeInTheDocument();
       expect(screen.getByTestId("docx-editor")).toHaveAttribute("data-color-mode", "dark");
       expect(recordHistoryAction).toHaveBeenCalledTimes(1);
     } finally {

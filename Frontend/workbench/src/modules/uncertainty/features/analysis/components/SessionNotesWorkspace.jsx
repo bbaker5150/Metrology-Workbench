@@ -8,6 +8,8 @@ import React, {
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faExclamationCircle,
+  faMoon,
+  faSun,
 } from "@fortawesome/free-solid-svg-icons";
 import {
   DocxEditor,
@@ -210,6 +212,9 @@ const SessionDocxEditor = ({
     return () => window.removeEventListener(THEME_CHANGE, onThemeChange);
   }, []);
   const colorMode = theme === "auto" ? appMode : theme;
+  const nextMode = colorMode === "dark" ? "light" : "dark";
+  const nextPreference = nextMode === appMode ? "auto" : nextMode;
+  const themeAction = `Switch Notes to ${nextMode} mode`;
   const sessionId = sessionData?.id;
   const documentName = sanitizeFileName(
     `${sessionData?.name || sessionData?.title || "Analysis Session"} Notes`,
@@ -387,19 +392,15 @@ const SessionDocxEditor = ({
           documentName={documentName}
           documentNameEditable={false}
           renderTitleBarRight={() => (
-            <label className="session-notes-theme">
-              Editor theme
-              <select value={theme} onChange={(event) => {
-                const next = event.target.value;
-                if (theme === next) return;
-                recordHistoryAction?.(theme, next, applyEditorTheme, `notes-theme:${next}`);
-                applyEditorTheme(next);
+            <button type="button" className="app-chrome-meta-icon session-notes-theme" data-theme-toggle
+              aria-label={themeAction}
+              title={nextPreference === "auto" ? `${themeAction} (follow Workbench)` : themeAction}
+              onClick={() => {
+                recordHistoryAction?.(theme, nextPreference, applyEditorTheme, `notes-theme:${nextPreference}`);
+                applyEditorTheme(nextPreference);
               }}>
-                <option value="auto">Follow Workbench</option>
-                <option value="light">Light</option>
-                <option value="dark">Dark</option>
-              </select>
-            </label>
+              <FontAwesomeIcon icon={nextMode === "light" ? faSun : faMoon} aria-hidden="true" />
+            </button>
           )}
           showToolbar
           showFileOpen

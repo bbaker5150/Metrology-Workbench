@@ -2286,10 +2286,12 @@ test("previews a workspace resize without laying out the point list until releas
   vi.spyOn(sidebar, "getBoundingClientRect").mockReturnValue({ width: startWidth });
   Object.defineProperties(container, { offsetWidth: { value: 1600 }, clientWidth: { value: 1600 } });
   fireEvent.pointerDown(divider, { button: 0, clientX: 500, pointerId: 1 });
+  expect(divider).toHaveClass("is-dragging");
   fireEvent.pointerMove(document, { clientX: 610, pointerId: 1 });
   await waitFor(() => expect(divider.style.transform).toBe("translateX(110px)"));
   expect(sidebar.style.width).toBe(`${startWidth}px`);
   fireEvent.pointerUp(document, { pointerId: 1 });
+  expect(divider).not.toHaveClass("is-dragging");
   expect(divider.style.transform).toBe("");
   expect(sidebar.style.width).toBe(`${startWidth + 110}px`);
   fireEvent.keyDown(document.body, { key: "z", ctrlKey: true });
