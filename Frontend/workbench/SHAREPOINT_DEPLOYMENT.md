@@ -15,7 +15,7 @@ user, the storage gate stops before any session data is loaded.
 - Existing `session-<id>.json` and `image-<session>-<image>.json` files remain
   available to their original SharePoint author. When saved again, their
   existing filename is preserved.
-- Validated instruments, equations and bug reports are shared. Local instruments and pending submissions use a private working list. SharePoint restricts ordinary contributors to their own rows. The Instrument Library inbox is available to members of the **Uncertalytics SME** site group.
+- Validated instruments, equations and bug reports are shared. SharePoint restricts ordinary contributors to their own rows in **Uncertalytics - Instrument Drafts**. Members of **Metrology Software Owners** can use the review inbox and approve submissions until you create the **Uncertalytics SME** group. After creation, add everyone who should review to **Uncertalytics SME**.
 
 ## Hosting requirements
 
@@ -47,6 +47,6 @@ permissions by default, however, so this filter alone is not a confidentiality
 boundary for users who browse the library directly or call SharePoint REST
 outside the app.
 
-A site owner must run storage setup and grant the **Uncertalytics SME** group Manage Lists and Contribute on the Published Instruments and Instrument Drafts lists. Ordinary app users need Read on the historical Instruments list, Read on Published Instruments, and Contribute on Instrument Drafts. Setup preserves the historical authors and copies earlier shared definitions into the new catalog. Review list-level grants and inherited permissions when upgrading a site. The full setup guide includes the access matrix and a three-account verification procedure. [Instrument review and SharePoint permissions](../../docs/uncertainty-sharepoint-standalone.md#instrument-review-and-sharepoint-permissions)
+A site owner runs storage setup. Reviewers need Manage Lists and Contribute on **Uncertalytics - Published Instruments** and **Uncertalytics - Instrument Drafts**. The existing owners' Full Control covers these permissions. Grant the dedicated SME group the required list access when you create it. Ordinary app users need Read on the historical Instruments list, Read on Published Instruments, and Contribute on Instrument Drafts. Setup preserves the historical authors and copies earlier shared definitions to the catalog. [Instrument review and SharePoint permissions](../../docs/uncertainty-sharepoint-standalone.md#instrument-review-and-sharepoint-permissions)
 
 Administrators can apply unique permissions to session files or user folders when stricter isolation of session contents is needed. [Microsoft guidance on permission scopes](https://learn.microsoft.com/en-us/sharepoint/manage-permission-scope)

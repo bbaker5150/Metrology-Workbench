@@ -10,6 +10,7 @@ import hashlib
 import secrets
 
 from django.conf import settings
+from django.contrib.auth.models import Group
 from django.db import router, transaction
 from django.db.models import Q
 from django.db.models import Prefetch
@@ -124,10 +125,19 @@ def _library_password():
 
 
 SME_GROUP = "Uncertalytics SME"
+INTERIM_REVIEW_GROUP = "Metrology Software Owners"
 
 
 def _can_validate(request):
-    return request.user.is_authenticated and request.user.groups.filter(name=SME_GROUP).exists()
+    if not request.user.is_authenticated:
+        return False
+    memberships = set(request.user.groups.values_list("name", flat=True))
+    if SME_GROUP in memberships:
+        return True
+    if INTERIM_REVIEW_GROUP not in memberships:
+        return False
+    # Compare names exactly even on databases with case-insensitive collation.
+    return SME_GROUP not in Group.objects.filter(name=SME_GROUP).values_list("name", flat=True)
 
 
 def _review_owner(request, create=False):
@@ -218,7 +228,7 @@ def instrument_reviews(request):
 @permission_classes([AllowAny])
 def validate_instrument(request, instrument_id):
     if not _can_validate(request):
-        return Response({"detail": "Uncertalytics SME membership is required."}, status=403)
+        return Response({"detail": "You do not have instrument validation access."}, status=403)
     with transaction.atomic(using=router.db_for_write(models.Instrument)):
         submitted = get_object_or_404(models.Instrument.objects.select_for_update(), pk=instrument_id, scope="pending")
         if submitted.updated_at.isoformat() != request.data.get("reviewVersion"):

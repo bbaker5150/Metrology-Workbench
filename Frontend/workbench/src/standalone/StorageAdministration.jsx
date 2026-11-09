@@ -1,6 +1,7 @@
 import { FontAwesomeIcon } from '@fortawesome/react-fontawesome';
 import { faDatabase, faFolderTree, faTimes } from '@fortawesome/free-solid-svg-icons';
 import React, { useEffect, useRef, useState } from 'react';
+import { CONTAINERS } from './sharepoint/spStore';
 
 export default function StorageAdministration({ store }) {
   const [allowed, setAllowed] = useState(false);
@@ -34,7 +35,7 @@ export default function StorageAdministration({ store }) {
   return <>
     <button type="button" className="app-chrome-meta-icon" title="Storage administration" aria-label="Storage administration" onClick={() => setOpen(true)}><FontAwesomeIcon icon={faDatabase} /></button>
     {open && <dialog ref={dialog} className="sp-storage-admin" aria-labelledby="sp-storage-heading" onClose={() => setOpen(false)} onCancel={event => { if (busy) event.preventDefault(); }}>
-      <header><h2 id="sp-storage-heading">Application storage</h2><button type="button" className="app-chrome-meta-icon" title={busy ? 'Working…' : 'Organize storage'} aria-label="Organize storage" disabled={busy || records.length !== 4} onClick={organize}><FontAwesomeIcon icon={faFolderTree} /></button><button type="button" className="app-chrome-meta-icon" title="Close storage administration" aria-label="Close storage administration" disabled={busy} onClick={() => dialog.current.close()}><FontAwesomeIcon icon={faTimes} /></button></header>
+      <header><h2 id="sp-storage-heading">Application storage</h2><button type="button" className="app-chrome-meta-icon" title={busy ? 'Working…' : 'Organize storage'} aria-label="Organize storage" disabled={busy || records.length !== CONTAINERS.length} onClick={organize}><FontAwesomeIcon icon={faFolderTree} /></button><button type="button" className="app-chrome-meta-icon" title="Close storage administration" aria-label="Close storage administration" disabled={busy} onClick={() => dialog.current.close()}><FontAwesomeIcon icon={faTimes} /></button></header>
       <h3>Uncertalytics{store.prefix !== 'Uncertainty' ? ` · ${store.prefix}` : ''}</h3>
       <p>Manage this application's lists and document library. Organize storage to make all containers visible in Site contents.</p>
       <table><thead><tr><th>Storage</th><th>Purpose</th><th>Visibility</th><th>Manage</th></tr></thead>

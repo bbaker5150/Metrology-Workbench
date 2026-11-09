@@ -1,7 +1,7 @@
 import LoadingScreen from './LoadingScreen';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { setDeviceKeyOverride } from '../modules/uncertainty/utils/deviceKey';
-import { listTitle, CONTAINERS, sharePointInstrumentOwnerKey } from './sharepoint/spStore';
+import { listTitle, storageDisplayTitle, CONTAINERS, sharePointInstrumentOwnerKey } from './sharepoint/spStore';
 
 /**
  * Blocks the tool until its SharePoint containers exist.
@@ -31,7 +31,7 @@ export default function StorageGate({ store, children }) {
       for (const container of CONTAINERS) {
         const title = listTitle(store.prefix, container.key);
         // eslint-disable-next-line no-await-in-loop
-        if (!(await store.listExists(title))) missing.push(title);
+        if (!(await store.listExists(title))) missing.push(storageDisplayTitle(store.prefix, container.key));
       }
       if (!missing.length) {
         try { await store.ensureInstrumentSecurity(); }

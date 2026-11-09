@@ -24,6 +24,10 @@ export const FIELD_TYPE = { TEXT: 2, NOTE: 3, NUMBER: 9 };
 export const DEFAULT_PREFIX = 'Uncertainty';
 export const isArchived = (record) => Boolean(record?._uncertaintyArchive?.at);
 const isPublished = record => ['validated', 'shared'].includes(record?.scope);
+function publishedDefinition(record) {
+  const { _uncertaintyApprovals, ...definition } = record;
+  return { ...definition, scope: 'validated' };
+}
 const instrumentAccess = {
   instruments: { ReadSecurity: 2, WriteSecurity: 4 },
   instrumentDrafts: { ReadSecurity: 2, WriteSecurity: 2 },
@@ -84,7 +88,8 @@ export const CONTAINERS = [
     template: LIST_TEMPLATE.GENERIC,
     description: 'Private instrument definitions and submissions awaiting SME validation.',
     fields: [
-      { name: 'RecordId', title: 'Record Id', type: FIELD_TYPE.TEXT, indexed: true, unique: true, inView: true },
+      // SharePoint forbids unique fields on a list with author-only reads.
+      { name: 'RecordId', title: 'Record Id', type: FIELD_TYPE.TEXT, indexed: true, inView: true },
       { name: 'PayloadJson', title: 'Definition', type: FIELD_TYPE.NOTE, lines: 12 },
       { name: 'SubmittedJson', title: 'Submitted definition', type: FIELD_TYPE.NOTE, lines: 12 },
     ],
@@ -412,10 +417,7 @@ export class SharePointStore {
   /**
    * Create any missing containers and columns.
    *
-   * Idempotent and strictly additive: an existing container is left alone and
-   * only absent fields are added. Nothing is deleted or retyped, because the
-   * natural reaction to any storage error is to run setup again, and that must
-   * never be able to damage real budgets.
+   * Existing records and field IDs survive interrupted and repeated setup.
    */
   async provision() {
     const steps = [];
@@ -447,6 +449,17 @@ export class SharePointStore {
       const requiredAccess = instrumentAccess[container.key];
       if (requiredAccess) {
         const path = listApi(this.prefix, container.key);
+        if (exists && container.key === 'instrumentDrafts') {
+          // Repair sites that created the previous unique field before native
+          // own-item permissions were applied. Keep its index and all values.
+          const fields = await this.get(`${path}/fields?$select=InternalName,EnforceUniqueValues&$filter=InternalName eq 'RecordId'`);
+          if (fields.value?.some(field => field.InternalName === 'RecordId' && field.EnforceUniqueValues === true)) {
+            await this.post(`${path}/fields/getbyinternalnameortitle('RecordId')`, {
+              headers: { 'X-HTTP-Method': 'MERGE', 'IF-MATCH': '*' }, body: { EnforceUniqueValues: false },
+            });
+            steps.push({ container: title, field: 'RecordId', action: 'unique-constraint-removed' });
+          }
+        }
         const current = await this.get(`${path}?$select=ReadSecurity,WriteSecurity`);
         if (!this.matchesAccess(current, requiredAccess)) {
           await this.post(path, { headers: { 'X-HTTP-Method': 'MERGE', 'IF-MATCH': '*' }, body: requiredAccess });
@@ -716,10 +729,17 @@ export class SharePointStore {
       if (!id || seen.has(id)) throw new SharePointError(`The original Instruments item ${row.Id} needs a unique instrument ID. Repair it and run setup again.`, 409);
       seen.add(id);
       if (existing.has(id)) continue;
-      await this.post(`${published}/items`, { body: {
-        Title: String(record.description || record.model || id).slice(0, 255),
-        RecordId: id, PublicationKey: id, PayloadJson: JSON.stringify({ ...record, scope: 'validated' }),
-      } });
+      try {
+        await this.post(`${published}/items`, { body: {
+          Title: String(record.description || record.model || id).slice(0, 255),
+          RecordId: id, PublicationKey: id, PayloadJson: JSON.stringify(publishedDefinition(record)),
+        } });
+      } catch (error) {
+        // Another setup may have inserted the unique public key, or the
+        // server may have committed this request before the connection failed.
+        if (!(await this.instrumentRows('publishedInstruments', id)).some(({item, record}) =>
+          item.RecordId === id && String(record.id) === id && isPublished(record))) throw error;
+      }
     }
   }
 
@@ -730,7 +750,18 @@ export class SharePointStore {
     const filter = conditions.length ? `&$filter=${conditions.join(' and ')}` : '';
     const submitted = key === 'instrumentDrafts' ? ',SubmittedJson' : '';
     const items = await this.getItems(`${listApi(this.prefix, key)}/items?$select=Id,RecordId,PayloadJson,AuthorId,owshiddenversion${submitted}${filter}&$top=5000`);
-    return items.map(item => ({ item, record: this.parsePayload(item, key) })).filter(row => row.record);
+    const rows = items.map(item => ({ item, record: this.parsePayload(item, key) })).filter(row => row.record);
+    if (key !== 'instrumentDrafts') return rows;
+    // Item IDs have a stable native order even when two tabs create the same
+    // author/record pair. All reads, reviews, edits and tombstones use its first
+    // row. A later duplicate never reappears after the first is archived.
+    const first = new Map();
+    for (const row of rows) {
+      const identity = `${row.item.AuthorId}:${row.item.RecordId}`;
+      const previous = first.get(identity);
+      if (!previous || Number(row.item.Id) < Number(previous.item.Id)) first.set(identity, row);
+    }
+    return [...first.values()];
   }
 
   async listInstruments() {
@@ -746,7 +777,7 @@ export class SharePointStore {
     const owner = sharePointInstrumentOwnerKey(user);
     return [
       ...catalog.filter(({record}) => !isArchived(record) && isPublished(record))
-        .map(({record}) => ({ ...record, scope: 'validated' })),
+        .map(({record}) => publishedDefinition(record)),
       ...legacy.filter(({item, record}) => !isArchived(record) && !isPublished(record) &&
         Number(item.AuthorId) === user.id && !superseded.has(String(record.id)))
         .map(({record}) => ({ ...record, scope: 'local', owner })),
@@ -762,7 +793,7 @@ export class SharePointStore {
     if (['validated', 'shared'].includes(record.scope)) throw new SharePointError('Submit a local copy for SME validation.', 403);
     await this.ensureInstrumentSecurity();
     const user = await this.currentUser();
-    const { password, reviewVersion, _uncertaintyArchive, ...safe } = record;
+    const { password, reviewVersion, _uncertaintyArchive, _uncertaintyApprovals, ...safe } = record;
     const canonical = { ...safe, owner: sharePointInstrumentOwnerKey(user), scope: record.scope === 'pending' ? 'pending' : 'local' };
     await this.writeOwnInstrument(user, canonical, reviewVersion);
     if (canonical.scope === 'pending') {
@@ -778,7 +809,8 @@ export class SharePointStore {
   async writeOwnInstrument(user, record, reviewVersion) {
     const key = 'instrumentDrafts';
     const recordId = `${user.id}:${record.id}`;
-    const [existing] = (await this.instrumentRows(key, recordId)).filter(({item}) => Number(item.AuthorId) === user.id);
+    const ownRow = async () => (await this.instrumentRows(key, recordId, user.id)).find(({item}) => Number(item.AuthorId) === user.id);
+    let existing = await ownRow();
     const fields = { Title: String(record.description || record.model || record.id).slice(0, 255),
       RecordId: recordId, PayloadJson: JSON.stringify(record) };
     // Normal autosaves write only the editable payload. A save already in
@@ -786,10 +818,20 @@ export class SharePointStore {
     const pending = record.scope === 'pending';
     if (pending) fields.SubmittedJson = fields.PayloadJson;
     if (!existing) {
-      await this.post(`${listApi(this.prefix, key)}/items`, { body: fields });
-      return;
+      let created;
+      let createError;
+      try {
+        created = await this.post(`${listApi(this.prefix, key)}/items`, { body: fields });
+      } catch (error) {
+        createError = error;
+      }
+      existing = await ownRow();
+      if (!existing) throw createError || new SharePointError('Could not confirm the saved draft. Reopen the library and retry.', 409);
+      if (Number(existing.item.Id) === Number(created?.Id)) return;
+      if (!pending && !existing.item.SubmittedJson && existing.item.PayloadJson === fields.PayloadJson) return;
     }
     const currentlyPending = existing.record.scope === 'pending' && !isArchived(existing.record);
+    if (pending && currentlyPending && existing.item.SubmittedJson === fields.SubmittedJson) return;
     if (currentlyPending && String(existing.item.owshiddenversion) !== reviewVersion) {
       throw new SharePointError('This instrument has already been submitted. Reopen it to edit the current submission.', 409);
     }
@@ -805,7 +847,12 @@ export class SharePointStore {
 
   async canValidateInstruments() {
     const groups = await this.getItems('/_api/web/currentuser/groups?$select=Title');
-    return groups.some(group => group.Title === 'Uncertalytics SME');
+    if (groups.some(group => group.Title === 'Uncertalytics SME')) return true;
+    if (!groups.some(group => group.Title === 'Metrology Software Owners')) return false;
+    // Recheck on every approval so creating the SME group ends interim access
+    // even if the owner opened the inbox before it was created.
+    const result = await this.get("/_api/web/sitegroups?$select=Title&$filter=Title eq 'Uncertalytics SME'&$top=1");
+    return Array.isArray(result?.value) && result.value.length === 0 && !result['odata.nextLink'] && !result['@odata.nextLink'];
   }
 
   async instrumentReviews() {
@@ -817,31 +864,59 @@ export class SharePointStore {
   }
 
   async validateInstrument(reviewId, version) {
-    if (!(await this.canValidateInstruments())) throw new SharePointError('Uncertalytics SME membership is required.', 403);
+    if (!(await this.canValidateInstruments())) throw new SharePointError('You do not have instrument validation access.', 403);
     if (!/^\d+$/.test(reviewId) || !/^\d+$/.test(version)) throw new SharePointError('Invalid submission version.', 400);
     await this.ensureInstrumentSecurity();
     const key = 'instrumentDrafts';
     const path = `${listApi(this.prefix, key)}/items(${reviewId})`;
-    const item = await this.get(`${path}?$select=Id,PayloadJson,SubmittedJson,RecordId,owshiddenversion`);
+    const item = await this.get(`${path}?$select=Id,AuthorId,PayloadJson,SubmittedJson,RecordId,owshiddenversion`);
     const record = this.parsePayload(item, key);
-    if (!record || record.scope !== 'pending' || isArchived(record) || String(item.owshiddenversion) !== version) {
+    if (!record || record.scope !== 'pending' || !Number.isInteger(Number(item.AuthorId)) || Number(item.AuthorId) <= 0) {
       throw new SharePointError('This submission changed. Reopen the inbox to review it again.', 409);
     }
-    const target = String(record.sourceId || record.id);
-    const canonical = { ...record, id: target, sourceId: target, owner: '', scope: 'validated',
-      localOverride: false, validatedSnapshot: buildValidatedSnapshot(record) };
-    const catalog = await this.instrumentRows('publishedInstruments', target);
-    const existing = catalog.find(({ record: entry }) => ['shared', 'validated'].includes(entry.scope) && !isArchived(entry));
-    if (record.sourceId && target !== String(record.id) && !existing) {
-      throw new SharePointError('The original shared instrument no longer exists.', 409);
+    const drafts = await this.instrumentRows(key, item.RecordId, item.AuthorId);
+    const authoritative = drafts.find(({item: candidate}) => Number(candidate.AuthorId) === Number(item.AuthorId) && candidate.RecordId === item.RecordId);
+    if (Number(authoritative?.item.Id) !== Number(item.Id)) {
+      throw new SharePointError('This duplicate submission has been superseded. Reopen the inbox.', 409);
     }
-    const fields = { Title: String(canonical.description || canonical.model || target).slice(0, 255),
-      RecordId: target, PublicationKey: target, PayloadJson: JSON.stringify(canonical) };
-    if (existing) {
-      await this.post(`${listApi(this.prefix, 'publishedInstruments')}/items(${existing.item.Id})`, {
-        headers: { 'X-HTTP-Method': 'MERGE', 'IF-MATCH': `"${existing.item.owshiddenversion}"` }, body: fields });
+    const target = String(record.sourceId || record.id);
+    let canonical = { ...publishedDefinition(record), id: target, sourceId: target, owner: '',
+      localOverride: false, validatedSnapshot: buildValidatedSnapshot(record) };
+    const catalogItem = async () => (await this.instrumentRows('publishedInstruments', target)).find(({record: entry}) => isPublished(entry));
+    const existing = await catalogItem();
+    if (isArchived(existing?.record)) throw new SharePointError('This shared instrument has been removed.', 409);
+    // The receipt is saved atomically with the public definition. If another
+    // submission changes that definition before a retry, the retry only
+    // finishes cleanup and returns the newer public contents.
+    const wasPublished = entry => entry?.record._uncertaintyApprovals?.[reviewId] === version;
+    if (wasPublished(existing)) {
+      canonical = publishedDefinition(existing.record);
+      if (isArchived(record) || String(item.owshiddenversion) !== version) return canonical;
     } else {
-      await this.post(`${listApi(this.prefix, 'publishedInstruments')}/items`, { body: fields });
+      if (isArchived(record) || String(item.owshiddenversion) !== version) {
+        throw new SharePointError('This submission changed. Reopen the inbox to review it again.', 409);
+      }
+      if (record.sourceId && target !== String(record.id) && !existing) throw new SharePointError('The original shared instrument no longer exists.', 409);
+      if (existing && !record.sourceId) throw new SharePointError('A different instrument already uses this shared ID.', 409);
+      const approved = { ...existing?.record._uncertaintyApprovals, [reviewId]: version };
+      const fields = { Title: String(canonical.description || canonical.model || target).slice(0, 255),
+        RecordId: target, PublicationKey: target, PayloadJson: JSON.stringify({ ...canonical, _uncertaintyApprovals: approved }) };
+      const published = listApi(this.prefix, 'publishedInstruments');
+      try {
+        if (existing) {
+          await this.post(`${published}/items(${existing.item.Id})`, {
+            headers: { 'X-HTTP-Method': 'MERGE', 'IF-MATCH': `"${existing.item.owshiddenversion}"` }, body: fields });
+        } else {
+          await this.post(`${published}/items`, { body: fields });
+        }
+      } catch (error) {
+        const latest = await catalogItem();
+        if (!wasPublished(latest) || isArchived(latest.record)) {
+          if (error.status === 412 || (!existing && latest)) throw new SharePointError('The shared instrument changed during approval. Reopen the inbox to review it again.', 409);
+          throw error;
+        }
+        canonical = publishedDefinition(latest.record);
+      }
     }
     // Never archive a newer draft if the author edited it during publication.
     try {

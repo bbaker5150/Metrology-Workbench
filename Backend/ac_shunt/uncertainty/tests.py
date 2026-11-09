@@ -508,7 +508,7 @@ class InstrumentLibraryScopeTests(APITestCase):
         self.assertEqual(post.data["scope"], "local")
         self.assertEqual(post.data["owner"], "userA")
 
-    def test_only_smes_can_validate_the_reviewed_submission(self):
+    def test_smes_can_validate_the_reviewed_submission(self):
         device = self.client
         reviewer = sme_client()
         regular = APIClient()
@@ -549,6 +549,34 @@ class InstrumentLibraryScopeTests(APITestCase):
         self.assertEqual(approved.data["validatedSnapshot"]["model"], "5730A amended")
         self.assertEqual(reviewer.get(REVIEWS).data["reviews"], [])
         self.assertEqual(regular.get(INSTRUMENTS).data[0]["id"], "val-1")
+
+    def test_software_owners_can_validate_until_the_sme_group_exists(self):
+        user = get_user_model().objects.create_user(username="software-owner")
+        user.groups.add(Group.objects.create(name="Metrology Software Owners Backup"))
+        self.client.force_authenticate(user=user)
+        submitted = self.client.post(INSTRUMENTS, {"id": "owner-review", "scope": "pending", "model": "DMM"}, format="json")
+        self.assertEqual(submitted.status_code, status.HTTP_201_CREATED)
+        approve_url = REVIEWS + "owner-review/validate/"
+        version = {"reviewVersion": submitted.data["reviewVersion"]}
+        self.assertEqual(self.client.get(REVIEWS).data, {"canValidate": False, "reviews": []})
+        self.assertEqual(self.client.post(approve_url, version, format="json").status_code, 403)
+
+        user.groups.add(Group.objects.create(name="Metrology Software Owners"))
+        inbox = self.client.get(REVIEWS).data
+        self.assertTrue(inbox["canValidate"])
+        self.assertEqual([row["id"] for row in inbox["reviews"]], ["owner-review"])
+        approved = self.client.post(approve_url, version, format="json")
+        self.assertEqual(approved.status_code, status.HTTP_200_OK)
+        self.assertEqual(approved.data["scope"], "validated")
+
+        submitted = self.client.post(INSTRUMENTS, {"id": "at-cutover", "scope": "pending"}, format="json")
+        current_inbox = self.client.get(REVIEWS).data
+        self.assertEqual([row["id"] for row in current_inbox["reviews"]], ["at-cutover"])
+        Group.objects.create(name="Uncertalytics SME")
+        self.assertEqual(self.client.get(REVIEWS).data, {"canValidate": False, "reviews": []})
+        rejected = self.client.post(REVIEWS + "at-cutover/validate/", {"reviewVersion": submitted.data["reviewVersion"]}, format="json")
+        self.assertEqual(rejected.status_code, 403)
+        self.assertEqual(models.Instrument.objects.get(pk="at-cutover").scope, "pending")
 
     def test_validated_delete_requires_password(self):
         models.Instrument.objects.create(id="delete-shared", scope="validated", model="Meter")

@@ -210,12 +210,12 @@ Setup creates missing containers and columns, applies item access settings on th
 
 | Name | Type | Holds |
 | --- | --- | --- |
-| `UncertaintySessions` | Document library | One JSON file per session |
-| `UncertaintyInstruments` | List | Original library, restricted to historical item authors |
-| `UncertaintyPublishedInstruments` | List | Published instrument definitions |
-| `UncertaintyInstrumentDrafts` | List | Private working definitions and pending submissions |
-| `UncertaintyEquations` | List | Shared custom equations |
-| `UncertaintyBugReports` | List | Bug reports raised in-tool |
+| Uncertalytics - Sessions | Document library | One JSON file per session |
+| Uncertalytics - Instruments | List | Original library, restricted to historical item authors |
+| Uncertalytics - Published Instruments | List | Published instrument definitions |
+| Uncertalytics - Instrument Drafts | List | Private working definitions and pending submissions |
+| Uncertalytics - Equations | List | Shared custom equations |
+| Uncertalytics - Bug Reports | List | Bug reports raised in-tool |
 
 ### Optional configuration
 
@@ -391,7 +391,7 @@ newlines. Nothing depends on the form machinery Firepit blocks.
 
 Use the same `App - Content` display-name convention as Modernization Tracker:
 
-| Display name | SharePoint type | Existing default internal name |
+| Display name | SharePoint type | Legacy name recognized by the app |
 | --- | --- | --- |
 | Uncertalytics - Sessions | Document library | UncertaintySessions |
 | Uncertalytics - Instruments | List | UncertaintyInstruments |
@@ -406,9 +406,13 @@ Organization updates titles, descriptions, Hidden=false, and OnQuickLaunch=false
 
 ## Instrument review and SharePoint permissions
 
-Create the SharePoint site group **Uncertalytics SME** and add the people who validate instrument definitions. The app reads the signed-in user's site groups each time the library opens. General users can submit an orange local instrument for review. It stays yellow in their own library until an SME opens the validation inbox, reviews the specifications and confirms publication.
+Members of **Metrology Software Owners** can review and approve submissions until the **Uncertalytics SME** SharePoint site group exists. Creating that group transfers review access immediately, even if the group is empty. Add each intended reviewer to it, including owners who should keep reviewing, and grant the list access shown below. The app checks eligibility when opening the validation inbox and again at approval.
+
+General users can submit an orange local instrument for review. It stays yellow in their library until a reviewer confirms publication.
 
 Run the storage setup as a site owner when deploying this version. Setup restricts the historical **Instruments** list to owner reads and manager writes, adds **Instrument Drafts** and **Published Instruments**, and copies prior shared definitions to the published list. It preserves the historical item authors and IDs. The owner needs Manage Lists on all three lists during the upgrade. The app opens once setup marks the migration complete. An owner can rerun interrupted setup. Existing shared instruments retain their IDs. The app reads older local rows for their creator. Their next edit or removal writes a private copy that supersedes the original row.
+
+If setup previously stopped on the unique-values error for **Uncertalytics - Instrument Drafts**, replace the hosted HTML with the corrected file, reload the app, and run the setup action shown. Setup reuses the partial list and creates its indexed draft ID field with uniqueness enforcement disabled.
 
 | Resource | Metrology App Users | Uncertalytics SME | Metrology Software Owners |
 | --- | --- | --- | --- |
@@ -422,11 +426,11 @@ Apply these grants at the list level. A list-scoped Edit permission level normal
 
 * **Instrument Drafts** uses ReadSecurity 2 and WriteSecurity 2. SharePoint restricts general users to reading and editing their own rows. Manage Lists lets reviewers read submissions from other users. The inbox displays pending rows. An approval copies the reviewed definition to the catalog. [Microsoft SharePoint list security settings](https://learn.microsoft.com/en-us/sharepoint/dev/schema/security-element)
 * **Original Instruments** uses ReadSecurity 2 and WriteSecurity 4. Each ordinary user can read their own historical local rows.
-* **Published Instruments** uses ReadSecurity 1 and WriteSecurity 4. All app users can read the catalog. Only users with the appropriate list-management permissions can write. The app requires membership of Uncertalytics SME to validate. A list owner can still administer content directly through SharePoint. [Microsoft SharePoint write permissions](https://learn.microsoft.com/en-us/openspecs/sharepoint_protocols/ms-primepf/f396c2d2-3348-48f5-b3cc-0f116ddef837)
+* **Published Instruments** uses ReadSecurity 1 and WriteSecurity 4. All app users can read the catalog. Publishing through the app requires reviewer eligibility and write access to this list. A list owner can still administer content directly through SharePoint. [Microsoft SharePoint write permissions](https://learn.microsoft.com/en-us/openspecs/sharepoint_protocols/ms-primepf/f396c2d2-3348-48f5-b3cc-0f116ddef837)
 * The app checks the instrument list settings and migration status before reading or writing instrument definitions. SharePoint uses its own signed-in identity, item versions and list permissions for the writes. The older confirmation password still applies to deleting a shared definition.
 
 After setup, test with two ordinary accounts and one reviewer. Submit an instrument with the first ordinary account, reopen its library, and confirm the second account cannot retrieve that private draft. Review and confirm the submission with the SME account. After reloading, both ordinary accounts should see the green shared definition. Repeat with an edit to an existing shared instrument to check that its original specifications remain visible until approval.
 
-The Django workbench uses the **Uncertalytics SME** Django auth group. Apply uncertainty migration 0020 and add the reviewers to that group. Serve the workbench with same-origin API and an authenticated Django session for SME operations. Anonymous device installations retain local storage and may submit using a private device credential.
+Apply uncertainty migration 0020 for the Django workbench. Django uses the same group names and handoff rule in its own auth database. **Metrology Software Owners** members can review until the **Uncertalytics SME** auth group exists. Add the intended reviewers to that group when you create it. Serve the workbench with a same-origin API and an authenticated Django session for approvals. Anonymous device installations may submit using a private device credential.
 
 Existing Django local definitions remain accessible using the original browser's owner key. The first edit or submission creates a private working copy tied to the signed-in user or device credential. Deleting a legacy definition hides it for that user. Its original data remains available to other existing devices with the historical owner key.

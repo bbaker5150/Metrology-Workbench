@@ -57,10 +57,29 @@ function fakeFetch() {
 
 let http;
 let store;
+let draftRows;
 
 beforeEach(() => {
   resetWebUrlCache();
   http = fakeFetch();
+  draftRows = [];
+  http.on(/InstrumentDrafts'\)\/items\?/, ({url}) => {
+    const id = /RecordId eq '([^']+)'/.exec(url)?.[1];
+    return {json:{value:draftRows.filter(row => !id || row.RecordId === id)}};
+  });
+  http.on(/InstrumentDrafts'\)\/items$/, ({init}) => {
+    const item = {Id:100 + draftRows.length, AuthorId:41, owshiddenversion:1, ...JSON.parse(init.body)};
+    draftRows.push(item);
+    return {status:201,json:item};
+  });
+  http.on(/InstrumentDrafts'\)\/items\((\d+)\)\/ValidateUpdateListItem/, ({url,init}) => {
+    const item = draftRows.find(row => row.Id === Number(/items\((\d+)\)/.exec(url)[1]));
+    if (item) {
+      Object.assign(item, formValueObject({body:init.body}));
+      item.owshiddenversion++;
+    }
+    return {json:{value:[]}};
+  });
   http.on(/InstrumentDrafts.*ReadSecurity/, { json: { ReadSecurity: 2, WriteSecurity: 2 } });
   http.on(/Instrument%20Drafts.*ReadSecurity/, { json: { ReadSecurity: 2, WriteSecurity: 2 } });
   http.on(/Instruments.*ReadSecurity/, { json: { ReadSecurity: 2, WriteSecurity: 4 } });
@@ -275,6 +294,56 @@ describe("provision", () => {
     allMissing();
     http.on(/\/_api\/web\/lists$/, { status: 403 });
     await expect(store.provision()).rejects.toThrow(/Edit permission/);
+  });
+
+  it('resumes partial setup with an ordinary indexed draft key and a native unique public key', async () => {
+    allPresent();
+    const draftFields = new Set();
+    let interrupt = true;
+    http.on(/InstrumentDrafts.*fields\?/, () => ({json:{value:[...draftFields].map(InternalName => ({InternalName}))}}));
+    http.on(/InstrumentDrafts.*createfieldasxml/, ({init}) => {
+      const {SchemaXml} = JSON.parse(init.body).parameters;
+      if (SchemaXml.includes('EnforceUniqueValues="TRUE"')) return {status:500,text:'A list for which users can only view their own items cannot have fields that enforce unique values.'};
+      const name = / Name="([^"]+)"/.exec(SchemaXml)[1];
+      if (name === 'PayloadJson' && interrupt) { interrupt = false; return {status:503}; }
+      if (name === 'RecordId') expect(SchemaXml).toContain('Indexed="TRUE"');
+      expect(draftFields.has(name)).toBe(false);
+      draftFields.add(name);
+      return {status:201};
+    });
+    await expect(store.provision()).rejects.toThrow();
+    expect([...draftFields]).toEqual(['RecordId']);
+    await store.provision();
+    expect([...draftFields]).toEqual(['RecordId','PayloadJson','SubmittedJson']);
+    expect(createdFields().find(xml => xml.includes('Name="PublicationKey"'))).toContain('EnforceUniqueValues="TRUE"');
+    expect(http.find(/\/_api\/web\/lists$/)).toHaveLength(0);
+  });
+
+  it('repairs an earlier unique draft field in place before enabling author-only reads', async () => {
+    allPresent();
+    let unique = true;
+    let access = {ReadSecurity:1, WriteSecurity:1};
+    const fieldPath = /InstrumentDrafts.*getbyinternalnameortitle\('RecordId'\)/;
+    http.on(/InstrumentDrafts.*fields\?/, () => ({json:{value:[
+      {InternalName:'RecordId',EnforceUniqueValues:unique}, {InternalName:'PayloadJson'}, {InternalName:'SubmittedJson'},
+    ]}}));
+    http.on(fieldPath, ({spMethod,init}) => {
+      expect(spMethod).toBe('MERGE');
+      expect(JSON.parse(init.body)).toEqual({EnforceUniqueValues:false});
+      unique = false;
+      return {status:204};
+    });
+    http.on(/InstrumentDrafts.*ReadSecurity/, () => ({json:access}));
+    http.on(/UncertaintyInstrumentDrafts'\)$/, ({init}) => {
+      if (unique) return {status:500,text:'Cannot change item-level permissions with a unique field'};
+      access = JSON.parse(init.body);
+      return {status:204};
+    });
+    await store.provision();
+    await store.provision();
+    expect(access).toEqual({ReadSecurity:2,WriteSecurity:2});
+    expect(http.find(fieldPath)).toHaveLength(1);
+    expect(http.calls.filter(call => call.method === 'POST' && /InstrumentDrafts.*(?:items|createfieldasxml)/.test(call.url))).toHaveLength(0);
   });
 });
 
@@ -649,13 +718,7 @@ describe("user-scoped instrument records", () => {
   });
 
   it("creates a separate local row instead of overwriting another user's matching id", async () => {
-    http.on(/\$filter=RecordId/, {
-      json: {
-        value: [
-          { Id: 72, AuthorId: 99, RecordId: "same", PayloadJson: '{"id":"same","scope":"local"}' },
-        ],
-      },
-    });
+    draftRows.push({ Id: 72, AuthorId: 99, RecordId: "41:same", PayloadJson: '{"id":"same","scope":"local"}' });
 
     const saved = await store.saveInstrument({
       id: "same",
@@ -668,6 +731,7 @@ describe("user-scoped instrument records", () => {
     const write = http.calls.filter((call) => /items$/.test(call.url)).pop();
     expect(write.spMethod).toBeUndefined();
     expect(saved.owner).toBe("sharepoint-user:41");
+    expect(draftRows.map(row => row.AuthorId)).toEqual([99,41]);
     expect(saved).not.toHaveProperty("password");
     expect(JSON.parse(JSON.parse(write.body).PayloadJson)).toEqual(saved);
   });
@@ -687,7 +751,74 @@ describe("user-scoped instrument records", () => {
     expect(http.find(/items\(72\)/)).toHaveLength(0);
   });
 
-  it("isolates pending definitions, checks the signed-in SME and publishes the reviewed version", async () => {
+  it('converges simultaneous first saves on the same native row and keeps duplicates hidden after removal', async () => {
+    const secondTab = new SharePointStore({webUrl:WEB,fetchImpl:http,currentUser:{id:41}});
+    await Promise.all([store.ensureInstrumentSecurity(),secondTab.ensureInstrumentSecurity()]);
+    await Promise.all([
+      store.saveInstrument({id:'parallel',scope:'local',model:'One'}),
+      secondTab.saveInstrument({id:'parallel',scope:'local',model:'Two'}),
+    ]);
+    expect(draftRows).toHaveLength(2);
+    draftRows.reverse(); // SharePoint does not promise an ordering here.
+    const [current] = await store.listInstruments();
+    expect((await secondTab.listInstruments())).toEqual([current]);
+    expect(current.model).toBe('Two');
+    expect(JSON.parse(draftRows.find(row => row.Id === 100).PayloadJson).model).toBe('Two');
+    await store.deleteInstrument('parallel');
+    expect(await secondTab.listInstruments()).toEqual([]);
+    expect(JSON.parse(draftRows.find(row => row.Id === 101).PayloadJson).model).toBe('Two');
+  });
+
+  it('ignores a shadow pending row in the inbox and refuses its direct review ID even after the first row was archived', async () => {
+    vi.spyOn(store,'canValidateInstruments').mockResolvedValue(true);
+    const shadow = {Id:45,AuthorId:41,RecordId:'41:meter',owshiddenversion:3,PayloadJson:'{"id":"meter","scope":"pending"}'};
+    draftRows.push(shadow, {...shadow,Id:44,PayloadJson:'{"id":"meter","scope":"pending","_uncertaintyArchive":{"at":"2026-11-09"}}'});
+    http.on(/InstrumentDrafts'\)\/items\(45\)\?/, {json:shadow});
+    expect((await store.instrumentReviews()).reviews).toEqual([]);
+    await expect(store.validateInstrument('45','3')).rejects.toThrow(/superseded/);
+    expect(http.calls.some(call => call.method === 'POST')).toBe(false);
+  });
+
+  it('retries an interrupted approval without overwriting a later accepted catalog revision', async () => {
+    vi.spyOn(store,'canValidateInstruments').mockResolvedValue(true);
+    const draft = {Id:42,AuthorId:41,RecordId:'41:meter',owshiddenversion:2,PayloadJson:'{"id":"meter","scope":"pending","model":"First"}'};
+    draftRows.push(draft);
+    const catalog = [];
+    let failCleanup = true;
+    http.on(/InstrumentDrafts'\)\/items\(42\)\?/, () => ({json:draft}));
+    http.on(/InstrumentDrafts'\)\/items\(42\)$/, ({init}) => {
+      if (failCleanup) { failCleanup = false; return {status:503}; }
+      Object.assign(draft, JSON.parse(init.body));
+      draft.owshiddenversion++;
+      return {status:204};
+    });
+    http.on(/PublishedInstruments'\)\/items\?/, () => ({json:{value:catalog}}));
+    http.on(/PublishedInstruments'\)\/items$/, ({init}) => {
+      catalog.push({Id:90, owshiddenversion:1, ...JSON.parse(init.body)});
+      // Commit happened but its response was lost. The store confirms the
+      // exact submission receipt before proceeding to the interrupted cleanup.
+      return {status:503};
+    });
+    await expect(store.validateInstrument('42','2')).rejects.toThrow(/503/);
+    expect(catalog).toHaveLength(1);
+    const later = JSON.parse(catalog[0].PayloadJson);
+    later.model = 'Latest';
+    later._uncertaintyApprovals['43'] = '1';
+    catalog[0].PayloadJson = JSON.stringify(later);
+    catalog[0].owshiddenversion++;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      const result = await store.validateInstrument('42','2');
+      expect(result.model).toBe('Latest');
+      expect(result).not.toHaveProperty('_uncertaintyApprovals');
+    }
+    expect(http.calls.filter(call => call.method === 'POST' && call.url.includes('PublishedInstruments'))).toHaveLength(1);
+    expect((await store.instrumentReviews()).reviews).toEqual([]);
+  });
+
+  it.each([
+    { reviewerGroup: "Metrology Software Owners", smeExists: false },
+    { reviewerGroup: "Uncertalytics SME", smeExists: true },
+  ])("isolates pending definitions and publishes the reviewed version for $reviewerGroup", async ({reviewerGroup, smeExists}) => {
     const record = { id: "copy", sourceId: "shared", scope: "pending", model: "DMM" };
     const item = { Id: 81, AuthorId: 12, RecordId: "12:copy", owshiddenversion: 3, PayloadJson: JSON.stringify(record) };
     http.on(/InstrumentDrafts'\)\/items\?/, { json: { value: [item] } });
@@ -695,20 +826,43 @@ describe("user-scoped instrument records", () => {
     http.on(/Instruments'\)\/items\?/, { json: { value: [{Id: 80, RecordId: "shared", AuthorId: 12,
       owshiddenversion: 4, PayloadJson: '{"id":"shared","scope":"validated","model":"Old"}'}] } });
     expect(await store.listInstruments()).toEqual([{id:"shared",scope:"validated",model:"Old"}]);
+    http.on(/currentuser\/groups/, {json:{value:[{Title:"Metrology App User"},{Title:"Metrology Software Owners Backup"}]}});
     expect(await store.instrumentReviews()).toEqual({canValidate:false,reviews:[]});
+    expect(http.find(/web\/sitegroups/)).toHaveLength(0);
     await expect(store.saveInstrument({...record,scope:"validated",password:"calibrate"})).rejects.toMatchObject({status:403});
     await expect(store.validateInstrument("81", "3")).rejects.toMatchObject({status:403});
-    http.on(/currentuser\/groups/, {json:{value:[{Title:"Uncertalytics SME"}]}});
+    const smeLookup = /web\/sitegroups.*filter=Title eq 'Uncertalytics SME'/;
+    http.on(smeLookup, {json:{value:smeExists ? [{Title:"Uncertalytics SME"}] : []}});
+    http.on(/currentuser\/groups/, {json:{value:[{Title:reviewerGroup}]}});
     expect((await store.instrumentReviews()).reviews).toEqual([{...record,reviewId:"81",reviewVersion:"3"}]);
     await expect(store.validateInstrument("81","2")).rejects.toMatchObject({status:409});
     const approved = await store.validateInstrument("81", "3");
     expect(approved).toMatchObject({id:"shared", model:"DMM", scope:"validated", validatedSnapshot:{model:"DMM"}});
-    const publication = http.calls.find(call => call.spMethod === "MERGE" && call.url.includes("items(80)"));
+    expect(http.find(smeLookup)).toHaveLength(smeExists ? 0 : 3);
+    const publication = http.calls.find(call => call.spMethod === "MERGE" && call.url.includes("UncertaintyPublishedInstruments')/items(80)"));
     expect(publication.headers["IF-MATCH"]).toBe('"4"');
     expect(JSON.parse(publication.body).PublicationKey).toBe("shared");
-    const cleanup = http.calls.find(call => call.spMethod === "MERGE" && call.url.includes("items(81)"));
+    const cleanup = http.calls.find(call => call.spMethod === "MERGE" && call.url.includes("UncertaintyInstrumentDrafts')/items(81)"));
     expect(cleanup.headers["IF-MATCH"]).toBe('"3"');
     expect(JSON.parse(JSON.parse(cleanup.body).PayloadJson)).toMatchObject({_uncertaintyArchive:{userId:41}});
+  });
+
+  it("ends interim validation when the SME group is created, even with an inbox already open", async () => {
+    http.on(/currentuser\/groups/, {json:{value:[{Title:"Metrology Software Owners"}]}});
+    const lookup = /web\/sitegroups.*filter=Title eq 'Uncertalytics SME'/;
+    http.on(lookup, {json:{value:[]}});
+    expect((await store.instrumentReviews()).canValidate).toBe(true);
+    http.on(lookup, {json:{value:[{Title:"Uncertalytics SME"}]}});
+    await expect(store.validateInstrument("81", "3")).rejects.toMatchObject({status:403});
+    expect(await store.instrumentReviews()).toEqual({canValidate:false,reviews:[]});
+    expect(http.find(/items\(81\)/)).toHaveLength(0);
+
+    http.on(lookup, {json:{}});
+    expect(await store.canValidateInstruments()).toBe(false);
+    http.on(lookup, {status:403});
+    await expect(store.validateInstrument("81","3")).rejects.toMatchObject({status:403});
+    http.on(lookup, {status:503});
+    await expect(store.validateInstrument("81","3")).rejects.toMatchObject({status:503});
   });
 
   it("fails closed when the private list allows reading other users' drafts", async () => {

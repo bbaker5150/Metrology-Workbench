@@ -1,4 +1,5 @@
 import { prepareSeptember29, checkSeptember29 } from './september29-checks.mjs';
+import { createSchemaFixture, directoryGroups } from './sharepoint-schema-fixture.mjs';
 import { prepareTutorial, checkTutorial } from './tutorial-checks.mjs';
 import { prepareSeptember28, checkSeptember28 } from './september28-checks.mjs';
 import { checkExpandedTmde } from "./expanded-tmde-checks.mjs";
@@ -166,8 +167,8 @@ if (process.env.POINT_HIGHLIGHT_SMOKE) for (const session of sessions.values()) 
 if (process.env.SEPTEMBER18_SMOKE) for (const session of sessions.values()) prepareSeptember18(session);
 if (process.env.MULTI_SOURCE_BIAS_SMOKE) for (const session of sessions.values()) prepareMultiSourceBias(session);
 const instrumentDraftItems = [];
-const securitySettings = new Map();
-const schemaFields = new Map();
+const schema = createSchemaFixture();
+const memberships = storageAdminSmoke ? ['Metrology Software Owners'] : ['Metrology App Users'];
 const instrumentItems = [];
 const legacyInstrumentItems = [301, 302].map(id => ({
   Id: id, AuthorId: 7, RecordId: `instrument-${id}`,
@@ -182,14 +183,9 @@ await page.route('**/_api/**', async (route) => {
   if (url.includes('/_api/web/EffectiveBasePermissions')) return ok({Low:storageAdminSmoke ? '2048' : '0',High:'0'});
   const list = /getbytitle\('([^']+)'\)/.exec(url)?.[1];
   if (list && url.endsWith('/EffectiveBasePermissions')) return ok({Low:'2048',High:'0'});
-  if (url.includes('ReadSecurity,WriteSecurity')) return ok(securitySettings.get(list) || {ReadSecurity:1,WriteSecurity:1});
-  if (method === 'MERGE' && list && /getbytitle\('[^']+'\)$/.test(url)) {
-    const update = JSON.parse(request.postData());
-    const required = list.endsWith('Instrument Drafts') ? [2,2] : list.endsWith('Published Instruments') ? [1,4] : list.endsWith('Instruments') ? [2,4] : [];
-    if (update.ReadSecurity === required[0] && update.WriteSecurity === required[1] && Object.keys(update).length === 2) {
-      securitySettings.set(list,update);
-      return ok({});
-    }
+  const schemaResponse = schema.handle(url, method, request.postData());
+  if (schemaResponse) {
+    return route.fulfill({ status: schemaResponse.status || 200, contentType: 'application/json', body: JSON.stringify(schemaResponse.body) });
   }
   if (storageAdminSmoke && method === 'MERGE' && /lists\(guid'/.test(url)) {
     const id=url.match(/lists\(guid'([^']+)'/)[1], existing=storageMetadata.get(id);
@@ -207,7 +203,8 @@ await page.route('**/_api/**', async (route) => {
   // scope sessions and local instruments. Keep that authentication handshake
   // in the smoke environment so the storage gate can proceed to its list
   // probes just as it does on a real tenant.
-  if (url.includes('/_api/web/currentuser/groups')) return ok({value: []});
+  const groups = directoryGroups(url, memberships, [...memberships, 'Uncertalytics SME']);
+  if (groups) return ok(groups);
   if (url.includes('/_api/web/currentuser')) {
     return ok({
       Id: 7,
@@ -231,12 +228,6 @@ await page.route('**/_api/**', async (route) => {
     return ok({Id:storageAdminSmoke ? Id : 'g'});
   }
   url=url.replace(/Uncertalytics (?:—|-) (Sessions|Instrument Drafts|Published Instruments|Instruments|Equations|Bug Reports)/g,(_,kind)=>'Uncertainty'+kind.replaceAll(' ',''));
-  if (url.includes('/fields?$select=InternalName')) return ok({value:schemaFields.get(list) || []});
-  if (/createfieldasxml/.test(url)) {
-    const InternalName = / Name="([^"]+)"/.exec(JSON.parse(request.postData()).parameters.SchemaXml)[1];
-    schemaFields.set(list, [...(schemaFields.get(list) || []), {InternalName}]);
-    return ok({ Id:'f' });
-  }
   // What the live tenant answered: the Fields collection is polymorphic, so a
   // plain JSON body carries no way to tell what kind of column to create.
   if (/\/fields$/.test(url) && route.request().method() === 'POST') {
@@ -340,7 +331,7 @@ check('storage gate detected the unprovisioned site', /not set up yet/i.test(fra
 if (/not set up yet/i.test(frameText)) {
   await frame.getByRole('button', { name: /create them now/i }).click();
   await page.waitForTimeout(3500);
-  check('instrument access settings cover original instruments, drafts and published definitions', securitySettings.size === 3);
+  check('instrument access settings cover original instruments, drafts and published definitions', schema.security.size === 3);
   check('provisioning created all six containers', lists.size === 6, `(${lists.size})`);
   const after = await frame.locator('body').innerText();
   check('app mounted after provisioning', !/not set up yet/i.test(after));

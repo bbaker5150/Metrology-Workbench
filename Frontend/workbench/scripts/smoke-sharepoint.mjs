@@ -2,6 +2,7 @@ import { chromium } from 'playwright';
 import { readFileSync, statSync } from 'node:fs';
 import http from 'node:http';
 import path from 'node:path';
+import { createSchemaFixture, directoryGroups } from './sharepoint-schema-fixture.mjs';
 
 // Drives the built standalone bundle against a simulated SharePoint REST
 // surface, so the whole chain — web URL discovery, form digest, the storage
@@ -42,10 +43,14 @@ const server = http.createServer((req, res) => {
 });
 await new Promise((resolve) => server.listen(4182, '127.0.0.1', resolve));
 
-const state = { lists: new Set(), files: new Map(), items: new Map() };
+const state = { lists: new Map(), files: new Map(), items: new Map() };
 let nextItemId = 1;
-const securitySettings = new Map();
-const schemaFields = new Map();
+const schema = createSchemaFixture();
+const owners = 'Metrology Software Owners';
+const users = 'Metrology App Users';
+const sme = 'Uncertalytics SME';
+const siteGroups = [owners, users];
+let memberships = [owners];
 
 const json = (body, status = 200) => ({
   status,
@@ -95,21 +100,16 @@ await page.route('**/_api/**', async (route) => {
 
   // SharePoint supplies the app's identity. Returning a real user here keeps
   // this browser-level smoke test aligned with the user-scoped storage gate.
-  if (path.includes('/_api/web/currentuser/groups')) return route.fulfill(json({value: []}));
+  const groups = directoryGroups(path, memberships, siteGroups);
+  if (groups) return route.fulfill(json(groups));
   const list = /getbytitle\('([^']+)'\)/.exec(path)?.[1];
-  if (list && path.endsWith('/EffectiveBasePermissions')) return route.fulfill(json({Low:'2048',High:'0'}));
-  if (path.includes('ReadSecurity,WriteSecurity')) {
-    return route.fulfill(json(securitySettings.get(list) || {ReadSecurity:1, WriteSecurity:1}));
+  if (path.endsWith('/EffectiveBasePermissions')) {
+    const managesList = memberships.includes(owners) || (memberships.includes(sme) &&
+      ['Uncertalytics - Instrument Drafts', 'Uncertalytics - Published Instruments'].includes(list));
+    return route.fulfill(json({ Low: managesList ? '2048' : '0', High: '0' }));
   }
-  if (list && method === 'MERGE' && /getbytitle\('[^']+'\)$/.test(path)) {
-    const settings = JSON.parse(req.postData());
-    const required = list.endsWith('Instrument Drafts') ? [2,2] : list.endsWith('Published Instruments') ? [1,4] : list.endsWith('Instruments') ? [2,4] : [];
-    if (settings.ReadSecurity !== required[0] || settings.WriteSecurity !== required[1] || Object.keys(settings).length !== 2) {
-      return route.fulfill(json({error: 'Unexpected settings update'},400));
-    }
-    securitySettings.set(list,settings);
-    return route.fulfill(json({}));
-  }
+  const schemaResponse = schema.handle(path, method, req.postData());
+  if (schemaResponse) return route.fulfill(json(schemaResponse.body, schemaResponse.status));
   if (path.includes('/_api/web/currentuser')) {
     return route.fulfill(json({
       Id: 7,
@@ -126,20 +126,15 @@ await page.route('**/_api/**', async (route) => {
   const exists = /getbytitle\('([^']+)'\)\?\$select=Id/.exec(path);
   if (exists) {
     return state.lists.has(exists[1])
-      ? route.fulfill(json({ Id: 'guid' }))
+      ? route.fulfill(json(state.lists.get(exists[1])))
       : route.fulfill(json({ error: 'not found' }, 404));
   }
   // Create list
   if (/\/_api\/web\/lists$/.test(path) && method === 'POST') {
-    state.lists.add(JSON.parse(req.postData() || '{}').Title);
-    return route.fulfill(json({ Id: 'guid' }));
-  }
-  // Fields
-  if (/\/fields\?\$select=InternalName/.test(path)) return route.fulfill(json({ value: schemaFields.get(list) || [] }));
-  if (/createfieldasxml/.test(path)) {
-    const InternalName = / Name="([^"]+)"/.exec(JSON.parse(req.postData()).parameters.SchemaXml)[1];
-    schemaFields.set(list, [...(schemaFields.get(list) || []), {InternalName}]);
-    return route.fulfill(json({ Id:'f' }));
+    const listInfo = JSON.parse(req.postData());
+    const Id = `00000000-0000-4000-8000-${String(state.lists.size + 1).padStart(12, '0')}`;
+    state.lists.set(listInfo.Title, { ...listInfo, Id, ItemCount: 0 });
+    return route.fulfill(json({ Id }));
   }
   // A live tenant answers 400 here: the Fields collection is polymorphic, so a
   // plain JSON body with no OData type is not enough to say what to create.
@@ -152,7 +147,7 @@ await page.route('**/_api/**', async (route) => {
     return route.fulfill(json({ ServerRelativeUrl: '/sites/ISEA/UncertaintySessions' }));
   }
   // Session listing
-  if (/UncertaintySessions'\)\/items\?/.test(path)) {
+  if (list === 'Uncertalytics - Sessions' && path.includes('/items?')) {
     const value = [...state.files.keys()].map((name) => ({
       SessionId: Number(/session-(\d+)\.json/.exec(name)?.[1]),
       SessionName: JSON.parse(state.files.get(name)).name,
@@ -206,10 +201,10 @@ await page.waitForTimeout(2500);
 const bodyText = () => page.locator('body').innerText();
 
 check('storage gate detects an unprovisioned site', /not set up yet/i.test(await bodyText()));
-check(
-  'gate names the containers it will create',
-  (await bodyText()).includes('UncertaintySessions'),
-);
+const expectedLists = ['Sessions', 'Instruments', 'Instrument Drafts', 'Published Instruments', 'Equations', 'Bug Reports']
+  .map(name => `Uncertalytics - ${name}`);
+const gateText = await bodyText();
+check('gate names all six containers as they appear in Site contents', expectedLists.every(title => gateText.includes(title)));
 check(
   'web URL was derived from the /sites/<name> path',
   apiCalls.some((c) => c.includes('_api/')),
@@ -222,17 +217,40 @@ await page.waitForTimeout(3000);
 
 check('provisioning requested a form digest', apiCalls.some((c) => c.includes('contextinfo')));
 check('provisioning created the sessions library', state.lists.has('Uncertalytics - Sessions'));
-check('provisioning created all six containers', state.lists.size === 6, `(${[...state.lists].join(', ')})`);
+check('provisioning created all six containers', state.lists.size === 6 && expectedLists.every(title => state.lists.has(title)),
+  `(${[...state.lists.keys()].join(', ')})`);
+const draftId = schema.fields.get('Uncertalytics - Instrument Drafts')?.find(field => field.InternalName === 'RecordId');
+const publicationKey = schema.fields.get('Uncertalytics - Published Instruments')?.find(field => field.InternalName === 'PublicationKey');
+check('private drafts have an indexed, non-unique record ID', draftId?.Indexed && !draftId.EnforceUniqueValues);
+check('published instruments enforce unique publication keys', publicationKey?.Indexed && publicationKey.EnforceUniqueValues);
 
 await page.waitForTimeout(3000);
 const afterText = await bodyText();
-check('app mounts once storage is ready', !/not set up yet/i.test(afterText));
+const libraryButton = page.getByRole('button', { name: 'Instrument Library', exact: true });
+check('app mounts once storage is ready', !/not set up yet/i.test(afterText) && await libraryButton.isVisible());
 check('session list was requested through the adapter', apiCalls.some((c) => c.includes('Sessions')));
 check(
   'setup restricts all three instrument lists and issues no content mutation overrides',
-  securitySettings.size === 3 && apiCalls.filter(call => call.startsWith('MERGE ')).length === 3 &&
+  schema.security.size === 3 && apiCalls.filter(call => call.startsWith('MERGE ')).length === 3 &&
     !apiCalls.some(call => call.startsWith('DELETE ') || /^MERGE .*\/items/.test(call)),
 );
+async function checkInbox(label, visible, endpoint) {
+  const response = page.waitForResponse(res => res.url().includes(endpoint) && res.ok());
+  await libraryButton.click();
+  await response;
+  const library = page.getByRole('dialog', { name: 'Instrument library', exact: true });
+  const inbox = library.getByRole('button', { name: 'Validation inbox', exact: true });
+  await inbox.waitFor({ state: visible ? 'visible' : 'hidden' });
+  check(label, await inbox.isVisible() === visible);
+  await library.getByRole('button', { name: 'Close instrument library', exact: true }).click();
+}
+await checkInbox('Software Owners can review before the SME group exists', true, '/web/sitegroups?');
+siteGroups.push(sme);
+await checkInbox('creating the SME group ends interim owner access', false, '/web/sitegroups?');
+memberships = [sme];
+await checkInbox('an SME member can review', true, '/currentuser/groups?');
+memberships = [users];
+await checkInbox('an ordinary app user has no review inbox', false, '/currentuser/groups?');
 check(
   'no uncaught errors during boot and provisioning',
   errors.length === 0,

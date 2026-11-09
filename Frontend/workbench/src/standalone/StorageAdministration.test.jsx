@@ -2,6 +2,7 @@ import React from 'react';
 import { render, screen, fireEvent, act } from '@testing-library/react';
 import { it, expect, vi } from 'vitest';
 import StorageAdministration from './StorageAdministration';
+import { CONTAINERS, listTitle, storageDisplayTitle } from './sharepoint/spStore';
 
 it('offers storage administration only to list managers', async () => {
   render(<StorageAdministration store={{canManageStorage:vi.fn().mockResolvedValue(false)}} />);
@@ -10,16 +11,23 @@ it('offers storage administration only to list managers', async () => {
 });
 it('opens grouped storage settings without a keyboard shortcut and upgrades in place', async () => {
   HTMLDialogElement.prototype.showModal=vi.fn(function(){this.setAttribute('open','');});
-  const records=['sessions','instruments','equations','bugReports'].map(key=>({key,Id:key,Title:'Old '+key,displayTitle:'Uncertalytics - '+key,description:'App data',Hidden:false}));
+  const records = CONTAINERS.map(container => ({
+    ...container, Id: container.key, Title: listTitle('Uncertainty', container.key),
+    displayTitle: storageDisplayTitle('Uncertainty', container.key), Hidden: false,
+  }));
   const store={webUrl:'https://example.test/sites/lab',prefix:'Uncertainty',canManageStorage:vi.fn().mockResolvedValue(true),storageInventory:vi.fn().mockResolvedValue(records),organizeStorage:vi.fn().mockResolvedValue(records.map(r=>({...r,Hidden:false,Title:r.displayTitle})))};
   render(<StorageAdministration store={store}/>);
   await act(async () => {});
   fireEvent.click(await screen.findByRole('button',{name:'Storage administration'}));
-  expect(await screen.findByText('Current name: Old sessions')).toBeInTheDocument();
-  expect(screen.getAllByRole('link',{name:'Settings'})).toHaveLength(4);
-  fireEvent.click(screen.getByRole('button',{name:'Organize storage'}));
+  expect(await screen.findByText('Current name: UncertaintySessions')).toBeInTheDocument();
+  expect(screen.getByText('Uncertalytics - Instrument Drafts')).toBeInTheDocument();
+  expect(screen.getByText('Uncertalytics - Published Instruments')).toBeInTheDocument();
+  expect(screen.getAllByRole('link',{name:'Settings'})).toHaveLength(records.length);
+  const organize = screen.getByRole('button',{name:'Organize storage'});
+  expect(organize).toBeEnabled();
+  fireEvent.click(organize);
   expect(await screen.findByText(/Storage organized/)).toBeInTheDocument();
-  expect(screen.getAllByText('Visible')).toHaveLength(4);
+  expect(screen.getAllByText('Visible')).toHaveLength(records.length);
   expect(store.organizeStorage).toHaveBeenCalledOnce();
 });
 

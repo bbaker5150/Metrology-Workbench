@@ -57,6 +57,16 @@ describe('SharePoint storage gate authentication', () => {
     await screen.findByText('Private workspace');
     expect(store.ensureInstrumentSecurity).toHaveBeenCalledTimes(2);
   });
+
+  it('shows the Site contents names for both missing instrument lists', async () => {
+    const store = readyStore({
+      listExists: vi.fn(async title => !['UncertaintyInstrumentDrafts', 'UncertaintyPublishedInstruments'].includes(title)),
+    });
+    render(<StorageGate store={store}><div>Private workspace</div></StorageGate>);
+    expect(await screen.findByText('Uncertalytics - Instrument Drafts')).toBeInTheDocument();
+    expect(screen.getByText('Uncertalytics - Published Instruments')).toBeInTheDocument();
+    expect(screen.queryByText('Private workspace')).toBeNull();
+  });
 });
 
 it('shows the branded loading screen while sign-in is pending', () => {
