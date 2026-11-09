@@ -546,13 +546,13 @@ describe("UncertaintyApp", () => {
 
     expect(screen.getByText("Comb. Uncertainty", { exact: true })).toBeInTheDocument();
     expect(screen.getByText("Exp. Uncertainty", { exact: true })).toBeInTheDocument();
-    expect(screen.getAllByText("Risk")).toHaveLength(1);
-    expect(screen.getByText("Mitigation (GB + Int)")).toBeInTheDocument();
-    expect(screen.getByText("Mitigation (Int Only)")).toBeInTheDocument();
+    const menu = screen.getByRole("dialog", { name: "Visible measurement point columns" });
+    for (const category of ["Measurement", "Risk", "Mitigation (GB + Int)", "Mitigation (Int Only)"]) {
+      expect(within(menu).getByText(category, { exact: true })).toBeInTheDocument();
+    }
     expect(screen.getByText("REOP @ test pt TUR")).toBeInTheDocument();
     expect(screen.getByText("Targeted REOP w/ GB")).toBeInTheDocument();
     expect(screen.getByText("Targeted REOP w/o GB")).toBeInTheDocument();
-    const menu = screen.getByRole("dialog", { name: "Visible measurement point columns" });
     expect(within(menu).queryByText("Warnings", { exact: true })).not.toBeInTheDocument();
     fireEvent.click(within(menu).getByRole('button', { name: 'Hide Point Information' }));
     const infoOption = within(menu).getByRole('button', { name: 'Add Point Information column' });
@@ -1406,7 +1406,7 @@ describe("UncertaintyApp", () => {
       name: /^(Expand|Collapse) measurement area$/,
     })).not.toBeInTheDocument();
     expect(
-      emptyFunctionGroup.querySelector(".sidebar-column-header-stack"),
+      emptyFunctionGroup.querySelector(".sidebar-column-headers"),
     ).toBeNull();
     expect(emptyFunctionGroup.querySelector(".point-grid-item")).toBeNull();
     expect(screen.queryByText("No measurement points")).not.toBeInTheDocument();
@@ -1729,21 +1729,14 @@ describe("UncertaintyApp", () => {
     await waitFor(() => {
       expect(document.querySelectorAll(".point-grid-item")).toHaveLength(1);
     });
-    const columnGroups = Array.from(
-      document.querySelectorAll(".sidebar-column-group"),
-    );
-    expect(columnGroups.map((group) => group.textContent.trim())).toEqual([
-      "Measurement",
-      "Risk",
-      "Mitigation (GB + Int)",
-      "Mitigation (Int Only)",
-    ]);
-    expect(columnGroups.map((group) => group.style.gridColumn)).toEqual([
-      "span 8",
-      "span 2",
-      "span 6",
-      "span 3",
-    ]);
+    const pointList = screen.getByRole("region", { name: "Measurement points" });
+    for (const category of ["Measurement", "Risk", "Mitigation (GB + Int)", "Mitigation (Int Only)"]) {
+      expect(within(pointList).queryByText(category, { exact: true })).not.toBeInTheDocument();
+    }
+    const headers = pointList.querySelector(".sidebar-column-headers");
+    for (const label of ["Info", "Value", "PFA", "PFR", "GB Mult", "PFA no GB"]) {
+      expect(within(headers).getByText(label, { exact: true })).toBeInTheDocument();
+    }
     fireEvent.click(screen.getByTitle("Columns"));
     fireEvent.click(screen.getByRole("button", { name: "Hide Section" }));
     fireEvent.click(screen.getByRole("button", { name: "Add Section column" }));
@@ -1782,14 +1775,24 @@ describe("UncertaintyApp", () => {
     expect(pointRow.style.gridTemplateColumns).toBe(
       columnHeader.style.gridTemplateColumns,
     );
+    expect(pointRow.style.gridTemplateColumns).toMatch(/^\d+px(?: \d+px)*$/);
     // Display order can differ from JSX order; each cell keeps its semantic identity.
     expect(pointRow.querySelector('[data-sidebar-column="uut"] .point-uut-summary')).not.toBeNull();
     expect(pointRow.querySelector('[data-sidebar-column="value"] .point-value-number')).not.toBeNull();
     expect(pointRow.querySelector('[data-sidebar-column="section"]')).toHaveClass('point-section');
-    // Automatic tracks retain their content minimums and share spare width
-    // proportionally, including the information column beside the UUT.
-    expect(pointRow.style.gridTemplateColumns).toMatch(/^minmax\(200px, 200fr\) minmax\(70px, 70fr\) /);
-    expect(pointRow.style.gridTemplateColumns).not.toContain("ch");
+    // Full-width point lists distribute spare width across automatic columns.
+    const divider = screen.getByRole("separator", { name: "Resize measurement point list" });
+    fireEvent.doubleClick(divider);
+    fireEvent.doubleClick(divider);
+    expect(divider).toHaveAttribute("aria-valuetext", "Measurement points only");
+    expect(pointRow.style.gridTemplateColumns).toBe(columnHeader.style.gridTemplateColumns);
+    const tracks = [...pointRow.style.gridTemplateColumns.matchAll(/minmax\(([\d.]+)px, ([\d.]+)fr\)/g)];
+    expect(tracks).toHaveLength(columnHeader.children.length);
+    for (const [, minimum, weight] of tracks) {
+      expect(Number(minimum)).toBeGreaterThan(0);
+      expect(Number(weight)).toBe(Number(minimum));
+    }
+    fireEvent.keyDown(divider, { key: "Escape" });
     fireEvent.click(pointRow);
     expect(pointRow).toHaveClass("active-point");
     fireEvent.keyDown(pointRow, { key: "Escape" });

@@ -40,7 +40,7 @@ export async function checkSeptember22({ frame, page, saved, until, check }) {
     return rows.length === 30 && last && rows[rows.length - 1].getBoundingClientRect().bottom <= box.bottom;
   })));
   check('point column headings stick inside the shared sidebar viewport', await sidebar.evaluate(node => {
-    const top = node.getBoundingClientRect().top, header = node.querySelector('.sidebar-column-header-stack').getBoundingClientRect();
+    const top = node.getBoundingClientRect().top, header = node.querySelector('.sidebar-column-headers').getBoundingClientRect();
     return Math.abs(header.top - top) < 3;
   }));
   await capture('september22-sidebar-bottom');

@@ -1586,47 +1586,16 @@ body[data-point-breakdown-enabled] .uncertainty-module .point-grid-item[data-bre
   opacity: 0.3;
 }
 
-/* Two-level measurement-point headers: category band + metric labels. */
-.sidebar-column-header-stack {
-  width: 100%;
-  min-width: min-content;
-  box-sizing: border-box;
-  border-bottom: 1px solid var(--border-color);
-}
-
-.sidebar-column-groups {
-  display: grid;
-  align-items: stretch;
-  width: 100%;
-  min-width: min-content;
-  border-inline: var(--sidebar-point-row-border) solid transparent;
-  border-bottom: 2px solid rgba(var(--primary-rgb), 0.22);
-  background: rgba(var(--primary-rgb), 0.018);
-}
-
-.sidebar-column-group {
-  min-width: 0;
-  padding: 6px 8px 5px;
-  overflow: hidden;
-  color: var(--text-color-muted);
-  font-size: 0.54rem;
-  font-weight: 750;
-  line-height: 1;
-  letter-spacing: 0.075em;
-  text-align: center;
-  text-overflow: ellipsis;
-  text-transform: uppercase;
-  white-space: nowrap;
-}
-
 /* Column Header Row */
 .sidebar-column-headers {
   display: grid;
+  width: 100%;
+  min-width: min-content;
   font-size: 0.56rem;
   color: var(--text-color-muted);
   padding: 7px 10px 6px;
   margin-bottom: 0;
-  border-bottom: 0;
+  border-bottom: 1px solid var(--border-color);
   border-left: 1px solid transparent;
   border-right: 1px solid transparent;
   opacity: 0.82;
@@ -15756,7 +15725,6 @@ body.theme-cyberpunk:not(.dark-mode) .range-label-row.active {
 }
 
 /* Header and data rows must use identical horizontal geometry. */
-.sidebar-column-groups,
 .sidebar-column-headers,
 .point-grid-item {
   column-gap: var(--sidebar-point-column-gap);
@@ -18740,7 +18708,7 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
 
 .uncertainty-module
   .measurement-group-container
-  :is(.sidebar-column-header-stack, .sidebar-column-groups, .sidebar-column-headers) {
+  .sidebar-column-headers {
   background-color: color-mix(
     in srgb,
     var(--sidebar-function-color, var(--primary-color)) 12%,
@@ -18768,14 +18736,6 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   .measurement-group-container
   .sidebar-sort-header.active:not(:hover) {
   color: inherit;
-}
-
-.uncertainty-module .measurement-group-container .sidebar-column-groups {
-  border-bottom-color: color-mix(
-    in srgb,
-    var(--sidebar-function-color, var(--primary-color)) 46%,
-    transparent
-  );
 }
 
 .uncertainty-module .measurement-group-container {
@@ -19806,7 +19766,7 @@ body.dark-mode
 body.dark-mode
   .uncertainty-module
   .measurement-group-container
-  :is(.sidebar-column-header-stack, .sidebar-column-groups, .sidebar-column-headers) {
+  .sidebar-column-headers {
   background-color: color-mix(
     in srgb,
     var(--sidebar-function-color, var(--primary-color)) 20%,
@@ -20194,11 +20154,11 @@ body.uncertainty-active .context-menu li.destructive:hover {
   border-radius: 0;
   min-width: 100%;
 }
-.uncertainty-module .measurement-points-table .sidebar-column-header-stack {
+.uncertainty-module .measurement-points-table .sidebar-column-headers {
   position: sticky;
   top: 0;
   z-index: 120;
-  background: var(--sidebar-sticky-surface, var(--content-background));
+  background: var(--component-bg);
 }
 /* Keep controls at the left edge of the range column while fields grow. */
 .uncertainty-module .instrument-equipment-table .range-row-cell,
@@ -21198,7 +21158,6 @@ body.point-columns-dragging .point-column-menu-body .point-column-add > span:las
 .uncertainty-module .measurement-points-zoom-surface > .scoped-zoom-content { display: flex; flex-direction: column; flex: 0 0 auto; min-height: 0; overflow: visible; }
 .uncertainty-module .measurement-points-table { flex: 0 0 auto; min-height: 0; overflow: visible; }
 .uncertainty-module .measurement-points-zoom-surface .sidebar-global-actions { position: sticky; left: 10px; }
-.uncertainty-module .measurement-points-table .sidebar-column-header-stack { top: 0; background: var(--component-bg); }
 /* Reuse the existing gap divider and visual-last marker, including reordered
    and selected columns; adding cell borders would create duplicate seams. */
 .uncertainty-module .measurement-group-container { --sidebar-point-divider-color: color-mix(in srgb, #94a3b8 35%, transparent); }

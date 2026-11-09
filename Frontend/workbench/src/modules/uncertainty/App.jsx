@@ -365,55 +365,16 @@ const getFunctionPointSettings = (sessionData, functionId) => {
   };
 };
 
-const SIDEBAR_COLUMN_GROUPS = [
-  {
-    key: "measurement",
-    label: "Measurement",
-    columns: [
-      "warningIcons",
-      "uut",
-      "section",
-      "value",
-      "qualifier",
-      "tolerance",
-      "lowLimit",
-      "highLimit",
-      "standardUncertainty",
-      "measurementUncertainty",
-      "tmdeLow",
-      "tmdeHigh",
-      "uutBias",
-      "tmdeBias",
-      "tur",
-      "tar",
-    ],
-  },
-  {
-    key: "risk",
-    label: "Risk",
-    columns: ["observedReop", "pfa", "pfr", "maxReop", "trueReop"],
-  },
-  {
-    key: "mitigation-gb",
-    label: "Mitigation (GB + Int)",
-    columns: [
-      "gbMult",
-      "gbLow",
-      "gbHigh",
-      "gbPfa",
-      "gbPfr",
-      "gbCalInt",
-      "gbMeasRel",
-    ],
-  },
-  {
-    key: "mitigation-int",
-    label: "Mitigation (Int Only)",
-    columns: ["noGbPfa", "noGbPfr", "noGbCalInt", "noGbMeasRel"],
-  },
+// Matches the DOM order of the fixed cells in SidebarPointItem.
+const SIDEBAR_ROW_COLUMNS = [
+  "warningIcons", "uut", "section", "value", "qualifier", "tolerance",
+  "lowLimit", "highLimit", "standardUncertainty", "measurementUncertainty",
+  "tmdeLow", "tmdeHigh", "uutBias", "tmdeBias", "tur", "tar",
+  "observedReop", "pfa", "pfr", "maxReop", "trueReop",
+  "gbMult", "gbLow", "gbHigh", "gbPfa", "gbPfr", "gbCalInt", "gbMeasRel",
+  "noGbPfa", "noGbPfr", "noGbCalInt", "noGbMeasRel",
+  ...POINT_REQUIREMENT_FIELDS.map(requirementColumn),
 ];
-
-SIDEBAR_COLUMN_GROUPS.push({ key: "risk-inputs", label: "Risk Inputs", columns: RISK_INPUT_FIELDS.map(requirementColumn) }, { key: "mitigation-inputs", label: "Mitigation Inputs", columns: MITIGATION_INPUT_FIELDS.map(requirementColumn) });
 
 const INITIAL_SIDEBAR_COLUMNS = [
   "section", "uut", "warningIcons", "value", "lowLimit", "highLimit",
@@ -421,7 +382,7 @@ const INITIAL_SIDEBAR_COLUMNS = [
   "gbPfa", "gbPfr", "gbCalInt", "noGbCalInt", "noGbMeasRel",
 ];
 export const DEFAULT_SIDEBAR_COLUMN_ORDER = [...INITIAL_SIDEBAR_COLUMNS,
-  ...SIDEBAR_COLUMN_GROUPS.flatMap(group => group.columns).filter(key => !INITIAL_SIDEBAR_COLUMNS.includes(key)),
+  ...SIDEBAR_ROW_COLUMNS.filter(key => !INITIAL_SIDEBAR_COLUMNS.includes(key)),
 ];
 
 const SIDEBAR_COLUMN_TRACKS = {
@@ -907,7 +868,7 @@ export const SidebarPointItem = ({
   useLayoutEffect(() => {
     const row = pointRowRef.current;
     if (!row) return;
-    const renderedKeys = [...SIDEBAR_COLUMN_GROUPS.flatMap(group => group.columns), ...tmdeColumns.map(column => column.key)].filter((key) =>
+    const renderedKeys = [...SIDEBAR_ROW_COLUMNS, ...tmdeColumns.map(column => column.key)].filter((key) =>
       Boolean(visibleColumns[key]),
     );
     const cells = [...row.children];
@@ -5445,21 +5406,6 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
       visibleSidebarColumns,
       sidebarColumnOrder,
     );
-    const groupByColumn = Object.fromEntries(
-      SIDEBAR_COLUMN_GROUPS.flatMap((group) =>
-        group.columns.map((column) => [column, group]),
-      ),
-    );
-    const visibleGroups = orderedVisibleColumns.reduce((runs, column) => {
-      const group = groupByColumn[column] || { key: 'measurement', label: 'Measurement' };
-      const previous = runs[runs.length - 1];
-      if (previous?.key === group.key) {
-        previous.visibleCount += 1;
-      } else {
-        runs.push({ ...group, visibleCount: 1, run: runs.length });
-      }
-      return runs;
-    }, []);
     const headerConfig = {
       warningIcons: ["Info", { title: "Point Information", align: "center" }],
       uut: ["UUT"],
@@ -5531,34 +5477,10 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
     POINT_REQUIREMENT_FIELDS.forEach(field => { headerConfig[requirementColumn(field)] = [field.sidebarLabel, { title: field.tooltip }]; });
     tmdeColumnDefinitions.forEach(column => { headerConfig[column.key] = [column.label]; });
     return (
-      <div className="sidebar-column-header-stack">
-        <div
-          className="sidebar-column-groups"
-          style={{ gridTemplateColumns }}
-          aria-label="Measurement point column groups"
-        >
-          {visibleGroups.map((group) => (
-            <div
-              key={`${group.key}-${group.run}`}
-              className={`sidebar-column-group sidebar-column-group--${group.key}`}
-              style={{ gridColumn: `span ${group.visibleCount}` }}
-              title={group.label}
-            >
-              {group.label}
-            </div>
-          ))}
-        </div>
-        <div
-          className="sidebar-column-headers"
-          style={{
-            display: "grid",
-            gridTemplateColumns,
-          }}
-        >
-          {orderedVisibleColumns.map((key) =>
-            renderSidebarColumnHeader(key, ...(headerConfig[key] || [key])),
-          )}
-        </div>
+      <div className="sidebar-column-headers" style={{ gridTemplateColumns }}>
+        {orderedVisibleColumns.map((key) =>
+          renderSidebarColumnHeader(key, ...(headerConfig[key] || [key])),
+        )}
       </div>
     );
   }, [visibleSidebarColumns, sidebarValueColumnWidth, sidebarRenderedColumnWidths,

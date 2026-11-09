@@ -24,7 +24,7 @@ export async function checkSeptember18({ frame, page, saved, until, check }) {
   }));
   await points.evaluate(node => { node.scrollTop = 250; }); await settle();
   check('measurement point header stays at the top of its scroll viewport', await points.evaluate(node =>
-    Math.abs(node.querySelector('.sidebar-column-header-stack').getBoundingClientRect().top - node.getBoundingClientRect().top) < 2));
+    Math.abs(node.querySelector('.sidebar-column-headers').getBoundingClientRect().top - node.getBoundingClientRect().top) < 2));
   await points.evaluate(node => { node.scrollTop = 0; });
   const area = frame.locator('.area-header-sticky[aria-label="Voltage measurement area"]');
   await area.focus(); await area.press('Control+c');

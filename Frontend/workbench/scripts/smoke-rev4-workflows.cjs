@@ -277,11 +277,11 @@ app.whenReady().then(async () => {
     );
     await capture("derived-complete");
     assert.equal(await page.locator('.sidebar-points-scroll-wrapper').count(), 1, 'All measurement areas share one scroller');
-    assert.equal(await page.locator('.sidebar-column-header-stack').count(), 1, 'One shared set of column headers');
+    assert.equal(await page.locator('.sidebar-column-headers').count(), 1, 'One shared set of column headers');
     const pointTable = page.locator('.measurement-points-table');
     assert.ok(await pointTable.locator('.point-grid-item').count() >= 2, 'Combined table contains direct and derived points');
     const scrollGeometry = await pointTable.evaluate(table => {
-      const header=table.querySelector('.sidebar-column-header-stack');
+      const header=table.querySelector('.sidebar-column-headers');
       const rows=[...table.querySelectorAll('.point-grid-item')];
       const before=[header,...rows].map(e=>e.getBoundingClientRect().left);
       table.scrollLeft=100;
