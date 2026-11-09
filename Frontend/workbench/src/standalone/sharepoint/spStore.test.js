@@ -815,6 +815,26 @@ describe("user-scoped instrument records", () => {
     expect((await store.instrumentReviews()).reviews).toEqual([]);
   });
 
+  it('cannot overwrite a simultaneous first publication from a different draft with the same shared ID', async () => {
+    vi.spyOn(store,'canValidateInstruments').mockResolvedValue(true);
+    const draft = {Id:42,AuthorId:41,RecordId:'41:meter',owshiddenversion:2,PayloadJson:'{"id":"meter","scope":"pending","model":"Contender"}'};
+    draftRows.push(draft);
+    http.on(/InstrumentDrafts'\)\/items\(42\)\?/, {json:draft});
+    const catalog = [];
+    http.on(/PublishedInstruments'\)\/items\?/, () => ({json:{value:catalog}}));
+    http.on(/PublishedInstruments'\)\/items$/, () => {
+      catalog.push({Id:90,RecordId:'meter',PublicationKey:'meter',owshiddenversion:1,PayloadJson:JSON.stringify({
+        id:'meter',scope:'validated',model:'Already published',_uncertaintyApprovals:{51:'1'},
+      })});
+      return {status:500,text:'A duplicate value cannot be inserted into a unique index.'};
+    });
+    await expect(store.validateInstrument('42','2')).rejects.toMatchObject({status:409});
+    await expect(store.validateInstrument('42','2')).rejects.toMatchObject({status:409});
+    expect(catalog).toHaveLength(1);
+    expect((await store.instrumentReviews()).reviews).toHaveLength(1);
+    expect(http.calls.filter(call => call.method === 'POST' && call.url.includes('/items('))).toHaveLength(0);
+  });
+
   it.each([
     { reviewerGroup: "Metrology Software Owners", smeExists: false },
     { reviewerGroup: "Uncertalytics SME", smeExists: true },
