@@ -6,7 +6,7 @@ export function alignEmptyHintArrows(root) {
     const button = group?.querySelector(isAreaHint ? '.sidebar-area-entry button'
       : '.function-point-add-button, .function-header-action-btn[data-tour$="-add-instrument"]');
     if (!button || !hint.offsetWidth) return;
-    if (isAreaHint || hint.classList.contains("instrument-first-hint")) {
+    if (isAreaHint) {
       const container = hint.closest(".instrument-panel-table-container");
       if (container) {
         const scale = hint.getBoundingClientRect().width / hint.offsetWidth || 1;
@@ -18,11 +18,15 @@ export function alignEmptyHintArrows(root) {
     const target = button.getBoundingClientRect();
     const bounds = hint.getBoundingClientRect();
     const scale = bounds.width / hint.offsetWidth || 1;
+    const center = (target.left + target.width / 2 - bounds.left) / scale;
     if (hint.classList.contains("instrument-first-hint")) {
-      const padding = `${Math.max(40, (bounds.right - target.left - target.width / 2) / scale + 20)}px`;
-      if (hint.style.paddingRight !== padding) hint.style.paddingRight = padding;
+      // Keep the message and its arrow in one flex row, even if the table is
+      // wider than the scrollport. Its right edge is half an arrow past center.
+      const width = `${center + hint.lastElementChild.offsetWidth / 2}px`;
+      if (hint.style.width !== width) hint.style.width = width;
+      return;
     }
-    const left = `${(target.left + target.width / 2 - bounds.left) / scale}px`;
+    const left = `${center}px`;
     if (hint.style.getPropertyValue("--hint-arrow-left") !== left) hint.style.setProperty("--hint-arrow-left", left);
   });
 }

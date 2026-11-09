@@ -1,3 +1,4 @@
+import PointRangeSelect from "../../components/common/PointRangeSelect";
 import { inputBinding, inputSymbol } from "../../utils/budgetScope";
 import { resolveRepeatabilityComponent } from "../../utils/repeatabilityComponent";
 import { removeDynamicBudgetComponent } from "../../utils/dynamicBudgetComponents";
@@ -1076,6 +1077,9 @@ function Analysis({
 
             {analysisMode === "uncertaintyTool" && (
               <>
+              {testPointData.uutTolerance?.rangeSelection && <PointRangeSelect
+                uut={sessionData.uuts?.find(uut => String(uut.id) === String(testPointData.activeUutId ?? testPointData.associatedUutIds?.[0]))}
+                point={testPointData} onChange={uutTolerance => onDataSave({ uutTolerance })} />}
               <UncertaintyPanel
                 showToast={showToast}
                 // Data

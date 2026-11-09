@@ -1,3 +1,4 @@
+import SymbolButton from "../../../../components/common/SymbolButton";
 import React, { useState, useMemo } from "react";
 import ReactDOM from "react-dom";
 import Latex from "../../../../components/common/Latex";
@@ -318,9 +319,7 @@ const FullBreakdownModal = ({ isOpen, breakdownData, onClose }) => {
         zIndex: 2000,
       }}
     >
-      <button onClick={onClose} className="modal-close-button">
-        &times;
-      </button>
+      <SymbolButton onClick={onClose} className="modal-close-button" />
       <h3
         className="breakdown-modal-title"
         onMouseDown={handleMouseDown}

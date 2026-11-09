@@ -1,7 +1,6 @@
+import SymbolButton from "../../../../components/common/SymbolButton";
 import React, { useLayoutEffect, useRef, useState, useEffect } from "react";
 import ReactDOM from "react-dom";
-import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faTimes } from "@fortawesome/free-solid-svg-icons";
 import ToleranceForm from "../../../../components/common/ToleranceForm";
 // The popover's own styling (.inline-tol-popover, width cap, scroll). Imported
 // here so the styles load wherever the popover is used, independent of the
@@ -77,9 +76,7 @@ const TolerancePopover = ({
     >
       <div className="inline-tol-popover-header">
         <h5>Tolerance / Error Limits</h5>
-        <button className="inline-icon-btn" onClick={onClose} title="Done">
-          <FontAwesomeIcon icon={faTimes} />
-        </button>
+        <SymbolButton className="inline-icon-btn" onClick={onClose} title="Done" />
       </div>
       <ToleranceForm
         tolerance={tolerance || {}}

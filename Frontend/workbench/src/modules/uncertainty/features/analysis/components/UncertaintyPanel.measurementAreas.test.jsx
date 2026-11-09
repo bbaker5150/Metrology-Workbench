@@ -16,6 +16,15 @@ const weightInstrument = { id: 'weight-library', manufacturer: 'Other', model: '
 const instruments = [weightInstrument, lengthInstrument];
 
 describe('description function search', () => {
+  it('omits the current auto-saved definition while retaining a different instrument with the same name', () => {
+    const existing = { ...lengthInstrument, id: 'existing', scope: 'local' };
+    const draft = { ...existing, id: 'new' };
+    const { rerender } = render(<EditableDescriptionCell currentDefinitionId="new" instruments={[existing]} onPickLibrary={vi.fn()} onCommit={vi.fn()} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Click to add description' }));
+    rerender(<EditableDescriptionCell currentDefinitionId="new" instruments={[draft, existing]} onPickLibrary={vi.fn()} onCommit={vi.fn()} />);
+    expect(screen.getAllByRole('option')).toHaveLength(1);
+    expect(screen.getByRole('option')).toHaveTextContent('Acme L100 Rule');
+  });
   it('finds functions across the library, without area ranking or selecting on blur or Enter', () => {
     const pick = vi.fn();
     render(<EditableDescriptionCell functionKey="torque" onCommit={vi.fn()} instruments={instruments} onPickLibrary={pick} />);

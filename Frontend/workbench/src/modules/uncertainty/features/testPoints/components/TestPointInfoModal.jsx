@@ -1,3 +1,4 @@
+import SymbolButton from "../../../components/common/SymbolButton";
 import React from "react";
 import { getToleranceSummary } from "../../../utils/uncertaintyMath";
 
@@ -10,9 +11,7 @@ const TestPointInfoModal = ({ isOpen, onClose, testPoint }) => {
   return (
     <div className="modal-overlay">
       <div className="modal-content" style={{ textAlign: "left" }}>
-        <button onClick={onClose} className="modal-close-button">
-          &times;
-        </button>
+        <SymbolButton onClick={onClose} className="modal-close-button" />
         <h3>Test Point Details</h3>
         <div className="breakdown-step">
           <h5>Identification</h5>

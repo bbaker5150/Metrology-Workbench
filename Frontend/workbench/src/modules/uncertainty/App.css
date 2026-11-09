@@ -100,7 +100,7 @@ body.uncertainty-active {
   --sidebar-point-row-pad: 10px; /* row inline padding */
   --sidebar-point-row-inset: 6px; /* row border + block padding above a cell */
   --sidebar-point-row-border: 1px;
-  --sidebar-point-column-gap: 8px;
+  --sidebar-point-column-gap: 4px;
 
   /* Toggles */
   --toggle-bg-off: #dee2e6;
@@ -166,6 +166,7 @@ body.uncertainty-active {
 /* --- 1B. BASE DARK MODE (scoped to module + body-level portal root; core colors aligned to workbench dark) --- */
 body.dark-mode .uncertainty-module,
 body.dark-mode.uncertainty-active {
+  --area-accent-lightener: white;
   --background-color: #0b1220;
   --primary-color: #60a5fa;
   --primary-color-dark: #93c5fd;
@@ -8226,32 +8227,9 @@ body.theme-cyberpunk.dark-mode
 }
 
 .form-section .image-add-button {
-  /* Sizing */
-  width: 100px;
-  height: 100px;
-
-  /* Centering */
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-
-  /* Style */
-  border: 1px dashed var(--border-color);
-  border-radius: 6px;
-  color: var(--text-color-muted);
-  font-size: 0.9rem;
-  gap: 4px;
-
-  /* Interaction */
-  cursor: pointer;
-  transition: all 0.2s ease;
-}
-
-.image-add-button:hover {
-  background-color: var(--primary-color-light);
-  color: var(--primary-color);
-  border-color: var(--primary-color);
+  width: 24px;
+  height: 24px;
+  align-self: center;
 }
 
 .remove-image-btn {
@@ -13308,6 +13286,7 @@ input.inline-function-input:focus {
 
 .instrument-order-controls {
   display: inline-flex;
+  flex-direction: column;
   gap: 1px;
   opacity: 0;
   pointer-events: none;
@@ -13316,7 +13295,7 @@ input.inline-function-input:focus {
 
 .instrument-summary-table td.cell-description.has-order-controls {
   position: relative;
-  padding-left: 56px;
+  padding-left: 32px;
 }
 
 .instrument-order-controls--gutter {
@@ -13340,7 +13319,7 @@ input.inline-function-input:focus {
 
 .instrument-order-controls button {
   width: 20px;
-  height: 20px;
+  height: 16px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -21767,7 +21746,7 @@ body.light-mode .uncertainty-module :is(.instrument-equipment-table, .instrument
 .uncertainty-module .point-unit-control { display: inline-flex; align-items: center; gap: 3px; width: max-content; }
 .uncertainty-module .point-unit-control .point-unit-prefix { width: 58px; min-width: 58px; flex: 0 0 58px; }
 .uncertainty-module .point-value-with-unit .point-edit-affordance { min-width: max-content; }
-.uncertainty-module .instrument-first-hint { display: flex; align-items: center; justify-content: flex-end; gap: 4px; padding-right: 14px; }
+.uncertainty-module .instrument-first-hint { display: flex; align-items: center; justify-content: flex-end; gap: 4px; padding-right: 0; }
 .uncertainty-module .instrument-first-hint > span { flex: 0 0 24px; text-align: center; }
 
 .uncertainty-module .instrument-source-row-name { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
@@ -21777,8 +21756,8 @@ body.light-mode .uncertainty-module :is(.instrument-equipment-table, .instrument
 
 /* Measured against the actual add controls, including scoped zoom. */
 .uncertainty-module .instrument-first-hint { position: relative; }
-.uncertainty-module :is(.measurement-point-empty-hint, .instrument-first-hint, .measurement-area-empty-hint) { padding-right: 46px; }
-.uncertainty-module :is(.measurement-point-empty-hint, .instrument-first-hint, .measurement-area-empty-hint) > span {
+.uncertainty-module :is(.measurement-point-empty-hint, .measurement-area-empty-hint) { padding-right: 46px; }
+.uncertainty-module :is(.measurement-point-empty-hint, .measurement-area-empty-hint) > span {
   position: absolute; left: var(--hint-arrow-left, calc(100% - 26px)); transform: translateX(-50%); width: 24px;
 }
 
@@ -21994,6 +21973,14 @@ body.light-mode .uncertainty-module :is(.instrument-equipment-table, .instrument
   background: color-mix(in srgb, var(--sidebar-function-color, var(--primary-color)) 10%, transparent);
 }
 
+.instrument-typeb-overlay { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(0, 0, 0, .45); z-index: 3000; }
+.instrument-typeb-dialog { width: max-content; max-width: 94vw; max-height: 82vh; display: flex; flex-direction: column; overflow: hidden; }
+.instrument-typeb-dialog h3 { margin: 0; font-size: 1.05rem; }
+.instrument-typeb-dialog-body { padding: 16px; overflow: auto; }
+.budget-typeb-option { display: flex; align-items: center; }
+.budget-typeb-disassociate { border: 0; background: transparent; border-radius: 4px; color: var(--text-color-muted); padding: 6px; cursor: pointer; }
+.budget-typeb-disassociate:is(:hover, :focus-visible) { color: var(--status-bad); background: var(--input-background); }
+
 /* Group independent instrument sources in the Range column without adding a
    table column or changing range/custom-column alignment. */
 .uncertainty-module .instrument-equipment-table .instrument-uncertainty-name-cell {
@@ -22001,7 +21988,7 @@ body.light-mode .uncertainty-module :is(.instrument-equipment-table, .instrument
   position: relative; padding-left: calc(var(--instrument-uncertainty-rail-width) + 8px);
 }
 .uncertainty-module .instrument-uncertainty-name-cell > .range-row-cell {
-  min-height: max(24px, calc(108px / var(--uncertainty-source-count, 1) - 16px));
+  min-height: 24px;
 }
 .uncertainty-module .instrument-uncertainty-rail {
   position: absolute; top: 0; left: 0; width: var(--instrument-uncertainty-rail-width); height: var(--uncertainty-rail-height, 100%);
@@ -22013,6 +22000,13 @@ body.light-mode .uncertainty-module :is(.instrument-equipment-table, .instrument
   position: absolute; left: 50%; top: 50%;
   writing-mode: horizontal-tb; transform: translate(-50%, -50%) rotate(-90deg); white-space: nowrap;
   font-family: inherit; font-size: 9px; font-weight: 600; letter-spacing: .035em; line-height: 1;
+}
+.uncertainty-module .instrument-uncertainty-row[data-single-source] .instrument-uncertainty-rail > span {
+  text-align: center; line-height: 1.05;
+}
+/* Two compact rows can be shorter than the full rail label. */
+.uncertainty-module .instrument-uncertainty-row:not([data-single-source]) .instrument-uncertainty-name-cell > .range-row-cell {
+  min-height: max(24px, calc(104px / var(--uncertainty-source-count, 2) - 16px));
 }
 .uncertainty-module .uncertainty-budget-table .budget-component-type {
   vertical-align: middle; text-align: center;
@@ -22142,11 +22136,11 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
 /* Separate, single-sided cell borders keep the nested grid continuous at
    fractional zoom; collapsed borders on positioned cells can paint apart. */
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table {
-  width: var(--dynamic-table-width); table-layout: fixed; border-collapse: separate !important; border-spacing: 0 !important;
+  width: max-content; table-layout: auto; border-collapse: separate !important; border-spacing: 0 !important;
   --dynamic-grid-color: var(--instrument-editor-divider, var(--table-divider-color, var(--border-color)));
 }
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table > :is(thead, tbody) > tr > :is(th, td) {
-  padding: 6px 10px !important; text-align: center !important; vertical-align: middle;
+  padding: 3px 4px !important; text-align: center !important; vertical-align: middle;
   border: 0 !important;
 }
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table > :is(thead, tbody) > tr > :is(th, td):not(:last-child):not(:nth-last-child(2)) {
@@ -22156,11 +22150,11 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table .dynamic-row-action-cell { padding-inline: 4px !important; white-space: nowrap; }
 
 /* Reserve a compact action pair inside the editor's available width. */
-:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table { width: min(100%, var(--dynamic-table-width)); }
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table > thead > tr > th { white-space: normal !important; overflow-wrap: anywhere; }
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table input {
-  width: min(var(--dynamic-column-width), 100%) !important; min-width: 0 !important; max-width: 100% !important;
+  width: var(--dynamic-column-width) !important; min-width: 0 !important;
 }
+.dynamic-cell-value { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table .dynamic-row-action-cell { width: 48px; padding-inline: 0 !important; }
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-row-action-cell > button {
   width: 24px; min-width: 0; padding-inline: 0; box-sizing: border-box; opacity: 0;
@@ -22192,15 +22186,15 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
 /* Center the visible data, balancing the hidden action gutter on both sides. */
 .uncertainty-module :is(.instrument-equipment-table, .uncertainty-budget-table) .inline-tolerance-editor:has(.dynamic-budget-editor[data-dynamic-kind="table"]) { width: 100%; box-sizing: border-box; }
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] { width: 100%; max-width: none; min-width: 0; box-sizing: border-box; align-self: stretch; }
-:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] > .dynamic-table-scroll { width: 100%; padding-left: 48px; box-sizing: border-box; }
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] > .dynamic-table-scroll { width: max-content; padding-left: 48px; margin-inline: auto; box-sizing: border-box; }
 
 /* Budget columns use automatic layout until resized. Give their nested lookup
    editor an intrinsic width, as instrument columns do, rather than resolving
    a full-width fixed table against its own content width. */
 :is(.uncertainty-module, .instrument-builder-wrapper) .budget-inline-tolerance-cell > .inline-tolerance-editor:has(.dynamic-budget-editor[data-dynamic-kind="table"]),
 :is(.uncertainty-module, .instrument-builder-wrapper) .budget-inline-tolerance-cell > .dynamic-budget-editor[data-dynamic-kind="table"] {
-  width: var(--budget-lookup-editor-width, 420px);
-  min-width: var(--budget-lookup-editor-width, 420px);
+  width: var(--budget-lookup-editor-width, max-content);
+  min-width: var(--budget-lookup-editor-width, 0px);
   max-width: none;
   box-sizing: border-box;
 }
@@ -22222,7 +22216,6 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table > tbody > tr:hover { background-color: var(--table-hover-row-bg, transparent) !important; }
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table > tbody > tr > td:first-child::before { content: ""; position: absolute; inset-block: 0; left: -48px; width: 48px; }
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table > tbody > tr:hover > td:first-child::before { background-color: var(--table-hover-row-bg, transparent); }
-:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table { width: 100%; }
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table > :is(thead, tbody) > tr > :is(th, td):first-child { position: relative; }
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table > :is(thead, tbody) > tr > :is(th, td):first-child::after { content: ""; position: absolute; left: -48px; bottom: -1px; width: 48px; border-bottom: 1px solid var(--dynamic-grid-color); pointer-events: none; }
 
@@ -22318,6 +22311,7 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
 .instrument-row-action[data-active] .instrument-row-delete,
 .instrument-row-action:focus-within .instrument-row-delete { opacity: 1; pointer-events: auto; }
 
+.inline-sync-badge--orange { color: #c05b10; }
 .inline-sync-badge--yellow { color: #b8860b; }
 
 /* Qualifier row actions use the same icon box and glyph scale. */
@@ -22325,9 +22319,10 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
 .qualifier-range-cell .range-row-controls :is(.range-row-add, .range-row-delete) svg { width: 12px; height: 12px; }
 
 /* Qualifier actions share Range visibility without changing intrinsic width. */
-.qualifier-range-cell:not([data-actions-selected]) .range-row-controls { visibility: hidden; }
+.qualifier-range-cell:not([data-actions-selected]):not(:has(.is-editing)) .range-row-controls { visibility: hidden; }
 .uncertainty-module .instrument-equipment-table tr.inline-range-row .range-qualifier-add { opacity: 0; pointer-events: none; }
 .uncertainty-module .instrument-equipment-table tr.inline-range-row :is(.range-row-cell, .range-stack-row):is(:hover, :focus-within) .range-qualifier-add,
+.uncertainty-module .instrument-equipment-table tr.inline-range-row .range-row-cell:has(> .inline-range-editor.is-editing) .range-row-controls > button,
 .uncertainty-module .instrument-equipment-table tr.inline-range-row .range-qualifier-add:focus-visible { opacity: 1; pointer-events: auto; }
 
 /* Instrument actions share the measurement-area surface of editable fields,
@@ -22348,4 +22343,30 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
 .instrument-action-header .instrument-action-paint,
 .instrument-action-header .instrument-action-paint :is(thead, tr, th) {
   border-inline: 0 !important;
+}
+
+/* Icon-only add, remove and close actions share the instrument row treatment.
+   Keep each control's placement, visibility and hit area in its own layout. */
+button.uncertainty-symbol-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 4px !important;
+  border: 1px solid transparent !important;
+  box-shadow: none !important;
+  color: var(--text-color-muted) !important;
+  background: transparent !important;
+  cursor: pointer;
+}
+button.uncertainty-symbol-button > svg {
+  width: 12px !important;
+  height: 12px !important;
+  pointer-events: none;
+}
+button.uncertainty-symbol-button:is(:hover, :focus-visible):not(:disabled) {
+  --symbol-accent: var(--function-input-accent, var(--sidebar-function-color, var(--primary-color)));
+  color: var(--symbol-accent) !important;
+  background: color-mix(in srgb, var(--symbol-accent) 10%, transparent) !important;
+  box-shadow: inset 0 0 0 1px var(--symbol-accent) !important;
 }

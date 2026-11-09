@@ -16,5 +16,6 @@ describe("builder unit menu", () => {
     fireEvent.keyDown(search, { key: "Enter" });
     expect(onChange).toHaveBeenCalledWith("A");
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Unit base unit" })).toHaveFocus();
   });
 });

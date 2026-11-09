@@ -156,9 +156,12 @@ export default function useInstrumentTableLayout(containerRef) {
       // Top-layer controls stay above the header without needing padding in
       // the scrolling container. Keep their DOM ownership in the header for
       // keyboard navigation, labels and the existing insertion workflow.
-      table.querySelectorAll('.instrument-column-insert-button').forEach(button => {
-        if (!button.showPopover) return;
-        const header = button.closest('th').getBoundingClientRect();
+      // Read every header before repositioning popovers. Interleaving a read
+      // after each top-layer write forces layout once per column during scroll.
+      const placements = [...table.querySelectorAll('.instrument-column-insert-button')]
+        .filter(button => button.showPopover)
+        .map(button => ({ button, header: button.closest('th').getBoundingClientRect() }));
+      placements.forEach(({ button, header }) => {
         const center = header.right;
         const visible = center >= rect.left && center <= rect.right + 1 && header.bottom > top;
         if (!visible) {
@@ -169,13 +172,13 @@ export default function useInstrumentTableLayout(containerRef) {
           return;
         }
         setProperty(button, 'display', '');
-        button.style.position = 'fixed';
-        button.style.margin = '0';
-        button.style.right = 'auto';
-        button.style.bottom = 'auto';
-        button.style.zoom = String(1 / (containerScale * zoom));
-        button.style.left = `${Math.min(center - 8, rect.right - 17)}px`;
-        button.style.top = `${header.top - 16}px`;
+        setProperty(button, 'position', 'fixed');
+        setProperty(button, 'margin', '0px');
+        setProperty(button, 'right', 'auto');
+        setProperty(button, 'bottom', 'auto');
+        setProperty(button, 'zoom', String(1 / (containerScale * zoom)));
+        setProperty(button, 'left', `${Math.min(center - 8, rect.right - 17)}px`);
+        setProperty(button, 'top', `${header.top - 16}px`);
         if (!button.matches(':popover-open')) button.showPopover();
       });
     };
@@ -373,8 +376,9 @@ export default function useInstrumentTableLayout(containerRef) {
     // the scroll event instead of deferring an entire table measurement a frame.
     const onScroll = event => {
       if (event.target !== document && event.target !== container && !scrollAncestors.includes(event.target)) return;
+      syncHeaderOffset();
       alignEmptyHintArrows(card || table);
-      syncHeaderOffset(); syncActions();
+      syncActions();
     };
     const refreshColumnControls = event => {
       if (event.target.closest?.('th.instrument-resizable-header')) syncHeaderOffset();

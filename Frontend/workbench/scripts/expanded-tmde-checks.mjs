@@ -48,8 +48,10 @@ export async function checkExpandedTmde({ frame, page, saved }) {
   await page.screenshot({path:'tmp/expanded-tasking/parametric-light.png'});
   console.log('expanded: add secondary');
   await click(editor.getByRole('button', { name: 'Add a secondary uncertainty' }));
-  assert.equal(await table.getByRole('textbox', { name: 'Uncertainty name' }).count(), 1, 'plus immediately creates a manual source');
   const sourceRow = table.locator('tr[data-uncertainty-source-id]').first();
+  assert.equal(await sourceRow.getByRole('button', { name: 'Uncertainty', exact: true }).count(), 1, 'plus creates a named manual source');
+  await click(sourceRow.getByRole('button', { name: 'Uncertainty', exact: true }));
+  assert.equal(await sourceRow.getByPlaceholder('Name', { exact: true }).count(), 1);
   const sourceName = sourceRow.getByRole('textbox', { name: 'Uncertainty name' });
   await sourceName.fill('Thermal Expansion');
   await sourceName.press('Tab');
@@ -75,6 +77,7 @@ export async function checkExpandedTmde({ frame, page, saved }) {
     await click(sourceToolbar.getByRole('button', { name: 'Add a secondary uncertainty' }));
     const row = table.locator('tr[data-uncertainty-source-id]').last();
     assert.equal(await row.locator('.cell-tolerance .is-empty').textContent(), 'Not Set', 'new dynamic uncertainty uses the common placeholder');
+    await click(row.getByRole('button', { name: 'Uncertainty', exact: true }));
     const name = row.getByRole('textbox', { name: 'Uncertainty name' });
     await name.fill(kind + ' test');
     await name.press('Tab');
@@ -218,6 +221,7 @@ export async function checkExpandedTmde({ frame, page, saved }) {
     await click(cell.locator('.inline-tolerance-summary').first());
     await click(editor.getByRole('button', { name: 'Add a secondary uncertainty' }));
     const row = table.locator('tr[data-uncertainty-source-id]').last();
+    await click(row.getByRole('button', { name: 'Uncertainty', exact: true }));
     const input = row.getByRole('textbox', { name: 'Uncertainty name' });
     await input.fill(name);
     await input.press('Tab');

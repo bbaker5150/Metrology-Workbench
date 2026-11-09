@@ -1,9 +1,10 @@
-/** Library status: red is unsynced, yellow is local, green matches shared. */
+import { v4 as uuid } from "uuid";
 import { canonicalShuntDefinition } from './acShuntInstrumentRole';
 
 export const SYNC_NONE = "none";
 export const SYNC_GREEN = "green";
 export const SYNC_RED = "red";
+export const SYNC_ORANGE = "orange";
 export const SYNC_YELLOW = "yellow";
 
 // The fields that DEFINE an instrument for divergence purposes. Session-context
@@ -53,7 +54,7 @@ export const buildValidatedSnapshot = (instrument = {}) =>
 
 /** True when the instrument is linked to a validated origin (so it can diverge). */
 export const isValidatedLinked = (instrument = {}) =>
-  instrument.scope === "validated" ||
+  ["shared", "validated"].includes(instrument.scope) ||
   Boolean(instrument.sourceId) ||
   (instrument.validatedSnapshot != null &&
     typeof instrument.validatedSnapshot === "object" &&
@@ -79,28 +80,22 @@ export const diffFromSnapshot = (instrument = {}) => {
 
 export const computeSyncState = (instrument = {}) => {
   if (instrument.scope === "session") return SYNC_RED;
-  const local = instrument.scope === "local" ? SYNC_YELLOW : SYNC_RED;
+  if (instrument.scope === "pending") return SYNC_YELLOW;
+  const local = instrument.scope === "local" ? SYNC_ORANGE : SYNC_RED;
   if (instrument.localOverride || !isValidatedLinked(instrument)) return local;
   if (!instrument.validatedSnapshot) return SYNC_GREEN;
   return diffFromSnapshot(instrument).length > 0 ? local : SYNC_GREEN;
 };
 
-/**
- * Build the payload that re-syncs a (diverged) instrument up to the validated
- * library: promote to validated scope, attach the password, and re-snapshot the
- * current definition so the row goes green again. Pure — the caller POSTs it.
- */
-export const buildSyncPayload = (instrument = {}, password = "") => {
-  instrument = canonicalShuntDefinition(instrument);
-  return ({
-  ...instrument,
-  id: instrument.sourceId || instrument.id,
-  scope: "validated",
-  sourceId: instrument.sourceId || instrument.id,
-  validatedSnapshot: buildValidatedSnapshot(instrument),
-  // Syncing reconciles the local copy with the shared library, so any local
-  // override (e.g. a drag-induced area change) is no longer "out of sync".
-  localOverride: false,
-  password,
-  });
+/** An edit to a shared definition needs its own private submission ID. */
+export const buildSyncPayload = (instrument = {}) => {
+  const definition = canonicalShuntDefinition(instrument);
+  const shared = ["shared", "validated"].includes(definition.scope);
+  return {
+    ...definition,
+    id: shared ? uuid() : definition.id,
+    scope: "pending",
+    sourceId: definition.sourceId || (shared ? definition.id : ""),
+    localOverride: true,
+  };
 };

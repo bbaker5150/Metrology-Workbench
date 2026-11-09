@@ -15,11 +15,7 @@ user, the storage gate stops before any session data is loaded.
 - Existing `session-<id>.json` and `image-<session>-<image>.json` files remain
   available to their original SharePoint author. When saved again, their
   existing filename is preserved.
-- Instruments, equations, and bug reports remain shared site lists. They are
-  deliberately not filtered by user, so every app user sees the same library
-  and issue history.
-- The normal local/Electron build is unchanged; user scoping exists only in the
-  SharePoint storage adapter.
+- Validated instruments, equations and bug reports are shared. Local instruments and pending submissions use a private working list. SharePoint restricts ordinary contributors to their own rows. The Instrument Library inbox is available to members of the **Uncertalytics SME** site group.
 
 ## Hosting requirements
 
@@ -36,12 +32,7 @@ context is allowed to call it.
 
 ### Embedded mutation confirmations
 
-The app does not use SharePoint's tunneled `MERGE` or `DELETE` method overrides.
-Those override headers cause some embedded single-file hosts to interrupt users
-with a mutation confirmation even though the operation is already constrained
-and validated by the app. Existing list rows are updated with
-`ValidateUpdateListItem`, and removals use SharePoint's recoverable `recycle()`
-endpoint; both are ordinary authenticated POST requests.
+The app ordinarily updates existing rows with `ValidateUpdateListItem`. Removals archive the original content with a timestamp and acting user. Provisioning and storage organization use scoped `MERGE` updates to list settings. Approval uses version-checked `MERGE` updates to publish the reviewed definition and archive the submitted version.
 
 Normal budget edits still avoid redundant metadata writes. The session JSON is
 updated, but its picker columns are only posted when the session name, analyst,
@@ -56,12 +47,6 @@ permissions by default, however, so this filter alone is not a confidentiality
 boundary for users who browse the library directly or call SharePoint REST
 outside the app.
 
-When session contents require strict isolation, a SharePoint administrator
-should apply unique permissions to each user's session files or user folder
-(normally with site automation), while leaving the Instruments, Equations, and
-Bug Reports lists inherited and shared. SharePoint documents support unique
-permission scopes, but ordinary contributors often cannot create those scopes
-themselves; keeping that policy in site administration avoids making app saves
-depend on elevated permission-management rights.
+A site owner must run storage setup and grant the **Uncertalytics SME** group Manage Lists and Contribute on the Published Instruments and Instrument Drafts lists. Ordinary app users need Read on the historical Instruments list, Read on Published Instruments, and Contribute on Instrument Drafts. Setup preserves the historical authors and copies earlier shared definitions into the new catalog. Review list-level grants and inherited permissions when upgrading a site. The full setup guide includes the access matrix and a three-account verification procedure. [Instrument review and SharePoint permissions](../../docs/uncertainty-sharepoint-standalone.md#instrument-review-and-sharepoint-permissions)
 
-Microsoft guidance: [Manage Permission Scopes in SharePoint](https://learn.microsoft.com/en-us/sharepoint/manage-permission-scope).
+Administrators can apply unique permissions to session files or user folders when stricter isolation of session contents is needed. [Microsoft guidance on permission scopes](https://learn.microsoft.com/en-us/sharepoint/manage-permission-scope)

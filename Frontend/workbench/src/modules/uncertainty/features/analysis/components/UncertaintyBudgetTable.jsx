@@ -1,3 +1,4 @@
+import SymbolButton from "../../../components/common/SymbolButton";
 import { FLUSH_EDITORS } from "../../../hooks/usePageExitRecovery";
 import { isBudgetEditorScrollTarget } from "../../../utils/budgetEditorViewport";
 import { readEditorDraft, saveEditorDraft, clearEditorDraft } from "../../../utils/editorRecovery";
@@ -32,13 +33,13 @@ import { oldErrorDistributions } from "../utils/budgetUtils";
 import {
   applyManualToleranceDistribution,
   getInlineManualDraft,
+  manualFullScaleReference,
   normalizeInlineManualComponent,
 } from "../utils/manualComponentUtils";
 const PercentageBarGraph = lazy(() => import("./ContributionPlot"));
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faCalculator,
-  faPlus,
   faPencilAlt,
   faProjectDiagram,
   faExclamationTriangle,
@@ -543,16 +544,14 @@ export const InlineManualComponentRow = ({
 
   const removeAction = (
     <div className="budget-row-actions">
-      <span
+      <SymbolButton
         onClick={(event) => {
           event.stopPropagation();
           onRemove?.(component.id, component);
         }}
         className="delete-action"
         title="Remove Component"
-      >
-        x
-      </span>
+       />
     </div>
   );
 
@@ -676,8 +675,7 @@ export const InlineManualComponentRow = ({
               referencePoint={referencePoint}
               activeRange={{
                 id: component.id,
-                max: referencePoint?.value,
-                unit: referencePoint?.unit || draft.tolerance?.floor?.unit || draft.unit || "",
+                ...manualFullScaleReference(draft, referencePoint),
               }}
               key={activeField}
               editable
@@ -747,7 +745,9 @@ export const InlineManualComponentRow = ({
       </td>
       {showDof && <td>{draft.type === "A" ? formatDof(component.dof) : ""}</td>}
       <td>
-        <span className="budget-standard-uncertainty" aria-label="Calculated standard uncertainty">{preview.pendingReason || !Number.isFinite(Number(std.value)) || Number(std.value) <= 0 ? "Not Set" : `± ${formatNumber(std.value, sigFigs)} ${getUnitDisplayLabel(std.unit)}`}</span>
+        <span className="budget-standard-uncertainty" aria-label="Calculated standard uncertainty">{preview.pendingReason
+          ? <PendingUncertainty reason={preview.pendingReason} />
+          : Number(std.value) > 0 && Number.isFinite(Number(std.value)) ? `± ${formatNumber(std.value, sigFigs)} ${getUnitDisplayLabel(std.unit)}` : "Not Set"}</span>
       </td>
       <td className="action-cell">{removeAction}</td>
     </tr>
@@ -1075,13 +1075,11 @@ const UncertaintyBudgetTable = ({
     if (component.isResolution) {
       return (
         <div className="budget-row-actions">
-          <span
+          <SymbolButton
             onClick={() => onRemove?.(component.id, component)}
             className="delete-action"
             title="Remove from budget"
-          >
-            x
-          </span>
+           />
         </div>
       );
     }
@@ -1105,13 +1103,11 @@ const UncertaintyBudgetTable = ({
             <FontAwesomeIcon icon={faPencilAlt} />
           </span>
         )}
-        <span
+        <SymbolButton
           onClick={() => onRemove?.(component.id, component)}
           className="delete-action"
           title="Remove Component"
-        >
-          x
-        </span>
+         />
       </div>
     );
   };
@@ -1712,7 +1708,7 @@ const UncertaintyBudgetTable = ({
                             <FontAwesomeIcon icon={faExclamationTriangle} />
                           </span>
                         )}
-                        <button
+                        <SymbolButton add
                           type="button"
                           className="btn-add-item"
                           data-tour="budget-add-component"
@@ -1723,9 +1719,7 @@ const UncertaintyBudgetTable = ({
                           onClick={(event) =>
                             onAddTmdeToBudget(getGroupScope(group), event)
                           }
-                        >
-                          <FontAwesomeIcon icon={faPlus} size="xs" />
-                        </button>
+                         />
                       </>
                       )}
                 </div>

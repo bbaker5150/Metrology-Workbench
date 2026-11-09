@@ -285,3 +285,15 @@ it("evaluates relative uncertainty at a unitless nominal and defers it without a
   const pending=normalizeInlineManualComponent({component:{id:"u"},draft,referencePoint:{value:"",unit:""}});
   expect(pending.pendingReason).toMatch(/measurement value/);
 });
+it("evaluates percent of full scale in the manual floor unit", () => {
+  const result = normalizeInlineManualComponent({
+    component: { id: "m" }, referencePoint: { value: 1, unit: "V" },
+    draft: { unit: "mV", inputMode: "tolerance", tolerance: {
+      range: { value: "500", high: "10", low: "-10", unit: "%", distribution: "1" },
+      floor: { high: "", low: "", unit: "mV" },
+    } },
+  });
+  expect(result.pendingReason).toBeNull();
+  expect(result.value_native).toBeCloseTo(0.05);
+  expect(result.originalInput.tolerance.range.value).toBe("500");
+});

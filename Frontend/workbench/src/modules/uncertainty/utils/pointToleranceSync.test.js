@@ -1,4 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
+import { choosePointRange, getPointUutRanges } from "./pointUutRange";
+import { getAbsoluteLimits } from "./uncertaintyMath";
 import { syncPointTolerances } from "./pointToleranceSync";
 const range = (id, unit, high) => ({ id, unit, min: 0, max: 10, tolerances: { floor: { high, low: -high, unit } } });
 const uut = ranges => ({ id: "u", instrument: { functions: [{ id: "f", name: "Electrical", ranges }] } });
@@ -37,7 +39,7 @@ describe("live UUT tolerance snapshots", () => {
   });
 });
 
-it("keeps mass and acceleration separate even though both display g", () => {
+it("keeps mass and acceleration separate", () => {
   const before = { uuts: [uut([range("mass", "g", 1)])], testPoints: [point(1, "g", null)] };
   const after = syncPointTolerances({ ...before, uuts: [uut([range("gravity", "G_accel", 4), range("mass", "g", 2)])] }, before);
   expect(after.testPoints[0].uutTolerance.rangeId).toBe("mass");
@@ -64,4 +66,29 @@ it("retains an explicitly selected range across bias edits for prefixed or confl
     expect(p.uutTolerance.tolerances.bias.value).toBe(.1);
     expect(p.uutTolerance.includeResolutionInBudget).toBe(false);
   }
+});
+
+it("requires a point-specific choice for overlapping ranges and keeps that choice through edits and reload", () => {
+  const narrow = { ...range("15", "psig", 2), max: 15 };
+  const wide = { ...range("100", "psig", 5), max: 100 };
+  const instrument = uut([narrow, wide]);
+  const first = point(1, "psig", { rangeId: "15" });
+  first.testPointInfo.parameter.value = 10;
+  const legacy = { uuts: [instrument], testPoints: [first, { ...first, id: 2, uutTolerance: null }] };
+  const reopened = syncPointTolerances(legacy);
+  for (const p of reopened.testPoints) {
+    expect(p.uutTolerance).toEqual({ rangeSelection: "required" });
+    expect(getAbsoluteLimits(p.uutTolerance, p.testPointInfo.parameter)).toMatchObject({ low: "N/A", high: "N/A" });
+  }
+  const selected = { ...reopened, testPoints: reopened.testPoints.map((p, i) => i ? p : {
+    ...p, uutTolerance: choosePointRange(getPointUutRanges(instrument)[1]),
+  }) };
+  const reordered = syncPointTolerances({ ...selected, uuts: [uut([wide, { ...narrow, tolerances: { floor: { high: 3, unit: "psig" } } }])] }, selected);
+  const restored = syncPointTolerances(JSON.parse(JSON.stringify(reordered)));
+  expect(restored.testPoints[0].uutTolerance).toMatchObject({ rangeId: "100", rangeSelection: "explicit", tolerances: { floor: { high: 5 } } });
+  expect(restored.testPoints[1].uutTolerance).toEqual({ rangeSelection: "required" });
+  const changed = syncPointTolerances({ ...restored, testPoints: restored.testPoints.map(p => ({
+    ...p, testPointInfo: { parameter: { value: 60, unit: "psig" } },
+  })) }, restored);
+  expect(changed.testPoints[1].uutTolerance.rangeId).toBe("100");
 });

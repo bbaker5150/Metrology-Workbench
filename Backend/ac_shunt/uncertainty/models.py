@@ -21,6 +21,8 @@ snapshots, ``riskMetrics``, instrument function/range trees) are kept as
 app. WorkbenchRouter routes every table here to the dedicated ``uncertainty``
 database alias (SQLite by default, MSSQL when configured).
 """
+import uuid
+
 from django.db import models
 
 
@@ -227,31 +229,32 @@ class NoteImage(models.Model):
         ordering = ["id"]
 
 
+class LegacyInstrumentUse(models.Model):
+    """A private successor (or personal removal) for a pre-authentication row."""
+    legacy_id = models.CharField(max_length=64)
+    actor = models.CharField(max_length=100)
+    private_id = models.UUIDField(default=uuid.uuid4, unique=True)
+
+    class Meta:
+        constraints = [models.UniqueConstraint(fields=["actor", "legacy_id"], name="one_legacy_copy_per_actor")]
+
+
 class Instrument(models.Model):
     """Instrument library entry (not session-scoped).
 
-    The library is split into two scopes (feature/inline-instrument-tables):
-
-      - ``validated`` — the curated, shared library. Writing to it is gated
-        behind a shared password (see ``views.instruments``). Every user sees
-        all validated instruments.
-      - ``local`` — a per-user history of instruments that user has created or
-        loaded, scoped by ``owner`` (a client-generated device/user key, since
-        there is no auth yet). Auto-saved on every edit, never password-gated.
-        A user only sees their own local instruments.
-
-    A local instrument that originated from a validated one keeps ``source_id``
-    (the validated instrument's id) and ``validated_snapshot`` (the validated
-    definition at load/sync time). The frontend diffs the live row against the
-    snapshot to drive the green (in sync) / red (diverged) sync indicator.
+    Local definitions belong to their creator. Pending definitions remain
+    private while SMEs review them. Validated definitions form the catalog.
     """
 
     SCOPE_LOCAL = "local"
+    SCOPE_PENDING = "pending"
     SCOPE_VALIDATED = "validated"
     SCOPE_CHOICES = [
         (SCOPE_LOCAL, "Local (user)"),
+        (SCOPE_PENDING, "Pending validation"),
         (SCOPE_VALIDATED, "Validated (shared)"),
     ]
+    review_owner = models.CharField(max_length=100, blank=True, default="")
 
     # Client id may be a uuid or numeric string -> CharField PK.
     id = models.CharField(max_length=64, primary_key=True)

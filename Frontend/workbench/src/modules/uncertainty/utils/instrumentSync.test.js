@@ -3,6 +3,7 @@ import {
   SYNC_NONE,
   SYNC_GREEN,
   SYNC_RED,
+  SYNC_ORANGE,
   SYNC_YELLOW,
   buildValidatedSnapshot,
   isValidatedLinked,
@@ -29,10 +30,10 @@ const validated = (overrides = {}) => ({
 
 describe("instrumentSync", () => {
   it("shows unsaved session instruments as red", () => { expect(computeSyncState({ id: "draft" })).toBe(SYNC_RED); });
-  it("a local-only instrument is unlinked and yellow", () => {
+  it("a local-only instrument is unlinked and orange", () => {
     const local = { id: "l1", manufacturer: "Keysight", model: "34470A", scope: "local" };
     expect(isValidatedLinked(local)).toBe(false);
-    expect(computeSyncState(local)).toBe(SYNC_YELLOW);
+    expect(computeSyncState(local)).toBe(SYNC_ORANGE);
   });
 
   it("an explicit localOverride forces red even when the snapshot matches", () => {
@@ -101,7 +102,7 @@ describe("instrumentSync", () => {
       },
     };
     expect(isValidatedLinked(loaded)).toBe(true);
-    expect(computeSyncState(loaded)).toBe(SYNC_YELLOW);
+    expect(computeSyncState(loaded)).toBe(SYNC_ORANGE);
   });
 
   it("buildValidatedSnapshot captures only the defining fields", () => {
@@ -112,21 +113,15 @@ describe("instrumentSync", () => {
     expect(snap.assetId).toBeUndefined();
   });
 
-  it("buildSyncPayload promotes to validated, re-snapshots, and carries the password", () => {
-    const diverged = validated({ description: "Edited locally", scope: "local", sourceId: "v1" });
-    const payload = buildSyncPayload(diverged, "calibrate");
-    expect(payload.id).toBe("v1");
-    expect(payload.scope).toBe("validated");
-    expect(payload.password).toBe("calibrate");
-    expect(payload.sourceId).toBe("v1");
-    // Re-snapshot reflects the CURRENT (edited) definition, so a subsequent
-    // computeSyncState on the synced record is green.
-    expect(payload.validatedSnapshot.description).toBe("Edited locally");
-    expect(computeSyncState({ ...payload })).toBe(SYNC_GREEN);
-  });
-
-  it("falls back to id as sourceId when syncing a brand-new instrument", () => {
-    const fresh = { id: "new1", manufacturer: "X", model: "Y", description: "", functions: [] };
-    expect(buildSyncPayload(fresh, "pw").sourceId).toBe("new1");
+  it("submits a private working copy while preserving its origin and prior baseline", () => {
+    const local = validated({ id: "draft", scope: "local", sourceId: "v1", description: "Edited" });
+    const payload = buildSyncPayload(local);
+    expect(payload).toMatchObject({ id: "draft", scope: "pending", sourceId: "v1", validatedSnapshot: local.validatedSnapshot });
+    expect(payload).not.toHaveProperty("password");
+    expect(computeSyncState(payload)).toBe(SYNC_YELLOW);
+    const edit = buildSyncPayload(validated());
+    expect(edit.id).not.toBe("v1");
+    expect(edit.sourceId).toBe("v1");
+    expect(buildSyncPayload({id: "new"})).toMatchObject({id: "new", scope: "pending", sourceId: ""});
   });
 });

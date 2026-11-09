@@ -1387,6 +1387,25 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     );
   });
 
+  it("keeps a unit mismatch visible while editing and clears it when the floor matches", () => {
+    const floor = { high: "1", low: "-1", distribution: "1", unit: "V" };
+    const reason = "Unit mismatch: V cannot be combined in a in uncertainty budget.";
+    const ToleranceEditorComponent = ({ editable, activeRange, onCommit }) => editable
+      ? <button onClick={() => onCommit("floor", { ...floor, unit: "in" })}>FS in {activeRange.unit}</button>
+      : <span>± 1 V</span>;
+    renderDirectBudget({
+      components: [{ id: "manual-mismatch", name: "Manual floor", type: "B", isInlineManual: true,
+        pendingReason: reason, originalInput: { unit: "V", inputMode: "tolerance", tolerance: { floor } } }],
+      referencePoint: { value: 10, unit: "in" }, ToleranceEditorComponent, onComponentUpdate: vi.fn(),
+    });
+    expect(screen.getByRole("img", { name: reason })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Edit tolerance" }));
+    expect(screen.getByRole("img", { name: reason })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "FS in V" }));
+    expect(screen.queryByRole("img", { name: reason })).toBeNull();
+    expect(screen.getByLabelText("Calculated standard uncertainty")).toHaveTextContent("in.");
+  });
+
   it("presents an incomplete collapsed manual component with table-style Not Set labels", () => {
     const { container } = renderDirectBudget({
       onComponentUpdate: vi.fn(),

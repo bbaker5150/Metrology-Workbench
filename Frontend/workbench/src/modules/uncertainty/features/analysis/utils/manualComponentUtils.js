@@ -1,11 +1,12 @@
 import { inputBinding } from "../../../utils/budgetScope";
-import { hasNominalValue, toleranceNeedsNominal, unresolvedComponent, absoluteBudgetComponent, relativeBudgetUnit } from "../../../utils/incompleteBudget";
+import { hasNominalValue, toleranceNeedsNominal, unresolvedComponent, absoluteBudgetComponent, relativeBudgetUnit, budgetUnitMismatch } from "../../../utils/incompleteBudget";
 import {
   unitSystem,
   calculateUncertaintyFromToleranceObject,
   convertToPPM,
   convertPpmToUnit,
   distributionDivisorValue,
+  effectiveFloorTerm,
   getUnitDisplayLabel,
 } from "../../../utils/uncertaintyMath";
 import { oldErrorDistributions } from "./budgetUtils";
@@ -228,6 +229,20 @@ export const getInlineManualDraft = (component = {}) => ({
     "",
 });
 
+// The full-scale box is expressed in the floor's physical unit. Convert its
+// suggested nominal when possible; incompatible quantities have no default value.
+export const manualFullScaleReference = (draft, referencePoint) => {
+  const floorUnit = effectiveFloorTerm(draft.tolerance || {})?.unit;
+  const unit = (floorUnit && !relativeBudgetUnit(floorUnit) ? floorUnit : "")
+    || referencePoint?.unit || draft.unit || "";
+  const nominalUnit = referencePoint?.unit;
+  const max = !nominalUnit || unit === nominalUnit || !hasNominalValue(referencePoint)
+    ? referencePoint?.value
+    : budgetUnitMismatch(unit, nominalUnit, unitSystem) ? ""
+    : unitSystem.fromBaseUnit(unitSystem.toBaseUnit(referencePoint.value, nominalUnit), unit);
+  return { max, unit };
+};
+
 export const normalizeInlineManualComponent = ({
   component,
   draft,
@@ -246,6 +261,7 @@ export const normalizeInlineManualComponent = ({
   if (!hasNominalValue(referencePoint)) {
     const resolved = normalizeInlineManualComponent({ component, draft,
       referencePoint: { ...referencePoint, value: 1, unit: referencePoint?.unit || "" } });
+    if (resolved.pendingReason) return resolved;
     const needsValue = draft.inputMode === "standard" || !toleranceHasMagnitude(draft.tolerance)
       ? relativeBudgetUnit(draft.unit) : toleranceNeedsNominal(draft.tolerance);
     return needsValue ? unresolvedComponent(resolved) : absoluteBudgetComponent(resolved, unitSystem);
@@ -255,7 +271,8 @@ export const normalizeInlineManualComponent = ({
     draft.inputMode === "standard"
       ? "standard"
       : "tolerance";
-  const unit = draft.unit || referencePoint?.unit || "";
+  const unit = (inputMode === "tolerance" && effectiveFloorTerm(draft.tolerance || {})?.unit)
+    || draft.unit || referencePoint?.unit || "";
   const toleranceDivisor =
     positiveNumber(draft.errorDistributionDivisor) !== null
       ? String(draft.errorDistributionDivisor)
@@ -280,11 +297,20 @@ export const normalizeInlineManualComponent = ({
       : {};
   const usesStructuredTolerance =
     inputMode === "tolerance" && toleranceHasMagnitude(tolerance);
-  const structuredResult = usesStructuredTolerance
-    ? calculateUncertaintyFromToleranceObject(tolerance, referencePoint, true)
+  const fullScaleUnit = manualFullScaleReference(draft, referencePoint).unit;
+  const fullScale = tolerance.range?.value;
+  const calculationTolerance = fullScale != null && fullScale !== "" && referencePoint?.unit && fullScaleUnit !== referencePoint.unit
+    ? { ...tolerance, range: { ...tolerance.range, value: unitSystem.fromBaseUnit(unitSystem.toBaseUnit(fullScale, fullScaleUnit), referencePoint.unit) } }
+    : tolerance;
+  const mismatch = [unit, ...Object.values(tolerance).map(term => term?.unit)]
+    .map(source => budgetUnitMismatch(source, referencePoint?.unit, unitSystem)).find(Boolean);
+  const structuredResult = usesStructuredTolerance && !mismatch
+    ? calculateUncertaintyFromToleranceObject(calculationTolerance, referencePoint, true)
     : null;
 
-  if (usesStructuredTolerance && !unit && !referencePoint?.unit) {
+  if (mismatch) {
+    validation = mismatch;
+  } else if (usesStructuredTolerance && !unit && !referencePoint?.unit) {
     const floor = tolerance.floor || {};
     const high = Number(floor.high ?? floor.value), low = Number(floor.low ?? -(floor.high ?? floor.value));
     const k = distributionDivisorValue(floor.distribution || toleranceDivisor);
@@ -379,7 +405,7 @@ export const normalizeInlineManualComponent = ({
     isInlineManual: true,
     inlineDraft: false,
     inlineValidation: validation,
-    pendingReason: null,
+    pendingReason: mismatch || null,
     manualInputMode: inputMode,
     manualRawValue: rawValue,
     manualUnit: unit,

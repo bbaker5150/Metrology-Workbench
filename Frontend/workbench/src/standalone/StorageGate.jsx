@@ -33,6 +33,13 @@ export default function StorageGate({ store, children }) {
         // eslint-disable-next-line no-await-in-loop
         if (!(await store.listExists(title))) missing.push(title);
       }
+      if (!missing.length) {
+        try { await store.ensureInstrumentSecurity(); }
+        catch (error) {
+          setState({ phase: 'needs-setup', missing, repairMessage: error.message });
+          return;
+        }
+      }
       setState(missing.length ? { phase: 'needs-setup', missing } : { phase: 'ready' });
     } catch (error) {
       setState({ phase: 'error', message: error.message });
@@ -48,6 +55,7 @@ export default function StorageGate({ store, children }) {
     setState({ phase: 'provisioning' });
     try {
       const result = await store.provision();
+      await store.ensureInstrumentSecurity();
       if (await store.canManageStorage?.()) await store.organizeStorage();
       setState({ phase: 'ready', justProvisioned: !result.alreadyProvisioned });
     } catch (error) {
@@ -67,11 +75,11 @@ export default function StorageGate({ store, children }) {
 
         {state.phase === 'needs-setup' && (
           <>
-            <p>
+            {state.repairMessage ? <p>{state.repairMessage}</p> : <p>
               This site is not set up yet. The tool needs {state.missing.length} SharePoint
               {state.missing.length === 1 ? ' container' : ' containers'} to store sessions,
               instruments, and equations:
-            </p>
+            </p>}
             <ul>
               {state.missing.map((title) => (
                 <li key={title}>
@@ -80,11 +88,10 @@ export default function StorageGate({ store, children }) {
               ))}
             </ul>
             <button type="button" className="sp-gate-button" onClick={provision}>
-              Create them now
+              {state.repairMessage ? 'Finish instrument setup' : 'Create them now'}
             </button>
             <p className="sp-gate-note">
-              You need Edit or Full Control on this site. Nothing existing is modified — setup only
-              adds what is missing, and is safe to run again.
+              A site owner can run setup to apply instrument access settings and migrate existing shared instruments.
             </p>
           </>
         )}

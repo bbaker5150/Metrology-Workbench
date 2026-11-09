@@ -1,3 +1,4 @@
+import SymbolButton from "./SymbolButton";
 import React, { useState } from 'react';
 import ReactDOM from 'react-dom';
 import { useFloatingWindow } from '../../hooks/useFloatingWindow'; // Import the hook
@@ -277,7 +278,7 @@ const HelpModal = ({ isOpen, onClose }) => {
           style={{ cursor: 'move', userSelect: 'none' }}
         >
           <h3><FontAwesomeIcon icon={faInfoCircle} /> Uncertalytics Guide</h3>
-          <button onClick={onClose} className="modal-close-button">&times;</button>
+          <SymbolButton onClick={onClose} className="modal-close-button" />
         </div>
 
         {/* Layout: Sidebar + Content */}

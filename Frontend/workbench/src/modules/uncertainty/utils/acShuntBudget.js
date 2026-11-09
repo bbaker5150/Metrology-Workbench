@@ -1,3 +1,4 @@
+import { DEFAULT_MEASUREMENT_AREA_COLOR } from './measurementAreaColors';
 import { v4 as uuid } from 'uuid';
 import { normalizeInlineManualComponent } from '../features/analysis/utils/manualComponentUtils';
 import { getBudgetComponentsFromTolerance } from '../features/analysis/utils/budgetUtils';
@@ -107,8 +108,8 @@ export function buildAcShuntBudget(snapshot, { instruments = [] } = {}) {
   const session = { name: `${snapshot.name} · Uncertainty Budget`, document: '',
     initialAnalysisMode: 'uncertaintyTool', simplifiedInstrumentTables: true,
     documentDate: snapshot.createdAt?.slice(0, 10) || '',
-    measurementAreas: [{ id: areaId, name: 'Current', color: '#5aa6d9' }],
-    measurementAreaGroups: [{ id: 'current', name: 'Current', units: ['A'], color: '#5aa6d9' }],
+    measurementAreas: [{ id: areaId, name: 'Current', color: DEFAULT_MEASUREMENT_AREA_COLOR }],
+    measurementAreaGroups: [{ id: 'current', name: 'Current', units: ['A'], color: DEFAULT_MEASUREMENT_AREA_COLOR }],
     uuts: [uut], tmdes: [...(reference ? [reference] : []), ...(reader ? [reader] : [])], testPoints, noteImages: [], uutTolerance: {},
     uncReq: { uncertaintyConfidence: 95, reliability: 85, calInt: 12, neededTUR: 4, reqPFA: 2 },
     notes: [`Source: AC-shunt session ${snapshot.id} (${snapshot.name}).`,

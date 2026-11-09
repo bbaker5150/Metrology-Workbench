@@ -1,8 +1,9 @@
+import SymbolButton from "../../../components/common/SymbolButton";
 import GrowingNumericInput from "../../../components/common/GrowingNumericInput";
 import React, { useState, useEffect, useMemo } from "react";
 import ReactDOM from "react-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faCheck, faRotateLeft, faTimes } from "@fortawesome/free-solid-svg-icons";
+import { faCheck, faRotateLeft, } from "@fortawesome/free-solid-svg-icons";
 import { correlationKey, getCorrelation } from "../../../utils/uncertaintyMath";
 
 /**
@@ -131,16 +132,14 @@ const CorrelationMatrixModal = ({ isOpen, onClose, components = [], correlations
         onMouseDown={handleMouseDown}
       >
         <span className="correlation-modal-title">Input correlations</span>
-        <button
+        <SymbolButton
           type="button"
           onClick={onClose}
           className="correlation-modal-icon-button"
           title="Close"
           aria-label="Close input correlations"
           onMouseDown={(event) => event.stopPropagation()}
-        >
-          <FontAwesomeIcon icon={faTimes} />
-        </button>
+         />
       </div>
 
       <div className="correlation-modal-body">

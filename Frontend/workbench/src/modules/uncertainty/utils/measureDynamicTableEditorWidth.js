@@ -3,28 +3,11 @@
 export function measureDynamicTableEditorWidth(editor) {
   const lookup = editor.querySelector('.dynamic-lookup-table');
   if (!lookup) return null;
-  // A full-width editor follows its assigned cell. Measuring that width
-  // and adding cell padding would grow the column on every observer pass.
-  // Resolve its authored content requirement outside the observed table.
-  const lookupStyle = getComputedStyle(lookup);
-  const probe = document.createElement('div');
-  probe.style.cssText = 'position:fixed;left:-100000px;top:0;visibility:hidden;pointer-events:none;';
-  probe.style.font = lookupStyle.font;
-  probe.style.setProperty('--dynamic-data-width', lookupStyle.getPropertyValue('--dynamic-data-width'));
-  probe.style.setProperty('--dynamic-table-width', lookupStyle.getPropertyValue('--dynamic-table-width'));
-  probe.style.width = 'calc(var(--dynamic-table-width) + 48px)';
-  document.body.appendChild(probe);
-  let width = probe.offsetWidth;
-  probe.remove();
-  // Header controls grow when either unit summary opens. Measure their
-  // intrinsic inline content, not the assigned table/column width.
-  const headings = [...lookup.querySelectorAll('.dynamic-column-heading')];
-  const headingWidth = Math.max(0, ...headings.map(heading => {
-    const cellStyle = getComputedStyle(heading.closest('th'));
-    return Math.max(heading.scrollWidth, heading.offsetWidth)
-      + (parseFloat(cellStyle.paddingLeft) || 0) + (parseFloat(cellStyle.paddingRight) || 0) + 2;
-  }));
-  width = Math.max(width, headingWidth * headings.length + 96);
+  // The nested lookup is intrinsically sized. Its headings, expanded unit
+  // pickers, signs and inputs all contribute their actual rendered widths.
+  const scroll = lookup.closest('.dynamic-table-scroll');
+  const gutter = scroll && parseFloat(getComputedStyle(scroll).paddingLeft);
+  let width = lookup.offsetWidth + (gutter || 0);
   const toolbar = editor.querySelector('.instrument-tolerance-toolbar');
   if (toolbar) {
     const toolbarStyle = getComputedStyle(toolbar);

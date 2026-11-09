@@ -1,3 +1,4 @@
+import SymbolButton from "../common/SymbolButton";
 import React, { useEffect, useState } from "react";
 import ReactDOM from "react-dom";
 import { useFloatingWindow } from "../../hooks/useFloatingWindow";
@@ -6,7 +7,6 @@ import {
   faInfoCircle, 
   faExclamationTriangle, 
   faCheck, 
-  faTimes
 } from "@fortawesome/free-solid-svg-icons";
 
 const NotificationModal = ({ 
@@ -116,14 +116,12 @@ const NotificationModal = ({
             <h3 id="notification-modal-title">{title}</h3>
           </div>
         </div>
-        <button
+        <SymbolButton
           onClick={onClose}
           className="modal-close-button"
           title="Close"
           aria-label="Close"
-        >
-          <FontAwesomeIcon icon={faTimes} />
-        </button>
+         />
       </div>
 
       <div className="window-body">

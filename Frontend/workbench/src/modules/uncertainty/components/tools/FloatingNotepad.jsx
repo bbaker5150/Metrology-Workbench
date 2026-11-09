@@ -1,6 +1,7 @@
+import SymbolButton from "../common/SymbolButton";
 import React, { useState, useEffect, useRef } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faStickyNote, faTimes, faMinus, faExpand } from "@fortawesome/free-solid-svg-icons";
+import { faStickyNote, faMinus, faExpand } from "@fortawesome/free-solid-svg-icons";
 
 const FloatingNotepad = ({ notes, onSave, isOpen, onClose }) => {
   const [position, setPosition] = useState({ x: 20, y: 120 });
@@ -61,7 +62,7 @@ const FloatingNotepad = ({ notes, onSave, isOpen, onClose }) => {
           <span className="notepad-title">Notes</span>
           <div className="notepad-controls">
             <button onClick={() => setIsMinimized(false)} title="Expand"><FontAwesomeIcon icon={faExpand} /></button>
-            <button onClick={onClose} title="Close"><FontAwesomeIcon icon={faTimes} /></button>
+            <SymbolButton onClick={onClose} title="Close" />
           </div>
         </div>
       </div>
@@ -81,7 +82,7 @@ const FloatingNotepad = ({ notes, onSave, isOpen, onClose }) => {
         </div>
         <div className="notepad-controls">
           <button onClick={() => setIsMinimized(true)} title="Minimize"><FontAwesomeIcon icon={faMinus} /></button>
-          <button onClick={onClose} title="Close"><FontAwesomeIcon icon={faTimes} /></button>
+          <SymbolButton onClick={onClose} title="Close" />
         </div>
       </div>
       <div className="notepad-body">

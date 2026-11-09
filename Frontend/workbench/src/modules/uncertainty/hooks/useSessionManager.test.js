@@ -419,6 +419,23 @@ describe("instrument sync reconciliation", () => {
   });
 });
 
+it("updates a submitted session instrument when its SME-approved definition is loaded", async () => {
+  const pending = {id:"private", sourceId:"shared", scope:"pending", model:"DMM", functions:[], localOverride:true};
+  const legacyUut = {id:"uut", instrument:{id:"existing", scope:"shared", model:"Reference"}};
+  const session = {id:1, name:"Approval", uuts:[legacyUut], tmdes:[{id:"row", quantity:2, instrument:pending}], testPoints:[]};
+  let library = [pending];
+  axios.get.mockImplementation(async url => ({data:url.endsWith("/instruments/") ? library : url.endsWith("/sessions/") ? [session] : []}));
+  const { result } = renderHook(() => useSessionManager());
+  await waitFor(() => expect(result.current.sessionsLoaded && result.current.instruments.length).toBe(1));
+  expect(result.current.sessions[0].uuts[0].instrument).toMatchObject({id:"existing", scope:"validated", model:"Reference"});
+  const approved = {...pending, id:"shared", scope:"validated", localOverride:false};
+  library = [approved];
+  await act(async () => result.current.refreshPendingInstruments());
+  expect(result.current.instruments).toEqual([approved]);
+  expect(result.current.sessions[0].tmdes[0]).toMatchObject({id:"row", quantity:2,
+    libraryInstrumentId:"shared", instrument:{id:"shared",scope:"validated",model:"DMM"}});
+});
+
 describe("local instrument persistence", () => {
   it("updates a local instrument when its specifications change", async () => {
     const savedLocal = {
@@ -463,7 +480,7 @@ describe("local instrument persistence", () => {
 
     expect(axios.post).toHaveBeenCalledWith(
       expect.stringContaining("/instruments/"),
-      expect.objectContaining({ id: savedLocal.id }),
+      expect.objectContaining({ id: savedLocal.id }), expect.objectContaining({headers: expect.any(Object)}),
     );
     expect(result.current.instruments).toHaveLength(1);
     expect(result.current.instruments[0]).toMatchObject({
@@ -621,14 +638,14 @@ it('sends a shared deletion password only in the request body and retains the in
     axios.delete.mockRejectedValueOnce(new Error('Invalid shared-library password.'));
     await act(async () => { await expect(result.current.deleteInstrument(instrument.id, { password: 'wrong' })).rejects.toThrow('Invalid shared-library password.'); });
     expect(result.current.instruments).toEqual([instrument]);
-    expect(axios.delete).toHaveBeenLastCalledWith(expect.stringMatching(/instruments\/shared-delete\/$/), {
+    expect(axios.delete).toHaveBeenLastCalledWith(expect.stringMatching(/instruments\/shared-delete\/$/), expect.objectContaining({
       params: { owner: expect.any(String) }, data: { password: 'wrong' },
-    });
+    }));
     await act(async () => { await result.current.deleteInstrument(instrument.id, { password: 'calibrate' }); });
     expect(result.current.instruments).toEqual([]);
-    expect(axios.delete).toHaveBeenLastCalledWith(expect.stringMatching(/instruments\/shared-delete\/$/), {
+    expect(axios.delete).toHaveBeenLastCalledWith(expect.stringMatching(/instruments\/shared-delete\/$/), expect.objectContaining({
       params: { owner: expect.any(String) }, data: { password: 'calibrate' },
-    });
+    }));
     expect(JSON.stringify(readRecovery())).not.toContain('password');
   } finally { log.mockRestore(); }
 });

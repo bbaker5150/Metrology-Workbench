@@ -1,4 +1,5 @@
 import { useState } from "react";
+import userEvent from "@testing-library/user-event";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import {
@@ -28,6 +29,20 @@ const ToleranceHarness = ({ initialTolerance = {} }) => {
 };
 
 describe("inline tolerance global modes", () => {
+  it("accepts the highlighted floor unit with Enter and tabs from the trigger", () => {
+    render(<ToleranceHarness />);
+    fireEvent.click(screen.getByRole("button", { name: "Set tolerance" }));
+    const trigger = screen.getByRole("button", { name: "Tolerance unit base unit" });
+    fireEvent.click(trigger);
+    const search = screen.getByPlaceholderText("Search units...");
+    fireEvent.change(search, { target: { value: "inch" } });
+    fireEvent.keyDown(search, { key: "Enter" });
+    expect(trigger).toHaveFocus();
+    expect(trigger).toHaveTextContent("in.");
+    expect(screen.queryByRole("listbox")).toBeNull();
+    userEvent.tab();
+    expect(screen.getByRole("button", { name: "Tolerance unit prefix" })).toHaveFocus();
+  });
   it.each(["high", "low"])("saves a blank opposite %s bound as zero and preserves it on reopen", (side) => {
     const { container } = render(<ToleranceHarness />);
     fireEvent.click(screen.getByRole("button", { name: "Set tolerance" }));

@@ -227,8 +227,8 @@ describe("UniversalInstrumentModal library synchronization", () => {
     };
     const syncedInstrument = {
       ...localInstrument,
-      id: sharedInstrument.id,
-      scope: "validated",
+      id: localInstrument.id,
+      scope: "pending",
       sourceId: sharedInstrument.id,
     };
     const onInstrumentSynced = vi.fn();
@@ -244,10 +244,8 @@ describe("UniversalInstrumentModal library synchronization", () => {
     fireEvent.click(screen.getByText("Edited local DMM").closest("tr"));
     fireEvent.click(screen.getByRole("button", { name: /^Sync$/i }));
 
-    fireEvent.change(screen.getByLabelText("Shared library password"), {
-      target: { value: "calibrate" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: /^Re-sync$/i }));
+    expect(screen.queryByLabelText("Shared library password")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /Submit for validation/i }));
 
     await waitFor(() => {
       expect(onInstrumentSynced).toHaveBeenCalledWith(syncedInstrument);
@@ -255,11 +253,11 @@ describe("UniversalInstrumentModal library synchronization", () => {
     expect(axios.post).toHaveBeenCalledWith(
       expect.stringContaining("/instruments/"),
       expect.objectContaining({
-        id: sharedInstrument.id,
-        scope: "validated",
+        id: localInstrument.id,
+        scope: "pending",
         sourceId: sharedInstrument.id,
-        password: "calibrate",
       }),
+      expect.any(Object),
     );
   });
 
@@ -379,7 +377,7 @@ describe("UniversalInstrumentModal library synchronization", () => {
     ).toHaveTextContent("Fluke 8588A Bench");
   });
 
-  test("new instruments save directly as local session instruments", () => {
+  test("new instruments saved only in a session receive session scope", () => {
     const props = renderModal({
       mode: "uut",
       initialData: null,
@@ -403,7 +401,7 @@ describe("UniversalInstrumentModal library synchronization", () => {
     expect(saved.libraryInstrumentId).toBeUndefined();
     expect(saved.instrument).toEqual(
       expect.objectContaining({
-        scope: "local",
+        scope: "session",
         localOverride: true,
       }),
     );
@@ -724,10 +722,10 @@ describe("UniversalInstrumentModal library synchronization", () => {
     fireEvent.click(screen.getByRole("button", { name: /Save configuration/i }));
 
     expect(
-      screen.getByRole("alertdialog", { name: /Update Library Instrument/i }),
+      screen.getByRole("alertdialog", { name: /Submit instrument changes/i }),
     ).toBeInTheDocument();
     expect(
-      screen.getByRole("button", { name: /Update Library & Session/i }),
+      screen.getByRole("button", { name: /Submit for validation/i }),
     ).toBeInTheDocument();
     expect(
       screen.getByRole("button", { name: /Session Only/i }),
@@ -735,97 +733,42 @@ describe("UniversalInstrumentModal library synchronization", () => {
     expect(props.onSave).not.toHaveBeenCalled();
   });
 
-  test("updates the linked library instrument through the password gate", async () => {
-    axios.post.mockResolvedValueOnce({
-      data: {
-        ...libraryInstrument,
-        scope: "validated",
-        sourceId: libraryInstrument.id,
-      },
-    });
+  test("submits edited specifications and links the session to the pending record", async () => {
+    const submitted = { ...libraryInstrument, id: "pending-1", scope: "pending", sourceId: libraryInstrument.id };
+    axios.post.mockResolvedValueOnce({ data: submitted });
     const onInstrumentSynced = vi.fn();
-    const props = renderModal({ onInstrumentSynced });
+    const props = renderModal({ onInstrumentSynced, instruments: [{ ...libraryInstrument, scope: "validated" }] });
 
     changeResolution("0.01");
     fireEvent.click(screen.getByRole("button", { name: /Save configuration/i }));
-    // Choosing "Update Library & Session" opens the shared-library password gate
-    // rather than writing straight to the validated library (which 403s).
-    fireEvent.click(
-      screen.getByRole("button", { name: /Update Library & Session/i }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: /Submit for validation/i }));
 
-    expect(props.onSave).not.toHaveBeenCalled();
-    expect(props.onSaveToLibrary).not.toHaveBeenCalled();
-
-    fireEvent.change(screen.getByLabelText("Shared library password"), {
-      target: { value: "calibrate" },
-    });
-    fireEvent.click(
-      screen.getByRole("button", { name: /Update Library & Session/i }),
-    );
-
-    await waitFor(() => {
-      expect(axios.post).toHaveBeenCalledWith(
-        expect.stringContaining("/instruments/"),
-        expect.objectContaining({
-          id: libraryInstrument.id,
-          scope: "validated",
-          sourceId: libraryInstrument.id,
-          password: "calibrate",
-          functions: [
-            expect.objectContaining({
-              ranges: [
-                expect.objectContaining({
-                  resolution: "0.01",
-                }),
-              ],
-            }),
-          ],
-        }),
-      );
-    });
-
-    await waitFor(() => {
-      expect(props.onSave).toHaveBeenCalledWith(
-        expect.objectContaining({
-          libraryInstrumentId: libraryInstrument.id,
-          instrument: expect.objectContaining({
-            libraryInstrumentId: libraryInstrument.id,
-          }),
-        }),
-      );
-    });
+    await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
+      expect.stringContaining("/instruments/"), expect.objectContaining({
+        id: expect.not.stringMatching(/^library-1$/), scope: "pending", sourceId: libraryInstrument.id,
+        functions: [expect.objectContaining({ ranges: [expect.objectContaining({ resolution: "0.01" })] })],
+      }), expect.any(Object)));
+    expect(axios.post.mock.calls[0][1]).not.toHaveProperty("password");
+    expect(onInstrumentSynced).toHaveBeenCalledWith(submitted);
+    expect(props.onSave).toHaveBeenCalledWith(expect.objectContaining({
+      libraryInstrumentId: submitted.id,
+      instrument: expect.objectContaining({ libraryInstrumentId: submitted.id, scope: "pending", sourceId: libraryInstrument.id }),
+    }));
     expect(props.onSaveToLibrary).not.toHaveBeenCalled();
   });
 
-  test("keeps the password prompt open when the shared library rejects it", async () => {
-    axios.post.mockRejectedValueOnce({
-      response: { status: 403, data: { detail: "Invalid shared-library password." } },
-    });
+  test("retains edits and offers retry when submission fails", async () => {
+    axios.post.mockRejectedValueOnce({ response: { status: 403, data: { detail: "Submission denied." } } });
     const props = renderModal();
 
     changeResolution("0.01");
     fireEvent.click(screen.getByRole("button", { name: /Save configuration/i }));
-    fireEvent.click(
-      screen.getByRole("button", { name: /Update Library & Session/i }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: /Submit for validation/i }));
 
-    fireEvent.change(screen.getByLabelText("Shared library password"), {
-      target: { value: "wrong" },
-    });
-    fireEvent.click(
-      screen.getByRole("button", { name: /Update Library & Session/i }),
-    );
-
-    await waitFor(() => {
-      expect(
-        screen.getByText(/Invalid shared-library password\./i),
-      ).toBeInTheDocument();
-    });
-    // Neither the session nor the library was written on a rejected password.
+    expect(await screen.findByText("Submission denied.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Submit for validation/i })).toBeEnabled();
     expect(props.onSave).not.toHaveBeenCalled();
     expect(props.onClose).not.toHaveBeenCalled();
-    expect(screen.getByLabelText("Shared library password")).toBeInTheDocument();
   });
 
   test("session-only keeps the library unchanged", () => {
@@ -839,7 +782,7 @@ describe("UniversalInstrumentModal library synchronization", () => {
     expect(props.onSaveToLibrary).not.toHaveBeenCalled();
     expect(props.onSave.mock.calls[0][0].instrument).toEqual(
       expect.objectContaining({
-        scope: "local",
+        scope: "session",
         sourceId: libraryInstrument.id,
         localOverride: true,
       }),

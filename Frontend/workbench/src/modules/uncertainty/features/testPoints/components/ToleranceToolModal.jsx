@@ -1,3 +1,4 @@
+import SymbolButton from "../../../components/common/SymbolButton";
 import React, { useState, useEffect } from "react";
 import ReactDOM from "react-dom";
 import ToleranceForm from "../../../components/common/ToleranceForm";
@@ -7,7 +8,6 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faTrashAlt,
   faCheck,
-  faTimes,
 } from "@fortawesome/free-solid-svg-icons";
 
 const ToleranceToolModal = ({ isOpen, onClose, onSave, testPointData }) => {
@@ -167,7 +167,7 @@ const ToleranceToolModal = ({ isOpen, onClose, onSave, testPointData }) => {
           onMouseDown={handleMouseDown}
         >
           <h3 style={{ margin: 0 }}>Tolerance Editor</h3>
-          <button
+          <SymbolButton
             onClick={onClose}
             className="modal-close-button"
             title="Close"
@@ -179,9 +179,7 @@ const ToleranceToolModal = ({ isOpen, onClose, onSave, testPointData }) => {
               color: 'var(--text-color)',
               position: 'static'
             }}
-          >
-            <FontAwesomeIcon icon={faTimes} />
-          </button>
+           />
         </div>
 
         <div className="modal-tabs">

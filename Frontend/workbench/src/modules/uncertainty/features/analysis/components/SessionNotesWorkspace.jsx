@@ -1,3 +1,4 @@
+import SymbolButton from "../../../components/common/SymbolButton";
 import React, {
   useCallback,
   useEffect,
@@ -377,7 +378,7 @@ const SessionDocxEditor = ({
         <div className="session-notes-docx-error" role="alert">
           <FontAwesomeIcon icon={faExclamationCircle} />
           <span>{editorError}</span>
-          <button type="button" onClick={() => setEditorError("")} aria-label="Dismiss document error">×</button>
+          <SymbolButton type="button" onClick={() => setEditorError("")} aria-label="Dismiss document error" />
         </div>
       )}
       <div className="session-notes-docx-shell">

@@ -1,3 +1,4 @@
+import SymbolButton from "../../../components/common/SymbolButton";
 import { toKnownRiskDistribution } from "../../../utils/risk8/knownMeasurementRisk8";
 import { pfaPassesAtDisplayedPrecision } from "../../../utils/risk8/riskEngine8";
 import React, { useEffect, useId, useMemo, useState } from "react";
@@ -243,16 +244,14 @@ const ZoomControls = ({ zoom, onChange }) => {
         -
       </button>
       <span>{Math.round(zoom * 100)}%</span>
-      <button
+      <SymbolButton add
         type="button"
         aria-label="Zoom in"
         disabled={index >= ZOOM_STEPS.length - 1}
         onClick={() =>
           onChange(ZOOM_STEPS[Math.min(ZOOM_STEPS.length - 1, index + 1)])
         }
-      >
-        +
-      </button>
+       />
       <button
         type="button"
         className="reset"

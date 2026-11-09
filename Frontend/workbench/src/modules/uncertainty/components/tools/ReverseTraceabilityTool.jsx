@@ -1,8 +1,8 @@
+import SymbolButton from "../common/SymbolButton";
 import GrowingNumericInput from "../common/GrowingNumericInput";
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { 
-  faTimes, 
   faMinus, 
   faHistory, 
   faCalendarAlt, 
@@ -201,7 +201,7 @@ const ReverseTraceabilityTool = ({ isOpen, onClose }) => {
         <span>Traceability</span>
         <div className="tool-controls">
           <button onClick={() => setIsMinimized(false)}><FontAwesomeIcon icon={faCalendarAlt} /></button>
-          <button onClick={onClose}><FontAwesomeIcon icon={faTimes} /></button>
+          <SymbolButton onClick={onClose} />
         </div>
       </div>
     );
@@ -273,7 +273,7 @@ const ReverseTraceabilityTool = ({ isOpen, onClose }) => {
         </div>
         <div className="tool-controls">
           <button onClick={() => setIsMinimized(true)}><FontAwesomeIcon icon={faMinus} /></button>
-          <button onClick={onClose}><FontAwesomeIcon icon={faTimes} /></button>
+          <SymbolButton onClick={onClose} />
         </div>
       </div>
 

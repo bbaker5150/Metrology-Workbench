@@ -5,9 +5,11 @@ models, and database isolation (uncertainty tables live on the ``uncertainty``
 alias, not ``default``).
 """
 from django.apps import apps
+from django.contrib.auth import get_user_model
+from django.contrib.auth.models import Group
 from django.db import connections
 from rest_framework import status
-from rest_framework.test import APITestCase
+from rest_framework.test import APIClient, APITestCase
 
 from . import models
 
@@ -253,6 +255,19 @@ class WholeSessionRoundTripTests(APITestCase):
         self.assertNotIn("uncertainty_session", default_tables)
 
 
+INSTRUMENTS = "/api/uncertainty/instruments/"
+REVIEWS = "/api/uncertainty/instrument-reviews/"
+DEVICE_AUTH = {"HTTP_AUTHORIZATION": "InstrumentDevice 114ff326-e6a7-426f-8942-57941310c661"}
+
+
+def sme_client():
+    reviewer = get_user_model().objects.create_user(username="reviewer")
+    reviewer.groups.add(Group.objects.get_or_create(name="Uncertalytics SME")[0])
+    client = APIClient()
+    client.force_authenticate(user=reviewer)
+    return client
+
+
 class InstrumentAndBugReportTests(APITestCase):
     databases = {"default", "uncertainty"}
 
@@ -297,16 +312,7 @@ class InstrumentAndBugReportTests(APITestCase):
             {"id": "private", "model": "Local", "scope": "local", "owner": "userA"},
             format="json",
         )
-        self.client.post(
-            "/api/uncertainty/instruments/",
-            {
-                "id": "shared",
-                "model": "Shared",
-                "scope": "validated",
-                "password": "calibrate",
-            },
-            format="json",
-        )
+        models.Instrument.objects.create(id="shared", model="Shared", scope="validated")
 
         listing = self.client.get("/api/uncertainty/instruments/")
         self.assertEqual({item["id"] for item in listing.data}, {"shared"})
@@ -318,17 +324,9 @@ class InstrumentAndBugReportTests(APITestCase):
         self.assertTrue(models.Instrument.objects.filter(id="private").exists())
 
     def test_linked_local_instrument_upserts_by_source_id(self):
-        self.client.post(
-            "/api/uncertainty/instruments/",
-            {
-                "id": "shared-1140a",
-                "manufacturer": "Ectron",
-                "model": "1140A",
-                "description": "Ectron 1140A",
-                "scope": "validated",
-                "owner": "shared",
-            },
-            format="json",
+        models.Instrument.objects.create(
+            id="shared-1140a", manufacturer="Ectron", model="1140A",
+            description="Ectron 1140A", scope="validated",
         )
         first_local = {
             "id": "local-copy-1",
@@ -345,8 +343,9 @@ class InstrumentAndBugReportTests(APITestCase):
             "description": "Ectron 1140A edited again",
         }
 
-        self.client.post("/api/uncertainty/instruments/", first_local, format="json")
-        self.client.post("/api/uncertainty/instruments/", second_local, format="json")
+        self.client.credentials(**DEVICE_AUTH)
+        self.client.post(INSTRUMENTS, first_local, format="json")
+        self.client.post(INSTRUMENTS, second_local, format="json")
 
         linked_locals = models.Instrument.objects.filter(
             scope=models.Instrument.SCOPE_LOCAL,
@@ -357,18 +356,18 @@ class InstrumentAndBugReportTests(APITestCase):
         self.assertEqual(linked_locals.first().id, "local-copy-1")
         self.assertEqual(linked_locals.first().description, "Ectron 1140A edited again")
 
-        sync = self.client.post(
-            "/api/uncertainty/instruments/",
-            {
-                **second_local,
-                "id": "shared-1140a",
-                "scope": "validated",
-                "sourceId": "shared-1140a",
-                "password": "calibrate",
-            },
-            format="json",
+        submitted = self.client.post(
+            INSTRUMENTS, {**second_local, "id": "local-copy-1", "scope": "pending"},
+            format="json", **DEVICE_AUTH,
         )
-        self.assertEqual(sync.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(submitted.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(models.Instrument.objects.get(pk="shared-1140a").description, "Ectron 1140A")
+        sync = sme_client().post(
+            REVIEWS + "local-copy-1/validate/", {"reviewVersion": submitted.data["reviewVersion"]}, format="json",
+        )
+        self.assertEqual(sync.status_code, status.HTTP_200_OK)
+        self.assertEqual(sync.data["id"], "shared-1140a")
+        self.assertFalse(models.Instrument.objects.filter(pk="local-copy-1").exists())
         self.assertEqual(sync.data["scope"], "validated")
         self.assertEqual(sync.data["description"], "Ectron 1140A edited again")
         self.assertFalse(
@@ -427,29 +426,77 @@ class InstrumentAndBugReportTests(APITestCase):
 
 
 class InstrumentLibraryScopeTests(APITestCase):
-    """Local/validated scoping + the shared-library password gate."""
+    """Local visibility, authenticated submission ownership and SME validation."""
 
     databases = {"default", "uncertainty"}
 
     def test_demoted_local_copy_preserves_override_and_snapshot_after_reload(self):
         snapshot = {"model": "Meter", "functions": []}
         shared = {"id": "shared", "scope": "validated", "model": "Meter",
-                  "owner": "userA", "validatedSnapshot": snapshot,
-                  "localOverride": False, "password": "calibrate"}
-        self.client.post("/api/uncertainty/instruments/", shared, format="json")
+                  "owner": "userA", "validatedSnapshot": snapshot, "localOverride": False}
+        models.Instrument.objects.create(id="shared", scope="validated", model="Meter", validated_snapshot=snapshot)
         local = {**shared, "id": "local-copy", "scope": "local",
                  "sourceId": "shared", "localOverride": True}
-        self.client.post("/api/uncertainty/instruments/", local, format="json")
+        self.client.credentials(**DEVICE_AUTH)
+        self.client.post(INSTRUMENTS, local, format="json")
         records = {record["id"]: record for record in self.client.get(
             "/api/uncertainty/instruments/", {"owner": "userA"}).data}
         self.assertTrue(records["local-copy"]["localOverride"])
         self.assertEqual(records["local-copy"]["validatedSnapshot"], snapshot)
         self.assertEqual(records["shared"]["scope"], "validated")
         self.assertFalse(records["shared"]["localOverride"])
-        promoted = self.client.post("/api/uncertainty/instruments/",
-            {**shared, "sourceId": "shared"}, format="json")
+        pending = self.client.post(INSTRUMENTS, {**local, "scope": "pending"}, format="json", **DEVICE_AUTH)
+        self.assertEqual(pending.status_code, status.HTTP_201_CREATED)
+        promoted = sme_client().post(
+            REVIEWS + "local-copy/validate/", {"reviewVersion": pending.data["reviewVersion"]}, format="json",
+        )
+        self.assertEqual(promoted.status_code, status.HTTP_200_OK)
         self.assertFalse(promoted.data["localOverride"])
         self.assertFalse(models.Instrument.objects.filter(id="local-copy").exists())
+
+    def test_private_instrument_cannot_be_listed_edited_submitted_or_deleted_with_a_spoofed_owner(self):
+        local = {"id": "private-local", "scope": "local", "owner": "public-owner-label", "model": "Lab gauge"}
+        saved = self.client.post(INSTRUMENTS, local, format="json", **DEVICE_AUTH)
+        self.assertEqual(saved.status_code, status.HTTP_201_CREATED)
+
+        other = APIClient()
+        other.credentials(HTTP_AUTHORIZATION="InstrumentDevice 03544d15-563a-4180-81a1-eeda9702f503")
+        self.assertEqual(other.get(INSTRUMENTS, {"owner": local["owner"]}).data, [])
+        for scope in ("local", "pending"):
+            denied = other.post(INSTRUMENTS, {**local, "scope": scope, "model": "Foreign edit"}, format="json")
+            self.assertEqual(denied.status_code, status.HTTP_404_NOT_FOUND)
+        denied = other.delete(INSTRUMENTS + "private-local/?owner=public-owner-label")
+        self.assertEqual(denied.status_code, status.HTTP_404_NOT_FOUND)
+        stored = models.Instrument.objects.get(pk="private-local")
+        self.assertEqual((stored.scope, stored.model), ("local", "Lab gauge"))
+
+    def test_legacy_owner_can_use_and_submit_an_old_local_without_changing_the_original(self):
+        original = models.Instrument.objects.create(id="pre-upgrade", scope="local", owner="old-owner-key", model="Original")
+        listing = self.client.get(INSTRUMENTS, {"owner": original.owner}, **DEVICE_AUTH)
+        self.assertEqual([row["id"] for row in listing.data], [original.pk])
+        self.assertEqual(self.client.get(INSTRUMENTS, {"owner": "wrong-key"}, **DEVICE_AUTH).data, [])
+        payload = {"id": original.pk, "scope": "pending", "model": "Reviewed revision"}
+        denied = self.client.post(INSTRUMENTS, {**payload, "owner": "wrong-key"}, format="json", **DEVICE_AUTH)
+        self.assertEqual(denied.status_code, status.HTTP_404_NOT_FOUND)
+        submitted = self.client.post(INSTRUMENTS, {**payload, "owner": original.owner}, format="json", **DEVICE_AUTH)
+        self.assertEqual(submitted.status_code, status.HTTP_201_CREATED)
+        self.assertNotEqual(submitted.data["id"], original.pk)
+        self.assertEqual(submitted.data["scope"], "pending")
+        original.refresh_from_db()
+        self.assertEqual((original.scope, original.model), ("local", "Original"))
+        listing = self.client.get(INSTRUMENTS, {"owner": original.owner}, **DEVICE_AUTH)
+        self.assertEqual([row["id"] for row in listing.data], [submitted.data["id"]])
+        self.assertEqual(listing.data[0]["legacyLocalId"], original.pk)
+        other = APIClient()
+        other.credentials(HTTP_AUTHORIZATION="InstrumentDevice 03544d15-563a-4180-81a1-eeda9702f503")
+        legacy_list = other.get(INSTRUMENTS, {"owner": original.owner}).data
+        self.assertEqual([(row["id"], row["model"]) for row in legacy_list], [(original.pk, "Original")])
+        edited = other.post(INSTRUMENTS, {"id": original.pk, "owner": original.owner, "model": "Personal edit"}, format="json")
+        self.assertEqual(edited.status_code, status.HTTP_201_CREATED)
+        self.assertNotIn(edited.data["id"], (original.pk, submitted.data["id"]))
+        self.assertEqual(edited.data["scope"], "local")
+        original.refresh_from_db()
+        self.assertEqual(original.model, "Original")
 
     def test_new_instrument_without_scope_defaults_to_local(self):
         post = self.client.post(
@@ -461,25 +508,47 @@ class InstrumentLibraryScopeTests(APITestCase):
         self.assertEqual(post.data["scope"], "local")
         self.assertEqual(post.data["owner"], "userA")
 
-    def test_validated_write_requires_password(self):
-        denied = self.client.post(
-            "/api/uncertainty/instruments/",
-            {"id": "val-1", "manufacturer": "Fluke", "model": "5730A", "scope": "validated"},
-            format="json",
-        )
-        self.assertEqual(denied.status_code, status.HTTP_403_FORBIDDEN)
-        self.assertEqual(models.Instrument.objects.count(), 0)
+    def test_only_smes_can_validate_the_reviewed_submission(self):
+        device = self.client
+        reviewer = sme_client()
+        regular = APIClient()
+        user = get_user_model().objects.create_user(username="analyst")
+        user.groups.add(Group.objects.create(name="Metrology App User"))
+        regular.force_authenticate(user=user)
 
-        ok = self.client.post(
-            "/api/uncertainty/instruments/",
-            {
-                "id": "val-1", "manufacturer": "Fluke", "model": "5730A",
-                "scope": "validated", "password": "calibrate",
-            },
-            format="json",
-        )
-        self.assertEqual(ok.status_code, status.HTTP_201_CREATED)
-        self.assertEqual(ok.data["scope"], "validated")
+        payload = {"id": "val-1", "manufacturer": "Fluke", "model": "5730A", "owner": "bench-1"}
+        for client in (device, regular, reviewer):
+            denied = client.post(INSTRUMENTS, {**payload, "scope": "validated", "password": "calibrate"}, format="json")
+            self.assertEqual(denied.status_code, status.HTTP_403_FORBIDDEN)
+        self.assertEqual(models.Instrument.objects.count(), 0)
+        submitted = device.post(INSTRUMENTS, {**payload, "scope": "pending"}, format="json", **DEVICE_AUTH)
+        self.assertEqual(submitted.status_code, status.HTTP_201_CREATED)
+        approve_url = REVIEWS + "val-1/validate/"
+        original_version = submitted.data["reviewVersion"]
+
+        # Matching the public owner string does not grant access to a pending definition.
+        for client in (regular, reviewer):
+            self.assertEqual(client.get(INSTRUMENTS, {"owner": "bench-1"}).data, [])
+        self.assertEqual(device.get(INSTRUMENTS, **DEVICE_AUTH).data[0]["scope"], "pending")
+        for client in (device, regular):
+            self.assertEqual(client.get(REVIEWS).data, {"canValidate": False, "reviews": []})
+            self.assertEqual(client.post(approve_url, {"reviewVersion": original_version}, format="json").status_code, 403)
+        self.assertEqual(regular.post(INSTRUMENTS, {**payload, "scope": "local"}, format="json").status_code, 404)
+        self.assertEqual(regular.delete(INSTRUMENTS + "val-1/?owner=bench-1").status_code, 404)
+        inbox = reviewer.get(REVIEWS).data
+        self.assertTrue(inbox["canValidate"])
+        self.assertEqual([record["id"] for record in inbox["reviews"]], ["val-1"])
+        self.assertEqual(inbox["reviews"][0]["reviewVersion"], original_version)
+
+        updated = device.post(INSTRUMENTS, {**payload, "scope": "pending", "model": "5730A amended"}, format="json", **DEVICE_AUTH)
+        self.assertEqual(updated.status_code, status.HTTP_201_CREATED)
+        self.assertEqual(reviewer.post(approve_url, {"reviewVersion": original_version}, format="json").status_code, 409)
+        approved = reviewer.post(approve_url, {"reviewVersion": updated.data["reviewVersion"]}, format="json")
+        self.assertEqual(approved.status_code, status.HTTP_200_OK)
+        self.assertEqual(approved.data["scope"], "validated")
+        self.assertEqual(approved.data["validatedSnapshot"]["model"], "5730A amended")
+        self.assertEqual(reviewer.get(REVIEWS).data["reviews"], [])
+        self.assertEqual(regular.get(INSTRUMENTS).data[0]["id"], "val-1")
 
     def test_validated_delete_requires_password(self):
         models.Instrument.objects.create(id="delete-shared", scope="validated", model="Meter")
@@ -493,26 +562,20 @@ class InstrumentLibraryScopeTests(APITestCase):
         self.assertFalse(models.Instrument.objects.filter(id="delete-shared").exists())
 
     def test_legacy_resave_does_not_demote_validated(self):
-        self.client.post(
-            "/api/uncertainty/instruments/",
-            {"id": "val-2", "model": "3458A", "scope": "validated", "password": "calibrate"},
-            format="json",
-        )
+        models.Instrument.objects.create(id="val-2", scope="validated", model="3458A", description="original")
         # A scope-less re-save (legacy path) must keep it validated.
         resave = self.client.post(
             "/api/uncertainty/instruments/",
             {"id": "val-2", "model": "3458A", "description": "edited"},
             format="json",
         )
-        self.assertEqual(resave.data["scope"], "validated")
-        self.assertEqual(resave.data["description"], "edited")
+        self.assertEqual(resave.status_code, status.HTTP_403_FORBIDDEN)
+        stored = models.Instrument.objects.get(pk="val-2")
+        self.assertEqual(stored.scope, "validated")
+        self.assertEqual(stored.description, "original")
 
     def test_owner_filter_returns_validated_plus_own_local(self):
-        self.client.post(
-            "/api/uncertainty/instruments/",
-            {"id": "v", "model": "V", "scope": "validated", "password": "calibrate"},
-            format="json",
-        )
+        models.Instrument.objects.create(id="v", scope="validated", model="V")
         self.client.post(
             "/api/uncertainty/instruments/",
             {"id": "a", "model": "A", "scope": "local", "owner": "userA"},

@@ -1,3 +1,4 @@
+import SymbolButton from "../../../../components/common/SymbolButton";
 import RiskInputTrace from "./RiskInputTrace";
 import React from "react";
 import ReactDOM from "react-dom";
@@ -57,7 +58,7 @@ const RiskBreakdownModal = ({ isOpen, onClose, modalType, data }) => {
             zIndex: 2000,
         }}
     >
-        <button onClick={onClose} className="modal-close-button">&times;</button>
+        <SymbolButton onClick={onClose} className="modal-close-button" />
         <h3
             className="breakdown-modal-title"
             onMouseDown={handleMouseDown} 

@@ -17,8 +17,10 @@ it("immediately creates a manual independent row and tabs from its name into the
   render(<Harness />);
   fireEvent.click(screen.getByRole("button", { name: "Add a secondary uncertainty" }));
   expect(saved.kind).toBe("parametric");
+  fireEvent.click(screen.getByRole("button", { name: "Uncertainty", exact: true }));
   const input = screen.getByRole("textbox", { name: "Uncertainty name" });
   expect(input).toHaveFocus();
+  expect(input).toHaveAttribute("placeholder", "Name");
   fireEvent.change(input, { target: { value: "Thermal Expansion" } });
   fireEvent.keyDown(input, { key: "Tab" });
   const row = screen.getByLabelText("Additional uncertainty").closest("tr");
@@ -133,6 +135,7 @@ it.each(["table", "equation"])("tabs into the first value field of a new %s sour
       onChange={setSource} onRemove={() => {}} onAddSecondary={() => {}} /></tbody></table>;
   }
   const {container} = render(<Harness />);
+  fireEvent.click(screen.getByRole("button", { name: "Uncertainty", exact: true }));
   const name = screen.getByRole("textbox", {name: "Uncertainty name"});
   fireEvent.change(name, {target:{value:"New uncertainty"}});
   fireEvent.keyDown(name, {key:"Tab"});
@@ -162,6 +165,7 @@ it.each(["table", "equation"])("commits a new %s name and focuses the editor on 
       onChange={setSource} onRemove={() => {}} onAddSecondary={() => {}} /></tbody></table>;
   }
   const {container} = render(<Harness />);
+  fireEvent.click(screen.getByRole("button", { name: "Uncertainty", exact: true }));
   const name = screen.getByRole("textbox", {name:"Uncertainty name"});
   fireEvent.change(name, {target:{value:"Long uncertainty name"}});
   const summary = within(container.querySelector(".cell-tolerance")).getByRole("button", {name:"Set tolerance"});

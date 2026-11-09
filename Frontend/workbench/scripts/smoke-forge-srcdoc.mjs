@@ -165,7 +165,11 @@ if (process.env.POINT_USABILITY_SMOKE) for (const session of sessions.values()) 
 if (process.env.POINT_HIGHLIGHT_SMOKE) for (const session of sessions.values()) preparePointHighlight(session);
 if (process.env.SEPTEMBER18_SMOKE) for (const session of sessions.values()) prepareSeptember18(session);
 if (process.env.MULTI_SOURCE_BIAS_SMOKE) for (const session of sessions.values()) prepareMultiSourceBias(session);
-const instrumentItems = [301, 302].map(id => ({
+const instrumentDraftItems = [];
+const securitySettings = new Map();
+const schemaFields = new Map();
+const instrumentItems = [];
+const legacyInstrumentItems = [301, 302].map(id => ({
   Id: id, AuthorId: 7, RecordId: `instrument-${id}`,
   PayloadJson: JSON.stringify({ id: `instrument-${id}`, manufacturer: 'Smoke', model: `DMM-${id}`, description: 'Archive smoke instrument', scope: 'validated', functions: [] }),
 }));
@@ -176,6 +180,17 @@ await page.route('**/_api/**', async (route) => {
   const request = route.request();
   const method = request.headers()['x-http-method'] || request.method();
   if (url.includes('/_api/web/EffectiveBasePermissions')) return ok({Low:storageAdminSmoke ? '2048' : '0',High:'0'});
+  const list = /getbytitle\('([^']+)'\)/.exec(url)?.[1];
+  if (list && url.endsWith('/EffectiveBasePermissions')) return ok({Low:'2048',High:'0'});
+  if (url.includes('ReadSecurity,WriteSecurity')) return ok(securitySettings.get(list) || {ReadSecurity:1,WriteSecurity:1});
+  if (method === 'MERGE' && list && /getbytitle\('[^']+'\)$/.test(url)) {
+    const update = JSON.parse(request.postData());
+    const required = list.endsWith('Instrument Drafts') ? [2,2] : list.endsWith('Published Instruments') ? [1,4] : list.endsWith('Instruments') ? [2,4] : [];
+    if (update.ReadSecurity === required[0] && update.WriteSecurity === required[1] && Object.keys(update).length === 2) {
+      securitySettings.set(list,update);
+      return ok({});
+    }
+  }
   if (storageAdminSmoke && method === 'MERGE' && /lists\(guid'/.test(url)) {
     const id=url.match(/lists\(guid'([^']+)'/)[1], existing=storageMetadata.get(id);
     const update=JSON.parse(request.postData() || '{}');
@@ -192,6 +207,7 @@ await page.route('**/_api/**', async (route) => {
   // scope sessions and local instruments. Keep that authentication handshake
   // in the smoke environment so the storage gate can proceed to its list
   // probes just as it does on a real tenant.
+  if (url.includes('/_api/web/currentuser/groups')) return ok({value: []});
   if (url.includes('/_api/web/currentuser')) {
     return ok({
       Id: 7,
@@ -214,8 +230,13 @@ await page.route('**/_api/**', async (route) => {
     storageMetadata.set(Id,{...created,Id,ItemCount:0});
     return ok({Id:storageAdminSmoke ? Id : 'g'});
   }
-  url=url.replace(/Uncertalytics (?:—|-) (Sessions|Instruments|Equations|Bug Reports)/g,(_,kind)=>'Uncertainty'+kind.replaceAll(' ',''));
-  if (/createfieldasxml/.test(url)) return ok({ Id: 'f' });
+  url=url.replace(/Uncertalytics (?:—|-) (Sessions|Instrument Drafts|Published Instruments|Instruments|Equations|Bug Reports)/g,(_,kind)=>'Uncertainty'+kind.replaceAll(' ',''));
+  if (url.includes('/fields?$select=InternalName')) return ok({value:schemaFields.get(list) || []});
+  if (/createfieldasxml/.test(url)) {
+    const InternalName = / Name="([^"]+)"/.exec(JSON.parse(request.postData()).parameters.SchemaXml)[1];
+    schemaFields.set(list, [...(schemaFields.get(list) || []), {InternalName}]);
+    return ok({ Id:'f' });
+  }
   // What the live tenant answered: the Fields collection is polymorphic, so a
   // plain JSON body carries no way to tell what kind of column to create.
   if (/\/fields$/.test(url) && route.request().method() === 'POST') {
@@ -229,13 +250,15 @@ await page.route('**/_api/**', async (route) => {
   if (/UncertaintySessions'\)\/items\?/.test(url)) return ok({ value: [...sessions].map(([name, doc]) => ({
     SessionId: doc._uncertaintyArchive ? null : doc.id, SessionName: doc.name, AuthorId: 7, FileLeafRef: name,
   })) });
-  if (/UncertaintyInstruments'\)\/items\?/.test(url)) {
+  const instrumentList = /Uncertainty(Instruments|InstrumentDrafts|PublishedInstruments)'\)/.exec(url)?.[1];
+  const targetInstruments = {Instruments:legacyInstrumentItems, InstrumentDrafts:instrumentDraftItems, PublishedInstruments:instrumentItems}[instrumentList];
+  if (targetInstruments && url.includes('/items?')) {
     const recordId = /\$filter=RecordId eq '([^']+)'/.exec(url)?.[1];
-    return ok({ value: instrumentItems.filter(item => !recordId || item.RecordId === recordId) });
+    return ok({ value: targetInstruments.filter(item => !recordId || item.RecordId === recordId) });
   }
-  if (/UncertaintyInstruments'\)\/items$/.test(url) && request.method() === 'POST') {
-    const item = { Id: 1000 + instrumentItems.length, AuthorId: 7, ...JSON.parse(request.postData()) };
-    instrumentItems.push(item);
+  if (targetInstruments && url.endsWith('/items') && request.method() === 'POST') {
+    const item = { Id: 1000 + targetInstruments.length, AuthorId: 7, ...JSON.parse(request.postData()) };
+    targetInstruments.push(item);
     return ok(item);
   }
   if (/getfilebyserverrelativeurl/.test(url)) {
@@ -250,8 +273,8 @@ await page.route('**/_api/**', async (route) => {
   }
   if (/ValidateUpdateListItem/.test(url)) {
     const itemId = Number(/items\((\d+)\)/.exec(url)?.[1]);
-    const item = instrumentItems.find(item => item.Id === itemId);
-    if (item && url.includes('UncertaintyInstruments')) {
+    const item = targetInstruments?.find(item => item.Id === itemId);
+    if (item) {
       for (const field of JSON.parse(request.postData()).formValues) item[field.FieldName] = field.FieldValue;
     }
     return ok({ value: [] });
@@ -317,19 +340,20 @@ check('storage gate detected the unprovisioned site', /not set up yet/i.test(fra
 if (/not set up yet/i.test(frameText)) {
   await frame.getByRole('button', { name: /create them now/i }).click();
   await page.waitForTimeout(3500);
-  check('provisioning created all four containers', lists.size === 4, `(${lists.size})`);
+  check('instrument access settings cover original instruments, drafts and published definitions', securitySettings.size === 3);
+  check('provisioning created all six containers', lists.size === 6, `(${lists.size})`);
   const after = await frame.locator('body').innerText();
   check('app mounted after provisioning', !/not set up yet/i.test(after));
   if (storageAdminSmoke) {
-    check('storage setup uses grouped names and reveals all four containers', [...storageMetadata.values()].every(record=>record.Title.startsWith('Uncertalytics - ') && record.Hidden === false && !record.OnQuickLaunch));
+    check('storage setup uses grouped names and reveals all six containers', [...storageMetadata.values()].every(record=>record.Title.startsWith('Uncertalytics - ') && record.Hidden === false && !record.OnQuickLaunch));
     await frame.getByRole('button',{name:'Storage administration',exact:true}).waitFor();
     check('storage administration is visible to a list manager without a shortcut', await frame.getByRole('button',{name:'Storage administration',exact:true}).isVisible());
     await frame.getByRole('button',{name:'Storage administration',exact:true}).click();
     await frame.getByRole('button',{name:'Organize storage',exact:true}).waitFor();
-    check('storage administrator page lists all four settings links',await frame.locator('.sp-storage-admin').getByRole('link',{name:'Settings',exact:true}).count()===4);
+    check('storage administrator page lists all six settings links',await frame.locator('.sp-storage-admin').getByRole('link',{name:'Settings',exact:true}).count()===6);
     await frame.getByRole('button',{name:'Organize storage',exact:true}).click();
     await frame.getByText('Storage organized.',{exact:false}).waitFor();
-    check('reorganizing preserves the four container identities',storageMetadata.size===4 && lists.size===4);
+    check('reorganizing preserves the six container identities',storageMetadata.size===6 && lists.size===6);
     await frame.getByRole('button',{name:'Close storage administration',exact:true}).click();
   }
 
@@ -474,7 +498,10 @@ if (/not set up yet/i.test(frameText)) {
   await second.locator('.instrument-library-name').click({ modifiers: ['Control'] });
   check('library selects exactly the two requested instruments', await library.locator('tr.selected-row, tr.instrument-selected').evaluateAll(rows => new Set(rows.map(row => row.dataset.instrumentId)).size) === 2);
   await page.keyboard.press('Delete');
-  check('builder bulk removal archives only the selected records without a dialog', await until(() => selectedLibraryRecords.length === 2 && selectedLibraryRecords.every(item => JSON.parse(item.PayloadJson)._uncertaintyArchive)) && retainedLibraryRecordsUnchanged() && dialogs.length === 0);
+  const removal = frame.getByRole('alertdialog');
+  await removal.getByLabel('Shared library password').fill('calibrate');
+  await removal.getByRole('button', {name:'Remove',exact:true}).click();
+  check('confirmed bulk removal archives only the selected records without a native dialog', await until(() => selectedLibraryRecords.length === 2 && selectedLibraryRecords.every(item => JSON.parse(item.PayloadJson)._uncertaintyArchive)) && retainedLibraryRecordsUnchanged() && dialogs.length === 0);
   await page.reload({ waitUntil: 'networkidle' });
   // The iframe can attach after navigation's network-idle event. Resolve it
   // lazily so the following action waits for the reloaded application.

@@ -78,9 +78,13 @@ const BuilderUnitSelect = ({
     setIsOpen(true);
   };
 
+  const returnToField = () => {
+    closeMenu();
+    rootRef.current?.querySelector(".inline-unit-base-button")?.focus({ preventScroll: true });
+  };
   const chooseUnit = (option) => {
     onChange(option?.value || "");
-    closeMenu();
+    returnToField();
   };
 
   useEffect(() => {
@@ -171,8 +175,15 @@ const BuilderUnitSelect = ({
               placeholder="Search units..."
               onChange={(event) => setQuery(event.target.value)}
               onKeyDown={(event) => {
+                if (event.nativeEvent.isComposing) return;
+                event.stopPropagation();
+                if (event.key === "Tab") {
+                  returnToField();
+                  return;
+                }
                 if (event.key === "Escape") {
-                  closeMenu();
+                  event.preventDefault();
+                  returnToField();
                   return;
                 }
                 if (event.key === "ArrowDown" || event.key === "ArrowUp") {
@@ -192,6 +203,7 @@ const BuilderUnitSelect = ({
                   return;
                 }
                 if (event.key === "Enter") {
+                  event.preventDefault();
                   const activeOption =
                     visibleOptions.find(
                       (option) => option.value === activeValue,

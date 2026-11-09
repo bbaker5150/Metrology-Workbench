@@ -1,3 +1,4 @@
+import SymbolButton from "./SymbolButton";
 import React, { useEffect, useRef, useState } from "react";
 
 export default function PointColumnMenu({ sections, columns, setColumns, selectedGroups, moveGroup, onReset, onSetDefault, onClose }) {
@@ -87,7 +88,7 @@ export default function PointColumnMenu({ sections, columns, setColumns, selecte
     <div className="point-column-menu-actions">
       <button type="button" onClick={() => { finishDrag(); onReset(); }}>Reset Columns</button>
       <button type="button" onClick={onSetDefault}>Set as Default</button>
-      <button type="button" className="point-columns-close" onClick={onClose} aria-label="Close column settings" autoFocus>×</button>
+      <SymbolButton type="button" className="point-columns-close" onClick={onClose} aria-label="Close column settings" autoFocus />
     </div>
     <div className="point-column-lists">
     <section className="point-column-selected">
@@ -104,8 +105,8 @@ export default function PointColumnMenu({ sections, columns, setColumns, selecte
           onDragEnd={finishDrag}
           onDrop={event => dropColumn(event, group.key)}
           onKeyDown={event => { if (event.target !== event.currentTarget || !["ArrowUp", "ArrowDown"].includes(event.key)) return; event.preventDefault(); event.stopPropagation(); const other = selectedGroups[index + (event.key === "ArrowUp" ? -1 : 1)]; if (other) moveGroup(group.key, other.key); }}>
-          <span>{group.label}</span><button type="button" className="point-column-remove" aria-label={`Hide ${group.label}`} title={`Hide ${group.label}`}
-            onPointerDown={event => event.stopPropagation()} onClick={() => toggle(group.keys, false)}>×</button>
+          <span>{group.label}</span><SymbolButton type="button" className="point-column-remove" aria-label={`Hide ${group.label}`} title={`Hide ${group.label}`}
+            onPointerDown={event => event.stopPropagation()} onClick={() => toggle(group.keys, false)} />
         </div></React.Fragment>)}
       </div>
     </section>

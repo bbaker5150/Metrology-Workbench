@@ -1,8 +1,9 @@
+import SymbolButton from "../../../components/common/SymbolButton";
 import { createPortal } from "react-dom";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { v4 as uuid } from "uuid";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faPlus, faTimes, faLink } from "@fortawesome/free-solid-svg-icons";
+import {  faLink } from "@fortawesome/free-solid-svg-icons";
 import GrowingNumericInput from "../../../components/common/GrowingNumericInput";
 import { getUnitDisplayLabel } from "../../../utils/uncertaintyMath";
 import { resolveDynamicComponent, validateBudgetEquation, dynamicMeasurementValue } from "../../../utils/dynamicBudgetComponents";
@@ -196,13 +197,15 @@ export default function DynamicUncertaintyFields({
 
             </div>
             {draft.kind === "table" ? <>
-              <div className="dynamic-table-scroll"><table className="dynamic-input-table dynamic-lookup-table" style={{ "--dynamic-data-width": `max(${Math.max(11, ...cells.map(cell => ((cell.key === "point" ? "Point" : cell.key === "low" ? "Unc. (Low)" : cell.key === "high" ? "Unc. (High)" : "Uncertainty").length + getUnitDisplayLabel(cell.key === "point" ? measurementUnit : draft.outputUnit).length + 1) * 0.55 + 3))}rem, ${columnWidths.map(width => `calc(${width} + 20px)`).join(", ")})`, "--dynamic-table-width": `calc(var(--dynamic-data-width) * ${cells.length} + 48px)` }}>
-                <colgroup>{cells.map((cell, index) => <col key={index} style={{ width: `calc((100% - 48px) / ${cells.length})` }} />)}<col style={{ width: "48px" }} /></colgroup><thead>
+              <div className="dynamic-table-scroll"><table className="dynamic-input-table dynamic-lookup-table">
+                <thead>
                 <tr><th aria-label={`Point ${getUnitDisplayLabel(measurementUnit)}`.trim()}><span className="dynamic-column-heading">Point {unitField("measurementUnit", "Point unit")}</span></th>
                   {cells.slice(1).map(cell => <th key={`${cell.column}:${cell.key}`} aria-label={`${cell.key === "value" ? "Uncertainty" : cell.key === "low" ? "Unc. (Low)" : "Unc. (High)"} ${getUnitDisplayLabel(draft.outputUnit)}`.trim()}><span className="dynamic-column-heading">{cell.key === "value" ? "Uncertainty" : cell.key === "low" ? "Unc. (Low)" : "Unc. (High)"}{unitField("outputUnit", "Uncertainty unit")}</span></th>)}<th aria-label="Row actions" /></tr>
               </thead><tbody>
                 {draft.rows.map((row, index) => <tr key={row.id}>
                   {cells.map((cell, col) => <td key={`${cell.column || "point"}:${cell.key}`}>
+                    <span className="dynamic-cell-value">
+                    {cell.key === "value" && <span aria-hidden="true">±</span>}
                     <GrowingNumericInput style={{ "--dynamic-column-width": columnWidths[col] }} inputMode="decimal" data-dynamic-cell={`${index}:${col}`} aria-label={`${cell.label} row ${index + 1}`}
                       data-has-value={String(cell.key === "point" ? row.point ?? "" : row.values?.[cell.column]?.[cell.key] ?? "").trim() !== ""}
                       placeholder="—" value={cell.key === "point" ? displayPoint(row.point) : row.values?.[cell.column]?.[cell.key] ?? ""}
@@ -227,10 +230,14 @@ export default function DynamicUncertaintyFields({
                           if (next >= 0 && next < draft.rows.length) { event.preventDefault(); focusCell(next, col); }
                         }
                       }} />
+                    </span>
                   </td>)}
-                  <td className="dynamic-row-action-cell"><button type="button" className="dynamic-inline-action dynamic-row-remove" title="Remove row" aria-label={`Delete table row ${index + 1}`}
-                    onClick={() => change({ rows: draft.rows.length === 1 ? [emptyRow()] : draft.rows.filter(r => r.id !== row.id) })}><FontAwesomeIcon icon={faTimes} /></button><button type="button" className="dynamic-inline-action dynamic-row-add" title="Add row below" aria-label={`Add table row after row ${index + 1}`}
-                    onClick={() => addRow(index + 1)}><FontAwesomeIcon icon={faPlus} /></button></td>
+                  <td className="dynamic-row-action-cell">
+                    <SymbolButton add type="button" className="dynamic-inline-action dynamic-row-add" title="Add row below" aria-label={`Add table row after row ${index + 1}`}
+                      onClick={() => addRow(index + 1)} />
+                    <SymbolButton type="button" className="dynamic-inline-action dynamic-row-remove" title="Remove row" aria-label={`Delete table row ${index + 1}`}
+                      onClick={() => change({ rows: draft.rows.length === 1 ? [emptyRow()] : draft.rows.filter(r => r.id !== row.id) })} />
+                  </td>
                 </tr>)}
               </tbody></table></div>
             </> : <>

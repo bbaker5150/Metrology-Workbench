@@ -5,6 +5,7 @@ import {
   getUnitDisplayLabel,
   getUniqueUnitDisplayLabels,
   getUniqueUnits,
+  validateEquationUnits,
 } from "./uncertaintyMath";
 
 // Regression coverage for the SCCM/inWa unit families so their conversion
@@ -105,5 +106,15 @@ describe("function-header unit labels", () => {
       getUniqueUnits(["in", "inch", "in.", "ozf-in", "in-oz", "in-ozf"]),
     ).toEqual(["in", "in-ozf"]);
     expect(getUniqueUnits(["mOhm", "MOhm"])).toEqual(["mOhm", "MOhm"]);
+  });
+
+  it("resolves saved inch and torque picker values in equations without listing their alias families", () => {
+    const visibleRoots = new Set(Object.values(unitSystem.units).map(definition => definition.prefixBase));
+    expect([...visibleRoots].filter(root => getUnitDisplayLabel(root) === "in.")).toEqual(["in"]);
+    expect([...visibleRoots].filter(root => getUnitDisplayLabel(root) === "in·ozf")).toEqual(["in-ozf"]);
+    expect(validateEquationUnits("x * f", { x: "(inch)", f: "ozf" }, "(in-oz)").status).toBe("valid");
+    expect(unitSystem.toBaseUnit(1, "m(in-oz)")).toBe(unitSystem.toBaseUnit(1, "m(in-ozf)"));
+    expect(unitSystem.toBaseUnit(1, "minch")).toBeCloseTo(0.0000254, 12);
+    expect(unitSystem.getQuantity("min")).toBe("Time");
   });
 });

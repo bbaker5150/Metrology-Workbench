@@ -6,7 +6,12 @@ matching how the frontend ``useSessionManager`` loads everything into memory and
 persists a session at a time. Instruments (global library), bug reports, and
 note images each get their own small collection endpoints.
 """
+import hashlib
+import secrets
+
 from django.conf import settings
+from django.db import router, transaction
+from django.db.models import Q
 from django.db.models import Prefetch
 from django.shortcuts import get_object_or_404
 from rest_framework import status
@@ -118,68 +123,149 @@ def _library_password():
     return getattr(settings, "UNCERTAINTY_LIBRARY_PASSWORD", "calibrate")
 
 
+SME_GROUP = "Uncertalytics SME"
+
+
+def _can_validate(request):
+    return request.user.is_authenticated and request.user.groups.filter(name=SME_GROUP).exists()
+
+
+def _review_owner(request, create=False):
+    if request.user.is_authenticated:
+        return f"user:{request.user.pk}"
+    # Standalone Django installations also support anonymous device sessions.
+    # The private bearer credential never enters a session document or a listing.
+    prefix = "InstrumentDevice "
+    header = request.headers.get("Authorization", "")
+    if header.startswith(prefix) and 32 <= len(header[len(prefix):]) <= 128:
+        return "device:" + hashlib.sha256(header[len(prefix):].encode()).hexdigest()
+    # Older same-origin API clients use their session cookie for ownership.
+    token = request.session.get("instrument_owner")
+    if not token and create:
+        token = secrets.token_hex(32)
+        request.session["instrument_owner"] = token
+    return f"session:{token}" if token else ""
+
+
 @api_view(["GET", "POST"])
 @permission_classes([AllowAny])
 def instruments(request):
+    owner = request.query_params.get("owner") if request.method == "GET" else request.data.get("owner")
+    reviewer = _review_owner(request, create=request.method == "POST")
     if request.method == "GET":
-        owner = request.query_params.get("owner")
+        visible = Q(scope="validated")
+        if reviewer and (owner or request.user.is_authenticated):
+            local = Q(scope="local", review_owner=reviewer)
+            visible |= local if request.user.is_authenticated else local & Q(owner=owner)
+        if reviewer:
+            visible |= Q(scope="pending", review_owner=reviewer)
+        legacy = models.LegacyInstrumentUse.objects.filter(actor=reviewer) if reviewer else models.LegacyInstrumentUse.objects.none()
+        if owner:
+            visible |= Q(scope="local", owner=owner, review_owner="") & ~Q(pk__in=legacy.values("legacy_id"))
+        private_origins = {str(private): original for private, original in legacy.values_list("private_id", "legacy_id")}
+        qs = models.Instrument.objects.filter(visible)
         scope = request.query_params.get("scope")
-        qs = models.Instrument.objects.all()
-
-        if scope in (models.Instrument.SCOPE_LOCAL, models.Instrument.SCOPE_VALIDATED):
+        if scope:
             qs = qs.filter(scope=scope)
-            if scope == models.Instrument.SCOPE_LOCAL and owner:
-                qs = qs.filter(owner=owner)
-        elif owner:
-            # Default view for a known user: every validated instrument plus
-            # that user's own local history.
-            from django.db.models import Q
+        return Response([{**serializers.instrument_to_dict(i), **({"legacyLocalId": private_origins[i.id]} if i.id in private_origins else {})}
+                         for i in qs])
 
-            qs = qs.filter(
-                Q(scope=models.Instrument.SCOPE_VALIDATED)
-                | Q(scope=models.Instrument.SCOPE_LOCAL, owner=owner)
-            )
-        else:
-            # Anonymous/global listings expose only deliberately synced rows.
-            # Local rows require an explicit owner key and must never leak just
-            # because an older client omitted its owner parameter.
-            qs = qs.filter(scope=models.Instrument.SCOPE_VALIDATED)
-
-        return Response([serializers.instrument_to_dict(i) for i in qs])
-
-    # POST -> upsert. Writing/keeping an instrument at validated scope requires
-    # the shared password; local saves are unguarded.
     data = request.data
-    incoming_scope = data.get("scope")
-    if incoming_scope == models.Instrument.SCOPE_VALIDATED:
-        if (data.get("password") or "") != _library_password():
-            return Response(
-                {"detail": "Invalid shared-library password."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
+    if not data.get("id"):
+        return Response({"detail": "An instrument ID is required."}, status=400)
+    requested_scope = data.get("scope")
+    if requested_scope == "validated":
+        return Response({"detail": "Submit a local copy for SME validation."}, status=403)
+    if requested_scope and requested_scope not in {"local", "pending"}:
+        return Response({"detail": "Unknown library scope."}, status=400)
+    with transaction.atomic(using=router.db_for_write(models.Instrument)):
+        existing = models.Instrument.objects.select_for_update().filter(pk=data["id"]).first()
+        legacy_id = None
+        if existing and existing.scope == "local" and not existing.review_owner:
+            if not owner or owner != existing.owner:
+                return Response(status=404)
+            # Old records had only a device key. Keep the original immutable
+            # and give each authenticated actor its own successor on first use.
+            successor, _ = models.LegacyInstrumentUse.objects.get_or_create(actor=reviewer, legacy_id=existing.id)
+            legacy_id = existing.id
+            data = {**serializers.instrument_to_dict(existing), **data, "id": str(successor.private_id)}
+            if str(data.get("sourceId") or "") == legacy_id:
+                data["sourceId"] = ""
+            existing = models.Instrument.objects.select_for_update().filter(pk=data["id"]).first()
+        scope = data.get("scope") or (existing.scope if existing else "local")
+        if existing and existing.scope == "validated":
+            return Response({"detail": "Submit a local copy for SME validation."}, status=403)
+        if existing and (not reviewer or existing.review_owner != reviewer):
+            return Response(status=404)
+        if existing and existing.scope == "pending" and scope == "local" and existing.updated_at.isoformat() != data.get("reviewVersion"):
+            return Response({"detail": "This instrument has already been submitted. Reopen it to edit the current submission."}, status=409)
+        obj = serializers.save_instrument({**data, "scope": scope}, actor=reviewer, reuse_linked=legacy_id is None)
+        result = serializers.instrument_to_dict(obj)
+        if legacy_id:
+            result["legacyLocalId"] = legacy_id
+        return Response(result, status=status.HTTP_201_CREATED)
 
-    obj = serializers.save_instrument(data)
-    return Response(serializers.instrument_to_dict(obj), status=status.HTTP_201_CREATED)
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def instrument_reviews(request):
+    can_validate = _can_validate(request)
+    rows = models.Instrument.objects.filter(scope="pending") if can_validate else []
+    return Response({"canValidate": can_validate, "reviews": [serializers.instrument_to_dict(i) for i in rows]})
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def validate_instrument(request, instrument_id):
+    if not _can_validate(request):
+        return Response({"detail": "Uncertalytics SME membership is required."}, status=403)
+    with transaction.atomic(using=router.db_for_write(models.Instrument)):
+        submitted = get_object_or_404(models.Instrument.objects.select_for_update(), pk=instrument_id, scope="pending")
+        if submitted.updated_at.isoformat() != request.data.get("reviewVersion"):
+            return Response({"detail": "This submission changed. Reopen the inbox to review it again."}, status=409)
+        target_id = submitted.source_id or submitted.id
+        target = models.Instrument.objects.select_for_update().filter(pk=target_id).first()
+        if submitted.source_id and target_id != submitted.id and target is None:
+            return Response({"detail": "The original shared instrument no longer exists."}, status=409)
+        if target and target.id != submitted.id and target.scope != "validated":
+            return Response({"detail": "The target is a private instrument."}, status=409)
+        definition = serializers.instrument_to_dict(submitted)
+        snapshot_fields = ("manufacturer", "model", "description", "functions", "typeBComponents",
+                           "ranges", "tmdeSecondaryUncertainties", "qualifierColumnNames", "customColumns")
+        obj = serializers.save_instrument({
+            **definition, "id": target_id, "sourceId": target_id, "scope": "validated",
+            "owner": "", "validatedSnapshot": {key: definition[key] for key in snapshot_fields if key in definition},
+            "localOverride": False,
+        })
+        obj.owner = obj.review_owner = ""
+        obj.save(update_fields=["owner", "review_owner"])
+        if submitted.pk != obj.pk:
+            submitted.delete()
+        return Response(serializers.instrument_to_dict(obj))
 
 
 @api_view(["DELETE"])
 @permission_classes([AllowAny])
 def instrument_detail(request, instrument_id):
-    instrument = models.Instrument.objects.filter(pk=str(instrument_id)).first()
-    if instrument and instrument.scope == models.Instrument.SCOPE_VALIDATED:
-        if (request.data.get("password") or "") != _library_password():
-            return Response(
-                {"detail": "Invalid shared-library password."},
-                status=status.HTTP_403_FORBIDDEN,
-            )
-    if instrument and instrument.scope == models.Instrument.SCOPE_LOCAL:
-        owner = request.query_params.get("owner") or ""
-        if not owner or owner != instrument.owner:
-            # Do not reveal whether another user's private record exists.
-            return Response(status=status.HTTP_404_NOT_FOUND)
-    if instrument:
-        instrument.delete()
-    return Response(status=status.HTTP_204_NO_CONTENT)
+    with transaction.atomic(using=router.db_for_write(models.Instrument)):
+        instrument = models.Instrument.objects.select_for_update().filter(pk=str(instrument_id)).first()
+        if instrument and instrument.scope == "validated":
+            if (request.data.get("password") or "") != _library_password():
+                return Response({"detail": "Invalid shared-library password."}, status=403)
+        if instrument and instrument.scope in {"local", "pending"}:
+            if instrument.scope == "local" and not instrument.review_owner:
+                if not instrument.owner or request.query_params.get("owner") != instrument.owner:
+                    return Response(status=404)
+                models.LegacyInstrumentUse.objects.get_or_create(actor=_review_owner(request, create=True), legacy_id=instrument.id)
+                return Response(status=status.HTTP_204_NO_CONTENT)
+            actor = _review_owner(request)
+            if not actor or actor != instrument.review_owner:
+                return Response(status=404)
+            if instrument.scope == "local" and not request.user.is_authenticated and request.query_params.get("owner") != instrument.owner:
+                return Response(status=404)
+        if instrument:
+            instrument.delete()
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 # --------------------------------------------------------------------------- #

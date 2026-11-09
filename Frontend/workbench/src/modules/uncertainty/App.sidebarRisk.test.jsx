@@ -1,3 +1,4 @@
+import { setDeviceKeyOverride, userStorageKey } from "./utils/deviceKey";
 import { biasFixture } from "./utils/measurementBias.fixtures";
 import { getTmdePointColumns } from "./utils/pointTmdeColumns";
 import React from "react";
@@ -19,6 +20,7 @@ import {
   getSidebarColumnMinWidth,
   getSidebarRiskColumnWidths,
   getSidebarGridTemplate,
+  readUiSizingPreferences,
   getUutReassignmentPointIds,
   normalizeSidebarColumnOrder,
   pastePointBudget,
@@ -153,11 +155,11 @@ describe("measurement-point value editing", () => {
     expect(group(6).pointIds).toEqual([6, 7]);
   });
 
-  test("fills spare point-table width with automatic columns while preserving a dragged column", () => {
+  test("uses compact measured widths in split view and fills the expanded view while preserving dragged widths", () => {
     const visible = { section: true, value: true, qualifier: true };
     const measured = { section: 50, value: 90, qualifier: 80 };
     expect(getSidebarGridTemplate(visible, '90px', measured, ['section', 'value', 'qualifier'], false, { section: 50 }))
-      .toBe('50px minmax(90px, 90fr) minmax(80px, 80fr)');
+      .toBe('50px 90px 80px');
     expect(getSidebarGridTemplate(visible, '90px', measured, ['qualifier', 'section', 'value'], true, measured))
       .toBe('80px 50px minmax(90px, 90fr)');
     expect(measured).toEqual({ section: 50, value: 90, qualifier: 80 });
@@ -1447,4 +1449,40 @@ test("measurement point units use the searchable instrument picker", () => {
   fireEvent.change(search,{target:{value:"ampere"}});
   fireEvent.click(screen.getByRole("option", {name:/^A\s+Current$/}));
   expect(onSave).toHaveBeenCalledWith(expect.objectContaining({testPointInfo:{parameter:expect.objectContaining({value:5,unit:"A",unitSelectionExplicit:true})}}));
+});
+
+test("lets the user choose an overlapping range directly from the visible UUT limit", async () => {
+  const save = vi.fn();
+  const point = { id: "p", uutTolerance: { rangeSelection: "required" }, testPointInfo: { parameter: { value: 10, unit: "V" } } };
+  const uut = { id: "u", ranges: [
+    { id: "narrow", min: 0, max: 15, unit: "V", floor: { high: 2, low: -2, unit: "V" } },
+    { id: "wide", min: 0, max: 100, unit: "V", floor: { high: 5, low: -5, unit: "V" } },
+  ] };
+  render(<SidebarPointItem point={point} currentUut={uut} visibleColumns={{ lowLimit: true }} onSelect={vi.fn()} onSave={save} />);
+  fireEvent.click(screen.getByRole("button", { name: "Choose UUT range" }));
+  fireEvent.click(await screen.findByRole("option", { name: /100/ }));
+  expect(save).toHaveBeenCalledWith(expect.objectContaining({ uutTolerance: expect.objectContaining({ rangeId: "wide", rangeSelection: "explicit" }) }));
+});
+
+test("keeps prior measurement point widths for the returning SharePoint user and scopes later edits by account", () => {
+  const key = "uncertalytics.uiSizing.v1";
+  const legacy = { sidebarColumnWidths: { value: 72 } };
+  localStorage.setItem(key, JSON.stringify(legacy));
+  let clearOwner = setDeviceKeyOverride("sharepoint-user:1");
+  try {
+    expect(readUiSizingPreferences().sidebarColumnWidths).toEqual({ value: 72 });
+    expect(localStorage.getItem(key)).toBeNull();
+    clearOwner();
+    clearOwner = setDeviceKeyOverride("sharepoint-user:2");
+    expect(readUiSizingPreferences().sidebarColumnWidths).toBeUndefined();
+    localStorage.setItem(userStorageKey(key), JSON.stringify({ sidebarColumnWidths: { value: 115 } }));
+    clearOwner();
+    clearOwner = setDeviceKeyOverride("sharepoint-user:1");
+    expect(readUiSizingPreferences().sidebarColumnWidths).toEqual({ value: 72 });
+  } finally {
+    clearOwner();
+    localStorage.removeItem(key);
+    localStorage.removeItem(key + ":sharepoint-user:1");
+    localStorage.removeItem(key + ":sharepoint-user:2");
+  }
 });

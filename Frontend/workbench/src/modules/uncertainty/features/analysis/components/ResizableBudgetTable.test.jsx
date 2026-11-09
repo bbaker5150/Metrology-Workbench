@@ -127,7 +127,7 @@ describe("budget column resizing", () => {
     const storageKey = 'uncertalytics:budget-column-widths:v1:final:length';
     localStorage.setItem(storageKey, JSON.stringify({ source: 160, limit: 90 }));
     vi.spyOn(HTMLElement.prototype, 'offsetWidth', 'get').mockImplementation(function () {
-      if (this.style.position === 'fixed') return 420; // authored lookup width probe
+      if (this.matches('.dynamic-lookup-table')) return 420; // intrinsic lookup width
       if (this.matches('.dynamic-column-heading')) return 90;
       if (this.matches('.inline-tolerance-editor, .dynamic-budget-editor')) return 1000000;
       return 520;

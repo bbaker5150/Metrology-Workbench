@@ -61,6 +61,13 @@ let store;
 beforeEach(() => {
   resetWebUrlCache();
   http = fakeFetch();
+  http.on(/InstrumentDrafts.*ReadSecurity/, { json: { ReadSecurity: 2, WriteSecurity: 2 } });
+  http.on(/Instrument%20Drafts.*ReadSecurity/, { json: { ReadSecurity: 2, WriteSecurity: 2 } });
+  http.on(/Instruments.*ReadSecurity/, { json: { ReadSecurity: 2, WriteSecurity: 4 } });
+  http.on(/Published(?:%20)?Instruments.*ReadSecurity/, { json: { ReadSecurity: 1, WriteSecurity: 4 } });
+  http.on(/EffectiveBasePermissions/, { json: { Low: '2048' } });
+  http.on(/Published(?:%20)?Instruments.*fields\?/, { json: { value: [{InternalName:'LegacyCatalogMigratedV1'}] } });
+  http.on(/Instrument(?:%20)?Drafts.*fields\?/, { json: { value: [{InternalName:'SubmittedJson'}] } });
   http.on(/contextinfo/, { json: { FormDigestValue: "D", FormDigestTimeoutSeconds: 1800 } });
   http.on(/RootFolder/, { json: { ServerRelativeUrl: FOLDER } });
   http.on(/ListItemAllFields\?\$select=Id/, { json: { Id: 91 } });
@@ -157,6 +164,8 @@ describe("provision", () => {
       "UncertaintyInstruments",
       "UncertaintyEquations",
       "UncertaintyBugReports",
+      "UncertaintyInstrumentDrafts",
+      "UncertaintyPublishedInstruments",
     ]);
   });
 
@@ -237,7 +246,7 @@ describe("provision", () => {
   it("leaves an existing container completely alone", async () => {
     allPresent();
     http.on(/\/fields\?\$select=InternalName/, {
-      json: { value: CONTAINERS.flatMap((c) => c.fields).map((f) => ({ InternalName: f.name })) },
+      json: { value: [...CONTAINERS.flatMap((c) => c.fields).map((f) => ({ InternalName: f.name })), { InternalName: 'LegacyCatalogMigratedV1' }] },
     });
     const result = await store.provision();
     expect(result.alreadyProvisioned).toBe(true);
@@ -266,6 +275,86 @@ describe("provision", () => {
     allMissing();
     http.on(/\/_api\/web\/lists$/, { status: 403 });
     await expect(store.provision()).rejects.toThrow(/Edit permission/);
+  });
+});
+
+describe('legacy instrument migration', () => {
+  const original = payload => ({ Id: payload.id, RecordId: payload.id, AuthorId: 19, PayloadJson: JSON.stringify(payload) });
+  function mixedSite() {
+    const legacy = [
+      original({id:'mine', scope:'local', model:'private'}),
+      original({id:'unscoped', model:'private legacy'}),
+      original({id:'old', scope:'validated', _uncertaintyArchive:{at:'2026-01-01'}}),
+      original({id:'first', scope:'shared', model:'meter'}),
+      original({id:'second', scope:'validated', model:'shunt'}),
+    ];
+    const published = [];
+    let access = {ReadSecurity:1, WriteSecurity:1};
+    let marker = false;
+    let failOnce = true;
+    http.on(/UncertaintyInstruments'\)\?\$select=ReadSecurity/, () => ({json:access}));
+    http.on(/UncertaintyInstruments'\)$/, ({method, init}) => {
+      if (method === 'POST') access = JSON.parse(init.body);
+      return {json:{}};
+    });
+    http.on(/UncertaintyInstruments'\)\/items\?/, () => {
+      expect(access).toEqual({ReadSecurity:2,WriteSecurity:4});
+      return {json:{value:legacy}};
+    });
+    http.on(/UncertaintyPublishedInstruments'\)\/fields\?/, () => ({json:{
+      value: [...CONTAINERS.find(c => c.key === 'publishedInstruments').fields.map(f => ({InternalName:f.name})),
+        ...(marker ? [{InternalName:'LegacyCatalogMigratedV1'}] : [])],
+    }}));
+    http.on(/UncertaintyPublishedInstruments'\)\/fields\/createfieldasxml/, ({init}) => {
+      expect(init.body).toContain('LegacyCatalogMigratedV1');
+      marker = true;
+      return {json:{}};
+    });
+    http.on(/UncertaintyPublishedInstruments'\)\/items\?/, () => ({json:{value:published}}));
+    http.on(/UncertaintyPublishedInstruments'\)\/items$/, ({init}) => {
+      const fields = JSON.parse(init.body);
+      if (fields.RecordId === 'second' && failOnce) { failOnce = false; return {status:503}; }
+      expect(published.some(row => row.PublicationKey === fields.PublicationKey)).toBe(false);
+      published.push(fields);
+      return {status:201};
+    });
+    return {legacy, published, complete:() => marker};
+  }
+
+  it('protects original records in place, resumes copying shared rows and verifies completion before listing', async () => {
+    const {legacy, published, complete} = mixedSite();
+    const originals = JSON.stringify(legacy);
+    await expect(store.provision()).rejects.toThrow();
+    expect(published.map(row => row.RecordId)).toEqual(['first']);
+    expect(complete()).toBe(false);
+    await expect(store.listInstruments()).rejects.toThrow(/finish migrating/);
+    await store.provision();
+    expect(complete()).toBe(true);
+    expect(published.map(row => JSON.parse(row.PayloadJson))).toEqual([
+      {id:'first', scope:'validated', model:'meter'}, {id:'second', scope:'validated', model:'shunt'},
+    ]);
+    expect(JSON.stringify(legacy)).toBe(originals);
+    expect((await store.listInstruments()).map(row => row.id)).toEqual(['first', 'second']);
+    const author = new SharePointStore({webUrl:WEB,fetchImpl:http,currentUser:{id:19}});
+    expect((await author.listInstruments()).map(row => row.id)).toEqual(['first','second','mine','unscoped']);
+    await store.provision();
+    expect(published).toHaveLength(2);
+    expect(http.find(/PublishedInstruments'\)\/fields\/createfieldasxml/)).toHaveLength(1);
+  });
+
+  it('keeps the migration incomplete when the operator cannot enumerate other authors’ original rows', async () => {
+    const {published, complete} = mixedSite();
+    http.on(/UncertaintyInstruments'\)\/EffectiveBasePermissions/, {json:{Low:'3'}});
+    await expect(store.provision()).rejects.toThrow(/Manage Lists on the original/);
+    expect(published).toHaveLength(0);
+    expect(complete()).toBe(false);
+    expect(http.find(/UncertaintyInstruments'\)\/items\?/)).toHaveLength(0);
+  });
+
+  it('rejects an unprotected original list even when the published migration marker exists', async () => {
+    http.on(/UncertaintyInstruments.*ReadSecurity/, {json:{ReadSecurity:1,WriteSecurity:4}});
+    await expect(store.listInstruments()).rejects.toThrow(/site owner/);
+    expect(http.find(/\/items\?/)).toHaveLength(0);
   });
 });
 
@@ -370,7 +459,7 @@ describe("sessions", () => {
     http.on(/\$value/,{text:upload.body});
     const restored=await store.getSession(9);
     expect(restored.qualifierColumnNames).toEqual(doc.qualifierColumnNames);
-    expect(restored.uuts.map(row=>computeSyncState(row.instrument))).toEqual(['green','yellow','red']);
+    expect(restored.uuts.map(row=>computeSyncState(row.instrument))).toEqual(['green','orange','red']);
   });
 
   it("promotes picker columns with a regular form-update POST", async () => {
@@ -523,20 +612,23 @@ describe("record lists", () => {
 });
 
 describe("user-scoped instrument records", () => {
-  it('keeps a deliberately demoted instrument yellow after library reload', async () => {
+  it('keeps a deliberately demoted instrument orange after library reload', async () => {
     const base={id:'shared',scope:'validated',model:'Meter'};
     const local={...base,id:'copy',scope:'local',sourceId:'shared',localOverride:true,validatedSnapshot:buildValidatedSnapshot(base)};
     await store.saveInstrument(local);
     const write=http.calls.filter(call=>/items$/.test(call.url)).at(-1);
     const payload=JSON.parse(write.body).PayloadJson;
     http.on(/UncertaintyInstruments'\)\/items\?\$select/,{json:{value:[{Id:1,AuthorId:41,PayloadJson:payload}]}});
-    expect(computeSyncState((await store.listInstruments())[0])).toBe('yellow');
+    expect(computeSyncState((await store.listInstruments())[0])).toBe('orange');
   });
   it("uses a stable SharePoint user owner key", () => {
     expect(sharePointInstrumentOwnerKey({ id: 41 })).toBe("sharepoint-user:41");
   });
 
   it("returns shared instruments and only the signed-in user's local instruments", async () => {
+    http.on(/UncertaintyPublishedInstruments'\)\/items\?\$select/, { json: { value: [
+      { Id: 21, RecordId: "shared", PayloadJson: '{"id":"shared","scope":"shared"}' },
+    ] } });
     http.on(/UncertaintyInstruments'\)\/items\?\$select/, {
       json: {
         value: [
@@ -553,7 +645,7 @@ describe("user-scoped instrument records", () => {
       { id: "mine", scope: "local", owner: "sharepoint-user:41" },
 
     ]);
-    expect(http.find(/UncertaintyInstruments/)[0].url).toContain("AuthorId");
+    expect(http.find(/UncertaintyInstruments.*items\?/)[0].url).toContain("$filter=AuthorId eq 41");
   });
 
   it("creates a separate local row instead of overwriting another user's matching id", async () => {
@@ -595,36 +687,62 @@ describe("user-scoped instrument records", () => {
     expect(http.find(/items\(72\)/)).toHaveLength(0);
   });
 
-  it("syncs a shared definition and removes only this user's linked local copy", async () => {
-    http.on(/\$filter=RecordId/, {
-      json: {
-        value: [
-          { Id: 80, AuthorId: 12, RecordId: "shared", PayloadJson: '{"id":"shared","scope":"validated"}' },
-        ],
-      },
-    });
-    http.on(/UncertaintyInstruments'\)\/items\?\$select=Id,RecordId,PayloadJson,AuthorId&\$top/, {
-      json: {
-        value: [
-          { Id: 80, AuthorId: 12, RecordId: "shared", PayloadJson: '{"id":"shared","scope":"validated"}' },
-          { Id: 81, AuthorId: 41, RecordId: "my-copy", PayloadJson: '{"id":"my-copy","scope":"local","sourceId":"shared"}' },
-          { Id: 82, AuthorId: 99, RecordId: "their-copy", PayloadJson: '{"id":"their-copy","scope":"local","sourceId":"shared"}' },
-        ],
-      },
-    });
+  it("isolates pending definitions, checks the signed-in SME and publishes the reviewed version", async () => {
+    const record = { id: "copy", sourceId: "shared", scope: "pending", model: "DMM" };
+    const item = { Id: 81, AuthorId: 12, RecordId: "12:copy", owshiddenversion: 3, PayloadJson: JSON.stringify(record) };
+    http.on(/InstrumentDrafts'\)\/items\?/, { json: { value: [item] } });
+    http.on(/InstrumentDrafts'\)\/items\(81\)\?/, { json: item });
+    http.on(/Instruments'\)\/items\?/, { json: { value: [{Id: 80, RecordId: "shared", AuthorId: 12,
+      owshiddenversion: 4, PayloadJson: '{"id":"shared","scope":"validated","model":"Old"}'}] } });
+    expect(await store.listInstruments()).toEqual([{id:"shared",scope:"validated",model:"Old"}]);
+    expect(await store.instrumentReviews()).toEqual({canValidate:false,reviews:[]});
+    await expect(store.saveInstrument({...record,scope:"validated",password:"calibrate"})).rejects.toMatchObject({status:403});
+    await expect(store.validateInstrument("81", "3")).rejects.toMatchObject({status:403});
+    http.on(/currentuser\/groups/, {json:{value:[{Title:"Uncertalytics SME"}]}});
+    expect((await store.instrumentReviews()).reviews).toEqual([{...record,reviewId:"81",reviewVersion:"3"}]);
+    await expect(store.validateInstrument("81","2")).rejects.toMatchObject({status:409});
+    const approved = await store.validateInstrument("81", "3");
+    expect(approved).toMatchObject({id:"shared", model:"DMM", scope:"validated", validatedSnapshot:{model:"DMM"}});
+    const publication = http.calls.find(call => call.spMethod === "MERGE" && call.url.includes("items(80)"));
+    expect(publication.headers["IF-MATCH"]).toBe('"4"');
+    expect(JSON.parse(publication.body).PublicationKey).toBe("shared");
+    const cleanup = http.calls.find(call => call.spMethod === "MERGE" && call.url.includes("items(81)"));
+    expect(cleanup.headers["IF-MATCH"]).toBe('"3"');
+    expect(JSON.parse(JSON.parse(cleanup.body).PayloadJson)).toMatchObject({_uncertaintyArchive:{userId:41}});
+  });
 
-    const saved = await store.saveInstrument({
-      id: "shared",
-      sourceId: "shared",
-      scope: "validated",
-      password: "calibrate",
-    });
+  it("fails closed when the private list allows reading other users' drafts", async () => {
+    http.on(/InstrumentDrafts.*ReadSecurity/, {json:{ReadSecurity:1,WriteSecurity:2}});
+    await expect(store.saveInstrument({id:"private",scope:"pending"})).rejects.toMatchObject({status:403});
+    expect(http.calls.some(call=>call.method==="POST")).toBe(false);
+  });
 
-    expect(http.find(/items\(80\)\/ValidateUpdateListItem/)[0].spMethod).toBeUndefined();
-    const cleanup = formValueObject(http.find(/items\(81\)\/ValidateUpdateListItem/)[0]);
-    expect(JSON.parse(cleanup.PayloadJson)).toMatchObject({ id: 'my-copy', sourceId: 'shared', _uncertaintyArchive: { userId: 41 } });
-    expect(http.find(/items\(82\)/)).toHaveLength(0);
-    expect(saved).not.toHaveProperty("password");
+  it('keeps submitted specifications intact after a late autosave and requires the current revision to withdraw', async () => {
+    const local = {id:'meter', scope:'local', model:'Draft'};
+    const item = {Id:81, AuthorId:41, RecordId:'41:meter', owshiddenversion:2, PayloadJson:JSON.stringify(local)};
+    http.on(/InstrumentDrafts'\)\/items\?/, () => ({json:{value:[item]}}));
+    http.on(/InstrumentDrafts'\)\/items\(81\)$/, ({init}) => {
+      if (init.headers['IF-MATCH'] !== `"${item.owshiddenversion}"`) return {status:412};
+      Object.assign(item, JSON.parse(init.body));
+      item.owshiddenversion++;
+      return {status:204};
+    });
+    const submitted = await store.saveInstrument({...local, scope:'pending', model:'Submitted'});
+    expect(submitted).toMatchObject({scope:'pending', model:'Submitted', reviewVersion:'3'});
+    // An earlier form update arrives after submission. It only carries the
+    // editable payload, which cannot overwrite the snapshot being reviewed.
+    item.PayloadJson = JSON.stringify({...local, model:'Stale'});
+    item.owshiddenversion++;
+    const [current] = await store.listInstruments();
+    expect(current).toMatchObject({scope:'pending', model:'Submitted', reviewVersion:'4'});
+    http.on(/currentuser\/groups/, {json:{value:[{Title:'Uncertalytics SME'}]}});
+    expect((await store.instrumentReviews()).reviews[0]).toMatchObject({scope:'pending', model:'Submitted', reviewVersion:'4'});
+    await expect(store.saveInstrument(local)).rejects.toMatchObject({status:409});
+    await expect(store.saveInstrument({...submitted, scope:'local'})).rejects.toMatchObject({status:409});
+    expect(await store.saveInstrument({...current, scope:'local', model:'Withdrawn'})).toMatchObject({scope:'local',model:'Withdrawn'});
+    expect(item.SubmittedJson).toBeNull();
+    expect((await store.listInstruments())[0]).toMatchObject({scope:'local',model:'Withdrawn'});
+    expect((await store.instrumentReviews()).reviews).toEqual([]);
   });
 
   it("does not delete another user's local instrument", async () => {
@@ -697,7 +815,8 @@ describe("user-scoped instrument records", () => {
     expect(await store.findItemId('instruments', 'same')).toBe(72);
     await store.saveInstrument({ ...active, model: 'Updated' });
     expect(http.find(/items\(71\)/)).toHaveLength(0);
-    expect(http.find(/items\(72\)\/ValidateUpdateListItem/)).toHaveLength(1);
+    expect(http.find(/items\(72\)\/ValidateUpdateListItem/)).toHaveLength(0);
+    expect(http.find(/InstrumentDrafts'\)\/items$/)).toHaveLength(1);
   });
 
   it("archives equations and reports with their original content intact", async () => {
@@ -717,7 +836,7 @@ describe("user-scoped instrument records", () => {
 
   it('continues past archived records on earlier SharePoint pages', async () => {
     const archived = { id: 'old', _uncertaintyArchive: { at: '2026-09-13' } };
-    http.on(/UncertaintyInstruments'\)\/items\?/, { json: {
+    http.on(/UncertaintyPublishedInstruments'\)\/items\?/, { json: {
       value: [{ Id: 1, PayloadJson: JSON.stringify(archived) }],
       'odata.nextLink': `${WEB}/_api/page2`,
     } });
@@ -737,7 +856,7 @@ describe("user-scoped instrument records", () => {
 
 describe('organized application storage', () => {
   const ids = CONTAINERS.map((_, i) => `00000000-0000-4000-8000-00000000000${i}`);
-  const titles = ['Uncertalytics - Sessions', 'Uncertalytics - Instruments', 'Uncertalytics - Equations', 'Uncertalytics - Bug Reports'];
+  const titles = ['Uncertalytics - Sessions', 'Uncertalytics - Instruments', 'Uncertalytics - Equations', 'Uncertalytics - Bug Reports', 'Uncertalytics - Instrument Drafts', 'Uncertalytics - Published Instruments'];
   function setup() {
     const rows = CONTAINERS.map((c,i) => ({Id:ids[i],Title:listTitle('Uncertainty',c.key),Hidden:true,OnQuickLaunch:true,ItemCount:7}));
     http.on(/EffectiveBasePermissions/, {json:{Low:'2048',High:'0'}});
@@ -760,7 +879,7 @@ describe('organized application storage', () => {
     expect(rows.map(r=>r.Id)).toEqual(ids);
     expect(rows.every(r=>r.ItemCount===7 && !r.Hidden && !r.OnQuickLaunch)).toBe(true);
     const writes=http.calls.filter(c=>c.method==='POST' && !c.url.includes('contextinfo'));
-    expect(writes).toHaveLength(4);
+    expect(writes).toHaveLength(6);
     for(const write of writes) {
       expect(write.spMethod).toBe('MERGE');
       expect(Object.keys(JSON.parse(write.body)).sort()).toEqual(['Description','Hidden','OnQuickLaunch','Title']);

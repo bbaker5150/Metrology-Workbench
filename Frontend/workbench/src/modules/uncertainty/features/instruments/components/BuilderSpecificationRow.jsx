@@ -1,3 +1,4 @@
+import SymbolButton from "../../../components/common/SymbolButton";
 import React, { useState } from "react";
 import {
   RangeCell, InlineToleranceCell, InlineDistributionCell, ResolutionCellInput,
@@ -32,7 +33,7 @@ export default function BuilderSpecificationRow({ range, fn, onPatch, onToleranc
         onCommitUnit={(value) => onPatch({ resolutionUnit: value, measuringResolutionUnit: value })}
         onCommitDistribution={(value) => onPatch({ resolutionDistribution: value, measuringResolutionDistribution: value })}
       /></td>
-      <td><button className="builder-x-action builder-range-delete" onClick={onDelete} title="Delete range" aria-label="Delete range">x</button></td>
+      <td><SymbolButton className="builder-x-action builder-range-delete" onClick={onDelete} title="Delete range" aria-label="Delete range" /></td>
     </tr>
   );
 }

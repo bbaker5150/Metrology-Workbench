@@ -1,3 +1,5 @@
+import SymbolButton from "../../../components/common/SymbolButton";
+import { choosePointRange, isManualPointTolerance, samePointRange } from "../../../utils/pointUutRange";
 import InstrumentSpecificationsButton from "../../instruments/components/InstrumentSpecificationsButton";
 import InstrumentTableViewMenu, { useInstrumentTableView } from "./InstrumentTableViewMenu";
 import useBlankInstrumentEscape from "../../../hooks/useBlankInstrumentEscape";
@@ -8,6 +10,7 @@ import { InstrumentTableViewport, InstrumentDeleteAction } from "./InstrumentTab
 import { consecutiveCellGroup } from "../../../utils/consecutiveCellGroup";
 import { cutQualifierRows, formatQualifierValue, formatQualifierPath, editQualifierRange, instrumentQualifierDepth, instrumentQualifierNames, qualifierAt, qualifierDepth, qualifierGroupKey, createInstrumentRangeViewCache } from "../../../utils/qualifierRanges";
 import { measurementPreview } from '../../../utils/measurementPreview';
+import { measurementAreaAccent } from "../../../utils/measurementAreaColors";
 import { newMeasurementAreaColor } from "../../../utils/measurementAreaGrouping";
 import MeasurementAreaEmptyHint from "../../../components/common/MeasurementAreaEmptyHint";
 import UncertaintyTypeMenu from "./UncertaintyTypeMenu";
@@ -75,7 +78,6 @@ import {
   faPaste,
   faScissors,
   faFlask,
-  faTimes,
   faRedo,
   faArrowUp,
   faArrowDown,
@@ -149,6 +151,7 @@ import {
   getAbsoluteLimits,
   calculateUncertaintyFromToleranceObject,
   effectiveFloorTerm,
+  canonicalUnit,
   convertPpmToUnit,
   getUnitDisplayLabel,
   getUniqueUnitDisplayLabels,
@@ -176,12 +179,7 @@ import useInstrumentSync from "../../../hooks/useInstrumentSync";
 import TypeBComponentsEditor from "../../instruments/components/TypeBComponentsEditor";
 import InlineMenuSelect from "../../../components/common/InlineMenuSelect";
 
-// Auto-assigned colors for areas created on the fly when a picked library
-// instrument brings a measurement area the session doesn't have yet.
-const AREA_PALETTE = [
-  "#3498db", "#e67e22", "#2ecc71", "#9b59b6",
-  "#e74c3c", "#1abc9c", "#f1c40f", "#34495e",
-];
+
 
 // Cross-view clipboard for cut/copy/paste of UUT/TMDE instrument rows. Kept at
 // module scope (not React state) so a copy in one table view can be pasted in
@@ -484,7 +482,7 @@ const normalizeUnitToken = (unit) =>
     .toLowerCase();
 
 const resolveUnitOption = (flatUnitOptions, value) => {
-  const raw = String(value || "").trim();
+  const raw = canonicalUnit(String(value || "").trim());
   if (!raw) return flatUnitOptions.find(option => option.value === "") || null;
   const normalized = normalizeUnitToken(raw);
   return (
@@ -745,8 +743,17 @@ export const UnitSelect = ({
               placeholder="Search units..."
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Escape") {
+                if (e.nativeEvent.isComposing) return;
+                e.stopPropagation();
+                if (e.key === "Tab") {
                   closeMenu();
+                  focusBaseControl();
+                  return;
+                }
+                if (e.key === "Escape") {
+                  e.preventDefault();
+                  closeMenu();
+                  focusBaseControl();
                   return;
                 }
                 if (e.key === "ArrowDown" || e.key === "ArrowUp") {
@@ -763,6 +770,7 @@ export const UnitSelect = ({
                   return;
                 }
                 if (e.key === "Enter") {
+                  e.preventDefault();
                   const activeOption =
                     visibleOptions.find((option) => option.value === activeBase) ||
                     visibleOptions[0];
@@ -1983,16 +1991,29 @@ const applyBandDistribution = (tolerance = {}, value) => {
   return next;
 };
 
-export const SyncBadge = ({ item, onSync, onDemote, allowSessionDemotion = true }) => {
+export const SyncBadge = ({ item, onSync, onDemote, onReview, allowSessionDemotion = true }) => {
   const state = computeSyncState(item?.instrument || item || {});
-  const label = state === "green" ? "Shared library — right-click to make local" : state === "yellow" ? (allowSessionDemotion ? "Local library — click to share; right-click for session only" : "Local library — click to share") : "Session only — click to save locally";
-  return <button type="button" className={`inline-sync-badge inline-sync-badge--${state}`} onClick={event => { event.stopPropagation(); onSync?.(); }} onContextMenu={event => { event.preventDefault(); event.stopPropagation(); if (state === "green" || (state === "yellow" && allowSessionDemotion)) onDemote?.(); }} disabled={!onSync && !onDemote} title={label} aria-label={label}>
+  const labels = {
+    green: "Shared library — right-click to make local",
+    yellow: onReview ? "Pending validation — click to validate" : "Submitted for SME validation",
+    orange: allowSessionDemotion ? "Local library — click to submit for validation; right-click for session only" : "Local library — click to submit for validation",
+    red: "Session only — click to save locally",
+  };
+  const label = labels[state];
+  const click = state === "yellow" ? onReview : onSync;
+  return <button type="button" className={`inline-sync-badge inline-sync-badge--${state}`} onClick={event => {
+    event.stopPropagation();
+    click?.(item.instrument || item);
+  }} onContextMenu={event => {
+    event.preventDefault(); event.stopPropagation();
+    if (state === "green" || (state === "orange" && allowSessionDemotion)) onDemote?.();
+  }} disabled={!onSync && !onDemote && !onReview} aria-disabled={state === "yellow" && !onReview || undefined} title={label} aria-label={label}>
     <FontAwesomeIcon icon={state === "green" ? faLink : faLinkSlash} />
   </button>;
 };
 
 const syncDiffSummary = (diffs = []) => {
-  if (!diffs.length) return "This instrument will be promoted to the shared library.";
+  if (!diffs.length) return "An SME will review its specifications before sharing it.";
   const fields = diffs.map((diff) => diff.field).join(", ");
   return `Changed shared-library fields: ${fields}.`;
 };
@@ -2189,6 +2210,39 @@ const inlineDescInputStyle = {
   font: "inherit",
   width: "100%",
 };
+function associatedTypeBRecords(item, library) {
+  const definition = item.instrument || {};
+  if (Array.isArray(definition.typeBComponents)) return definition.typeBComponents;
+  const linkedId = item.libraryInstrumentId || definition.libraryInstrumentId || definition.id || definition.sourceId;
+  const match = library?.find(entry => linkedId && sameId(entry.id, linkedId))
+    || library?.find(entry => definition.sourceId && sameId(entry.id, definition.sourceId))
+    || library?.find(entry => (definition.manufacturer || definition.model) &&
+      entry.manufacturer === definition.manufacturer && entry.model === definition.model && entry.typeBComponents?.length);
+  return match?.typeBComponents || resolveInstrumentTypeB(item);
+}
+
+function InstrumentTypeBDialog({ target, session, library, onSave, onClose }) {
+  if (!target) return null;
+  const item = (target.kind === "uut" ? session.uuts : session.tmdes)?.find(row => sameId(row.id, target.id));
+  if (!item) return null;
+  const title = `Associated Type B — ${formatInstrumentIdentity(item, "Instrument")}`;
+  return ReactDOM.createPortal(
+    <div className="modal-overlay instrument-typeb-overlay" onMouseDown={onClose}>
+      <div className="modal-content instrument-typeb-dialog" role="dialog" aria-modal="true" aria-label={title}
+        onMouseDown={event => event.stopPropagation()}>
+        <div className="modal-header">
+          <h3>{title}</h3>
+          <SymbolButton type="button" className="modal-close-button" aria-label="Close associated Type B" onClick={onClose} />
+        </div>
+        <div className="instrument-typeb-dialog-body">
+          <TypeBComponentsEditor components={associatedTypeBRecords(item, library)}
+            onChange={records => onSave(target.kind, { ...item, instrument: { ...item.instrument, typeBComponents: records } })}
+            referenceUnit={item.instrument?.functions?.[0]?.unit || item.tolerance?.unit || ""} />
+        </div>
+      </div>
+    </div>, document.body);
+}
+
 export const EditableDescriptionCell = ({
   make = "",
   model = "",
@@ -2196,6 +2250,7 @@ export const EditableDescriptionCell = ({
   nickname = "",
   onCommit,
   instruments = [],
+  currentDefinitionId,
   onPickLibrary,
 }) => {
   const [local, setLocal] = useState({ make, model, name, nickname });
@@ -2237,6 +2292,7 @@ export const EditableDescriptionCell = ({
     const families = new Map();
     const standalone = [];
     matches.forEach((inst) => {
+      if (currentDefinitionId != null && sameId(inst.id, currentDefinitionId)) return;
       const family =
         inst.sourceId || (inst.scope === "validated" ? inst.id : null);
       if (!family) {
@@ -2257,7 +2313,7 @@ export const EditableDescriptionCell = ({
     });
     return [...ordered, ...standalone];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [instruments, query, onPickLibrary]);
+  }, [instruments, query, onPickLibrary, currentDefinitionId]);
 
   const props = (field) => ({
     value: local[field] || "",
@@ -2597,7 +2653,7 @@ const EditableCustomColumnHeader = ({
         >
           {column.label || "Name"}
         </button>
-        {onDelete && <button
+        {onDelete && <SymbolButton
           type="button"
           className="instrument-custom-column-delete"
           title={`Delete ${column.label || "custom"} column`}
@@ -2606,9 +2662,7 @@ const EditableCustomColumnHeader = ({
             event.stopPropagation();
             onDelete?.();
           }}
-        >
-          ×
-        </button>}
+         />}
       </span>
     );
   }
@@ -2929,7 +2983,7 @@ const ResizableInstrumentHeader = ({
   >
     <span className="instrument-resizable-header-content">{children}</span>
     {onInsertAfter && (
-      <button
+      <SymbolButton add
         type="button"
         className="instrument-column-insert-button"
         popover="manual"
@@ -2943,9 +2997,7 @@ const ResizableInstrumentHeader = ({
           event.stopPropagation();
           onInsertAfter(columnKey);
         }}
-      >
-        <FontAwesomeIcon icon={faPlus} />
-      </button>
+       />
     )}
     <button
       type="button"
@@ -4740,7 +4792,7 @@ export const InstrumentUncertaintyRow = ({ source, activeRange, referencePoint, 
     measure();
     return () => { observer?.disconnect(); window.removeEventListener('resize', measure); };
   }, [sourceIndex, sourceCount]);
-  const [editingName, setEditingName] = useState(!source.name);
+  const [editingName, setEditingName] = useState(false);
   const [openEditor, setOpenEditor] = useState(false);
   const [name, setName] = useState(source.name || "");
   useEffect(() => setName(source.name || ""), [source.name]);
@@ -4755,23 +4807,23 @@ export const InstrumentUncertaintyRow = ({ source, activeRange, referencePoint, 
   const commitName = () => { if (name !== source.name) onChange({ ...source, name }); };
   return <tr {...rowProps} ref={sourceRowRef} className={`instrument-function-row inline-range-row instrument-uncertainty-row${selected ? " instrument-selected is-selected-range" : ""}`}
     data-range-id={uncertaintyRowId(source.id)} data-range-selected={selected}
-    data-uncertainty-source-id={source.id} style={{ ...style, "--uncertainty-source-count": sourceCount }}>
+    data-uncertainty-source-id={source.id} data-single-source={sourceCount === 1 || undefined} style={{ ...style, "--uncertainty-source-count": sourceCount }}>
     {renderCustomAfter("description")}
     <td className="cell-range instrument-uncertainty-name-cell" data-range-cell>
-      {sourceIndex === 0 && <span className="instrument-uncertainty-rail" aria-label="Additional uncertainty"><span>ADD’L UNCERTAINTY</span></span>}
+      {sourceIndex === 0 && <span className="instrument-uncertainty-rail" aria-label="Additional uncertainty"><span>{sourceCount === 1 ? <>ADD’L<br />UNC.</> : "ADD’L UNCERTAINTY"}</span></span>}
       <div className="range-row-cell">
       <div className="instrument-source-row-name">
-        {editingName ? <input className="instrument-custom-field-input instrument-source-name-input" style={{ width: `calc(${Math.max(5, (name || "Not Set").length)}ch + 16px)` }} aria-label="Uncertainty name" value={name} autoFocus
-          placeholder="Not Set" onChange={event => setName(event.target.value)}
+        {editingName ? <input className="instrument-custom-field-input instrument-source-name-input" style={{ width: `calc(${Math.max(5, (name || "Name").length)}ch + 16px)` }} aria-label="Uncertainty name" value={name} autoFocus
+          placeholder="Name" onChange={event => setName(event.target.value)}
           onBlur={() => { commitName(); setEditingName(false); }}
           onKeyDown={event => {
             if (event.key === "Tab" && !event.shiftKey) { event.preventDefault(); commitName(); setEditingName(false); setOpenEditor(true); }
             if (event.key === "Enter") { event.preventDefault(); commitName(); setEditingName(false); setOpenEditor(true); }
-          }} /> : <button type="button" className={`inline-tolerance-summary${source.name ? "" : " is-empty"}`} onClick={() => setEditingName(true)}>{source.name || "Not Set"}</button>}
+          }} /> : <button type="button" className={`inline-tolerance-summary${source.name ? "" : " is-empty"}`} onClick={() => setEditingName(true)}>{source.name || "Uncertainty"}</button>}
       </div>
-        {showRowActions && <button type="button" className="range-row-delete" title="Delete uncertainty" aria-label={`Remove ${source.name || "uncertainty"}`}
+        {showRowActions && <SymbolButton type="button" className="range-row-delete" title="Delete uncertainty" aria-label={`Remove ${source.name || "uncertainty"}`}
           onMouseDown={event => event.stopPropagation()}
-          onClick={event => { event.stopPropagation(); onRemove(); }}>x</button>}
+          onClick={event => { event.stopPropagation(); onRemove(); }} />}
       </div>
     </td>
     {renderCustomAfter("range")}
@@ -4967,6 +5019,7 @@ export const InlineToleranceCell = ({
       ref={containerRef}
       className="inline-tolerance-editor inline-tolerance-editor--all"
       onKeyDownCapture={(event) => {
+        if (event.target.closest(".inline-unit-menu")) return;
         if (event.key === "Escape" || (event.key === "Enter" && !event.nativeEvent.isComposing && event.target.matches("input, textarea"))) {
           event.preventDefault();
           event.stopPropagation();
@@ -5077,8 +5130,8 @@ export const InlineToleranceCell = ({
               ? { kind, tolerance: syncedManual, uncertaintyTypeDrafts: definitions, dynamicDefinition: definition }
               : { ...syncedManual, uncertaintyTypeDrafts: definitions, tmdeUncertaintyDefinition: definition });
           }} />
-          {onAddSecondary && <button type="button" aria-label="Add a secondary uncertainty" title="Add a secondary uncertainty"
-            onClick={() => { onAddSecondary("parametric"); setIsEditing(false); }}><FontAwesomeIcon icon={faPlus} /></button>}
+          {onAddSecondary && <SymbolButton add type="button" aria-label="Add a secondary uncertainty" title="Add a secondary uncertainty"
+            onClick={() => { onAddSecondary("parametric"); setIsEditing(false); }} />}
         </div>
       </div>}
       </div>
@@ -5193,6 +5246,14 @@ export const normalizeRangeBounds = (min, max) => {
   return { min: single ? value : low, max: single ? value : high, isSingleValue: single, value: single ? value : "" };
 };
 
+function RangeRowControls({ onQualify, onAdd, onRemove, canRemove }) {
+  return <span className="range-row-controls" onMouseDown={event => event.stopPropagation()} onClick={event => event.stopPropagation()}>
+    {onQualify && <button type="button" className="range-qualifier-add" aria-label="Add qualifier" title="Add qualifier range" onClick={onQualify}>+ Qual</button>}
+    <SymbolButton add type="button" className="range-row-add" aria-label="Add range" title="Add range" onClick={onAdd} />
+    <SymbolButton type="button" className="range-row-delete" aria-label="Delete range" title="Delete range" disabled={!canRemove} onClick={onRemove} />
+  </span>;
+}
+
 export const RangeCell = ({
   ranges = [],
   activeIndex,
@@ -5212,6 +5273,7 @@ export const RangeCell = ({
   onRequestEditAfterExpand,
   onEditingChange,
   actionsVisible = false,
+  children,
   onAddRange,
   textMode = false,
   closeKey,
@@ -5315,7 +5377,7 @@ export const RangeCell = ({
       setIsEditing(true);
     };
     return (
-      <div key="summary" className="inline-range-editor" onMouseDown={(e) => e.stopPropagation()}
+      <><div key="summary" className="inline-range-editor" onMouseDown={(e) => e.stopPropagation()}
         onKeyDownCapture={event => {
           if (event.key !== "Enter" || !(event.ctrlKey || event.metaKey) || !onAdvanceRange || event.nativeEvent.isComposing) return;
           event.preventDefault(); event.stopPropagation();
@@ -5337,10 +5399,10 @@ export const RangeCell = ({
           >
             {summary}
           </button>
-          {actionsVisible && onAddRange && <button type="button" className="range-row-add" aria-label="Add range" title="Add range" onClick={event => { event.stopPropagation(); onAddRange(); }}><FontAwesomeIcon icon={faPlus} /></button>}
-          {actionsVisible && onClearRange && <button type="button" className="range-row-delete" aria-label="Delete range" title="Delete range" onClick={event => { event.stopPropagation(); onClearRange(); }}>×</button>}
+          {actionsVisible && onAddRange && <SymbolButton add type="button" className="range-row-add" aria-label="Add range" title="Add range" onClick={event => { event.stopPropagation(); onAddRange(); }} />}
+          {!children && actionsVisible && onClearRange && <SymbolButton type="button" className="range-row-delete" aria-label="Delete range" title="Delete range" onClick={event => { event.stopPropagation(); onClearRange(); }} />}
         </div>
-      </div>
+      </div>{actionsVisible && children}</>
     );
   }
 
@@ -5377,7 +5439,7 @@ export const RangeCell = ({
     onOpenTolerance();
   };
   return (
-    <div
+    <><div
       key="editor"
       ref={containerRef}
       className="inline-range-editor is-editing"
@@ -5440,7 +5502,7 @@ export const RangeCell = ({
         />
         </>}
       </div>
-    </div>
+    </div>{children}</>
   );
 };
 
@@ -5637,7 +5699,7 @@ export const getVisibleRangeRows = (ranges = [], activeIndex = 0, activeRange = 
   ];
 };
 
-const SymbolButton = ({ symbol, title, onSymbolClick }) => (
+const EquationSymbolButton = ({ symbol, title, onSymbolClick }) => (
   <button
     type="button"
     className="add-point-symbol-button"
@@ -6348,6 +6410,17 @@ const replaceSessionDefinitionIdentity = (item, definition) => {
 export const localizeSharedInstrumentEdit = (item = {}, library = []) => {
   const definition = item?.instrument || {};
   if (definition.scope === "session") return item;
+  if (definition.scope === "pending") {
+    const pending = library.find(candidate => candidate.scope === "pending" && sameId(candidate.id, definition.id));
+    if (pending) {
+      const edited = { ...definition, description: item.name || item.description || definition.description,
+        ranges: item.ranges || definition.ranges };
+      const fieldsChanged = diffFromSnapshot({ ...edited, validatedSnapshot: buildValidatedSnapshot(pending) }).length;
+      const metadataChanged = ["customFields", "rangeCustomFields", "acShuntIdentity"].some(key =>
+        specsDiffer(item[key] ?? definition[key], pending[key]));
+      if (!fieldsChanged && !metadataChanged) return item;
+    }
+  }
   if (definition.scope !== "validated") return definition.id && definition.scope === "local" ? item : {
     ...item, instrument: { ...definition, id: definition.id || item.libraryInstrumentId || item.id || uuidv4(), scope: "local" },
   };
@@ -6428,7 +6501,12 @@ export const countTmdeBudgetUses = (components = [], tmde = {}) => {
 };
 
 export const findUpdatedUutToleranceForPoint = (previousUut, updatedUut, point) => {
-  if (!point?.uutTolerance) return null;
+  if (!point?.uutTolerance || point.uutTolerance.rangeSelection === "required" || isManualPointTolerance(point.uutTolerance)) return null;
+  const updatedRanges = resolveUutRangeHelper(updatedUut, {}, null, null).ranges;
+  if (point.uutTolerance.rangeSelection === "explicit") {
+    const selected = updatedRanges.find(range => samePointRange(range, point.uutTolerance));
+    return selected ? choosePointRange(selected, point.uutTolerance) : null;
+  }
   const previousResolution = resolveUutRangeHelper(
     previousUut,
     {},
@@ -6436,7 +6514,6 @@ export const findUpdatedUutToleranceForPoint = (previousUut, updatedUut, point) 
     point.testPointInfo?.parameter || null,
   );
   const previousRange = previousResolution.activeRange || point.uutTolerance;
-  const updatedRanges = resolveUutRangeHelper(updatedUut, {}, null, null).ranges;
   const updatedRange =
     updatedRanges.find(
       (range) =>
@@ -6943,6 +7020,7 @@ const QuickAddRow = ({
 const SummaryDashboard = ({
   libraryMode = false,
   libraryToolbar,
+  onReviewSubmission,
   libraryRenderSpecifications,
   libraryVisibleIds,
   libraryExpandedIds = [],
@@ -7013,7 +7091,7 @@ const SummaryDashboard = ({
     (functionKey, extra = {}) => ({
       ...extra,
       "--instrument-function-color":
-        summaryFunctionColorByKey.get(functionKey) || "var(--primary-color)",
+        measurementAreaAccent(summaryFunctionColorByKey.get(functionKey)) || "var(--primary-color)",
     }),
     [summaryFunctionColorByKey],
   );
@@ -7196,8 +7274,13 @@ const SummaryDashboard = ({
     syncedInstrument = instrumentForRole(syncedInstrument, kind);
     if (!onSessionSave || !syncedInstrument) return;
     const listKey = kind === "uut" ? "uuts" : "tmdes";
+    const latest = latestSessionDataRef.current;
+    const row = latest[listKey]?.find(existing => existing.id === item.id);
+    if (!row || !sameId(row.instrument?.id, item.instrument?.id)) return;
+    if (row.instrument !== item.instrument &&
+        diffFromSnapshot({ ...row.instrument, validatedSnapshot: buildValidatedSnapshot(item.instrument) }).length) return;
     const updatedItem = {
-      ...item,
+      ...row,
       libraryInstrumentId: syncedInstrument.id,
       instrument: {
         ...syncedInstrument,
@@ -7210,8 +7293,8 @@ const SummaryDashboard = ({
       },
     };
     onSessionSave({
-      ...sessionData,
-      [listKey]: (sessionData[listKey] || []).map((existing) =>
+      ...latest,
+      [listKey]: (latest[listKey] || []).map((existing) =>
         existing.id === item.id ? updatedItem : existing,
       ),
     });
@@ -7263,30 +7346,26 @@ const SummaryDashboard = ({
     if (!setNotification || !item) return;
     const instrument = itemInstrumentForLibrary(kind, item);
     const state = computeSyncState(instrument);
-    const linked = Boolean(instrument.sourceId) || instrument.scope === "validated";
     const label = libraryLabel(instrument);
 
     if (state === "red") { changeItemSyncScope(kind, item, "local"); return; }
-    if (state === "green") return;
+    if (state === "green" || state === "yellow") return;
 
     setNotification({
-      title: linked ? "Re-sync Instrument" : "Sync Instrument",
-      message: `${syncDiffSummary(getDiff(instrument))} Enter the shared-library password to sync ${label}.`,
-      inputLabel: "Shared library password",
-      inputPlaceholder: "Password",
-      confirmText: linked ? "Re-sync" : "Sync",
-      validateInput: (value) => (!value.trim() ? "Password is required." : ""),
-      onConfirm: async (password) => {
-        const result = await syncToShared(instrument, password);
+      title: "Submit instrument for validation",
+      message: `Submit ${label}? ${syncDiffSummary(getDiff(instrument))}`,
+      confirmText: "Submit",
+      onConfirm: async () => {
+        const result = await syncToShared(instrument);
         if (result.ok && result.instrument) {
           replaceSyncedItem(kind, item, result.instrument);
           setLocalLibraryChoices((prev) => ({
             ...prev,
-            [`${kind}:${item.id}`]: "shared",
+            [`${kind}:${item.id}`]: "local",
           }));
           setNotification({
-            title: "Sync Complete",
-            message: `${label} is now synced with the shared library.`,
+            title: "Submitted for validation",
+            message: `${label} is available in your library while an SME reviews it.`,
           });
           return;
         }
@@ -7299,7 +7378,7 @@ const SummaryDashboard = ({
   };
 
   const saveItemInstrumentToLocalLibrary = (kind, item) => {
-    if (!onSaveInstrument || !item || item.instrument?.scope === "session") return;
+    if (!onSaveInstrument || !item || ["session", "pending"].includes(item.instrument?.scope)) return;
     const instrument = itemInstrumentForLibrary(kind, item);
     // Never demote an in-sync shared instrument back to a local copy. If the
     // row is linked to the shared library and still matches its validated
@@ -7546,15 +7625,15 @@ const SummaryDashboard = ({
       typeof inst.measurementAreaColor === "string" &&
       inst.measurementAreaColor.startsWith("#")
         ? inst.measurementAreaColor
-        : AREA_PALETTE[(areas || []).length % AREA_PALETTE.length];
+        : newMeasurementAreaColor({ ...sessionData, measurementAreas: areas });
     const area = { id: uuidv4(), name: areaName, color, hiddenFromSidebar };
     return { areas: [...(areas || []), area], area };
   };
 
   const instrumentDefFromLibrary = (existing, inst, { track = false, localCopy = false } = {}) => {
-    const pickedLocalId = inst.scope === "local" ? inst.id : null;
+    const pickedLocalId = ["local", "pending"].includes(inst.scope) ? inst.id : null;
     const sourceId = inst.sourceId || (inst.scope === "validated" ? inst.id : undefined);
-    const shouldTrack = track || Boolean(sourceId);
+    const shouldTrack = track || inst.scope === "pending" || Boolean(sourceId);
     return {
       ...inst,
       id: pickedLocalId || existing?.id || uuidv4(),
@@ -7588,7 +7667,7 @@ const SummaryDashboard = ({
           ...item,
           description: inst.description || "",
           ranges: undefined,
-          libraryInstrumentId: options.track ? inst.sourceId || inst.id : undefined,
+          libraryInstrumentId: options.track ? (inst.scope === "pending" ? inst.id : inst.sourceId || inst.id) : undefined,
           instrument: instrumentDefFromLibrary(item.instrument, inst, options),
         })
       : item);
@@ -7605,7 +7684,7 @@ const SummaryDashboard = ({
           ...item,
           name: inst.description || "", isInstrumentBased: true,
           ranges: undefined,
-          libraryInstrumentId: options.track ? inst.sourceId || inst.id : undefined,
+          libraryInstrumentId: options.track ? (inst.scope === "pending" ? inst.id : inst.sourceId || inst.id) : undefined,
           instrument: instrumentDefFromLibrary(item.instrument, inst, options),
         })
       : item);
@@ -7622,7 +7701,7 @@ const SummaryDashboard = ({
     const isShared = inst.scope === "validated";
     const options = isShared
       ? { track: true, localCopy: false }
-      : { track: Boolean(inst.sourceId) };
+      : { track: inst.scope === "pending" || Boolean(inst.sourceId) };
     if (kind === "uut") applyPickedLibraryUut(itemId, inst, options);
     else applyPickedLibraryTmde(itemId, inst, options);
   };
@@ -8029,7 +8108,7 @@ const SummaryDashboard = ({
       borderRadius: "3px",
       marginRight: "8px",
       verticalAlign: "middle",
-      backgroundColor: fn.color || "#888888",
+      backgroundColor: measurementAreaAccent(fn.color) || "#888888",
     };
     if (!onSessionSave) return <span style={dotStyle} />;
     return (
@@ -8069,7 +8148,7 @@ const SummaryDashboard = ({
 
   const renderFunctionNameEditor = (fn) => {
     if (!onSessionSave) {
-      return <span style={{ color: fn.color }}>{fn.name}</span>;
+      return <span style={{ color: measurementAreaAccent(fn.color) }}>{fn.name}</span>;
     }
     return (
       <span
@@ -8093,7 +8172,7 @@ const SummaryDashboard = ({
         title="Edit measurement area name"
         aria-label="Measurement area subsection name"
         role="textbox"
-        style={{ color: fn.color }}
+        style={{ color: measurementAreaAccent(fn.color) }}
       >
         {fn.name}
       </span>
@@ -8136,7 +8215,7 @@ const SummaryDashboard = ({
     if (!onSessionSave || (libraryMode && !inline)) return null;
     const label = "Delete Instrument";
     const button = (
-      <button
+      <SymbolButton
         type="button"
         className="range-header-action-btn range-header-action-btn--delete instrument-row-delete"
         title={label}
@@ -8146,9 +8225,7 @@ const SummaryDashboard = ({
           if (kind === "uut") onDeleteUut?.([item.id]);
           else onDeleteTmdeDefinition?.([item.id]);
         }}
-      >
-        <FontAwesomeIcon icon={faTimes} />
-      </button>
+       />
     );
     return inline ? button : <InstrumentDeleteAction instrumentId={item.id} measurementArea={measurementArea}>{button}</InstrumentDeleteAction>;
   };
@@ -8157,7 +8234,7 @@ const SummaryDashboard = ({
   const renderFunctionDeleteButton = (fn) => {
     if (!onSessionSave) return null;
     return (
-      <button
+      <SymbolButton
         type="button"
         className="range-header-action-btn range-header-action-btn--delete function-header-action-btn"
         title="Delete Measurement Area"
@@ -8166,9 +8243,7 @@ const SummaryDashboard = ({
           e.stopPropagation();
           handleDeleteFunction(fn);
         }}
-      >
-        <FontAwesomeIcon icon={faTimes} />
-      </button>
+       />
     );
   };
 
@@ -8588,41 +8663,15 @@ const SummaryDashboard = ({
                 )
               }
               onOpenRequestHandled={() => setPendingRangeEditKey(null)}
-            />
-            {showRangeActions && <span className="range-row-controls">
-            {!range.qualifier && <button type="button" className="range-qualifier-add" aria-label="Add qualifier" title="Add qualifier range" onMouseDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); updateQualifier("enable"); }}>+ Qual</button>}
-            {showRangeActions && (
-              <button
-                type="button"
-                className="range-row-add"
-                title="Add range"
-                aria-label="Add range"
-                onMouseDown={(e) => e.stopPropagation()}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleAddBlankRange(kind, item, rangeKey);
-                }}
-              >
-                <FontAwesomeIcon icon={faPlus} />
-              </button>
-            )}
-            {showRangeActions && (
-              <button
-                type="button"
-                className="range-row-delete"
-                title="Delete range"
-                aria-label="Delete range"
-                disabled={!canDeleteRange}
-                onMouseDown={(e) => e.stopPropagation()}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleRemoveRange(kind, item, rangeKey);
-                }}
-              >
-                x
-              </button>
-            )}
-            </span>}
+              actionsVisible={showRangeActions}
+            >
+              <RangeRowControls
+                onQualify={range.qualifier ? undefined : () => updateQualifier("enable")}
+                onAdd={() => handleAddBlankRange(kind, item, rangeKey)}
+                onRemove={() => handleRemoveRange(kind, item, rangeKey)}
+                canRemove={canDeleteRange}
+              />
+            </RangeCell>
           </div>
         </td>}
         {renderCustomAfter("range")}
@@ -8648,8 +8697,8 @@ const SummaryDashboard = ({
                 onAdvanceRange={() => updateQualifier("add", {}, depth)} />
               <span className="range-row-controls">
                 {!qualifier.qualifier && <button type="button" className="range-qualifier-add" aria-label="Add nested qualifier" title="Add qualifier" onMouseDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); updateQualifier("enable", {}, depth + 1); }}>+ Qual</button>}
-                <button type="button" className="range-row-add" title="Add qualifier range" aria-label="Add qualifier range" onClick={event => { event.stopPropagation(); updateQualifier("add", {}, depth); }}><FontAwesomeIcon icon={faPlus} /></button>
-                <button type="button" className="range-row-delete" title="Delete qualifier range" aria-label="Delete qualifier range" onClick={event => { event.stopPropagation(); updateQualifier("remove", {}, depth); }}><FontAwesomeIcon icon={faTimes} /></button>
+                <SymbolButton add type="button" className="range-row-add" title="Add qualifier range" aria-label="Add qualifier range" onClick={event => { event.stopPropagation(); updateQualifier("add", {}, depth); }} />
+                <SymbolButton type="button" className="range-row-delete" title="Delete qualifier range" aria-label="Delete qualifier range" onClick={event => { event.stopPropagation(); updateQualifier("remove", {}, depth); }} />
               </span>
             </div>
           </td>{custom}</React.Fragment>;
@@ -9105,26 +9154,7 @@ const SummaryDashboard = ({
   const pasteDestinationRef = useRef(null);
   const selectedInstrumentAreasRef = useRef({});
   const instrumentDragSelectionRef = useRef(null);
-  // Inline authoring of an instrument's associated Type B uncertainties.
-  const [typeBEditor, setTypeBEditor] = useState(null); // { kind, item }
-
-  // Persist an edited associated Type B list back onto the row's instrument.
-  // typeBComponents are part of the instrument definition, so this both updates
-  // the session and (when applicable) the local library, and diverges a synced
-  // instrument so the user can re-sync the change to the shared library.
-  const saveTypeBForItem = (kind, item, nextComponents) => {
-    const updatedItem = {
-      ...item,
-      instrument: {
-        ...(item.instrument || {}),
-        typeBComponents: nextComponents,
-      },
-    };
-    persistItem(kind, updatedItem);
-    setTypeBEditor((prev) =>
-      prev && prev.item?.id === item.id ? { ...prev, item: updatedItem } : prev,
-    );
-  };
+  const [typeBEditor, setTypeBEditor] = useState(null);
 
   const copyInstrument = (kind, item, mode = "copy") => {
     rangeClipboard = null;
@@ -9228,6 +9258,9 @@ const SummaryDashboard = ({
       { label: "Copy Instrument", icon: faCopy, action: () => copyInstrument(kind, item, "copy") },
       { label: "Cut Instrument", icon: faScissors, action: () => copyInstrument(kind, item, "cut") },
     ];
+    if (associatedTypeBRecords(item, instruments).length) {
+      items.push({ label: "Manage associated Type B", icon: faFlask, action: () => setTypeBEditor({ kind, id: item.id }) });
+    }
     if (canPaste) {
       items.push({
         label: "Paste Instrument",
@@ -9716,6 +9749,7 @@ const SummaryDashboard = ({
                                     make={uut.instrument?.manufacturer}
                                     model={uut.instrument?.model}
 
+                                    currentDefinitionId={uut.instrument?.id || uut.libraryInstrumentId || uut.id}
                                     instruments={instruments}
                                     onPickLibrary={(inst) =>
                                       promptLibraryPick("uut", uut.id, inst)
@@ -9805,6 +9839,7 @@ const SummaryDashboard = ({
                               make={uut.instrument?.manufacturer}
                               model={uut.instrument?.model}
 
+                              currentDefinitionId={uut.instrument?.id || uut.libraryInstrumentId || uut.id}
                               instruments={instruments}
                               onPickLibrary={(inst) =>
                                 promptLibraryPick("uut", uut.id, inst)
@@ -10140,7 +10175,7 @@ const SummaryDashboard = ({
                       </td>
                       <td className="cell-sync">
                         <div className="instrument-row-tools">
-                          <SyncBadge item={tmde} allowSessionDemotion={false} onSync={() => handleSyncItem("tmde", tmde)} onDemote={() => handleDemoteItem("tmde", tmde)} />
+                          <SyncBadge item={tmde} onReview={onReviewSubmission} allowSessionDemotion={false} onSync={() => handleSyncItem("tmde", tmde)} onDemote={() => handleDemoteItem("tmde", tmde)} />
                           {renderInstrumentDeleteButton("tmde", tmde, tmdeFnKey, true)}
                         </div>
                       </td>
@@ -10230,6 +10265,7 @@ const SummaryDashboard = ({
                                     make={tmde.instrument?.manufacturer}
                                     model={tmde.instrument?.model}
 
+                                    currentDefinitionId={tmde.instrument?.id || tmde.libraryInstrumentId || tmde.id}
                                     instruments={instruments}
                                     onPickLibrary={libraryMode ? undefined : (inst) =>
                                       promptLibraryPick("tmde", tmde.id, inst)
@@ -10258,7 +10294,7 @@ const SummaryDashboard = ({
                                   style={{ textAlign: "center" }}
                                 >
                                   <div className="instrument-row-tools">
-                                    <SyncBadge item={tmde} allowSessionDemotion={!libraryMode} onSync={() => handleSyncItem("tmde", tmde)} onDemote={() => handleDemoteItem("tmde", tmde)} />
+                                    <SyncBadge item={tmde} onReview={onReviewSubmission} allowSessionDemotion={!libraryMode} onSync={() => handleSyncItem("tmde", tmde)} onDemote={() => handleDemoteItem("tmde", tmde)} />
                                     {libraryMode && renderInstrumentDeleteButton("tmde", tmde, tmdeFnKey, true)}
                                   </div>
                                 </td>
@@ -10340,6 +10376,7 @@ const SummaryDashboard = ({
                               make={tmde.instrument?.manufacturer}
                               model={tmde.instrument?.model}
 
+                              currentDefinitionId={tmde.instrument?.id || tmde.libraryInstrumentId || tmde.id}
                               instruments={instruments}
                               onPickLibrary={libraryMode ? undefined : (inst) =>
                                 promptLibraryPick("tmde", tmde.id, inst)
@@ -10572,7 +10609,7 @@ const SummaryDashboard = ({
                           style={{ textAlign: "center" }}
                         >
                           <div className="instrument-row-tools">
-                            <SyncBadge item={tmde} allowSessionDemotion={!libraryMode} onSync={() => handleSyncItem("tmde", tmde)} onDemote={() => handleDemoteItem("tmde", tmde)} />
+                            <SyncBadge item={tmde} onReview={onReviewSubmission} allowSessionDemotion={!libraryMode} onSync={() => handleSyncItem("tmde", tmde)} onDemote={() => handleDemoteItem("tmde", tmde)} />
                             {libraryMode && renderInstrumentDeleteButton("tmde", tmde, tmdeFnKey, true)}
                           </div>
                         </td>
@@ -10614,72 +10651,7 @@ const SummaryDashboard = ({
 
       <ContextMenu menu={rowMenu} onClose={() => setRowMenu(null)} />
 
-      {!libraryMode && typeBEditor &&
-        ReactDOM.createPortal(
-          <div
-            className="modal-overlay"
-            style={{
-              position: "fixed",
-              inset: 0,
-              background: "rgba(0,0,0,0.45)",
-              zIndex: 3000,
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-            onMouseDown={() => setTypeBEditor(null)}
-          >
-            <div
-              className="modal-content"
-              style={{
-                width: "640px",
-                maxWidth: "94vw",
-                maxHeight: "82vh",
-                display: "flex",
-                flexDirection: "column",
-                overflow: "hidden",
-              }}
-              onMouseDown={(e) => e.stopPropagation()}
-            >
-              <div className="modal-header">
-                <h3 style={{ margin: 0, fontSize: "1.05rem", display: "flex", alignItems: "center", gap: "8px" }}>
-                  <FontAwesomeIcon icon={faFlask} style={{ color: "var(--primary-color)" }} />
-                  Associated Type B —{" "}
-                  {(typeBEditor.item.instrument &&
-                    `${typeBEditor.item.instrument.manufacturer || ""} ${typeBEditor.item.instrument.model || ""}`.trim()) ||
-                    rowLabel(typeBEditor.kind, typeBEditor.item) ||
-                    "Instrument"}
-                </h3>
-                <button className="modal-close-button" onClick={() => setTypeBEditor(null)}>
-                  <FontAwesomeIcon icon={faTimes} />
-                </button>
-              </div>
-              <div style={{ padding: "16px", overflowY: "auto" }}>
-                <TypeBComponentsEditor
-                  components={typeBEditor.item.instrument?.typeBComponents || []}
-                  onChange={(next) =>
-                    saveTypeBForItem(typeBEditor.kind, typeBEditor.item, next)
-                  }
-                  referenceUnit={
-                    typeBEditor.item.instrument?.functions?.[0]?.unit ||
-                    typeBEditor.item.tolerance?.unit ||
-                    ""
-                  }
-                  functions={typeBEditor.item.instrument?.functions || []}
-                  activeFunctionId={
-                    typeBEditor.item.instrument?.functions?.[0]?.id || ""
-                  }
-                />
-              </div>
-              <div style={{ padding: "10px 16px", borderTop: "1px solid var(--border-color)", textAlign: "right" }}>
-                <button className="lib-pill-btn" onClick={() => setTypeBEditor(null)}>
-                  Done
-                </button>
-              </div>
-            </div>
-          </div>,
-          document.body,
-        )}
+      <InstrumentTypeBDialog target={typeBEditor} session={sessionData} library={instruments} onSave={persistInlineItem} onClose={() => setTypeBEditor(null)} />
                                 </div>
                               );
 };
@@ -10787,6 +10759,7 @@ function DetailedView({
   const getRangeView = useMemo(() => createInstrumentRangeViewCache(), [sessionData.uuts, sessionData.tmdes]);
   const latestSessionDataRef = useRef(sessionData);
   latestSessionDataRef.current = sessionData;
+  const [typeBEditor, setTypeBEditor] = useState(null);
   const [isSymbolMenuOpen, setIsSymbolMenuOpen] = useState(false);
   const [symbolMenuPosition, setSymbolMenuPosition] = useState({
     top: 0,
@@ -11305,6 +11278,9 @@ function DetailedView({
       { label: "Copy Instrument", icon: faCopy, action: () => copyInstrument(kind, item, "copy") },
       { label: "Cut Instrument", icon: faScissors, action: () => copyInstrument(kind, item, "cut") },
     ];
+    if (associatedTypeBRecords(item, instruments).length) {
+      items.push({ label: "Manage associated Type B", icon: faFlask, action: () => setTypeBEditor({ kind, id: item.id }) });
+    }
     if (canPaste) {
       items.push({
         label: "Paste Instrument",
@@ -11563,8 +11539,13 @@ function DetailedView({
     syncedInstrument = instrumentForRole(syncedInstrument, kind);
     if (!onSessionSave || !syncedInstrument) return;
     const listKey = kind === "uut" ? "uuts" : "tmdes";
+    const latest = latestSessionDataRef.current;
+    const row = latest[listKey]?.find(existing => existing.id === item.id);
+    if (!row || !sameId(row.instrument?.id, item.instrument?.id)) return;
+    if (row.instrument !== item.instrument &&
+        diffFromSnapshot({ ...row.instrument, validatedSnapshot: buildValidatedSnapshot(item.instrument) }).length) return;
     const updatedItem = {
-      ...item,
+      ...row,
       libraryInstrumentId: syncedInstrument.id,
       instrument: {
         ...syncedInstrument,
@@ -11577,8 +11558,8 @@ function DetailedView({
       },
     };
     onSessionSave({
-      ...sessionData,
-      [listKey]: (sessionData[listKey] || []).map((existing) =>
+      ...latest,
+      [listKey]: (latest[listKey] || []).map((existing) =>
         existing.id === item.id ? updatedItem : existing,
       ),
     });
@@ -11629,30 +11610,26 @@ function DetailedView({
     if (!setNotification || !item) return;
     const instrument = itemInstrumentForLibrary(kind, item);
     const state = computeSyncState(instrument);
-    const linked = Boolean(instrument.sourceId) || instrument.scope === "validated";
     const label = libraryLabel(instrument);
 
     if (state === "red") { changeItemSyncScope(kind, item, "local"); return; }
-    if (state === "green") return;
+    if (state === "green" || state === "yellow") return;
 
     setNotification({
-      title: linked ? "Re-sync Instrument" : "Sync Instrument",
-      message: `${syncDiffSummary(getDiff(instrument))} Enter the shared-library password to sync ${label}.`,
-      inputLabel: "Shared library password",
-      inputPlaceholder: "Password",
-      confirmText: linked ? "Re-sync" : "Sync",
-      validateInput: (value) => (!value.trim() ? "Password is required." : ""),
-      onConfirm: async (password) => {
-        const result = await syncToShared(instrument, password);
+      title: "Submit instrument for validation",
+      message: `Submit ${label}? ${syncDiffSummary(getDiff(instrument))}`,
+      confirmText: "Submit",
+      onConfirm: async () => {
+        const result = await syncToShared(instrument);
         if (result.ok && result.instrument) {
           replaceSyncedItem(kind, item, result.instrument);
           setLocalLibraryChoices((prev) => ({
             ...prev,
-            [`${kind}:${item.id}`]: "shared",
+            [`${kind}:${item.id}`]: "local",
           }));
           setNotification({
-            title: "Sync Complete",
-            message: `${label} is now synced with the shared library.`,
+            title: "Submitted for validation",
+            message: `${label} is available in your library while an SME reviews it.`,
           });
           return;
         }
@@ -11664,7 +11641,7 @@ function DetailedView({
     });
   };
   const saveItemInstrumentToLocalLibrary = (kind, item) => {
-    if (!onSaveInstrument || !item || item.instrument?.scope === "session") return;
+    if (!onSaveInstrument || !item || ["session", "pending"].includes(item.instrument?.scope)) return;
     const instrument = itemInstrumentForLibrary(kind, item);
     // Never demote an in-sync shared instrument back to a local copy. If the
     // row is linked to the shared library and still matches its validated
@@ -11919,7 +11896,7 @@ function DetailedView({
       typeof inst.measurementAreaColor === "string" &&
       inst.measurementAreaColor.startsWith("#")
         ? inst.measurementAreaColor
-        : AREA_PALETTE[(areas || []).length % AREA_PALETTE.length];
+        : newMeasurementAreaColor({ ...sessionData, measurementAreas: areas });
     const area = { id: uuidv4(), name: areaName, color, hiddenFromSidebar };
     return { areas: [...(areas || []), area], area };
   };
@@ -11933,9 +11910,9 @@ function DetailedView({
     );
   };
   const instrumentDefFromLibrary = (existing, inst, { track = false, localCopy = false } = {}) => {
-    const pickedLocalId = inst.scope === "local" ? inst.id : null;
+    const pickedLocalId = ["local", "pending"].includes(inst.scope) ? inst.id : null;
     const sourceId = inst.sourceId || (inst.scope === "validated" ? inst.id : undefined);
-    const shouldTrack = track || Boolean(sourceId);
+    const shouldTrack = track || inst.scope === "pending" || Boolean(sourceId);
     return {
       ...inst,
       id: pickedLocalId || existing?.id || uuidv4(),
@@ -11967,7 +11944,7 @@ function DetailedView({
           ...item,
           description: inst.description || "",
           ranges: undefined,
-          libraryInstrumentId: options.track ? inst.sourceId || inst.id : undefined,
+          libraryInstrumentId: options.track ? (inst.scope === "pending" ? inst.id : inst.sourceId || inst.id) : undefined,
           instrument: instrumentDefFromLibrary(item.instrument, inst, options),
         })
       : item);
@@ -11983,7 +11960,7 @@ function DetailedView({
           ...item,
           name: inst.description || "", isInstrumentBased: true,
           ranges: undefined,
-          libraryInstrumentId: options.track ? inst.sourceId || inst.id : undefined,
+          libraryInstrumentId: options.track ? (inst.scope === "pending" ? inst.id : inst.sourceId || inst.id) : undefined,
           instrument: instrumentDefFromLibrary(item.instrument, inst, options),
         })
       : item);
@@ -12000,7 +11977,7 @@ function DetailedView({
     const isShared = inst.scope === "validated";
     const options = isShared
       ? { track: true, localCopy: false }
-      : { track: Boolean(inst.sourceId) };
+      : { track: inst.scope === "pending" || Boolean(inst.sourceId) };
     if (kind === "uut") applyPickedLibraryUut(itemId, inst, options);
     else applyPickedLibraryTmde(itemId, inst, options);
   };
@@ -12407,41 +12384,15 @@ function DetailedView({
                 )
               }
               onOpenRequestHandled={() => setPendingRangeEditKey(null)}
-            />
-            {showRangeActions && <span className="range-row-controls">
-            {!range.qualifier && <button type="button" className="range-qualifier-add" aria-label="Add qualifier" title="Add qualifier range" onMouseDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); updateQualifier("enable"); }}>+ Qual</button>}
-            {showRangeActions && (
-              <button
-                type="button"
-                className="range-row-add"
-                title="Add range"
-                aria-label="Add range"
-                onMouseDown={(e) => e.stopPropagation()}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleAddBlankRangeDetail(kind, item, rangeKey);
-                }}
-              >
-                <FontAwesomeIcon icon={faPlus} />
-              </button>
-            )}
-            {showRangeActions && (
-              <button
-                type="button"
-                className="range-row-delete"
-                title="Delete range"
-                aria-label="Delete range"
-                disabled={!canDeleteRange}
-                onMouseDown={(e) => e.stopPropagation()}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  handleRemoveRangeDetail(kind, item, rangeKey);
-                }}
-              >
-                x
-              </button>
-            )}
-            </span>}
+              actionsVisible={showRangeActions}
+            >
+              <RangeRowControls
+                onQualify={range.qualifier ? undefined : () => updateQualifier("enable")}
+                onAdd={() => handleAddBlankRangeDetail(kind, item, rangeKey)}
+                onRemove={() => handleRemoveRangeDetail(kind, item, rangeKey)}
+                canRemove={canDeleteRange}
+              />
+            </RangeCell>
           </div>
         </td>}
         {renderCustomAfter("range")}
@@ -12467,8 +12418,8 @@ function DetailedView({
                 onAdvanceRange={() => updateQualifier("add", {}, depth)} />
               <span className="range-row-controls">
                 {!qualifier.qualifier && <button type="button" className="range-qualifier-add" aria-label="Add nested qualifier" title="Add qualifier" onMouseDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); updateQualifier("enable", {}, depth + 1); }}>+ Qual</button>}
-                <button type="button" className="range-row-add" title="Add qualifier range" aria-label="Add qualifier range" onClick={event => { event.stopPropagation(); updateQualifier("add", {}, depth); }}><FontAwesomeIcon icon={faPlus} /></button>
-                <button type="button" className="range-row-delete" title="Delete qualifier range" aria-label="Delete qualifier range" onClick={event => { event.stopPropagation(); updateQualifier("remove", {}, depth); }}><FontAwesomeIcon icon={faTimes} /></button>
+                <SymbolButton add type="button" className="range-row-add" title="Add qualifier range" aria-label="Add qualifier range" onClick={event => { event.stopPropagation(); updateQualifier("add", {}, depth); }} />
+                <SymbolButton type="button" className="range-row-delete" title="Delete qualifier range" aria-label="Delete qualifier range" onClick={event => { event.stopPropagation(); updateQualifier("remove", {}, depth); }} />
               </span>
             </div>
           </td>{custom}</React.Fragment>;
@@ -12896,7 +12847,7 @@ function DetailedView({
   const functionBadgeStyle = useCallback(
     (functionKey) => ({
       "--instrument-function-color":
-        detailFunctionColorByKey.get(functionKey) || "var(--primary-color)",
+        measurementAreaAccent(detailFunctionColorByKey.get(functionKey)) || "var(--primary-color)",
     }),
     [detailFunctionColorByKey],
   );
@@ -13040,7 +12991,7 @@ function DetailedView({
       borderRadius: "3px",
       marginRight: "8px",
       verticalAlign: "middle",
-      backgroundColor: fn.color || "#888888",
+      backgroundColor: measurementAreaAccent(fn.color) || "#888888",
     };
     if (!onSessionSave) return <span style={dotStyle} />;
     return (
@@ -13079,7 +13030,7 @@ function DetailedView({
   };
 
   const renderFunctionNameEditor = (fn) => {
-    if (!onSessionSave) return <span style={{ color: fn.color }}>{fn.name}</span>;
+    if (!onSessionSave) return <span style={{ color: measurementAreaAccent(fn.color) }}>{fn.name}</span>;
     return (
       <span
         className="inline-area-header-input function-header-name"
@@ -13102,7 +13053,7 @@ function DetailedView({
         title="Edit measurement area name"
         aria-label="Measurement area subsection name"
         role="textbox"
-        style={{ color: fn.color }}
+        style={{ color: measurementAreaAccent(fn.color) }}
       >
         {fn.name}
       </span>
@@ -13141,7 +13092,7 @@ function DetailedView({
     const label = "Delete Instrument";
     return (
       <InstrumentDeleteAction instrumentId={item.id} measurementArea={measurementArea}>
-        <button
+        <SymbolButton
           type="button"
           className="range-header-action-btn range-header-action-btn--delete instrument-row-delete"
           title={label}
@@ -13151,9 +13102,7 @@ function DetailedView({
             if (kind === "uut") onDeleteUut?.([item.id]);
             else onDeleteTmdeDefinition?.([item.id]);
           }}
-        >
-          <FontAwesomeIcon icon={faTimes} />
-        </button>
+         />
       </InstrumentDeleteAction>
     );
   };
@@ -13209,7 +13158,7 @@ function DetailedView({
 
   const renderFunctionDeleteButton = (fn) =>
     onSessionSave ? (
-      <button
+      <SymbolButton
         type="button"
         className="range-header-action-btn range-header-action-btn--delete function-header-action-btn"
         title="Delete Measurement Area"
@@ -13218,9 +13167,7 @@ function DetailedView({
           e.stopPropagation();
           handleDeleteFunction(fn);
         }}
-      >
-        <FontAwesomeIcon icon={faTimes} />
-      </button>
+       />
     ) : null;
 
   const toggleFunctionCollapseDetail = (kind, fn) => {
@@ -13463,7 +13410,7 @@ function DetailedView({
       // directly (rather than the UUT-keyed activeRangeIndices map) keeps the
       // selection point-specific — sibling points sharing the UUT are untouched.
       if (onUpdateTestPoint) {
-        onUpdateTestPoint({ uutTolerance: selectedRange });
+        onUpdateTestPoint({ uutTolerance: choosePointRange(selectedRange, uutToleranceData) });
       }
     } else if (onRangeSelectionChange) {
       // Non-active UUTs only set the shared default used when defining new points.
@@ -13663,7 +13610,7 @@ function DetailedView({
               <h5>{category}</h5>
               <div className="add-point-symbol-grid">
                 {symbols.map((item) => (
-                  <SymbolButton
+                  <EquationSymbolButton
                     key={item.symbol}
                     symbol={item.symbol}
                     title={item.title}
@@ -14787,7 +14734,11 @@ function DetailedView({
       // offered from the live TMDE masters. Derived budgets no longer require a
       // TMDE assignment to an equation variable, so use the same unit-matched
       // master list as the primary accuracy choices.
-      const typeBSourceTmdes = [...areaTmdes, ...(sessionData.uuts || []).filter(item => instrumentHasMeasurementArea(item, activePointFunctionKey))];
+      const typeBInstruments = [
+        ...areaTmdes.map(item => ({ item, kind: "tmde" })),
+        ...(sessionData.uuts || []).filter(item => instrumentHasMeasurementArea(item, activePointFunctionKey))
+          .map(item => ({ item, kind: "uut" })),
+      ];
       const typeBHasMagnitude = (comp) => {
         const raw =
           comp?.inputMode === "standard"
@@ -14796,41 +14747,8 @@ function DetailedView({
         const n = parseFloat(raw);
         return !isNaN(n) && n > 0;
       };
-      // A point's TMDE instance is a snapshot taken when it was assigned, so it
-      // can miss Type B added to the instrument afterwards. Resolve from the
-      // freshest definition: the shared/local library, then the session TMDE
-      // master, then the instance's own snapshot.
-      const freshTypeBFor = (tmde) => {
-        const inst = tmde.instrument || {};
-        const linkId = inst.libraryInstrumentId || inst.sourceId || inst.id;
-        const sameMakeModel = (i) =>
-          (i.manufacturer || "") === (inst.manufacturer || "") &&
-          (i.model || "") === (inst.model || "") &&
-          (i.manufacturer || i.model);
-        const libMatch =
-          (instruments || []).find(
-            (i) =>
-              (linkId && String(i.id) === String(linkId)) ||
-              (inst.sourceId && String(i.sourceId) === String(inst.sourceId)),
-          ) ||
-          // Fall back to make/model when ids diverged (e.g. a local copy edited
-          // in the Instrument Manager), preferring one that actually has Type B.
-          (instruments || []).find(
-            (i) => sameMakeModel(i) && (i.typeBComponents || []).length > 0,
-          );
-        const masterId = tmde.sourceId ?? tmde.id;
-        const masterMatch = (sessionData?.tmdes || []).find(
-          (t) => String(t.id) === String(masterId),
-        );
-        const lists = [
-          libMatch?.typeBComponents,
-          masterMatch?.instrument?.typeBComponents,
-          resolveInstrumentTypeB(tmde),
-        ];
-        return lists.find((l) => Array.isArray(l) && l.length > 0) || [];
-      };
-      const typeBOptions = typeBSourceTmdes.flatMap((tmde) =>
-        freshTypeBFor(tmde)
+      const typeBOptions = typeBInstruments.flatMap(({ item: tmde, kind }) =>
+        associatedTypeBRecords(tmde, instruments)
           .filter(
             (comp) =>
               comp.budgetComponent ? canUseInstrumentBudgetComponent(comp, budgetNominal) : typeBHasMagnitude(comp) &&
@@ -14841,9 +14759,9 @@ function DetailedView({
               ).length > 0,
           )
           .flatMap(comp => comp.budgetComponent?.dynamicDefinition?.columns?.length > 1
-            ? comp.budgetComponent.dynamicDefinition.columns.map(column => ({ tmde, comp: { ...comp,
+            ? comp.budgetComponent.dynamicDefinition.columns.map(column => ({ tmde, kind, comp: { ...comp,
               name: `${comp.name || "Type B"} — ${column.name}`, budgetComponent: { ...comp.budgetComponent, dynamicOutputId: column.id } } }))
-            : [{ tmde, comp }]),
+            : [{ tmde, kind, comp }]),
       );
 
       // Manual components and repeatability are always addable to an input/final
@@ -15279,9 +15197,9 @@ function DetailedView({
                     onClick={() => { onAddManualComponent?.(budgetTmdePicker.scope || null, definition.kind, definition, column.id); setBudgetTmdePicker(null); }}>
                     <FontAwesomeIcon icon={faPlus}/><span>{name}{definition.columns.length > 1 ? ` — ${column.name}` : ''}</span>
                   </button>)}</div>
-                    {onSessionSave && <button type="button" className="budget-dynamic-picker-delete" aria-label={`Delete ${name}`}
+                    {onSessionSave && <SymbolButton type="button" className="budget-dynamic-picker-delete" aria-label={`Delete ${name}`}
                       title="Remove from the picker; existing budgets are preserved"
-                      onClick={event => { event.stopPropagation(); onSessionSave(removeDynamicDefinitionFromPicker(latestSessionDataRef.current, definition.id)); }}>×</button>}
+                      onClick={event => { event.stopPropagation(); onSessionSave(removeDynamicDefinitionFromPicker(latestSessionDataRef.current, definition.id)); }} />}
                   </div>;
                 })}
               </>}
@@ -15532,15 +15450,15 @@ function DetailedView({
               <div className="budget-tmde-picker-category">
                 Associated Type B
               </div>
-              {budgetTmdePicker.typeBOptions.map(({ tmde, comp }) => {
+              {budgetTmdePicker.typeBOptions.map(({ tmde, kind, comp }) => {
                 const unitLabel = getUnitDisplayLabel(comp.unit);
                 const magnitude =
                   comp.inputMode === "standard"
                     ? comp.standardUncertainty
                     : comp.toleranceLimit;
                 return (
+                  <div className="budget-typeb-option" key={`typeb-${tmde.id ?? tmde.sourceId}-${comp.id}-${comp.budgetComponent?.dynamicOutputId || ""}`}>
                   <button
-                    key={`typeb-${tmde.id ?? tmde.sourceId}-${comp.id}-${comp.budgetComponent?.dynamicOutputId || ""}`}
                     type="button"
                     style={itemStyle}
                     onClick={() => addBudgetTypeB(tmde, comp)}
@@ -15586,6 +15504,18 @@ function DetailedView({
                       </span>
                     </span>
                   </button>
+                  {onSessionSave && <button type="button" className="budget-typeb-disassociate"
+                    title={`Remove association from ${getEquationTmdeLabel(tmde)}`}
+                    aria-label={`Disassociate ${comp.name || "Type B"} from ${getEquationTmdeLabel(tmde)}`}
+                    onClick={() => {
+                      const list = latestSessionDataRef.current[kind === "uut" ? "uuts" : "tmdes"];
+                      const item = list?.find(row => sameId(row.id, tmde.id));
+                      if (!item) return;
+                      const records = associatedTypeBRecords(item, instruments).filter(record => !sameId(record.id, comp.id));
+                      persistInlineItemDetail(kind, { ...item, instrument: { ...item.instrument, typeBComponents: records } });
+                      setBudgetTmdePicker(null);
+                    }}><FontAwesomeIcon icon={faLinkSlash} /></button>}
+                  </div>
                 );
               })}
             </div>
@@ -15734,7 +15664,7 @@ function DetailedView({
   const primaryUut = (sessionData.uuts || []).find((u) => u.id === primaryUutId);
 
   const activeResolvedTolerance = useMemo(() => {
-    if (!primaryUut) return uutToleranceData;
+    if (!primaryUut || !Object.keys(uutToleranceData || {}).length || uutToleranceData.rangeSelection === "required" || isManualPointTolerance(uutToleranceData)) return uutToleranceData;
     const { activeRange } = resolveUutRange(primaryUut);
     if (!(activeRange && Object.keys(activeRange).length > 0)) {
       return uutToleranceData;
@@ -15747,6 +15677,7 @@ function DetailedView({
     // stick.
     return {
       ...activeRange,
+      ...(uutToleranceData?.rangeSelection === "explicit" ? { rangeSelection: "explicit" } : {}),
       includeResolutionInBudget:
         uutToleranceData?.includeResolutionInBudget ?? false,
     };
@@ -15972,7 +15903,7 @@ function DetailedView({
                                 // With the in-cell range switcher removed, clicking a
                                 // range row is how the active point picks which range
                                 // applies to it (mirrors the old switcher's onSelect).
-                                if (index !== activeRangeIndex) {
+                                if (index !== activeRangeIndex && (!isActivePointUut || !uutToleranceData.rangeSelection)) {
                                   handleRangeChange(uut.id, index, ranges, isActivePointUut);
                                 }
                               }}
@@ -16017,6 +15948,7 @@ function DetailedView({
                                       make={uut.instrument?.manufacturer}
                                       model={uut.instrument?.model}
 
+                                      currentDefinitionId={uut.instrument?.id || uut.libraryInstrumentId || uut.id}
                                       instruments={instruments}
                                       onPickLibrary={(inst) =>
                                         promptLibraryPick("uut", uut.id, inst)
@@ -16120,6 +16052,7 @@ function DetailedView({
                                 make={uut.instrument?.manufacturer}
                                 model={uut.instrument?.model}
 
+                                currentDefinitionId={uut.instrument?.id || uut.libraryInstrumentId || uut.id}
                                 instruments={instruments}
                                 onPickLibrary={(inst) =>
                                   promptLibraryPick("uut", uut.id, inst)
@@ -16813,6 +16746,7 @@ function DetailedView({
                                           make={masterTmde.instrument?.manufacturer}
                                           model={masterTmde.instrument?.model}
 
+                                          currentDefinitionId={masterTmde.instrument?.id || masterTmde.libraryInstrumentId || masterTmde.id}
                                           instruments={instruments}
                                           onPickLibrary={(inst) =>
                                             promptLibraryPick("tmde", masterTmde.id, inst)
@@ -16933,6 +16867,7 @@ function DetailedView({
                                     make={masterTmde.instrument?.manufacturer}
                                     model={masterTmde.instrument?.model}
 
+                                    currentDefinitionId={masterTmde.instrument?.id || masterTmde.libraryInstrumentId || masterTmde.id}
                                     instruments={instruments}
                                     onPickLibrary={(inst) =>
                                       promptLibraryPick("tmde", masterTmde.id, inst)
@@ -17424,6 +17359,7 @@ function DetailedView({
       </>}
       </div>
       {renderBudgetTmdePicker()}
+      <InstrumentTypeBDialog target={typeBEditor} session={sessionData} library={instruments} onSave={persistInlineItemDetail} onClose={() => setTypeBEditor(null)} />
       <ContextMenu menu={rowMenu} onClose={() => setRowMenu(null)} />
     </div>
   );
@@ -17456,6 +17392,7 @@ const UncertaintyPanel = (props) => {
       <SummaryDashboard
         libraryMode={props.libraryMode}
         libraryToolbar={props.libraryToolbar}
+        onReviewSubmission={props.onReviewSubmission}
         libraryRenderSpecifications={props.libraryRenderSpecifications}
         libraryVisibleIds={props.libraryVisibleIds}
         libraryExpandedIds={props.libraryExpandedIds}

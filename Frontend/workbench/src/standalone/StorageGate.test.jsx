@@ -1,5 +1,5 @@
 import React from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import StorageGate from './StorageGate';
 import { getDeviceKey } from '../modules/uncertainty/utils/deviceKey';
@@ -8,6 +8,7 @@ const readyStore = (overrides = {}) => ({
   prefix: 'Uncertainty',
   currentUser: vi.fn().mockResolvedValue({ id: 41, title: 'Analyst One' }),
   listExists: vi.fn().mockResolvedValue(true),
+  ensureInstrumentSecurity: vi.fn().mockResolvedValue(undefined),
   provision: vi.fn(),
   ...overrides,
 });
@@ -42,6 +43,19 @@ describe('SharePoint storage gate authentication', () => {
     await waitFor(() => expect(screen.getByText('Sign in again')).toBeInTheDocument());
     expect(screen.queryByText('Private workspace')).not.toBeInTheDocument();
     expect(store.listExists).not.toHaveBeenCalled();
+  });
+
+  it('opens the workspace only after an owner finishes an incomplete instrument migration', async () => {
+    const store = readyStore({
+      ensureInstrumentSecurity: vi.fn().mockRejectedValueOnce(new Error('Ask a site owner to finish migrating the shared instrument library.')).mockResolvedValue(undefined),
+      provision: vi.fn().mockResolvedValue({ alreadyProvisioned: false }),
+    });
+    render(<StorageGate store={store}><div>Private workspace</div></StorageGate>);
+    const finish = await screen.findByRole('button', { name: 'Finish instrument setup' });
+    expect(screen.queryByText('Private workspace')).toBeNull();
+    fireEvent.click(finish);
+    await screen.findByText('Private workspace');
+    expect(store.ensureInstrumentSecurity).toHaveBeenCalledTimes(2);
   });
 });
 

@@ -77,7 +77,19 @@
 }
 
 .instrument-source-badge--local {
-    color: #f59e0b;
+    color: #ce7015;
+    background: rgba(230, 126, 34, 0.14);
+    border-color: rgba(230, 126, 34, 0.45);
+}
+
+.instrument-source-badge--session {
+    color: var(--status-bad);
+    background: color-mix(in srgb, var(--status-bad) 12%, transparent);
+    border-color: color-mix(in srgb, var(--status-bad) 40%, transparent);
+}
+
+.instrument-source-badge--pending {
+    color: #a77b07;
     background: rgba(245, 158, 11, 0.14);
     border-color: rgba(245, 158, 11, 0.42);
 }

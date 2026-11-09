@@ -1,6 +1,6 @@
 import { inputSymbol } from "./budgetScope";
 import { toleranceUnitMismatch } from "./incompleteBudget";
-import { registerUnitPrefixes } from "./siPrefixes";
+import { prefixedUnitKey, registerUnitPrefixes, SI_PREFIX_OPTIONS } from "./siPrefixes";
 import { getUnitSearchNames } from "./unitNames";
 import * as math from "./equationMath";
 import { getDerivedEquationPlan } from "./derivedEquationCache";
@@ -12,7 +12,7 @@ import { getDerivedEquationPlan } from "./derivedEquationCache";
 // spelling before resistance units were standardized on `Ohm`. Normalize at
 // the conversion boundary instead of registering duplicate units (which would
 // make both spellings appear in unit dropdowns).
-const UNIT_ALIASES = Object.freeze({
+const UNIT_ALIASES = new Map(Object.entries({
   ohm: "Ohm",
   Ohms: "Ohm",
   ohms: "Ohm",
@@ -25,8 +25,10 @@ const UNIT_ALIASES = Object.freeze({
   "in.": "in",
   "in-oz": "in-ozf",
   "ozf-in": "in-ozf",
-});
-const canonicalUnit = (unit) => UNIT_ALIASES[unit] || unit;
+  "in·ozf": "in-ozf",
+  "ozf·in": "in-ozf",
+}));
+export const canonicalUnit = (unit) => UNIT_ALIASES.get(unit) ?? unit;
 
 export const unitSystem = {
   units: {
@@ -101,7 +103,6 @@ export const unitSystem = {
     um: { to_si: 1e-6, quantity: "Length" },
     nm: { to_si: 1e-9, quantity: "Length" },
     in: { to_si: 0.0254, quantity: "Length" },
-    inch: { to_si: 0.0254, quantity: "Length" },
     ft: { to_si: 0.3048, quantity: "Length" },
     yd: { to_si: 0.9144, quantity: "Length" },
     mi: { to_si: 1609.34, quantity: "Length" },
@@ -195,8 +196,6 @@ export const unitSystem = {
     "N-cm": { to_si: 0.01, quantity: "Torque" },
     "lb-in": { to_si: 0.112985, quantity: "Torque" },
     "lb-ft": { to_si: 1.35582, quantity: "Torque" },
-    "ozf-in": { to_si: 0.00706155, quantity: "Torque" },
-    "in-oz": { to_si: 0.00706155, quantity: "Torque" },
     "in-ozf": { to_si: 0.00706155, quantity: "Torque" },
     "kgf-m": { to_si: 9.80665, quantity: "Torque" },
     "kgf-cm": { to_si: 0.0980665, quantity: "Torque" },
@@ -294,11 +293,24 @@ export const unitSystem = {
 
 registerUnitPrefixes(unitSystem.units);
 
+// Older split pickers offered these aliases as independent SI families. Some
+// even saved the unprefixed choice with parentheses (e.g. "(inch)").
+for (const alias of ["inch", "in-oz", "ozf-in"]) {
+  const base = canonicalUnit(alias);
+  UNIT_ALIASES.set(`(${alias})`, base);
+  for (const { key: prefix } of SI_PREFIX_OPTIONS) {
+    if (!prefix) continue;
+    const key = prefixedUnitKey(base, prefix);
+    const canonical = unitSystem.units[key]?.prefixBase === base ? key : `${prefix}(${base})`;
+    UNIT_ALIASES.set(prefixedUnitKey(alias, prefix), canonical);
+  }
+}
+
 // Direct unit lookups are used throughout the risk and budget engines. Expose
 // legacy spellings there as non-enumerable aliases: old data keeps working,
 // while Object.keys(unitSystem.units) (which feeds unit pickers) remains free
 // of duplicate `ohm` / `Ω` choices.
-Object.entries(UNIT_ALIASES).forEach(([alias, canonical]) => {
+UNIT_ALIASES.forEach((canonical, alias) => {
   Object.defineProperty(unitSystem.units, alias, {
     configurable: false,
     enumerable: false,
@@ -352,7 +364,7 @@ export const UNIT_DISPLAY_LABELS = {
   "g/m^3": "g/m³",
   "m/s^2": "m/s²",
   "ft/s^2": "ft/s²",
-  G_accel: "g",
+  G_accel: "g₀",
   "N-m": "N·m",
   "N-cm": "N·cm",
   "lb-in": "lbf·in",
@@ -1330,7 +1342,7 @@ export const getAbsoluteLimits = (toleranceObject, referencePoint, { snap = true
   const unitError = toleranceUnitMismatch(toleranceObject, referencePoint?.unit, unitSystem);
   if (unitError) return { high: "N/A", low: "N/A", reason: unitError };
   if (
-    !toleranceObject ||
+    !toleranceObject || toleranceObject.rangeSelection === "required" ||
     !referencePoint ||
     referencePoint.value === "" ||
     referencePoint.value === null ||

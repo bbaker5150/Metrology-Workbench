@@ -53,13 +53,13 @@ describe('one shunt library entry with separate role specifications', () => {
   it('synchronizes edited TI limits without overwriting the reference specification', () => {
     const ti = instrumentForRole(shunt(), 'uut');
     ti.functions[0].ranges[0].tolerances.reading.high = 90;
-    const payload = buildSyncPayload(ti, 'password');
+    const payload = buildSyncPayload(ti);
     expect(reading(payload)).toBe(22);
     expect(payload.acShuntIdentity.uutFunctions[0].ranges[0].tolerances.reading.high).toBe(90);
     expect(payload.type).toBe('tmde');
     const restored = instrumentForRole(payload, 'uut');
     expect(reading(restored)).toBe(90);
-    expect(computeSyncState(restored)).toBe('green');
+    expect(computeSyncState(restored)).toBe('yellow');
   });
 
   it('uses a saved baseline report over a manual default and retains manual matching for legacy sessions', () => {

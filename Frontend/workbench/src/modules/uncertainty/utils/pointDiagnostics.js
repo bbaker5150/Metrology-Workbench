@@ -125,6 +125,7 @@ export function getPointDiagnosticEntries(
   const add = (message, category = "input") => {
     if (!warnings.some(entry => entry.message === message)) warnings.push({ message, category });
   };
+  if (tolerance.rangeSelection === "required") add("Several UUT ranges cover this point. Choose a range in Measurement Points or the uncertainty budget.");
   if (tolerance.qualifier) {
     const match = assessRangeCompatibility(tolerance, { ...nominal, qualifier: point.testPointInfo?.qualifier }, "UUT range");
     if (!match.compatible) add(`UUT: ${match.reason}`, "warning");

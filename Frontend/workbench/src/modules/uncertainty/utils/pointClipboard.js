@@ -61,7 +61,7 @@ export const hasDerivedNominalMismatch = (point) => {
 };
 
 const resolvePastedTolerance = (sourceTolerance, targetTolerance) => {
-  if (!sourceTolerance) return targetTolerance;
+  if (!sourceTolerance || targetTolerance?.rangeSelection === "required") return targetTolerance;
 
   const resolved = targetTolerance
     ? { ...targetTolerance }

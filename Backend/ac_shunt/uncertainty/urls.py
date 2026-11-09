@@ -25,6 +25,8 @@ urlpatterns = [
         name="session-image-detail",
     ),
 
+    path("instrument-reviews/", views.instrument_reviews, name="instrument-reviews"),
+    path("instrument-reviews/<str:instrument_id>/validate/", views.validate_instrument, name="validate-instrument"),
     path("instruments/", views.instruments, name="instruments"),
     path("instruments/<str:instrument_id>/", views.instrument_detail, name="instrument-detail"),
 

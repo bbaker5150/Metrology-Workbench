@@ -1,3 +1,4 @@
+import SymbolButton from "../../../components/common/SymbolButton";
 import React, { useState, useMemo, useEffect, useRef } from "react";
 import ReactDOM from "react-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -131,13 +132,11 @@ const InstrumentLookupModal = ({
             Select Instrument
           </span>
         </h3>
-        <button
+        <SymbolButton
           onClick={onClose}
           className="modal-close-button"
           style={{ position: "static" }}
-        >
-          &times;
-        </button>
+         />
       </div>
 
       {/* Search Bar */}

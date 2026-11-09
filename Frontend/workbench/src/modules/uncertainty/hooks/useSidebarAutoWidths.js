@@ -14,9 +14,9 @@ export const sidebarMutationAffectsWidths = record => {
     widthClasses(record.oldValue) === widthClasses(target.getAttribute('class'))) return false;
   if (record.type === 'attributes' && record.attributeName === 'style' &&
     widthStyles(record.oldValue) === widthStyles(target.getAttribute('style'))) return false;
-  if (target?.closest('.point-grid-item')) return true;
+  if (target?.closest('.point-grid-item, .sidebar-column-headers')) return true;
   return [...(record.addedNodes || []), ...(record.removedNodes || [])].some(node =>
-    node.nodeType === 1 && (node.matches('.point-grid-item') || node.querySelector('.point-grid-item')));
+    node.nodeType === 1 && (node.matches('.point-grid-item, .sidebar-column-headers') || node.querySelector('.point-grid-item, .sidebar-column-headers')));
 };
 
 // Measure rendered content without its current column constraints. Auto widths
@@ -60,9 +60,9 @@ export default function useSidebarAutoWidths(rootRef) {
       const probes = [];
       const next = {};
       const seen = new Set();
-      root.querySelectorAll(".point-grid-item > [data-sidebar-column]").forEach(cell => {
+      root.querySelectorAll(".point-grid-item > [data-sidebar-column], [data-sidebar-header]").forEach(cell => {
         if (!cell.getClientRects().length) return;
-        const key = cell.dataset.sidebarColumn;
+        const key = cell.dataset.sidebarColumn || cell.dataset.sidebarHeader;
         next[key] ||= 44;
         const signature = `${key}:${widthClasses(cell.className)}:${widthStyles(cell.getAttribute('style'))}:${cell.innerHTML}`;
         if (seen.has(signature)) return;

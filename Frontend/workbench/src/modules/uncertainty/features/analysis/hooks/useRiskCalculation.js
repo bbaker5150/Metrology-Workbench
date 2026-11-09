@@ -162,7 +162,7 @@ export const useRiskCalculation = (
     // Removing the last component invalidates the uncertainty calculation.
     // Publish that transition too, including the de-duplication cache, so the
     // cards/parent clear immediately and restoring the same budget recalculates.
-    if (!calcResults || toleranceUnitMismatch(uutToleranceData, uutNominal?.unit, unitSystem)) {
+    if (!calcResults || uutToleranceData?.rangeSelection === "required" || toleranceUnitMismatch(uutToleranceData, uutNominal?.unit, unitSystem)) {
       publishRiskMetrics(null);
       setNotification(null);
       return;

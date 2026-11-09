@@ -1,9 +1,14 @@
+import { userStorageKey } from "./utils/deviceKey";
+import SymbolButton from "./components/common/SymbolButton";
+import PointRangeSelect from "./components/common/PointRangeSelect";
+import { choosePointRange, getPointUutRanges, resolvePointRange, isManualPointTolerance, samePointRangeInputs } from "./utils/pointUutRange";
 import { createRiskEvaluationCache } from "./utils/riskEvaluationCache";
 import { createIndependentPointCache } from "./utils/independentPointCache";
 import { instrumentForRole } from './utils/acShuntInstrumentRole';
 import InstrumentLibraryModal from "./features/instruments/components/InstrumentLibraryModal";
 import { buildSidebarCellGroups } from "./utils/sidebarCellGroups";
 import { newMeasurementAreaColor } from "./utils/measurementAreaGrouping";
+import { measurementAreaAccent } from "./utils/measurementAreaColors";
 import MeasurementAreaEmptyHint from "./components/common/MeasurementAreaEmptyHint";
 import { UnitSelect, getCollapsedSpecRows, formatRangeToleranceDetail } from "./features/analysis/components/UncertaintyPanel";
 import { getTmdePointColumns, isTmdePointColumn, availableTmdePointColumns, getPointTmdeSpecifications } from "./utils/pointTmdeColumns";
@@ -122,7 +127,6 @@ import {
   faExpandArrowsAlt,
   faCompressArrowsAlt,
   faCog,
-  faTimes,
   faMoon,
   faSun,
 } from "@fortawesome/free-solid-svg-icons";
@@ -139,7 +143,6 @@ import {
 } from "./utils/uncertaintyMath";
 import {
   getInstrumentRangeRows,
-  isDraftInstrumentRange,
   resolveInstrumentSelection,
 } from "./utils/instrumentFunctionSelection";
 import {
@@ -559,6 +562,9 @@ export const getSidebarGridTemplate = (
       ? `${Math.max(getSidebarColumnMinWidth(key), Math.round(custom))}px`
       : tracks[key] || "minmax(160px, 1fr)";
     if (authoredWidths !== null) {
+      // Split and auto-fit views use only the measured content width. Explicit
+      // full-width mode can distribute spare space to unpinned columns.
+      if (!fillWidth) return custom > 0 ? track : `${getSidebarColumnMinWidth(key)}px`;
       // Content-sized columns share spare space in proportion to their widths.
       // Manual widths stay fixed; if every column is pinned, the final column
       // keeps its authored minimum and extends to the viewport's right edge.
@@ -758,11 +764,20 @@ const getSidebarValueColumnWidth = (points = []) => {
   return `${Math.max(128, numberWidth + unitWidth + 86)}px`;
 };
 
-const readUiSizingPreferences = () => {
+export const readUiSizingPreferences = () => {
   try {
-    return normalizeSizingPreferences(JSON.parse(
-      window.localStorage.getItem(UNCERTAINTY_UI_SIZING_KEY) || "{}",
-    ));
+    const key = userStorageKey(UNCERTAINTY_UI_SIZING_KEY);
+    let value = window.localStorage.getItem(key);
+    if (value === null && key !== UNCERTAINTY_UI_SIZING_KEY) {
+      // Older SharePoint versions stored one layout for this browser. Migrate
+      // it to the first returning account before other accounts get defaults.
+      value = window.localStorage.getItem(UNCERTAINTY_UI_SIZING_KEY);
+      if (value !== null) {
+        window.localStorage.setItem(key, value);
+        window.localStorage.removeItem(UNCERTAINTY_UI_SIZING_KEY);
+      }
+    }
+    return normalizeSizingPreferences(JSON.parse(value || "{}"));
   } catch (error) {
     console.warn("Unable to read uncertainty sizing preferences", error);
     return {};
@@ -771,7 +786,8 @@ const readUiSizingPreferences = () => {
 
 const hasStoredUiSizingPreferences = () => {
   try {
-    return window.localStorage.getItem(UNCERTAINTY_UI_SIZING_KEY) !== null;
+    return window.localStorage.getItem(userStorageKey(UNCERTAINTY_UI_SIZING_KEY)) !== null ||
+      window.localStorage.getItem(UNCERTAINTY_UI_SIZING_KEY) !== null;
   } catch {
     return false;
   }
@@ -791,6 +807,7 @@ export const SidebarPointItem = ({
   point,
   uutName = "Unassigned",
   currentUutId = "",
+  currentUut,
   uutOptions = [],
   unitOptions = [],
   onUutChange,
@@ -1258,6 +1275,10 @@ export const SidebarPointItem = ({
     return getToleranceErrorSummary(point.uutTolerance, ptParam);
   }, [point.uutTolerance, point.testPointInfo]);
 
+  const renderRangeChoice = summary => currentUut && point.uutTolerance?.rangeSelection
+    ? <PointRangeSelect uut={currentUut} point={point} summary={summary}
+        onChange={uutTolerance => onSave?.({ ...point, uutTolerance })} />
+    : summary;
   const limitsData = React.useMemo(() => {
     const ptParam = point.testPointInfo?.parameter;
     const limits = getAbsoluteLimits(point.uutTolerance, ptParam, { snap: false });
@@ -1678,10 +1699,7 @@ export const SidebarPointItem = ({
           className="point-metric"
           title={toleranceSummary}
         ><span className="point-metric-content">
-          {toleranceSummary !== "Not Set" &&
-          toleranceSummary !== "Not Calculated"
-            ? toleranceSummary
-            : "-"}
+          {renderRangeChoice(toleranceSummary !== "Not Set" && toleranceSummary !== "Not Calculated" ? toleranceSummary : "-")}
         </span></span>
       )}
 
@@ -1691,7 +1709,7 @@ export const SidebarPointItem = ({
           className="point-metric"
           title={limitsData.fullLow}
         ><span className="point-metric-content">
-          {limitsData.low}
+          {!visibleColumns.tolerance ? renderRangeChoice(limitsData.low) : limitsData.low}
         </span></span>
       )}
 
@@ -1701,7 +1719,7 @@ export const SidebarPointItem = ({
           className="point-metric"
           title={limitsData.fullHigh}
         ><span className="point-metric-content">
-          {limitsData.high}
+          {!visibleColumns.tolerance && !visibleColumns.lowLimit ? renderRangeChoice(limitsData.high) : limitsData.high}
         </span></span>
       )}
 
@@ -2031,48 +2049,7 @@ const getAllUutRanges = (uut) => {
   return finalRanges;
 };
 
-// --- HELPER: Find & Normalize Matching Range (Used for selection logic) ---
-const findMatchingRange = (uut, value, unit) => {
-  if (!uut || value === null || value === undefined) return null;
-  // Empty editor drafts must never supersede a usable measurement range.
-  const allRanges = getAllUutRanges(uut).filter(range => !isDraftInstrumentRange(range));
-  const numericValue = parseFloat(value);
-  if (isNaN(numericValue)) return allRanges[0] || null;
 
-  const match = allRanges.find((r) => {
-    const min = parseFloat(r.min);
-    const max = parseFloat(r.max);
-    // Case-insensitive unit check
-    const unitMatch =
-      !unit || !r.unit || unit.toLowerCase() === r.unit.toLowerCase();
-
-    if (!isNaN(min) && !isNaN(max)) {
-      return unitMatch && numericValue >= min && numericValue <= max;
-    }
-    return unitMatch;
-  });
-
-  return match || allRanges[0] || null;
-};
-
-const pointToleranceMatchesFunction = (point, tolerance) => {
-  if (!point || !tolerance || Object.keys(tolerance || {}).length === 0) {
-    return false;
-  }
-  const pointKey = makeFunctionKey(point.testPointInfo?.parameter?.name);
-  const toleranceName = tolerance.functionName || tolerance.name || "";
-  const toleranceUnit = tolerance.functionUnit || tolerance.unit || "";
-  if (toleranceName) {
-    return makeFunctionKey(toleranceName, toleranceUnit) === pointKey;
-  }
-  const pointUnit = point.testPointInfo?.parameter?.unit || "";
-  return (
-    !pointUnit ||
-    !toleranceUnit ||
-    String(pointUnit).trim().toLowerCase() ===
-      String(toleranceUnit).trim().toLowerCase()
-  );
-};
 
 // --- HELPER COMPONENT: Sidebar Session Header (Inline Editing) ---
 const SidebarSessionHeader = ({
@@ -2314,6 +2291,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
     libraryDraftRows,
     changeLibraryDrafts,
     reconcileSyncedInstrument,
+    refreshPendingInstruments,
     saveBugReport,
     deleteBugReport,
     deleteInstrument,
@@ -2657,6 +2635,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
           className={`sidebar-column-header-cell sidebar-column-header-cell--${key} ${className}`}
         >
           <span
+            data-sidebar-header={key}
             className={`sidebar-sort-header sidebar-sort-header--${key}`}
             title={title}
             style={{ textAlign: align }}
@@ -2958,7 +2937,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
     if (!hadStoredUiSizingAtMount && !loadedPreferencesSessionId) return;
     try {
       window.localStorage.setItem(
-        UNCERTAINTY_UI_SIZING_KEY,
+        userStorageKey(UNCERTAINTY_UI_SIZING_KEY),
         JSON.stringify({ sidebarWidth, workspacePane, sidebarAutoFit, instrumentAutoFit, scopedZoomLevels, sidebarColumnWidths, resultsScaleVersion: 2 }),
       );
     } catch (error) {
@@ -3225,11 +3204,10 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
             errorCount++;
             return;
           }
-          resolvedTolerance = targetRange;
+          resolvedTolerance = choosePointRange(targetRange, pt.uutTolerance);
         } else if (targetUut) {
           // Auto-Resolve
-          const matched = findMatchingRange(targetUut, val, unit);
-          resolvedTolerance = matched || null;
+          resolvedTolerance = resolvePointRange(getPointUutRanges(targetUut), pt.testPointInfo);
         }
         const newPointData = preparePointForPaste(pt, {
           mode: clipboardPointMode,
@@ -3237,6 +3215,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
           targetAreaId: resolvedAreaId,
           targetTolerance: resolvedTolerance,
         });
+        if (targetUut && !resolvedTolerance) newPointData.uutTolerance = null;
         if (targetAreaName) {
           newPointData.testPointInfo = { ...newPointData.testPointInfo, measurementArea: targetAreaName };
         }
@@ -3847,7 +3826,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
       initialData = applyUutDefaults({
         measurementAreaId: null,
         associatedUutIds: uutIds,
-        uutTolerance: specificRange,
+        uutTolerance: choosePointRange(specificRange),
         testPointInfo: {
           parameter: {
             value: "",
@@ -3887,7 +3866,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
 
         if (selectedIndex !== undefined && availableRanges[selectedIndex]) {
           initialData.uutTolerance = availableRanges[selectedIndex];
-        } else if (availableRanges.length > 0) {
+        } else if (availableRanges.length === 1) {
           initialData.uutTolerance = availableRanges[0];
         }
       }
@@ -3993,6 +3972,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
   // Modal remains only for the library browser and the EditSessionModal tab.
 
   const handleOpenLibrary = () => {
+    refreshPendingInstruments();
     setInstrumentModalConfig({
       mode: "library",
       data: null,
@@ -4112,7 +4092,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
           const newArea = {
             id: uuidv4(),
             name: cleanName,
-            color: data.measurementAreaColor || "#3498db",
+            color: data.measurementAreaColor || newMeasurementAreaColor(currentSessionData),
           };
           updatedMeasurementAreas.push(newArea);
           resolvedAreaId = newArea.id;
@@ -4293,7 +4273,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
         if (defaultArea) {
           resolvedAreaId = defaultArea.id;
         } else {
-          const newArea = { id: uuidv4(), name: "General", color: "#3498db" };
+          const newArea = { id: uuidv4(), name: "General", color: newMeasurementAreaColor(currentSessionData) };
           updatedMeasurementAreas.push(newArea);
           resolvedAreaId = newArea.id;
         }
@@ -4354,7 +4334,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
         (a) => a.name.toLowerCase() === clean.toLowerCase(),
       );
       if (!area) {
-        area = { id: uuidv4(), name: clean, color: color || "#3498db" };
+        area = { id: uuidv4(), name: clean, color: color || newMeasurementAreaColor({ ...currentSessionData, measurementAreas: areas }) };
         areas.push(area);
       }
       return area.id;
@@ -4420,14 +4400,12 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
   const handleSaveTestPoint = (formData) => {
     const resolvePointForUut = (point, uutId) => {
       const uut = currentSessionData?.uuts?.find((u) => u.id === uutId);
-      const value = point.testPointInfo?.parameter?.value;
-      const unit = point.testPointInfo?.parameter?.unit;
       return {
         ...point,
         associatedUutIds: [uutId],
         measurementAreaId:
           point.measurementAreaId || uut?.measurementAreaId || null,
-        uutTolerance: point.uutTolerance || (uut ? findMatchingRange(uut, value, unit) : null),
+        uutTolerance: point.uutTolerance || resolvePointRange(getPointUutRanges(uut), point.testPointInfo),
       };
     };
 
@@ -4570,7 +4548,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
       associatedUutIds: uutId ? [uutId] : [],
       _skipUutAutofill: !uutId,
       measurementType: settings.mode,
-      uutTolerance: fnRange || null,
+      uutTolerance: ranges.length === 1 ? fnRange : null,
       testPointInfo: { measurementArea: fnGroup?.name || "Measurement", parameter: { name: fnRange?.functionName || fnGroup?.name || "", value: "", unit, unitless: !unit, unitSelectionExplicit: Boolean(selectedUnit) } },
     }, fnGroup, settings);
   };
@@ -4619,10 +4597,9 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
   // ---  Inline update handler for sidebar edits ---
   const handleInlinePointUpdate = (updatedPoint) => {
     const previous = currentTestPoints.find(point => point.id === updatedPoint.id);
-    if (previous?.testPointInfo?.parameter?.unit !== updatedPoint.testPointInfo?.parameter?.unit) {
-      const nominal = updatedPoint.testPointInfo?.parameter || {};
-      const uut = currentSessionData.uuts.find(item => updatedPoint.associatedUutIds?.includes(item.id));
-      updatedPoint = { ...updatedPoint, uutTolerance: uut && nominal.unit ? findMatchingRange(uut, nominal.value, nominal.unit) || null : null };
+    if (!samePointRangeInputs(previous?.testPointInfo, updatedPoint.testPointInfo) && !isManualPointTolerance(updatedPoint.uutTolerance)) {
+      const uut = currentSessionData.uuts?.find(item => updatedPoint.associatedUutIds?.includes(item.id));
+      if (uut) updatedPoint = { ...updatedPoint, uutTolerance: resolvePointRange(getPointUutRanges(uut), updatedPoint.testPointInfo, updatedPoint.uutTolerance) };
     }
     const refreshed = recalculatePointUncertaintyFields(updatedPoint, currentSessionData);
     updateSession({ ...currentSessionData, testPoints: currentTestPoints.map(point =>
@@ -5186,93 +5163,12 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
     );
     if (selectedTestPointId && pointData) {
 
-      let effectiveUutTolerance =
-        pointData.uutTolerance !== null &&
-        pointData.uutTolerance !== undefined &&
-        Object.keys(pointData.uutTolerance).length > 0
-          ? pointData.uutTolerance
-          : currentSessionData.uutTolerance;
-
-      let effectiveUutDescription =
-        pointData.uutDescription ||
-        (pointData.associatedUutIds?.length > 0
-          ? currentSessionData.uuts?.find(
-              (u) => u.id === pointData.associatedUutIds[0],
-            )?.description
-          : currentSessionData.uutDescription);
-
-      let activeUutId = null;
-      let activeUut = null;
-
-      if (selectedTestPointContextUutId) {
-        const contextUut = currentSessionData.uuts?.find(
-          (u) => u.id === selectedTestPointContextUutId,
-        );
-        if (contextUut) {
-          activeUut = contextUut;
-          effectiveUutDescription = contextUut.description;
-          activeUutId = contextUut.id;
-
-          if (
-            !pointData.uutTolerance ||
-            Object.keys(pointData.uutTolerance).length === 0
-          ) {
-            const pointValue = pointData.testPointInfo?.parameter?.value;
-            const pointUnit = pointData.testPointInfo?.parameter?.unit;
-            if (pointValue !== undefined && pointValue !== "") {
-              const matchedRange = findMatchingRange(
-                contextUut,
-                pointValue,
-                pointUnit,
-              );
-              if (matchedRange) {
-                effectiveUutTolerance = matchedRange;
-              }
-            }
-          }
-        }
-      }
-
-      if (
-        !activeUutId &&
-        pointData.associatedUutIds &&
-        pointData.associatedUutIds.length > 0
-      ) {
-        activeUutId = pointData.associatedUutIds[0];
-        activeUut =
-          currentSessionData.uuts?.find((u) => u.id === activeUutId) || null;
-        if (
-          !pointData.uutTolerance ||
-          Object.keys(pointData.uutTolerance).length === 0
-        ) {
-          if (activeUut) {
-            const pointValue = pointData.testPointInfo?.parameter?.value;
-            const pointUnit = pointData.testPointInfo?.parameter?.unit;
-            if (pointValue !== undefined && pointValue !== "") {
-              const matchedRange = findMatchingRange(
-                activeUut,
-                pointValue,
-                pointUnit,
-              );
-              if (matchedRange) {
-                effectiveUutTolerance = matchedRange;
-              }
-            }
-          }
-        }
-      }
-
-      if (
-        activeUut &&
-        !pointToleranceMatchesFunction(pointData, effectiveUutTolerance)
-      ) {
-        const pointValue = pointData.testPointInfo?.parameter?.value;
-        const pointUnit = pointData.testPointInfo?.parameter?.unit;
-        const matchedRange = findMatchingRange(activeUut, pointValue, pointUnit);
-        if (matchedRange) {
-          effectiveUutTolerance = matchedRange;
-        }
-      }
+      const activeUutId = selectedTestPointContextUutId || pointData.activeUutId || pointData.associatedUutIds?.[0] || null;
+      const activeUut = currentSessionData.uuts?.find(uut => String(uut.id) === String(activeUutId));
+      const effectiveUutDescription = activeUut?.description || pointData.uutDescription || currentSessionData.uutDescription;
+      const effectiveUutTolerance = activeUut
+        ? pointData.uutTolerance || resolvePointRange(getPointUutRanges(activeUut), pointData.testPointInfo)
+        : pointData.uutTolerance || currentSessionData.uutTolerance;
 
       const effectiveMeasurementAreaId = resolvePointAreaId(
         pointData,
@@ -5351,6 +5247,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
       key={tp.id}
       point={tp}
       currentUutId={contextUutId || ""}
+      currentUut={currentUut}
       uutName={formatInstrumentIdentity(
         currentUut || { name: "Unassigned" },
       )}
@@ -5374,7 +5271,6 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
         } : (currentSessionData?.uuts || []).find(
           (uut) => String(uut.id) === String(nextUutId),
         );
-        const parameter = tp.testPointInfo?.parameter || {};
         const groupedIds = new Set(groupedPointIds.map(String));
         const selectedGroupedIds = selectedSidebarPointIds.filter((id) =>
           groupedIds.has(String(id)),
@@ -5386,19 +5282,12 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
         );
         const nextPoints = (currentSessionData?.testPoints || []).map((point) => {
           if (!runPointIds.has(String(point.id))) return point;
-          const pointParameter = point.testPointInfo?.parameter || parameter;
           return {
             ...point,
             associatedUutIds: nextUut ? [nextUut.id] : [],
             activeUutId: nextUut?.id || null,
             measurementAreaId: point.measurementAreaId || null,
-            uutTolerance: nextUut
-              ? findMatchingRange(
-                  nextUut,
-                  pointParameter.value,
-                  pointParameter.unit,
-                )
-              : null,
+            uutTolerance: resolvePointRange(getPointUutRanges(nextUut), point.testPointInfo),
           };
         });
         updateSession({ ...currentSessionData, testPoints: nextPoints,
@@ -5800,7 +5689,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
             </MeasurementAreaPopover>
           )}
         </div>
-        <button
+        <SymbolButton
           type="button"
           className="function-point-settings-button function-point-delete-button range-header-action-btn range-header-action-btn--delete"
           title="Delete Measurement Area"
@@ -5828,12 +5717,12 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
               },
             });
           }}
-        ><FontAwesomeIcon icon={faTimes} /></button>
+         />
         <div
           className="function-point-actions"
           onClick={(event) => event.stopPropagation()}
         >
-          <button
+          <SymbolButton add
             type="button"
             className="btn-icon-only small function-point-add-button"
             data-tour="add-measurement-point"
@@ -5855,9 +5744,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
                 ? "Add derived point"
                 : "Add direct point"
             }
-          >
-            <FontAwesomeIcon icon={faPlus} size="xs" />
-          </button>
+           />
           {pendingPointUnitChoice?.functionId === fnGroup.id && (
               <MeasurementAreaPopover anchorRef={pointUnitAnchorRef} onClose={() => setPendingPointUnitChoice(null)}>
               <div
@@ -5989,6 +5876,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
           onDelete={deleteInstrument} onBatchAdd={handleBatchAddInstruments}
           onInstrumentSynced={reconcileSyncedInstrument}
         /> : <UniversalInstrumentModal
+          showToast={showToast}
           isOpen={isInstrumentBuilderOpen}
           onClose={() => setIsInstrumentBuilderOpen(false)}
           onSave={handleUniversalModalSave}
@@ -6255,22 +6143,18 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
                   )}
                 </div>
                 <div className="sidebar-view-controls">
-                  <button
+                  <SymbolButton add
                     onClick={handleAddNewSession}
                     data-tour="add-session"
                     title="Add New Session"
                     className="sidebar-action-button"
-                  >
-                    <FontAwesomeIcon icon={faPlus} />
-                  </button>
+                   />
                   {sessions.length > 0 && (
-                    <button
+                    <SymbolButton
                       onClick={() => handleDeleteSession(selectedSessionId)}
                       title="Delete Session"
                       className="sidebar-action-button delete"
-                    >
-                      <FontAwesomeIcon icon={faTimes} />
-                    </button>
+                     />
                   )}
                 </div>
               </div>
@@ -6420,11 +6304,11 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
                       <input aria-label="New Measurement Area name" placeholder="Add Measurement Area" value={newSidebarArea || ""}
                         onChange={event => setNewSidebarArea(event.target.value)}
                         onKeyDown={event => { if (event.key === "Enter" && newSidebarArea?.trim()) handleAddSidebarArea(); if (event.key === "Escape") setNewSidebarArea(""); }} />
-                      <button type="button" aria-label="Add Measurement Area from points" title="Add Measurement Area"
+                      <SymbolButton add type="button" aria-label="Add Measurement Area from points" title="Add Measurement Area"
                         onClick={event => {
                           if (newSidebarArea?.trim()) handleAddSidebarArea();
                           else event.currentTarget.parentElement.querySelector("input")?.focus();
-                        }}><FontAwesomeIcon icon={faPlus} /></button>
+                        }} />
                     </div>
                   </div>
                 </div>
@@ -6452,9 +6336,9 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
                           className="measurement-group-container"
                           style={{
                             "--sidebar-function-color":
-                              fnGroup.color || "var(--primary-color)",
+                              measurementAreaAccent(fnGroup.color) || "var(--primary-color)",
                             "--function-input-accent":
-                              fnGroup.color || "var(--primary-color)",
+                              measurementAreaAccent(fnGroup.color) || "var(--primary-color)",
                           }}
                         >
                           <div className="area-header-sticky" {...pointAreaHeaderProps(fnGroup, pts)}>
@@ -6499,9 +6383,9 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
                         className="measurement-group-container"
                         style={{
                           "--sidebar-function-color":
-                            fnGroup.color || "var(--primary-color)",
+                            measurementAreaAccent(fnGroup.color) || "var(--primary-color)",
                           "--function-input-accent":
-                            fnGroup.color || "var(--primary-color)",
+                            measurementAreaAccent(fnGroup.color) || "var(--primary-color)",
                         }}
                       >
                         <div className="area-header-sticky" {...pointAreaHeaderProps(fnGroup, points)}>
@@ -6519,13 +6403,13 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
                             />
                           </button>
 )}
-                          <label className="sidebar-area-color-swatch" title="Change measurement area color" style={{ backgroundColor: fnGroup.color || "#888888" }} onClick={event => event.stopPropagation()}>
+                          <label className="sidebar-area-color-swatch" title="Change measurement area color" style={{ backgroundColor: measurementAreaAccent(fnGroup.color) || "#888888" }} onClick={event => event.stopPropagation()}>
                             <input type="color" aria-label={`Color for ${fnGroup.name} measurement area`} value={fnGroup.color || "#888888"} onChange={event => updateSession(setMeasurementAreaColor(currentSessionData, fnGroup, event.target.value))} />
                           </label>
                           <span className="area-label inline-area-header-input function-header-name"
                             contentEditable suppressContentEditableWarning role="textbox" tabIndex={0}
                             aria-label={`Measurement area name: ${fnGroup.name}`} title="Edit measurement area name"
-                            style={{ color: fnGroup.color }}
+                            style={{ color: measurementAreaAccent(fnGroup.color) }}
                             onClick={event => event.stopPropagation()}
                             onKeyDown={event => {
                               if (event.key === "Enter") { event.preventDefault(); event.currentTarget.blur(); }

@@ -1,3 +1,4 @@
+import { v4 as uuid } from "uuid";
 /**
  * Stable per-device/user key for scoping the LOCAL instrument library
  * (feature/inline-instrument-tables). There is no auth yet, so each browser/
@@ -25,6 +26,8 @@ export const setDeviceKeyOverride = (value) => {
     if (ownerOverride === next) ownerOverride = null;
   };
 };
+
+export const userStorageKey = key => ownerOverride ? `${key}:${ownerOverride}` : key;
 
 const randomKey = () => {
   try {
@@ -56,3 +59,16 @@ export const getDeviceKey = () => {
     return cached;
   }
 };
+
+// A separate private credential protects anonymous Django submissions even
+// when a shared session contains another browser's legacy instrument owner ID.
+let reviewKey;
+export function instrumentRequestConfig() {
+  if (!reviewKey) {
+    try {
+      reviewKey = localStorage.getItem("uncertainty.reviewKey") || uuid();
+      localStorage.setItem("uncertainty.reviewKey", reviewKey);
+    } catch { reviewKey = uuid(); }
+  }
+  return { xsrfCookieName: "csrftoken", xsrfHeaderName: "X-CSRFToken", headers: { Authorization: `InstrumentDevice ${reviewKey}` } };
+}

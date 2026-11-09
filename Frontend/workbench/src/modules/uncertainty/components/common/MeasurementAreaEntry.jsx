@@ -1,6 +1,5 @@
+import SymbolButton from "./SymbolButton";
 import React, { useState } from "react";
-import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faPlus } from "@fortawesome/free-solid-svg-icons";
 
 export default function MeasurementAreaEntry({ kind, onAdd }) {
   const [name, setName] = useState("");
@@ -29,9 +28,7 @@ export default function MeasurementAreaEntry({ kind, onAdd }) {
           }
         }}
       />
-      <button type="button" onClick={addArea} title="Add Measurement Area" aria-label={`Add Measurement Area from ${label} table`} disabled={!name.trim()}>
-        <FontAwesomeIcon icon={faPlus} />
-      </button>
+      <SymbolButton add type="button" onClick={addArea} title="Add Measurement Area" aria-label={`Add Measurement Area from ${label} table`} disabled={!name.trim()} />
     </div>
   );
 }

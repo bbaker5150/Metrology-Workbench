@@ -1,5 +1,6 @@
+import SymbolButton from "../../../components/common/SymbolButton";
 import GrowingNumericInput from "../../../components/common/GrowingNumericInput";
-import React, { useState, useLayoutEffect, useEffect } from "react";
+import React, { useState, useLayoutEffect, useEffect, useRef } from "react";
 import ReactDOM from "react-dom";
 import { useFloatingWindow } from "../../../hooks/useFloatingWindow";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -7,7 +8,6 @@ import { v4 as uuidv4 } from "uuid";
 import {
   faCheck,
   faPlus,
-  faTimes,
   faEdit,
   faTrash,
   faMicroscope,
@@ -22,17 +22,7 @@ import { UNCERTAINTY_REQUIREMENT_FIELDS } from "../../../constants/constants";
 // Import the new polished CSS
 import "./EditSessionModal.css";
 
-// Auto-assign colors for new areas
-const PRESET_COLORS = [
-    "#3498db", // Blue
-    "#e74c3c", // Red
-    "#2ecc71", // Green
-    "#f1c40f", // Yellow
-    "#9b59b6", // Purple
-    "#e67e22", // Orange
-    "#1abc9c", // Teal
-    "#34495e", // Navy
-];
+import { MEASUREMENT_AREA_COLORS as PRESET_COLORS, measurementAreaAccent } from "../../../utils/measurementAreaColors";
 
 const EditSessionModal = ({
   isOpen,
@@ -52,6 +42,7 @@ const EditSessionModal = ({
   const [newlyAddedFiles, setNewlyAddedFiles] = useState([]);
   const [imageSrcCache, setImageSrcCache] = useState(new Map());
   const [viewingImageSrc, setViewingImageSrc] = useState(null);
+  const imageUploadInput = useRef(null);
 
   // --- Instrument Modal State ---
   const [activeInstrumentModal, setActiveInstrumentModal] = useState(null); 
@@ -386,7 +377,7 @@ const EditSessionModal = ({
               linkedLibraryInstrument?.measurementAreaColor ||
               data.measurementAreaColor ||
               ownershipArea.color ||
-              "#3498db";
+              PRESET_COLORS[0];
 
           enhancedData = {
               ...data,
@@ -426,7 +417,7 @@ const EditSessionModal = ({
               const uutToSave = {
                   ...resultData,
                   measurementArea: finalAreaName,
-                  measurementAreaId: finalAreaId,    
+                  measurementAreaId: finalAreaId,
                   measurementAreaColor: resultData.measurementAreaColor 
               };
 
@@ -517,7 +508,7 @@ const EditSessionModal = ({
 
       {viewingImageSrc && (
         <div className="image-viewer-overlay" onClick={() => setViewingImageSrc(null)} style={{ zIndex: 3000 }}>
-          <button className="image-viewer-close" onClick={() => setViewingImageSrc(null)}>&times;</button>
+          <SymbolButton className="image-viewer-close" onClick={() => setViewingImageSrc(null)} />
           <img src={viewingImageSrc} alt="Full-size preview" onClick={(e) => e.stopPropagation()} />
         </div>
       )}
@@ -557,7 +548,7 @@ const EditSessionModal = ({
              <FontAwesomeIcon icon={faEdit} style={{ color: 'var(--primary-color)' }} />
              <h3 style={{ margin: 0, fontSize: '1.1rem' }}>Edit Session Configuration</h3>
           </div>
-          <button onClick={onClose} className="modal-close-button" style={{ position: 'static' }}>&times;</button>
+          <SymbolButton onClick={onClose} className="modal-close-button" style={{ position: 'static' }} />
         </div>
 
         {/* --- Tabs --- */}
@@ -664,20 +655,17 @@ const EditSessionModal = ({
                         ) : (
                           <div style={{ color: 'red', fontSize: '10px', padding: '5px' }}>Missing</div>
                         )}
-                        <button
+                        <SymbolButton
                           className="remove-image-btn"
+                          title={`Remove ${imageRef.fileName || 'image'}`}
                           onClick={(e) => handleRemoveImage(e, imageRef.id)}
-                        >
-                          <FontAwesomeIcon icon={faTimes} />
-                        </button>
+                        />
                       </div>
                     );
                   })}
-                  <label htmlFor="image-upload-input" className="image-add-button">
-                    <FontAwesomeIcon icon={faPlus} />
-                  </label>
+                  <SymbolButton add className="image-add-button" title="Add images" onClick={() => imageUploadInput.current?.click()} />
                   <input
-                    id="image-upload-input"
+                    ref={imageUploadInput}
                     type="file"
                     accept="image/png, image/jpeg"
                     multiple
@@ -752,12 +740,10 @@ const EditSessionModal = ({
                         <div className="area-tags-container">
                             {formData.measurementAreas.length === 0 && <span className="empty-text">No areas defined.</span>}
                             {formData.measurementAreas.map(area => (
-                                <div key={area.id} className="area-tag" style={{ borderColor: area.color }}>
-                                    <div className="area-color-dot" style={{ backgroundColor: area.color }}></div>
+                                <div key={area.id} className="area-tag" style={{ borderColor: measurementAreaAccent(area.color) }}>
+                                    <div className="area-color-dot" style={{ backgroundColor: measurementAreaAccent(area.color) }}></div>
                                     <span>{area.name}</span>
-                                    <button className="area-tag-close" onClick={() => handleDeleteArea(area.id)}>
-                                        <FontAwesomeIcon icon={faTimes} />
-                                    </button>
+                                    <SymbolButton className="area-tag-close" title={`Remove ${area.name || 'measurement area'}`} onClick={() => handleDeleteArea(area.id)} />
                                 </div>
                             ))}
                         </div>
@@ -783,8 +769,8 @@ const EditSessionModal = ({
                             <div className="resource-list">
                                 {getAreaGroups(formData.uuts).map(({ area, items }) => (
                                     <div key={`uut-area-${area.id || area.name}`} className="resource-area-section">
-                                        <div className="resource-area-heading" style={{ color: area.color }}>
-                                            <span className="resource-area-dot" style={{ backgroundColor: area.color }} />
+                                        <div className="resource-area-heading" style={{ color: measurementAreaAccent(area.color) }}>
+                                            <span className="resource-area-dot" style={{ backgroundColor: measurementAreaAccent(area.color) }} />
                                             <span>{area.name}</span>
                                             <span className="resource-area-count">({items.length})</span>
                                         </div>
@@ -834,8 +820,8 @@ const EditSessionModal = ({
                              <div className="resource-list">
                                 {getAreaGroups(formData.tmdes, "instrument").map(({ area, items }) => (
                                     <div key={`tmde-area-${area.id || area.name}`} className="resource-area-section">
-                                        <div className="resource-area-heading" style={{ color: area.color }}>
-                                            <span className="resource-area-dot" style={{ backgroundColor: area.color }} />
+                                        <div className="resource-area-heading" style={{ color: measurementAreaAccent(area.color) }}>
+                                            <span className="resource-area-dot" style={{ backgroundColor: measurementAreaAccent(area.color) }} />
                                             <span>{area.name}</span>
                                             <span className="resource-area-count">({items.length})</span>
                                         </div>

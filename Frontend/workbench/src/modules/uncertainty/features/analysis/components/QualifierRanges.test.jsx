@@ -10,6 +10,17 @@ function Harness({viewMode,grouped=false}) {
  return <><UncertaintyPanel testPointData={point} sessionData={session} onSessionSave={save} uutNominal={point.testPointInfo.parameter} tmdeTolerancesData={[]} setNotification={()=>{}} onInstrumentSynced={()=>{}}/><output data-testid="state">{JSON.stringify(session)}</output></>;
 }
 
+it.each(['session', 'point'])('keeps the range actions visible when reopening a selected Range editor in %s', viewMode => {
+  render(<Harness viewMode={viewMode}/>);
+  const row = document.querySelector('tr[data-range-group="uut:u1"]');
+  const cell = row.querySelector('[data-range-cell]');
+  fireEvent.mouseDown(cell);
+  fireEvent.mouseDown(cell.querySelector('.inline-tolerance-summary'), { button: 0 });
+  expect(within(cell).getByPlaceholderText('min')).toHaveFocus();
+  for (const name of ['Add qualifier', 'Add range', 'Delete range']) {
+    expect(within(cell).getByRole('button', { name, exact: true })).toBeInTheDocument();
+  }
+});
 it.each(['session','point'])('Ctrl+Enter commits the current range then focuses one new range in %s', async viewMode => {
  render(<Harness viewMode={viewMode}/>);
  let row=document.querySelector('tr[data-range-group="uut:u1"]');

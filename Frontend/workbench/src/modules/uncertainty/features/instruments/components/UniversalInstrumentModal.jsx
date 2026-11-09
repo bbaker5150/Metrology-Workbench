@@ -1,3 +1,5 @@
+import SymbolButton from "../../../components/common/SymbolButton";
+import { DEFAULT_MEASUREMENT_AREA_COLOR } from "../../../utils/measurementAreaColors";
 import { historyShortcut } from "../../../utils/historyShortcut";
 import LibraryInstrumentRow from "./LibraryInstrumentRow";
 import { instrumentForRole } from "../../../utils/acShuntInstrumentRole";
@@ -18,7 +20,6 @@ import ReactDOM from "react-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faCheck,
-  faTimes,
   faPlus,
   faTrashAlt,
   faSearch,
@@ -180,17 +181,13 @@ const normalizeBuilderFunctions = (functions = []) => {
 };
 
 const DEFAULT_MEASUREMENT_AREA_NAME = "Unassigned";
-const DEFAULT_MEASUREMENT_AREA_COLOR = "#3498db";
 
-const getComparableLibraryInstrument = (instrument) => ({
-    manufacturer: instrument?.manufacturer || "",
-    model: instrument?.model || "",
-    functions: instrument?.functions || []
-});
-
-const instrumentsMatch = (a, b) =>
-    JSON.stringify(getComparableLibraryInstrument(a)) ===
-    JSON.stringify(getComparableLibraryInstrument(b));
+// Session descriptions can differ from the catalog name. Compare every
+// specification that would be submitted, independently of that local label.
+const getComparableLibraryInstrument = instrument => {
+    const { description, ...specifications } = buildValidatedSnapshot(instrument);
+    return specifications;
+};
 
 const hasValidatedSnapshot = (instrument = {}) =>
     instrument.validatedSnapshot != null &&
@@ -198,12 +195,14 @@ const hasValidatedSnapshot = (instrument = {}) =>
     Object.keys(instrument.validatedSnapshot).length > 0;
 
 const getInstrumentSourceStatus = (instrument = {}, linkedInstrument = null) => {
+    if (instrument.scope === "session") return { label: "Session", tone: "session", title: "Available in this session" };
+    if (instrument.scope === "pending") return { label: "Pending", tone: "pending", title: "Submitted for SME validation" };
     const explicitScope = instrument?.scope;
-    const linkedScope = linkedInstrument?.scope;
+    const linkedShared = ["validated", "shared"].includes(linkedInstrument?.scope);
     const isShared =
-        explicitScope === "validated" ||
-        (!explicitScope && linkedScope === "validated") ||
-        (linkedScope === "validated" && !instrument.localOverride &&
+        ["validated", "shared"].includes(explicitScope) ||
+        (!explicitScope && linkedShared) ||
+        (linkedShared && !instrument.localOverride &&
           diffFromSnapshot({ ...instrument, validatedSnapshot: buildValidatedSnapshot(linkedInstrument) }).length === 0);
 
     if (isShared) {
@@ -220,18 +219,6 @@ const getInstrumentSourceStatus = (instrument = {}, linkedInstrument = null) => 
         Boolean(linkedInstrument?.sourceId) ||
         hasValidatedSnapshot(linkedInstrument || {});
 
-    // A historical snapshot alone cannot establish current library membership.
-    const isSynced =
-        linkedScope === "validated" && !instrument.localOverride &&
-        diffFromSnapshot({ ...instrument, validatedSnapshot: buildValidatedSnapshot(linkedInstrument) }).length === 0;
-    if (isSynced) {
-        return {
-            label: "Synced",
-            tone: "shared",
-            title: "In sync with the shared library"
-        };
-    }
-
     return {
         label: "Local",
         tone: "local",
@@ -242,7 +229,7 @@ const getInstrumentSourceStatus = (instrument = {}, linkedInstrument = null) => 
 };
 
 const syncDiffSummary = (diffs = []) => {
-    if (!diffs.length) return "This instrument will be promoted to the shared library.";
+    if (!diffs.length) return "An Uncertalytics SME will review this instrument.";
     return `Changed shared-library fields: ${diffs.map((diff) => diff.field).join(", ")}.`;
 };
 
@@ -267,6 +254,7 @@ const UniversalInstrumentModal = ({
     onDelete,
     onBatchAdd,
     onInstrumentSynced,
+    showToast,
     mode = 'library', // 'uut', 'tmde', 'library'
     initialData = null,
     instruments = []
@@ -291,11 +279,8 @@ const UniversalInstrumentModal = ({
     const [syncNotice, setSyncNotice] = useState(null);
     const [validationNotice, setValidationNotice] = useState(false);
     const [pendingInstrumentSave, setPendingInstrumentSave] = useState(false);
-    // Password prompt for writing an instrument to the validated (shared) library
-    // from the builder. Any save that promotes/updates the shared definition is
-    // password-gated by the backend, so it must be collected here first.
-    const [pendingLibraryPassword, setPendingLibraryPassword] = useState(false);
-    const [libraryPasswordError, setLibraryPasswordError] = useState("");
+    const [submissionError, setSubmissionError] = useState("");
+    const submitting = useRef(false);
     const [libraryInstrumentId, setLibraryInstrumentId] = useState(null);
     const [initialInstrumentSignature, setInitialInstrumentSignature] = useState("");
 
@@ -345,8 +330,7 @@ const UniversalInstrumentModal = ({
             setSyncNotice(null);
             setValidationNotice(false);
             setPendingInstrumentSave(false);
-            setPendingLibraryPassword(false);
-            setLibraryPasswordError("");
+            setSubmissionError("");
 
             if (mode === 'library') {
                 setViewMode("list");
@@ -706,9 +690,11 @@ const UniversalInstrumentModal = ({
         setPendingSync({ instrument, label });
     };
 
-    const confirmSync = async (password) => {
-        if (!pendingSync?.instrument) return;
-        const result = await syncToShared(pendingSync.instrument, password);
+    const confirmSync = async () => {
+        if (!pendingSync?.instrument || submitting.current) return;
+        submitting.current = true;
+        const result = await syncToShared(pendingSync.instrument);
+        submitting.current = false;
         if (result.ok && result.instrument) {
             const synced = instrumentForRole(result.instrument, effectiveMode);
             setSelectedIds([synced.id]);
@@ -742,8 +728,8 @@ const UniversalInstrumentModal = ({
             );
             setPendingSync(null);
             setSyncNotice({
-                title: "Sync Complete",
-                message: `${pendingSync.label} is now synced with the shared library.`,
+                title: "Submitted for validation",
+                message: `${pendingSync.label} is available to you while an SME reviews it.`,
             });
             return;
         }
@@ -1038,20 +1024,22 @@ const UniversalInstrumentModal = ({
         }));
     };
 
-    const buildSaveData = (savedLibraryId = libraryInstrumentId, { saveToLibrary = false } = {}) => {
+    const buildSaveData = (savedLibraryId = libraryInstrumentId, submitted = null) => {
         let finalData = {};
         if (effectiveMode === 'uut' || effectiveMode === 'tmde') {
-            const shouldRemainShared = saveToLibrary && savedLibraryId;
+            const linked = !hasLibraryChanges && linkedLibraryInstrument;
+            const scope = submitted?.scope || (linked ? linked.scope || "local" : "session");
             const sessionInstrument = {
                 ...withInstrumentEditorDrafts(instrumentDef),
-                scope: shouldRemainShared ? "validated" : "local",
+                ...submitted,
+                scope,
                 ...(savedLibraryId
                     ? {
                         libraryInstrumentId: savedLibraryId,
-                        sourceId: instrumentDef.sourceId || savedLibraryId,
+                        sourceId: submitted?.sourceId || instrumentDef.sourceId || savedLibraryId,
                     }
                     : {}),
-                ...(!shouldRemainShared ? { localOverride: true } : { localOverride: false }),
+                localOverride: !["validated", "shared"].includes(scope),
             };
             finalData = {
                 id: initialData?.id || uuidv4(),
@@ -1097,13 +1085,10 @@ const UniversalInstrumentModal = ({
         return finalData;
     };
 
-    // Session-only save (never writes the shared library). Writing an instrument
-    // to the validated library is password-gated and handled by
-    // completeLibrarySave; this path keeps the edit local to the session.
     const completeSave = () => {
         const savedLibraryId =
             libraryInstrumentId || linkedLibraryInstrument?.id || null;
-        const finalData = buildSaveData(savedLibraryId, { saveToLibrary: false });
+        const finalData = buildSaveData(savedLibraryId);
         console.log("[UniversalInstrumentModal] Saving Data:", finalData);
         clearEditorDraft(builderDraftKey);
         onSave(finalData);
@@ -1113,80 +1098,32 @@ const UniversalInstrumentModal = ({
         onClose();
     };
 
-    // Push the edited definition up to the validated (shared) library. The
-    // backend rejects validated writes without the shared-library password, so
-    // the password is collected first (pendingLibraryPassword) and passed here.
-    // On success the session copy is saved too; on failure we keep the prompt
-    // open with an inline error so the user can retry.
-    const completeLibrarySave = async (password) => {
-        const isLibraryMode = effectiveMode === 'library';
-        const savedLibraryId = isLibraryMode
-            ? instrumentDef.id
-            : linkedLibraryInstrument?.id || instrumentDef.id;
-
-        const libraryInstrument = isLibraryMode
-            ? {
-                ...withInstrumentEditorDrafts(instrumentDef),
-                id: savedLibraryId,
-                scope: "validated",
-                sourceId: instrumentDef.sourceId || savedLibraryId,
-                localOverride: false,
-                description: metaData.name || instrumentDef.description,
-                measurementArea: metaData.measurementArea,
-                measurementAreaColor: metaData.measurementAreaColor,
-                type: 'library'
-            }
-            : {
-                ...withInstrumentEditorDrafts(instrumentDef),
-                id: savedLibraryId,
-                scope: "validated",
-                sourceId: savedLibraryId,
-                localOverride: false,
-                description: linkedLibraryInstrument?.description || metaData.name,
-                measurementArea:
-                    linkedLibraryInstrument?.measurementArea || metaData.measurementArea,
-                measurementAreaColor:
-                    linkedLibraryInstrument?.measurementAreaColor ||
-                    metaData.measurementAreaColor,
-                type: 'library'
-            };
-
-        const result = await syncToShared(libraryInstrument, password);
+    const completeLibrarySave = async () => {
+        if (submitting.current) return;
+        submitting.current = true;
+        setSubmissionError("");
+        const linked = linkedLibraryInstrument;
+        const result = await syncToShared({
+            ...withInstrumentEditorDrafts(instrumentDef),
+            id: linked?.id || instrumentDef.id,
+            scope: linked?.scope || instrumentDef.scope || "local",
+            sourceId: linked?.sourceId || instrumentDef.sourceId,
+            description: metaData.name || instrumentDef.description,
+            measurementArea: metaData.measurementArea,
+            measurementAreaColor: metaData.measurementAreaColor,
+        });
+        submitting.current = false;
         if (!result.ok) {
-            setLibraryPasswordError(
-                result.message ||
-                    (result.reason === "password"
-                        ? "Invalid shared-library password."
-                        : "Could not reach the shared library. Try again."),
-            );
+            setSubmissionError(result.message);
             return;
         }
-
-        // In UUT/TMDE mode the session carries its own linked copy of the
-        // instrument, so persist that too (via onSave). In library mode the
-        // synced record IS the saved instrument (reconciled through
-        // onInstrumentSynced), so an extra onSave would just re-POST it
-        // unguarded and 403 — skip it and only close.
-        if (!isLibraryMode) {
-            const finalData = buildSaveData(savedLibraryId, { saveToLibrary: true });
-            console.log("[UniversalInstrumentModal] Saving Data:", finalData);
-            clearEditorDraft(builderDraftKey);
-        onSave(finalData);
-        }
-
-        setLibraryInstrumentId(savedLibraryId);
-        setLibraryPasswordError("");
-        setPendingLibraryPassword(false);
+        const submitted = result.instrument;
+        clearEditorDraft(builderDraftKey);
         setPendingInstrumentSave(false);
+        setLibraryInstrumentId(submitted.id);
+        onSave(buildSaveData(submitted.id, submitted));
+        showToast?.("Instrument submitted for SME validation.", "success");
         onClose();
-    };
-
-    // Transition from the "update library vs session only" choice into the
-    // password prompt for the shared-library write.
-    const promptLibraryPassword = () => {
-        setPendingInstrumentSave(false);
-        setLibraryPasswordError("");
-        setPendingLibraryPassword(true);
     };
 
     const handleSave = () => {
@@ -1201,6 +1138,7 @@ const UniversalInstrumentModal = ({
             isInstrumentInLibrary &&
             hasLibraryChanges
         ) {
+            setSubmissionError("");
             setPendingInstrumentSave(true);
             return;
         }
@@ -1238,7 +1176,7 @@ const UniversalInstrumentModal = ({
                         {viewMode === 'list' ? "Select Instrument from Library" : modalTitle}
                     </h3>
                 </div>
-                <button onClick={onClose} className="modal-close-button">&times;</button>
+                <SymbolButton onClick={onClose} className="modal-close-button" />
             </div>
 
             {/* --- Body --- */}
@@ -1265,9 +1203,7 @@ const UniversalInstrumentModal = ({
                                 <option value="manufacturer">Manufacturer</option><option value="model">Model</option><option value="description">Description</option>
                             </select>
                             <button className="lib-pill-btn" aria-label="Reverse instrument sort" onClick={() => setSortDirection(value => value === "asc" ? "desc" : "asc")}>{sortDirection === "asc" ? "Ascending" : "Descending"}</button>
-                            <button className="icon-btn-ghost" onClick={handleCreateNew} title="Create Instrument">
-                                <FontAwesomeIcon icon={faPlus} />
-                            </button>
+                            <SymbolButton add className="icon-btn-ghost" onClick={handleCreateNew} title="Create Instrument" />
                         </div>
 
                         <div className="list-content">
@@ -1323,10 +1259,10 @@ const UniversalInstrumentModal = ({
                                     )}
                                     <button
                                         className="lib-pill-btn"
-                                        disabled={!selectedInstrument}
+                                        disabled={!selectedInstrument || selectedInstrument.scope === "pending"}
                                         title={
                                             selectedInstrument
-                                                ? "Sync selected instrument to the shared library"
+                                                ? (selectedInstrument.scope === "pending" ? "Awaiting SME validation" : "Submit selected instrument for SME validation")
                                                 : "Select one instrument to sync"
                                         }
                                         onClick={() => requestSync(selectedInstrument)}
@@ -1442,15 +1378,13 @@ const UniversalInstrumentModal = ({
                                     <button className="lib-pill-btn" onClick={handleAddFunction} title="Add Function">
                                         <FontAwesomeIcon icon={faPlus} /> Add Function
                                     </button>
-                                    <button
+                                    <SymbolButton
                                         className="builder-x-action builder-toolbar-delete"
                                         onClick={handleDeleteActiveFunction}
                                         title="Delete selected function"
                                         aria-label="Delete selected function"
                                         disabled={(instrumentDef.functions || []).length === 0}
-                                    >
-                                        x
-                                    </button>
+                                     />
                                 </div>
                             </div>
 
@@ -1491,14 +1425,12 @@ const UniversalInstrumentModal = ({
                                                         width="9ch"
                                                     />
                                                 </div>
-                                                <button
+                                                <SymbolButton add
                                                     className="icon-btn-ghost"
                                                     onClick={() => handleAddRange(fn.id)}
                                                     title={`Add range to ${fn.name || "function"}`}
                                                     aria-label={`Add range to ${fn.name || "function"}`}
-                                                >
-                                                    <FontAwesomeIcon icon={faPlus} />
-                                                </button>
+                                                 />
                                             </div>
 
                                             <div className="ranges-table-container builder-ranges-table-container">
@@ -1550,15 +1482,13 @@ const UniversalInstrumentModal = ({
                                         </h5>
                                         <div className="spec-toolbar-actions">
                                             <TypeBAddMenu onAdd={handleAddTypeBComponent} />
-                                            <button
+                                            <SymbolButton
                                                 className="builder-x-action builder-toolbar-delete"
                                                 onClick={handleDeleteActiveTypeBComponent}
                                                 title="Delete selected Type B"
                                                 aria-label="Delete selected Type B"
                                                 disabled={typeBComponents.length === 0}
-                                            >
-                                                x
-                                            </button>
+                                             />
                                         </div>
                                     </div>
                                     <div className="typeb-section-body">
@@ -1615,75 +1545,20 @@ const UniversalInstrumentModal = ({
             <NotificationModal
                 isOpen={pendingInstrumentSave}
                 onClose={() => setPendingInstrumentSave(false)}
-                title={isInstrumentInLibrary ? "Update Library Instrument" : "Save Instrument"}
-                message={
-                    isInstrumentInLibrary
-                        ? `This ${effectiveMode === 'uut' ? 'UUT' : 'TMDE'} has changes that differ from the library. Do you want to update the library and this session, or only this session?`
-                        : `Do you want to save this ${effectiveMode === 'uut' ? 'UUT' : 'TMDE'} to the instrument library for future use?`
-                }
-                confirmText={
-                    isInstrumentInLibrary
-                        ? "Update Library & Session"
-                        : "Save to Library & Session"
-                }
-                onConfirm={promptLibraryPassword}
-                secondaryText="Session Only"
-                onSecondary={() => completeSave()}
-                secondaryIsPrimary={true}
-            />
-            <NotificationModal
-                isOpen={pendingLibraryPassword}
-                onClose={() => {
-                    setPendingLibraryPassword(false);
-                    setLibraryPasswordError("");
-                }}
-                title={isInstrumentInLibrary ? "Update Shared Library" : "Save to Shared Library"}
-                message={
-                    `${libraryPasswordError ? `${libraryPasswordError} ` : ""}Enter the shared-library password to ${
-                        isInstrumentInLibrary ? "update" : "save"
-                    } “${
-                        metaData.name ||
-                        `${instrumentDef.manufacturer || ""} ${instrumentDef.model || ""}`.trim() ||
-                        "this instrument"
-                    }” in the shared library.`
-                }
-                inputLabel="Shared library password"
-                inputPlaceholder="Password"
-                confirmText={
-                    effectiveMode === 'library'
-                        ? "Update Shared Library"
-                        : isInstrumentInLibrary
-                            ? "Update Library & Session"
-                            : "Save to Library & Session"
-                }
-                validateInput={(value) => (!value.trim() ? "Password is required." : "")}
+                title="Submit instrument changes"
+                message={submissionError || "Submit the edited instrument for SME validation and use it in this session, or save it only in this session."}
+                confirmText="Submit for validation"
                 onConfirm={completeLibrarySave}
+                secondaryText="Session Only"
+                onSecondary={completeSave}
+                secondaryIsPrimary={true}
             />
             <NotificationModal
                 isOpen={!!pendingSync}
                 onClose={() => setPendingSync(null)}
-                title={
-                    pendingSync &&
-                    (pendingSync.instrument?.sourceId ||
-                        pendingSync.instrument?.scope === "validated")
-                        ? "Re-sync Instrument"
-                        : "Sync Instrument"
-                }
-                message={
-                    pendingSync
-                        ? `${syncDiffSummary(getDiff(pendingSync.instrument))} Enter the shared-library password to sync ${pendingSync.label}.`
-                        : ""
-                }
-                inputLabel="Shared library password"
-                inputPlaceholder="Password"
-                confirmText={
-                    pendingSync &&
-                    (pendingSync.instrument?.sourceId ||
-                        pendingSync.instrument?.scope === "validated")
-                        ? "Re-sync"
-                        : "Sync"
-                }
-                validateInput={(value) => (!value.trim() ? "Password is required." : "")}
+                title="Submit instrument"
+                message={pendingSync ? `Submit ${pendingSync.label} for SME validation? ${syncDiffSummary(getDiff(pendingSync.instrument))}` : ""}
+                confirmText="Submit for validation"
                 onConfirm={confirmSync}
             />
             <NotificationModal

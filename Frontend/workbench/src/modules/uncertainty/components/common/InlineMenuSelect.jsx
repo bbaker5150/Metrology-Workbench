@@ -182,6 +182,10 @@ const InlineMenuSelect = ({
       event.stopPropagation();
       closeMenu();
       onTab(event);
+    } else if (event.key === "Tab" && isOpen) {
+      event.stopPropagation();
+      closeMenu();
+      rootRef.current?.querySelector("button")?.focus({ preventScroll: true });
     }
   };
 
@@ -232,7 +236,7 @@ const InlineMenuSelect = ({
             onClick={(event) => event.stopPropagation()}
             onKeyDown={(event) => {
               handleKeyDown(event);
-              if (event.key === "Enter" && event.target.getAttribute("role") === "option") { event.preventDefault(); event.target.click(); return; }
+              if (event.key === "Enter" && event.target.getAttribute("role") === "option") { event.preventDefault(); event.stopPropagation(); event.target.click(); return; }
               if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key))
                 return;
               event.preventDefault();

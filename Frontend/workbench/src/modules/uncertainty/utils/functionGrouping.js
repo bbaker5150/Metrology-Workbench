@@ -5,6 +5,7 @@
 // multiple units (for example Weight in kg, lb, and oz).
 
 import { getInstrumentDefinition } from "./instrumentFunctionSelection";
+import { MEASUREMENT_AREA_COLORS } from "./measurementAreaColors";
 
 const clean = (value) =>
   value === undefined || value === null ? "" : String(value).trim();
@@ -326,16 +327,7 @@ export const rangesForFunction = (source, functionKey) =>
         .flatMap((fn) => fn.ranges || [])
     : [];
 
-export const FUNCTION_COLOR_PALETTE = [
-  "#3498db",
-  "#2ecc71",
-  "#e67e22",
-  "#9b59b6",
-  "#e74c3c",
-  "#1abc9c",
-  "#f1c40f",
-  "#34495e",
-];
+export const FUNCTION_COLOR_PALETTE = MEASUREMENT_AREA_COLORS;
 
 // Resolve the shared function list used by the sidebar and instrument tables.
 // Each result includes a compatibility `unit` (the first unit) and the full

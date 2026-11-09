@@ -1,3 +1,4 @@
+import SymbolButton from "../../../components/common/SymbolButton";
 import GrowingNumericInput from "../../../components/common/GrowingNumericInput";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import ReactDOM from "react-dom";
@@ -5,9 +6,7 @@ import BuilderUnitSelect from "../../instruments/components/BuilderUnitSelect";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
   faCheck,
-  faPlus,
   faRotateLeft,
-  faTimes,
   faTrashAlt,
 } from "@fortawesome/free-solid-svg-icons";
 import {
@@ -167,16 +166,14 @@ const RepeatabilityModal = ({
     >
       <div className="correlation-modal-toolbar" onMouseDown={handleMouseDown}>
         <span className="correlation-modal-title">Repeatability</span>
-        <button
+        <SymbolButton
           type="button"
           className="correlation-modal-icon-button"
           title="Close"
           aria-label="Close repeatability"
           onClick={onClose}
           onMouseDown={(event) => event.stopPropagation()}
-        >
-          <FontAwesomeIcon icon={faTimes} />
-        </button>
+         />
       </div>
 
       <div className="repeatability-modal-body">
@@ -209,15 +206,13 @@ const RepeatabilityModal = ({
                   ariaLabel="Repeatability unit"
                 />
               </div>
-              <button
+              <SymbolButton add
                 type="button"
                 className="correlation-modal-icon-button is-primary"
                 title="Add measurement"
                 aria-label="Add measurement"
                 onClick={addReading}
-              >
-                <FontAwesomeIcon icon={faPlus} />
-              </button>
+               />
             </div>
 
             <div className="repeatability-reading-list" aria-label="Repeatability measurements">

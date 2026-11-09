@@ -171,7 +171,8 @@ export const setMeasurementAreaColor = (session, area, color) => {
 // Choose once when authoring an area, then persist it with the session. Prefer
 // unused palette colors so neighboring areas remain easy to distinguish.
 export function newMeasurementAreaColor(session, random = Math.random) {
-  const used = new Set(resolveSessionMeasurementAreas(session).map(area => area.color?.toLowerCase()));
+  const areas = [...resolveSessionMeasurementAreas(session), ...(session?.measurementAreas || [])];
+  const used = new Set(areas.map(area => area.color?.toLowerCase()));
   const unused = FUNCTION_COLOR_PALETTE.filter(color => !used.has(color.toLowerCase()));
   const colors = unused.length ? unused : FUNCTION_COLOR_PALETTE;
   return colors[Math.floor(random() * colors.length)];

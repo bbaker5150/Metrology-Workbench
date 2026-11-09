@@ -205,6 +205,7 @@ def session_to_dict(s):
 def instrument_to_dict(i):
     return {
         **(i.column_metadata or {}),
+        **({"reviewVersion": i.updated_at.isoformat()} if i.scope == "pending" else {}),
         "id": _coerce_id(i.id),
         "manufacturer": i.manufacturer,
         "model": i.model,
@@ -428,24 +429,25 @@ def save_session(data):
     return session
 
 
-def save_instrument(data):
+def save_instrument(data, *, actor=None, reuse_linked=True):
     """Upsert a library instrument.
 
     Scope is preserved when the payload omits it, so a legacy save path (which
     doesn't know about scopes) can't silently demote a ``validated`` instrument
     to ``local``. Brand-new instruments with no scope default to ``local`` — the
-    safe choice, since promotion to ``validated`` is password-gated upstream.
+    safe choice, while promotion to ``validated`` requires SME review.
     """
     pk = _cid(data.get("id"))
     owner = data.get("owner", "") or ""
     scope_in = data.get("scope")
     source_id_in = data.get("sourceId", "") or ""
-    if scope_in == models.Instrument.SCOPE_LOCAL and source_id_in:
-        linked_local = models.Instrument.objects.filter(
+    if reuse_linked and scope_in == models.Instrument.SCOPE_LOCAL and source_id_in:
+        linked = models.Instrument.objects.filter(
             scope=models.Instrument.SCOPE_LOCAL,
             owner=owner,
             source_id=source_id_in,
-        ).first()
+        )
+        linked_local = (linked.filter(review_owner=actor) if actor is not None else linked).first()
         if linked_local:
             pk = linked_local.id
     existing = models.Instrument.objects.filter(id=pk).first()
@@ -478,13 +480,15 @@ def save_instrument(data):
         "functions": data.get("functions") or [],
         "column_metadata": {
             **(existing.column_metadata if existing else {}),
-            **{key: data[key] for key in ("qualifierColumnNames", "customColumns", "customFields", "rangeCustomFields", "acShuntIdentity") if key in data},
+            **{key: data[key] for key in ("qualifierColumnNames", "customColumns", "customFields", "rangeCustomFields", "acShuntIdentity", "ranges", "tmdeSecondaryUncertainties") if key in data},
         },
         "type_b_components": data.get("typeBComponents") or [],
         "scope": scope,
         "owner": owner or (existing.owner if existing else ""),
         "source_id": source_id_in or (existing.source_id if existing else ""),
     }
+    if actor is not None:
+        defaults["review_owner"] = actor
     # Only overwrite the snapshot when the caller explicitly supplies one
     # (e.g. on a sync), so ordinary edits don't wipe the divergence baseline.
     if "validatedSnapshot" in data:

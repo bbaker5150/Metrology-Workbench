@@ -44,6 +44,8 @@ await new Promise((resolve) => server.listen(4182, '127.0.0.1', resolve));
 
 const state = { lists: new Set(), files: new Map(), items: new Map() };
 let nextItemId = 1;
+const securitySettings = new Map();
+const schemaFields = new Map();
 
 const json = (body, status = 200) => ({
   status,
@@ -93,6 +95,21 @@ await page.route('**/_api/**', async (route) => {
 
   // SharePoint supplies the app's identity. Returning a real user here keeps
   // this browser-level smoke test aligned with the user-scoped storage gate.
+  if (path.includes('/_api/web/currentuser/groups')) return route.fulfill(json({value: []}));
+  const list = /getbytitle\('([^']+)'\)/.exec(path)?.[1];
+  if (list && path.endsWith('/EffectiveBasePermissions')) return route.fulfill(json({Low:'2048',High:'0'}));
+  if (path.includes('ReadSecurity,WriteSecurity')) {
+    return route.fulfill(json(securitySettings.get(list) || {ReadSecurity:1, WriteSecurity:1}));
+  }
+  if (list && method === 'MERGE' && /getbytitle\('[^']+'\)$/.test(path)) {
+    const settings = JSON.parse(req.postData());
+    const required = list.endsWith('Instrument Drafts') ? [2,2] : list.endsWith('Published Instruments') ? [1,4] : list.endsWith('Instruments') ? [2,4] : [];
+    if (settings.ReadSecurity !== required[0] || settings.WriteSecurity !== required[1] || Object.keys(settings).length !== 2) {
+      return route.fulfill(json({error: 'Unexpected settings update'},400));
+    }
+    securitySettings.set(list,settings);
+    return route.fulfill(json({}));
+  }
   if (path.includes('/_api/web/currentuser')) {
     return route.fulfill(json({
       Id: 7,
@@ -118,8 +135,12 @@ await page.route('**/_api/**', async (route) => {
     return route.fulfill(json({ Id: 'guid' }));
   }
   // Fields
-  if (/\/fields\?\$select=InternalName/.test(path)) return route.fulfill(json({ value: [] }));
-  if (/createfieldasxml/.test(path)) return route.fulfill(json({ Id: 'f' }));
+  if (/\/fields\?\$select=InternalName/.test(path)) return route.fulfill(json({ value: schemaFields.get(list) || [] }));
+  if (/createfieldasxml/.test(path)) {
+    const InternalName = / Name="([^"]+)"/.exec(JSON.parse(req.postData()).parameters.SchemaXml)[1];
+    schemaFields.set(list, [...(schemaFields.get(list) || []), {InternalName}]);
+    return route.fulfill(json({ Id:'f' }));
+  }
   // A live tenant answers 400 here: the Fields collection is polymorphic, so a
   // plain JSON body with no OData type is not enough to say what to create.
   // Reproduced rather than accepted, so the working shape stays the only one.
@@ -200,16 +221,17 @@ await page.getByRole('button', { name: /create them now/i }).click();
 await page.waitForTimeout(3000);
 
 check('provisioning requested a form digest', apiCalls.some((c) => c.includes('contextinfo')));
-check('provisioning created the sessions library', state.lists.has('UncertaintySessions'));
-check('provisioning created all four containers', state.lists.size === 4, `(${[...state.lists].join(', ')})`);
+check('provisioning created the sessions library', state.lists.has('Uncertalytics - Sessions'));
+check('provisioning created all six containers', state.lists.size === 6, `(${[...state.lists].join(', ')})`);
 
 await page.waitForTimeout(3000);
 const afterText = await bodyText();
 check('app mounts once storage is ready', !/not set up yet/i.test(afterText));
 check('session list was requested through the adapter', apiCalls.some((c) => c.includes('Sessions')));
 check(
-  'adapter never tunnels MERGE or DELETE through SharePoint',
-  !apiCalls.some((c) => /^(MERGE|DELETE) /.test(c)),
+  'setup restricts all three instrument lists and issues no content mutation overrides',
+  securitySettings.size === 3 && apiCalls.filter(call => call.startsWith('MERGE ')).length === 3 &&
+    !apiCalls.some(call => call.startsWith('DELETE ') || /^MERGE .*\/items/.test(call)),
 );
 check(
   'no uncaught errors during boot and provisioning',

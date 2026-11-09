@@ -1,3 +1,4 @@
+import SymbolButton from "../../../components/common/SymbolButton";
 import GrowingNumericInput from "../../../components/common/GrowingNumericInput";
 import { normalizeInlineManualComponent } from "../utils/manualComponentUtils";
 import React, { useState, useEffect, useMemo } from "react";
@@ -380,13 +381,11 @@ const ManualComponentModal = ({
           </div>
         </div>
 
-        <button
+        <SymbolButton
           onClick={onClose}
           className="modal-close-button"
           style={{ position: "static", transform: "none" }}
-        >
-          &times;
-        </button>
+         />
       </div>
 
       <div style={{ overflowY: "auto", paddingRight: "5px" }}>

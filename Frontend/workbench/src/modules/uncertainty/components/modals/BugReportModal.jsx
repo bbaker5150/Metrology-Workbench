@@ -1,3 +1,4 @@
+import SymbolButton from "../common/SymbolButton";
 import React, { useState } from "react";
 import ReactDOM from "react-dom";
 import { useFloatingWindow } from '../../hooks/useFloatingWindow';
@@ -165,13 +166,11 @@ const BugReportModal = ({ isOpen, onClose, reports = [], onSave, onDelete }) => 
                     <FontAwesomeIcon icon={faCommentDots} style={{ color: 'var(--primary-color)' }} />
                     Feedback & Issues
                 </h3>
-                <button
+                <SymbolButton
                     onClick={onClose}
                     className="modal-close-button"
                     style={{ position: 'static', fontSize: '1.2rem' }}
-                >
-                    &times;
-                </button>
+                 />
             </div>
 
             {/* --- Body --- */}

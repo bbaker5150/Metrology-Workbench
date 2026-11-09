@@ -1,3 +1,5 @@
+import SymbolButton from "../../../components/common/SymbolButton";
+import { DEFAULT_MEASUREMENT_AREA_COLOR } from "../../../utils/measurementAreaColors";
 import { instrumentDeleteTarget } from "../../../utils/instrumentIdentity";
 import GrowingNumericInput from "../../../components/common/GrowingNumericInput";
 import { useConfirmRecordDeletes } from "../../../contexts/RecordDeletePolicy";
@@ -7,7 +9,7 @@ import ReactDOM from "react-dom";
 import Select from "react-select";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
-  faCheck, faTimes, faPlus, faTrashAlt, faEdit, faRadio,
+  faCheck, faPlus, faTrashAlt, faEdit, faRadio,
   faLayerGroup, faArrowLeft, faSearch, faChevronDown, faChevronUp, faInfoCircle,
   faCalculator, faCube, faIndustry, faTag, faFingerprint
 } from "@fortawesome/free-solid-svg-icons";
@@ -92,6 +94,7 @@ const hasValidatedSnapshot = (instrument = {}) =>
   Object.keys(instrument.validatedSnapshot).length > 0;
 
 const getInstrumentSourceStatus = (instrument = {}) => {
+  if (instrument?.scope === "pending") return { label: "Pending", tone: "pending", title: "Submitted for SME validation" };
   if (instrument?.scope === "validated") {
     return {
       label: "Shared",
@@ -140,7 +143,7 @@ const InstrumentBuilderModal = ({ isOpen, onClose, onSave, onDelete, initialData
     model: "",
     description: "",
     measurementArea: "", // Added
-    measurementAreaColor: "#3498db", // Added
+    measurementAreaColor: DEFAULT_MEASUREMENT_AREA_COLOR, // Added
     functions: []
   });
 
@@ -160,7 +163,7 @@ const InstrumentBuilderModal = ({ isOpen, onClose, onSave, onDelete, initialData
         setInstrument({
             ...initialData,
             measurementArea: initialData.measurementArea || "",
-            measurementAreaColor: initialData.measurementAreaColor || "#3498db"
+            measurementAreaColor: initialData.measurementAreaColor || DEFAULT_MEASUREMENT_AREA_COLOR
         });
         setViewMode("edit");
         if (initialData.functions.length > 0) setActiveFunctionId(initialData.functions[0].id);
@@ -222,7 +225,7 @@ const InstrumentBuilderModal = ({ isOpen, onClose, onSave, onDelete, initialData
         model: "", 
         description: "", 
         measurementArea: "", 
-        measurementAreaColor: "#3498db", 
+        measurementAreaColor: DEFAULT_MEASUREMENT_AREA_COLOR,
         functions: [] 
     });
     setActiveFunctionId(null);
@@ -355,7 +358,7 @@ const InstrumentBuilderModal = ({ isOpen, onClose, onSave, onDelete, initialData
           <div className="modal-content" style={{ maxWidth: "400px" }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '15px' }}>
               <h3 style={{ margin: 0 }}>{deleteConfirmation.title}</h3>
-              <button onClick={() => setDeleteConfirmation(null)} className="modal-close-button" style={{ position: 'static' }}>&times;</button>
+              <SymbolButton onClick={() => setDeleteConfirmation(null)} className="modal-close-button" style={{ position: 'static' }} />
             </div>
             <p>{deleteConfirmation.message}</p>
             <div className="modal-actions" style={{ justifyContent: "flex-end", gap: "10px" }}>
@@ -400,7 +403,7 @@ const InstrumentBuilderModal = ({ isOpen, onClose, onSave, onDelete, initialData
               {viewMode === 'list' ? 'Instrument Library' : 'Edit Instrument'}
             </h3>
           </div>
-          <button onClick={onClose} className="modal-close-button" style={{ position: 'static' }}>&times;</button>
+          <SymbolButton onClick={onClose} className="modal-close-button" style={{ position: 'static' }} />
         </div>
 
         <div style={{ flex: 1, overflow: 'hidden', display: 'flex', flexDirection: 'column', position: 'relative' }}>
@@ -415,7 +418,7 @@ const InstrumentBuilderModal = ({ isOpen, onClose, onSave, onDelete, initialData
                      Range: {editingRange.min} - {editingRange.max} {getUnitDisplayLabel(activeFunction.unit)}
                   </div>
                 </div>
-                <button onClick={() => setEditingRange(null)} className="modal-icon-button secondary" title="Close"><FontAwesomeIcon icon={faTimes} size="lg" /></button>
+                <SymbolButton onClick={() => setEditingRange(null)} className="modal-icon-button secondary" title="Close" />
               </div>
               
               <div className="slide-over-body">
@@ -622,7 +625,7 @@ const InstrumentBuilderModal = ({ isOpen, onClose, onSave, onDelete, initialData
                 <div className="function-nav-rail">
                   <div className="rail-header">
                     <h5><FontAwesomeIcon icon={faCube} /> Functions</h5>
-                    <button className="icon-action-btn" onClick={handleAddFunction} title="Add Function"><FontAwesomeIcon icon={faPlus} /></button>
+                    <SymbolButton add className="icon-action-btn" onClick={handleAddFunction} title="Add Function" />
                   </div>
                   <div className="rail-list">
                     {instrument.functions.map(f => (

@@ -1,9 +1,11 @@
 import React, { useState } from 'react';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
+import axios from 'axios';
 import InstrumentLibraryModal from './InstrumentLibraryModal';
 import UncertaintyPanel from '../../analysis/components/UncertaintyPanel';
 import { ConfirmRecordDeletesContext } from '../../../contexts/RecordDeletePolicy';
+vi.mock('axios', () => ({default: {get: vi.fn(async () => ({data:{canValidate:false,reviews:[]}})), post: vi.fn()}}));
 vi.mock('plotly.js-dist', () => ({ default: {} }));
 const definition = (id, scope='local') => ({ id, scope, manufacturer: 'Example', model: id, description: `Meter ${id}`, functions: [{id:'f', name:'Voltage', unit:'V', ranges:[{id:'r', min:0, max:10, unit:'V', resolution:0.01, tolerances:{reading:{value:1,unit:'%'}}}]}] });
 const openInstrument = id => fireEvent.click(document.querySelector(`tr[data-instrument-id="${id}"] .instrument-library-specifications`));
@@ -302,7 +304,7 @@ it('shows local/shared sync actions in simplified rows and uses search without a
  expect(screen.queryByRole('button',{name:'Filter instruments'})).not.toBeInTheDocument();
  const local=document.querySelector('tr[data-instrument-id="A"]');
  const shared=document.querySelector('tr[data-instrument-id="B"]');
- expect(within(local).getByRole('button',{name:'Local library — click to share'})).toBeInTheDocument();
+ expect(within(local).getByRole('button',{name:'Local library — click to submit for validation'})).toBeInTheDocument();
  expect(within(shared).getByRole('button',{name:'Shared library — right-click to make local'})).toBeInTheDocument();
  fireEvent.change(screen.getByLabelText('Search instruments'),{target:{value:'Meter B'}});
  expect(document.querySelector('tr[data-instrument-id="B"]')).toHaveTextContent('Meter B');
@@ -547,7 +549,9 @@ it('adds, names, changes type and restores additional uncertainties in the libra
  fireEvent.click(within(document.querySelector('tr[data-instrument-id="A"]')).getByTitle('Edit tolerance'));
  fireEvent.click(screen.getByRole('button',{name:'Add a secondary uncertainty'}));
  await waitFor(()=>expect(save.mock.calls.at(-1)?.[0].tmdeSecondaryUncertainties).toHaveLength(1));
+ fireEvent.click(screen.getByRole('button',{name:'Uncertainty',exact:true}));
  const name=screen.getByRole('textbox',{name:'Uncertainty name'});
+ expect(name).toHaveAttribute('placeholder','Name');
  fireEvent.change(name,{target:{value:'Thermal drift'}});fireEvent.keyDown(name,{key:'Enter'});
  const source=document.querySelector('.instrument-uncertainty-row');
  expect(source).toHaveAttribute('data-instrument-id','A');
@@ -630,4 +634,39 @@ it('combines unique qualifier names while editing only the active instrument nam
  fireEvent.pointerDown(document.querySelector('tr[data-instrument-id="A"]'),{button:0});
  expect(screen.getByRole('button',{name:'Frequency/Time interval',exact:true})).toBeInTheDocument();
  expect(save.mock.calls.every(([item])=>item.id==='B')).toBe(true);
+});
+
+it('lets SMEs inspect submissions and confirm publication from the inbox', async () => {
+ const review={...definition('ReviewMeter','pending'),reviewVersion:'3'};
+ const publish=vi.fn();
+ axios.get.mockResolvedValue({data:{canValidate:true,reviews:[review]}});
+ axios.post.mockResolvedValueOnce({data:{...review,scope:'validated'}});
+ try {
+   render(<InstrumentLibraryModal isOpen onClose={()=>{}} instruments={[]} onInstrumentSynced={publish}/>);
+   const inbox=await screen.findByRole('button',{name:'Validation inbox'});
+   fireEvent.click(inbox);
+   const queue=await screen.findByRole('region',{name:'Pending instrument validations'});
+   fireEvent.click(within(queue).getByRole('button',{name:/Validate Example ReviewMeter/}));
+   const confirm=screen.getByRole('alertdialog');
+   expect(confirm).toHaveTextContent('publish these specifications');
+   expect(publish).not.toHaveBeenCalled();
+   fireEvent.click(within(confirm).getByRole('button',{name:'Validate'}));
+   await waitFor(()=>expect(publish).toHaveBeenCalledWith(expect.objectContaining({scope:'validated'}),'ReviewMeter'));
+   expect(queue).toHaveTextContent('No instruments are awaiting validation.');
+ } finally {axios.get.mockResolvedValue({data:{canValidate:false,reviews:[]}});}
+});
+
+it('admits a reviewer from a pending library sync icon and keeps ordinary users out of the inbox', async () => {
+ const item={...definition('LocalMeter','pending'),owner:'analyst',reviewVersion:'2'};
+ const view=render(<InstrumentLibraryModal isOpen instruments={[item]} onClose={()=>{}}/>);
+ expect(screen.queryByRole('button',{name:'Validation inbox'})).toBeNull();
+ fireEvent.click(screen.getByRole('button',{name:'Submitted for SME validation'}));
+ expect(screen.queryByRole('alertdialog')).toBeNull();
+ view.unmount();
+ axios.get.mockResolvedValue({data:{canValidate:true,reviews:[item]}});
+ try {
+   render(<InstrumentLibraryModal isOpen instruments={[item]} onClose={()=>{}}/>);
+   fireEvent.click(await screen.findByRole('button',{name:'Pending validation — click to validate'}));
+   expect(await screen.findByRole('alertdialog')).toHaveTextContent('Validate Example LocalMeter');
+ } finally {axios.get.mockResolvedValue({data:{canValidate:false,reviews:[]}});}
 });

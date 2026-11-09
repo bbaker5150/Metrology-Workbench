@@ -7,8 +7,10 @@ import { migrateMeasurementAreas } from "../utils/measurementAreaGrouping";
 import { useState, useEffect, useMemo, useCallback, useRef } from "react";
 import axios from "axios";
 import { UNCERTAINTY_API } from "../constants/constants";
-import { getDeviceKey } from "../utils/deviceKey";
+import { getDeviceKey, instrumentRequestConfig } from "../utils/deviceKey";
 import { reconcileImportedInstruments } from "../utils/importedInstrumentLibrary";
+import { instrumentForRole } from "../utils/acShuntInstrumentRole";
+import { buildValidatedSnapshot, diffFromSnapshot } from "../utils/instrumentSync";
 import { syncInstrumentBudgetComponents } from "../utils/instrumentBudgetComponents";
 
 const MAX_UNDO_STEPS = 50;
@@ -18,6 +20,17 @@ const cloneSession = (session) => {
   if (typeof structuredClone === "function") return structuredClone(session);
   return JSON.parse(JSON.stringify(session));
 };
+
+function normalizeLegacySharedScopes(session) {
+  let result = session;
+  for (const key of ["uuts", "tmdes"]) {
+    if (session[key]?.some(row => row.instrument?.scope === "shared")) {
+      result = { ...result, [key]: session[key].map(row => row.instrument?.scope === "shared"
+        ? { ...row, instrument: { ...row.instrument, scope: "validated" } } : row) };
+    }
+  }
+  return result;
+}
 
 function sessionImageUploads(session, imageData) {
   return (session.noteImages || []).flatMap(({ id, fileName, fileObject }) => {
@@ -242,7 +255,10 @@ const useSessionManager = () => {
     }
     const nextSessions = (typeof updater === "function" ? updater(previousSessions) : updater).map(session => {
       const previous = previousById.get(session.id);
-      return session === previous ? session : trackInstrumentOnboarding(inheritMissingPointUnits(migrateMeasurementAreas(session)), previous);
+      if (session === previous) return session;
+      const loaded = previous ? session : normalizeLegacySharedScopes(session);
+      const normalized = inheritMissingPointUnits(migrateMeasurementAreas(loaded));
+      return trackInstrumentOnboarding(previous ? normalized : syncPointTolerances(normalized), previous);
     });
     if (nextSessions.length === previousSessions.length && nextSessions.every((session, index) => session === previousSessions[index])) return previousSessions;
     sessionsRef.current = nextSessions;
@@ -360,7 +376,7 @@ const useSessionManager = () => {
     const [instrumentResult, equationResult, bugResult] =
       await Promise.allSettled([
         axios.get(`${UNCERTAINTY_API}/instruments/`, {
-          params: { owner: getDeviceKey() },
+          ...instrumentRequestConfig(), params: { owner: getDeviceKey() },
         }),
         axios.get(`${UNCERTAINTY_API}/equations/`),
         axios.get(`${UNCERTAINTY_API}/bug_reports/`),
@@ -542,7 +558,7 @@ const useSessionManager = () => {
     const sessionChanged = next !== session;
     if (sessionChanged) commitLibrarySession(next);
     // Shared writes require a fresh authorization at their storage boundary.
-    if ([before, after].some(item => item && (item.password || ["validated", "shared"].includes(item.scope)))) return;
+    if ([before, after].some(item => item && (item.password || ["validated", "shared", "pending"].includes(item.scope)))) return;
     if (!sessionChanged && sameSessionValue(before, after)) return;
     const draft = after && !before && libraryDraftRowsRef.current.find(row => row.instrument.id === id);
     if (draft) setDraftPresence([draft], false);
@@ -575,8 +591,8 @@ const useSessionManager = () => {
       });
       const url = `${UNCERTAINTY_API}/instruments/`;
       queueRecordWrite(instrumentSaveQueuesRef.current, String(id), () => item
-        ? axios.post(url, item)
-        : axios.delete(`${url}${encodeURIComponent(id)}/`, { params: { owner: getDeviceKey() } })
+        ? axios.post(url, item, instrumentRequestConfig())
+        : axios.delete(`${url}${encodeURIComponent(id)}/`, { ...instrumentRequestConfig(), params: { owner: getDeviceKey() } })
       ).catch(error => console.error("Failed to persist instrument history", error));
     };
     recordHistoryAction(snapshot(before, session), snapshot(after, next), restore,
@@ -585,8 +601,7 @@ const useSessionManager = () => {
 
   // --- 2.1 Persist Instrument ---
   // Stamp the owner key and default new instruments to the local library.
-  // A validated save (scope === "validated") must additionally carry a
-  // `password`; that flow is driven by the caller (sync action), not here.
+  // Submission and validation have their own explicit actions.
   const saveInstrument = useCallback(async (instrument, { requireSaved = false, recordHistory = true, syncSessionId } = {}) => {
     let payload = {
       ...instrument,
@@ -594,27 +609,19 @@ const useSessionManager = () => {
       scope: instrument.scope || "local",
     };
 
+    if (["shared", "validated", "pending"].includes(payload.scope)) {
+      if (requireSaved) throw new Error("Use the instrument submission or SME validation action.");
+      return;
+    }
+
     const before = instrumentsRef.current.find(item => String(item.id) === String(payload.id));
     if (recordHistory && !requireSaved) recordLibraryChange(payload.id, before, payload, syncSessionId);
     if (!requireSaved) replaceInstruments(prev => prev.some(item => String(item.id) === String(payload.id))
       ? prev.map(item => String(item.id) === String(payload.id) ? payload : item)
       : [...prev, payload]);
 
-    // Writing to the validated (shared) library is password-gated on the
-    // backend. Those writes must go through the password-carrying sync flow
-    // (useInstrumentSync.syncToShared), never this unguarded persist — otherwise
-    // the POST is a guaranteed 403. Keep the optimistic local copy but skip the
-    // doomed network call so the failure is explicit instead of a silent 403.
-    if (payload.scope === "validated" && !payload.password) {
-      console.warn(
-        "Skipping validated-library save without a password; use the shared-library sync flow instead.",
-      );
-      if (requireSaved) throw new Error("Shared-library password required");
-      return;
-    }
-
     const key = String(payload.id);
-    const request = queueRecordWrite(instrumentSaveQueuesRef.current, key, () => axios.post(`${UNCERTAINTY_API}/instruments/`, payload));
+    const request = queueRecordWrite(instrumentSaveQueuesRef.current, key, () => axios.post(`${UNCERTAINTY_API}/instruments/`, payload, instrumentRequestConfig()));
     try {
       const res = await request;
       // Reconcile with the server's canonical record (scope/snapshot resolution).
@@ -624,9 +631,12 @@ const useSessionManager = () => {
         recordLibraryChange(saved.id, prior, saved, syncSessionId);
       }
       if (requireSaved || (res?.data?.id && instrumentSaveQueuesRef.current.get(key) == null)) {
-        replaceInstruments((prev) => prev.some(i => String(i.id) === String(saved.id))
-          ? prev.map(i => String(i.id) === String(saved.id) ? saved : i)
-          : [...prev, saved]);
+        replaceInstruments(previous => {
+          const entries = saved.legacyLocalId ? previous.filter(item => String(item.id) !== String(saved.legacyLocalId)) : previous;
+          return entries.some(item => String(item.id) === String(saved.id))
+            ? entries.map(item => String(item.id) === String(saved.id) ? saved : item)
+            : [...entries, saved];
+        });
       }
       return saved;
     } catch (e) {
@@ -651,16 +661,16 @@ const useSessionManager = () => {
     return () => window.removeEventListener("online", retry);
   }, [instrumentsLoaded, saveInstrument]);
 
-  const reconcileSyncedInstrument = useCallback((instrument) => {
+  const reconcileSyncedInstrument = useCallback((instrument, submittedId) => {
     if (!instrument?.id) return;
     replaceInstruments((prev) => {
       const syncedId = String(instrument.id);
       const syncedSourceId = String(instrument.sourceId || instrument.id);
       const next = (prev || []).filter((existing) => {
-        if (String(existing.id) === syncedId) return false;
+        if ((instrument.legacyLocalId && String(existing.id) === String(instrument.legacyLocalId)) || String(existing.id) === syncedId || (submittedId != null && existing.scope === "pending" && String(existing.id) === String(submittedId))) return false;
         if (
           instrument.scope === "validated" &&
-          existing.scope === "local" &&
+          submittedId == null && existing.scope === "local" &&
           String(existing.sourceId || "") === syncedSourceId
         ) {
           return false;
@@ -671,12 +681,59 @@ const useSessionManager = () => {
     });
   }, [dedupeLibraryInstruments, replaceInstruments]);
 
+  // A saved session may still contain the yellow snapshot from before an
+  // SME approved it. Reconcile matching definitions without changing any
+  // session-specific fields or adopting a different version of the specs.
+  useEffect(() => {
+    if (!instrumentsLoaded || !sessionsLoaded) return;
+    const byId = new Map(instruments.flatMap(record => record.legacyLocalId
+      ? [[String(record.legacyLocalId), record], [String(record.id), record]] : [[String(record.id), record]]));
+    replaceSessions(previous => previous.map(session => {
+      let next = session;
+      for (const [key, role] of [["uuts", "uut"], ["tmdes", "tmde"]]) {
+        const rows = session[key] || [];
+        let changed = false;
+        const updated = rows.map(row => {
+          const definition = row.instrument;
+          if (!definition || !["local", "pending"].includes(definition.scope)) return row;
+          const candidate = byId.get(String(definition.id)) ||
+            (definition.scope === "pending" && byId.get(String(definition.sourceId)));
+          if (!candidate || !["pending", "validated"].includes(candidate.scope) || candidate.scope === definition.scope) return row;
+          const reviewed = instrumentForRole(candidate, role);
+          if (diffFromSnapshot({ ...definition, validatedSnapshot: buildValidatedSnapshot(reviewed) }).length) return row;
+          changed = true;
+          return { ...row, libraryInstrumentId: reviewed.id, instrument: { ...definition,
+            id: reviewed.id, libraryInstrumentId: reviewed.id, sourceId: reviewed.sourceId, scope: reviewed.scope,
+            reviewVersion: reviewed.reviewVersion, validatedSnapshot: reviewed.validatedSnapshot, localOverride: reviewed.localOverride } };
+        });
+        if (changed) next = { ...next, [key]: updated };
+      }
+      return next;
+    }));
+  }, [sessionsLoaded, instrumentsLoaded, instruments, replaceSessions]);
+
+  const refreshPendingInstruments = useCallback(async () => {
+    const pending = instrumentsRef.current.filter(item => item.scope === "pending");
+    if (!pending.length) return;
+    try {
+      const { data } = await axios.get(`${UNCERTAINTY_API}/instruments/`, {
+        ...instrumentRequestConfig(), params: { owner: getDeviceKey() },
+      });
+      if (!Array.isArray(data)) return;
+      for (const item of pending) {
+        if (!instrumentsRef.current.includes(item) || data.some(entry => String(entry.id) === String(item.id) && entry.scope === "pending")) continue;
+        const approved = data.find(entry => entry.scope === "validated" && String(entry.id) === String(item.sourceId || item.id));
+        if (approved) reconcileSyncedInstrument(approved, item.id);
+      }
+    } catch { /* Keep the last known status until the next library open. */ }
+  }, [reconcileSyncedInstrument]);
+
   // --- 2.2 Delete Instrument ---
   const deleteInstrument = useCallback(async (instrumentId, { password } = {}) => {
     try {
       const before = instrumentsRef.current.find(item => String(item.id) === String(instrumentId));
       await queueRecordWrite(instrumentSaveQueuesRef.current, String(instrumentId), () => axios.delete(`${UNCERTAINTY_API}/instruments/${encodeURIComponent(instrumentId)}/`, {
-        params: { owner: getDeviceKey() },
+        ...instrumentRequestConfig(), params: { owner: getDeviceKey() },
         ...(password ? { data: { password } } : {}),
       }));
       if (before) recordLibraryChange(instrumentId, before, undefined);
@@ -1287,7 +1344,7 @@ const useSessionManager = () => {
           ? { ...testPoint, ...updatedData }
           : testPoint,
       );
-      const updatedSession = { ...session, testPoints: updatedTestPoints };
+      const updatedSession = syncPointTolerances({ ...session, testPoints: updatedTestPoints }, session);
 
       const updatedKeys = Object.keys(updatedData).sort().join(",");
       const isDiscreteBudgetChange = ["components", "tmdeTolerances"].some(
@@ -1379,6 +1436,7 @@ const useSessionManager = () => {
     libraryDraftRows,
     changeLibraryDrafts,
     reconcileSyncedInstrument,
+    refreshPendingInstruments,
     saveBugReport,
     deleteBugReport,
     deleteInstrument,

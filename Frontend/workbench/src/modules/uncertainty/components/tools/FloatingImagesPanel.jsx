@@ -1,3 +1,4 @@
+import SymbolButton from "../common/SymbolButton";
 import React, { useEffect, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {
@@ -5,7 +6,6 @@ import {
   faImages,
   faMinus,
   faPlus,
-  faTimes,
   faTrashAlt,
 } from "@fortawesome/free-solid-svg-icons";
 import { v4 as uuidv4 } from "uuid";
@@ -154,9 +154,7 @@ const FloatingImagesPanel = ({
             <button onClick={() => setIsMinimized(false)} title="Expand">
               <FontAwesomeIcon icon={faExpand} />
             </button>
-            <button onClick={onClose} title="Close">
-              <FontAwesomeIcon icon={faTimes} />
-            </button>
+            <SymbolButton onClick={onClose} title="Close" />
           </div>
         </div>
       </div>
@@ -167,9 +165,7 @@ const FloatingImagesPanel = ({
     <>
       {viewingImageSrc && (
         <div className="image-viewer-overlay" onClick={() => setViewingImageSrc(null)}>
-          <button className="image-viewer-close" onClick={() => setViewingImageSrc(null)}>
-            &times;
-          </button>
+          <SymbolButton className="image-viewer-close" onClick={() => setViewingImageSrc(null)} />
           <img src={viewingImageSrc} alt="Full-size preview" onClick={(e) => e.stopPropagation()} />
         </div>
       )}
@@ -191,9 +187,7 @@ const FloatingImagesPanel = ({
             <button onClick={() => setIsMinimized(true)} title="Minimize">
               <FontAwesomeIcon icon={faMinus} />
             </button>
-            <button onClick={onClose} title="Close">
-              <FontAwesomeIcon icon={faTimes} />
-            </button>
+            <SymbolButton onClick={onClose} title="Close" />
           </div>
         </div>
 

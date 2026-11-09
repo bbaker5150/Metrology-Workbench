@@ -1,7 +1,8 @@
+import SymbolButton from "../common/SymbolButton";
 import GrowingNumericInput from "../common/GrowingNumericInput";
 import React, { useState, useEffect, useRef, useMemo } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faTimes, faMinus, faExchangeAlt, faCopy, faRightLeft } from "@fortawesome/free-solid-svg-icons";
+import { faMinus, faExchangeAlt, faCopy, faRightLeft } from "@fortawesome/free-solid-svg-icons";
 import { getUnitDisplayLabel, unitSystem } from "../../utils/uncertaintyMath";
 
 const UnitConverter = ({ isOpen, onClose }) => {
@@ -101,7 +102,7 @@ const UnitConverter = ({ isOpen, onClose }) => {
         <span>Units</span>
         <div className="tool-controls">
           <button onClick={() => setIsMinimized(false)}><FontAwesomeIcon icon={faExchangeAlt} /></button>
-          <button onClick={onClose}><FontAwesomeIcon icon={faTimes} /></button>
+          <SymbolButton onClick={onClose} />
         </div>
       </div>
     );
@@ -117,7 +118,7 @@ const UnitConverter = ({ isOpen, onClose }) => {
         <span>Unit Converter</span>
         <div className="tool-controls">
           <button onClick={() => setIsMinimized(true)}><FontAwesomeIcon icon={faMinus} /></button>
-          <button onClick={onClose}><FontAwesomeIcon icon={faTimes} /></button>
+          <SymbolButton onClick={onClose} />
         </div>
       </div>
 

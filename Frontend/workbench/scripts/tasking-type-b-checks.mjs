@@ -90,9 +90,9 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
     const widths=inputs.map(input=>input.getBoundingClientRect().width);
     return Math.max(...widths)-Math.min(...widths)<1 && widths.every(width=>width<70);
   }));
-  check('tabular delete precedes add and internal separators remain consistent', await tableEditor.locator('.dynamic-lookup-table').evaluate(table => {
+  check('tabular add precedes delete and internal separators remain consistent', await tableEditor.locator('.dynamic-lookup-table').evaluate(table => {
     const add=table.querySelector('.dynamic-row-add').getBoundingClientRect(), remove=table.querySelector('.dynamic-row-remove').getBoundingClientRect();
-    return remove.right <= add.left + 1 && [...table.querySelectorAll('th,td')].every(cell=>getComputedStyle(cell).borderBottomWidth==='1px');
+    return add.right <= remove.left + 1 && [...table.querySelectorAll('th,td')].every(cell=>getComputedStyle(cell).borderBottomWidth==='1px');
   }));
   check('tabular units sit beside their column names', await tableEditor.evaluate(row => {
     return ['Point','Uncertainty'].every((label,index)=>row.querySelectorAll('.dynamic-lookup-table th')[index].querySelector('.dynamic-unit-summary'));
@@ -100,9 +100,9 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
   check('tabular inputs align across rows with internal dividers', await tableEditor.locator('.dynamic-lookup-table').evaluate(table => {
     const rows=[...table.tBodies[0].rows];
     return rows.every(row=> {
-      const a=row.cells[0].querySelector('input').getBoundingClientRect(), b=row.cells[1].querySelector('input').getBoundingClientRect();
+      const a=row.cells[0].querySelector('.dynamic-cell-value').getBoundingClientRect(), b=row.cells[1].querySelector('.dynamic-cell-value').getBoundingClientRect();
       const ac=row.cells[0].getBoundingClientRect(), bc=row.cells[1].getBoundingClientRect();
-      return Math.abs(a.top-b.top)<1 && Math.abs(a.height-b.height)<1 && Math.abs(a.left+a.width/2-ac.left-ac.width/2)<1 && Math.abs(b.left+b.width/2-bc.left-bc.width/2)<1 && Math.abs(ac.width-bc.width)<1 && getComputedStyle(row.cells[0]).borderRightWidth==='1px';
+      return row.cells[1].textContent.trim()==='±' && Math.abs(a.top-b.top)<1 && Math.abs(a.height-b.height)<1 && Math.abs(a.left+a.width/2-ac.left-ac.width/2)<1 && Math.abs(b.left+b.width/2-bc.left-bc.width/2)<1 && getComputedStyle(row.cells[0]).borderRightWidth==='1px';
     }) && getComputedStyle(table.tHead.rows[0].cells[0]).borderRightWidth==='1px';
   }));
   if (process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await page.screenshot({ path: `${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/tasking-builder-table.png` });
@@ -237,14 +237,15 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
     }));
     check(`instrument tabular grid centers inputs with internal dividers in ${theme} mode`, await instrumentCell.locator('.dynamic-lookup-table').evaluate(table=>{
       const header=table.tHead.rows[0].cells[0].getBoundingClientRect();
-      return [...table.tHead.rows[0].cells].slice(0,-1).every(cell=>{
+      return [...table.tHead.rows[0].cells].slice(0,-1).every((cell, index)=>{
         const range=document.createRange(); range.selectNodeContents(cell);
         const text=range.getBoundingClientRect(), box=cell.getBoundingClientRect();
-        return text.left-box.left>=12 && box.right-text.right>=12 && Math.abs((text.left-box.left)-(box.right-text.right))<2;
+        const widestContent = Math.max(text.width, ...[...table.tBodies[0].rows].map(row => row.cells[index].querySelector('.dynamic-cell-value').getBoundingClientRect().width));
+        return box.width >= widestContent && box.width-widestContent<=12 && Math.abs((text.left-box.left)-(box.right-text.right))<2;
       }) && getComputedStyle(table).borderCollapse==='separate' && getComputedStyle(table).borderSpacing==='0px' && [...table.tBodies[0].rows].every(row=>{
         const cells=[row.cells[0],row.cells[1]], bounds=cells.map(cell=>cell.getBoundingClientRect());
-        return Math.abs(bounds[0].width-bounds[1].width)<1 && Math.abs(bounds[0].right-header.right)<1 && cells.every(cell=>{
-          const box=cell.getBoundingClientRect(), input=cell.querySelector('input').getBoundingClientRect(), style=getComputedStyle(cell);
+        return Math.abs(bounds[0].right-bounds[1].left)<1 && Math.abs(bounds[0].right-header.right)<1 && cells.every(cell=>{
+          const box=cell.getBoundingClientRect(), input=cell.querySelector('.dynamic-cell-value').getBoundingClientRect(), style=getComputedStyle(cell);
           return Math.abs(input.left+input.width/2-box.left-box.width/2)<1 && style.borderBottomWidth==='1px' && style.borderBottomColor===getComputedStyle(row.cells[0]).borderRightColor;
         });
       });

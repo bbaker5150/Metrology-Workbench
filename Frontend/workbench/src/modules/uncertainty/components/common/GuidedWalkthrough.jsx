@@ -1,3 +1,4 @@
+import SymbolButton from "./SymbolButton";
 import useWalkthroughAction from "./useWalkthroughAction";
 import React, {
   useLayoutEffect,
@@ -11,7 +12,6 @@ import {
   faArrowLeft,
   faArrowRight,
   faCheck,
-  faTimes,
 } from "@fortawesome/free-solid-svg-icons";
 
 const CARD_WIDTH = 360;
@@ -283,14 +283,12 @@ const GuidedWalkthrough = ({
             {step.workflow || "Walkthrough"} · {workflowIndex + 1} of{" "}
             {workflowSteps.length}
           </span>
-          <button
+          <SymbolButton
             type="button"
             onClick={close}
             title="Close walkthrough"
             aria-label="Close walkthrough"
-          >
-            <FontAwesomeIcon icon={faTimes} />
-          </button>
+           />
         </div>
         <div className="guided-walkthrough-navigation">
           <label>

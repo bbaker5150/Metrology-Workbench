@@ -46,7 +46,7 @@ Archived list rows retain their full `PayloadJson` with an
 Archived session/image files retain their JSON with the same marker. A session's
 `SessionId` metadata is cleared so it leaves the picker; its JSON still contains
 the original ID. Reads also exclude the marker if a metadata update was interrupted.
-No new lists or columns are required. Lists are paged completely so retained
+Archiving uses the existing payload field. Lists are paged completely so retained
 archives do not hide active records on later pages.
 
 These records remain in the original SharePoint containers, not the recycle bin.
@@ -204,15 +204,16 @@ chunk requests to resolve against.
    listing the containers it needs — press **Create them now**. You need Edit or
    Full Control on the site.
 
-Setup is idempotent and strictly additive: it only creates what is missing and
-never deletes or retypes anything, so it is safe to run again after any error.
+Setup creates missing containers and columns, applies item access settings on the instrument lists, and migrates previously shared instruments to the published catalog. It can resume after an interruption.
 
 ### Containers created
 
 | Name | Type | Holds |
 | --- | --- | --- |
 | `UncertaintySessions` | Document library | One JSON file per session |
-| `UncertaintyInstruments` | List | Shared instrument definitions |
+| `UncertaintyInstruments` | List | Original library, restricted to historical item authors |
+| `UncertaintyPublishedInstruments` | List | Published instrument definitions |
+| `UncertaintyInstrumentDrafts` | List | Private working definitions and pending submissions |
 | `UncertaintyEquations` | List | Shared custom equations |
 | `UncertaintyBugReports` | List | Bug reports raised in-tool |
 
@@ -316,7 +317,7 @@ node scripts/smoke-forge-srcdoc.mjs   # single-file build, inside an iframe srcd
 Both smoke tests serve the built bundle from a SharePoint-shaped path, simulate
 the REST API with Playwright route mocking, and drive the whole chain: web URL
 discovery, digest, the storage gate detecting an unprovisioned site,
-provisioning all four containers, the app mounting, and the session list coming
+provisioning all six containers, the app mounting, and the session list coming
 back through the adapter. They need `npm i --no-save playwright` (deliberately not a
 project dependency) and the matching build to have been run first.
 
@@ -340,7 +341,7 @@ a failed request.
 - 10/10 smoke checks for the single-file build inside an `about:srcdoc` frame:
   holds no sequence a sanitiser could read as markup, boots with zero failed
   subresource requests, discovers the web from the parent frame, provisions all
-  four containers, mounts, and renders its images from embedded bytes
+  six containers, mounts, and renders its images from embedded bytes
 - The workbench's own tests still pass — 1492 in total, nothing regressed
 
 **Not verified**
@@ -394,43 +395,38 @@ Use the same `App - Content` display-name convention as Modernization Tracker:
 | --- | --- | --- |
 | Uncertalytics - Sessions | Document library | UncertaintySessions |
 | Uncertalytics - Instruments | List | UncertaintyInstruments |
+| Uncertalytics - Published Instruments | List | UncertaintyPublishedInstruments |
+| Uncertalytics - Instrument Drafts | List | UncertaintyInstrumentDrafts |
 | Uncertalytics - Equations | List | UncertaintyEquations |
 | Uncertalytics - Bug Reports | List | UncertaintyBugReports |
 
-New containers are visible in Site contents. Existing deployments need one explicit organization pass: deploy the new single-file HTML, open the app as an owner, click the **Storage administration** database icon in the app header, then choose **Organize storage**. The button appears automatically for users with Manage Lists permission; no keyboard shortcut is needed. Check all four entries show Visible. Close/reload other app tabs after renaming.
+New containers are visible in Site contents. Existing deployments need one explicit organization pass: deploy the new single-file HTML, open the app as an owner, click the **Storage administration** database icon in the app header, then choose **Organize storage**. The button appears automatically for users with Manage Lists permission; no keyboard shortcut is needed. Check all six entries show Visible. Close/reload other app tabs after renaming.
 
 Organization updates titles, descriptions, Hidden=false, and OnQuickLaunch=false using existing list IDs. Sidebar links are not added. It preserves records, attachments, permissions, internal URLs, and library contents. Original internal titles and previous `Uncertalytics — ...` display names remain readable; no data migration or replacement containers are needed. Destination collisions stop before metadata changes, interrupted updates can be retried, already-correct metadata is skipped, and the result is read back before success is reported. Visibility is not an access restriction.
 
-## Recommended permissions: trusted shared workspace
+## Instrument review and SharePoint permissions
 
-The site owner confirmed that this app contains no sensitive information and that application-level session filtering is sufficient. Keep the existing shared-storage design; private per-user folders, a curator approval system, and extra role groups are unnecessary for this deployment.
+Create the SharePoint site group **Uncertalytics SME** and add the people who validate instrument definitions. The app reads the signed-in user's site groups each time the library opens. General users can submit an orange local instrument for review. It stays yellow in their own library until an SME opens the validation inbox, reviews the specifications and confirms publication.
 
-The single-file app uses the signed-in user's SharePoint identity and REST permissions, with no Django backend. Sessions are filtered by AuthorId; local instruments are filtered by their creator. These are convenience filters, not a promise that other records cannot be reached through SharePoint. The trusted collaboration model accepts that users with shared write access can access and edit underlying records directly. No groups or permissions are changed by the naming/visibility code update.
+Run the storage setup as a site owner when deploying this version. Setup restricts the historical **Instruments** list to owner reads and manager writes, adds **Instrument Drafts** and **Published Instruments**, and copies prior shared definitions to the published list. It preserves the historical item authors and IDs. The owner needs Manage Lists on all three lists during the upgrade. The app opens once setup marks the migration complete. An owner can rerun interrupted setup. Existing shared instruments retain their IDs. The app reads older local rows for their creator. Their next edit or removal writes a private copy that supersedes the original row.
 
-### Minimal group model
+| Resource | Metrology App Users | Uncertalytics SME | Metrology Software Owners |
+| --- | --- | --- | --- |
+| App page and Site Assets | Read | Read | Full Control |
+| Sessions, Equations and Bug Reports | Contribute | Contribute | Full Control |
+| Original Instruments | Read | Read | Full Control |
+| Published Instruments | Read | Manage Lists and Contribute | Full Control |
+| Instrument Drafts | Contribute | Manage Lists and Contribute | Full Control |
 
-Use the existing **Metrology App Users** group for everyone allowed to work in Uncertalytics. Keep **Metrology Software Owners** for administration. A separate `Uncertalytics Users` group is only useful if some homepage users must not receive Uncertalytics write access. No separate Analyst, Curator, or Viewer group is required for the agreed shared-editing model.
+Apply these grants at the list level. A list-scoped Edit permission level normally includes Manage Lists and Contribute. Reserve Manage Lists on the instrument lists for reviewers and administrators. Check inherited grants and any unique item permissions before rollout.
 
-| Resource | Metrology App Users | Metrology Software Owners |
-| --- | --- | --- |
-| Homepage and approved Uncertalytics ASPX | Read | Full Control |
-| Corresponding Site Assets folders, HTML and dependencies | Read | Full Control |
-| Uncertalytics - Sessions (document library) | Contribute | Full Control |
-| Uncertalytics - Instruments | Contribute | Full Control |
-| Uncertalytics - Equations | Contribute | Full Control |
-| Uncertalytics - Bug Reports | Contribute | Full Control |
+* **Instrument Drafts** uses ReadSecurity 2 and WriteSecurity 2. SharePoint restricts general users to reading and editing their own rows. Manage Lists lets reviewers read submissions from other users. The inbox displays pending rows. An approval copies the reviewed definition to the catalog. [Microsoft SharePoint list security settings](https://learn.microsoft.com/en-us/sharepoint/dev/schema/security-element)
+* **Original Instruments** uses ReadSecurity 2 and WriteSecurity 4. Each ordinary user can read their own historical local rows.
+* **Published Instruments** uses ReadSecurity 1 and WriteSecurity 4. All app users can read the catalog. Only users with the appropriate list-management permissions can write. The app requires membership of Uncertalytics SME to validate. A list owner can still administer content directly through SharePoint. [Microsoft SharePoint write permissions](https://learn.microsoft.com/en-us/openspecs/sharepoint_protocols/ms-primepf/f396c2d2-3348-48f5-b3cc-0f116ddef837)
+* The app checks the instrument list settings and migration status before reading or writing instrument definitions. SharePoint uses its own signed-in identity, item versions and list permissions for the writes. The older confirmation password still applies to deleting a shared definition.
 
-Use standard Contribute on the four data containers rather than site-wide Edit. This supports session/notes autosave, image uploads, instruments, shared equations, and reports without granting schema or permissions administration. Keep app HTML Read-only so ordinary users cannot modify the deployed app. The app archives records through updates; standard Contribute also permits direct SharePoint deletion, so enable versioning and retain normal recovery practices for accidental changes. A custom no-delete level is optional, not required for this deployment.
+After setup, test with two ordinary accounts and one reviewer. Submit an instrument with the first ordinary account, reopen its library, and confirm the second account cannot retrieve that private draft. Review and confirm the submission with the SME account. After reloading, both ordinary accounts should see the green shared definition. Repeat with an edit to an existing shared instrument to check that its original specifications remain visible until approval.
 
-The current app does not implement a complete read-only viewer experience. Users with only Read can have saves rejected while editing controls remain visible; do not treat baseline homepage access alone as sufficient to work in Uncertalytics. Shared library passwords or client-side publish controls are not server-side role enforcement; no curator-only guarantee is intended here.
+The Django workbench uses the **Uncertalytics SME** Django auth group. Apply uncertainty migration 0020 and add the reviewers to that group. Serve the workbench with same-origin API and an authenticated Django session for SME operations. Anonymous device installations retain local storage and may submit using a private device credential.
 
-### Setup and validation
-
-1. Deploy the new HTML and run Organize storage as described above. This changes names/visibility, not permissions, record IDs, or URLs.
-2. Confirm App Users has Read on the app ASPX and its Site Assets folder, with HTML and dependencies inheriting from the folder. Keep the homepage grants separate from data-container grants.
-3. For each of the four data containers, open Library/List settings → Permissions, stop inheriting if needed, retain Owners with Full Control, and grant App Users Contribute. Do not edit the built-in Read or Contribute permission levels.
-4. Check existing uniquely secured files/items separately; parent grants do not automatically override unique permissions. For this agreed shared model they can inherit their container if there is no intentional exception, but do not reset unrelated site content.
-5. Keep any SharePoint-generated Limited Access. Do not grant site-wide Edit or Manage Permissions just to make the app work. Only owners or designated list managers perform schema setup or storage organization.
-6. Test with two ordinary user accounts: each should see their own sessions in the app, save/reload budgets, upload images, create local instruments, update shared definitions/equations, submit reports, and archive records. Test version recovery too. Direct access to shared data is expected under this model, not a permissions failure.
-
-No Tracker-style role synchronization, group invitations, or permission-management workflow needs to be added to Uncertalytics for this plan. If the audience later needs meaningful read-only controls or private datasets, treat that as a separate app/permission design change.
+Existing Django local definitions remain accessible using the original browser's owner key. The first edit or submission creates a private working copy tied to the signed-in user or device credential. Deleting a legacy definition hides it for that user. Its original data remains available to other existing devices with the historical owner key.

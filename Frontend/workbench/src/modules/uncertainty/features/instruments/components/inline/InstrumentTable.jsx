@@ -1,6 +1,8 @@
+import SymbolButton from "../../../../components/common/SymbolButton";
 import React from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faPlus } from "@fortawesome/free-solid-svg-icons";
+import { measurementAreaAccent } from "../../../../utils/measurementAreaColors";
 import InstrumentRow from "./InstrumentRow";
 import "./inlineTable.css";
 
@@ -94,18 +96,16 @@ const InstrumentTable = ({
     <div>
       {sections.map(({ area, rows }) => (
         <div key={area.id || "unassigned"} className="inline-area-section">
-          <div className="inline-area-header" style={{ color: area.color }}>
+          <div className="inline-area-header" style={{ color: measurementAreaAccent(area.color) }}>
             <span
               className="inline-area-dot"
-              style={{ backgroundColor: area.color }}
+              style={{ backgroundColor: measurementAreaAccent(area.color) }}
               title="Change area color"
               onClick={() => area.id && onAreaColorClick?.(area)}
             />
             <span>{area.name}</span>
             {area.id && (
-              <button className="inline-area-add" onClick={() => onAddItem?.(area.id)} title={`Add ${role.toUpperCase()} to ${area.name}`}>
-                <FontAwesomeIcon icon={faPlus} />
-              </button>
+              <SymbolButton add className="inline-area-add" onClick={() => onAddItem?.(area.id)} title={`Add ${role.toUpperCase()} to ${area.name}`} />
             )}
           </div>
           <table className="inline-instr-table">

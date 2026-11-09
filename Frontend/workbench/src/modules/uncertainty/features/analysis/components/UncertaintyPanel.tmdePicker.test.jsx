@@ -108,3 +108,29 @@ it.each(['direct','derived'])('shows nested free-text qualifiers on error source
  expect(menu).toHaveTextContent('Operating mode: DC mode');
  expect(menu).toHaveTextContent('Calibration interval: 90 days');
 });
+
+it.each(["uut", "tmde"])("disassociates the last Type B from a %s while retaining budget instances", kind => {
+  const record = { id: "thermal", name: "Temperature drift", budgetComponent: { id: "template", name: "Temperature drift", type: "B" } };
+  const definition = { id: "definition", scope: "local", typeBComponents: [record], functions: [{ name: "Voltage", unit: "V", ranges: [] }] };
+  const item = { id: "meter", name: "Reference meter", instrument: definition };
+  const point = { id: "point", measurementType: "direct", testPointInfo: { parameter: { name: "Voltage", value: 5, unit: "V" } }, components: [] };
+  const retainedBudget = { id: "earlier", components: [{ id: "independent", associatedTypeBId: "thermal" }] };
+  const original = { id: "session", uuts: [], tmdes: [], [kind === "uut" ? "uuts" : "tmdes"]: [item], testPoints: [retainedBudget], uncReq: {} };
+  const save = vi.fn();
+  function Harness() {
+    const [session, setSession] = React.useState(original);
+    return <UncertaintyPanel testPointData={point} sessionData={session} instruments={[definition]}
+      onSessionSave={next => { setSession(next); save(next); }} onAddManualComponent={vi.fn()}
+      uutNominal={point.testPointInfo.parameter} tmdeTolerancesData={[]}
+      calcResults={{ combined_uncertainty: 0, expanded_uncertainty: 0, k_value: 2, effective_dof: Infinity }} />;
+  }
+  render(<Harness />);
+  const open = () => fireEvent.click(screen.getByRole("button", { name: "Add component to budget" }));
+  open();
+  fireEvent.click(screen.getByRole("button", { name: /Disassociate Temperature drift from/ }));
+  const session = save.mock.lastCall[0];
+  expect((kind === "uut" ? session.uuts : session.tmdes)[0].instrument.typeBComponents).toEqual([]);
+  expect(session.testPoints[0].components).toEqual(retainedBudget.components);
+  open();
+  expect(screen.queryByText("Associated Type B")).not.toBeInTheDocument();
+});

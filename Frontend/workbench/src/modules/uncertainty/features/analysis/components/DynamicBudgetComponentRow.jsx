@@ -1,3 +1,4 @@
+import SymbolButton from "../../../components/common/SymbolButton";
 import UncertaintyTypeMenu from "./UncertaintyTypeMenu";
 import { isBudgetEditorScrollTarget } from "../../../utils/budgetEditorViewport";
 import DynamicUncertaintyFields from "./DynamicUncertaintyFields";
@@ -6,7 +7,7 @@ import { readEditorDraft, saveEditorDraft, clearEditorDraft } from "../../../uti
 import { budgetDragProps } from "../../../utils/instrumentBudgetComponents";
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faTimes, faArrowUp, faArrowDown, faExclamationTriangle } from "@fortawesome/free-solid-svg-icons";
+import { faArrowUp, faArrowDown, faExclamationTriangle } from "@fortawesome/free-solid-svg-icons";
 import InlineMenuSelect from "../../../components/common/InlineMenuSelect";
 import InlineSourceNameEditor from "../../../components/common/InlineSourceNameEditor";
 import { unitSystem, getUnitDisplayLabel, resolveErrorDistribution } from "../../../utils/uncertaintyMath";
@@ -239,7 +240,7 @@ export default function DynamicBudgetComponentRow({
       </select> : <button type="button" className={`inline-tolerance-summary${draft.distribution ? "" : " is-empty"}`} aria-label="Edit error limit distribution" onClick={() => setDistributionEditing(true)}>{draft.mode === "standard" ? "Standard uncertainty (k=1)" : distributionLabel}</button>}</td>
       <td className="budget-component-type">B</td>{showDof && <td>∞</td>}
       <td>{/incompatible|No unit is set/i.test(preview.pendingReason || "") ? <span role="img" aria-label={preview.pendingReason} title={preview.pendingReason} className="budget-pending-uncertainty" style={{ color: "var(--status-warning, #b58100)" }}><FontAwesomeIcon icon={faExclamationTriangle} /></span> : <span className={displayedStd.value == null ? "inline-tolerance-summary is-empty budget-inline-not-set" : "budget-standard-uncertainty"} title={preview.pendingReason || undefined}>{displayedStd.value == null ? "Not Set" : `± ${Number(displayedStd.value.toPrecision(6))} ${getUnitDisplayLabel(displayedStd.unit)}`}</span>}</td>
-      <td className="action-cell"><button type="button" title="Remove component from this budget" aria-label="Remove dynamic component" onClick={() => onRemove?.(component.id, component)}><FontAwesomeIcon icon={faTimes} /></button></td>
+      <td className="action-cell"><SymbolButton type="button" title="Remove component from this budget" aria-label="Remove dynamic component" onClick={() => onRemove?.(component.id, component)} /></td>
     </tr>
   );
 }

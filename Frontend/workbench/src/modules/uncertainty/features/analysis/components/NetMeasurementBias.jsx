@@ -1,6 +1,5 @@
+import SymbolButton from "../../../components/common/SymbolButton";
 import React, { useMemo, useRef, useState } from "react";
-import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faTimes } from "@fortawesome/free-solid-svg-icons";
 import BiasValueEditor from "../../../components/common/BiasValueEditor";
 import { resolveMeasurementBias } from "../../../utils/measurementBias";
 import { getBiasToleranceFrame } from "../../../utils/biasToleranceFrame";
@@ -53,10 +52,8 @@ export function NetBiasCell({ point, session, onChange, mode = "bias" }) {
           : onChange({ measurementBias: { ...bias, mode: "manual", corrected: false } })} />
         : <button type="button" className="measurement-input-summary" aria-label="Edit net measurement system bias"
           onClick={() => setEditing(true)}>{summary}</button>}
-      {manual && <button type="button" className="btn-add-item measurement-net-bias-remove" title="Remove Net Bias and use source biases"
-        aria-label="Remove Net Bias" onClick={restoreSources}>
-        <FontAwesomeIcon icon={faTimes} size="xs" />
-      </button>}
+      {manual && <SymbolButton type="button" className="btn-add-item measurement-net-bias-remove" title="Remove Net Bias and use source biases"
+        aria-label="Remove Net Bias" onClick={restoreSources} />}
     </div>{(point.measurementType === "derived" || manual) && <small className="measurement-calculated-value" title="Calculated net bias in the measurement unit">
       Calculated {resolved.error || !Number.isFinite(resolved.calBias) ? "Not Set" : `${Number(resolved.calBias.toPrecision(8))} ${getUnitDisplayLabel(parameter.unit || "")}`}
     </small>}{spec.corrected && <span className="measurement-net-bias-help">Saved as corrected; editing the bias makes it active.</span>}</div>;
