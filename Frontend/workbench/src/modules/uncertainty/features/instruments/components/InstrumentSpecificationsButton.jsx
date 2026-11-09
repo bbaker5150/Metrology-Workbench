@@ -1,8 +1,8 @@
 import React from "react";
 import "./InstrumentSpecificationsButton.css";
 
-export default function InstrumentSpecificationsButton({ name, expanded, onClick }) {
-  const label = expanded ? "Hide Instrument Specifications" : "View or Edit Instrument Specifications";
+export default function InstrumentSpecificationsButton({ name, expanded, onClick, readOnly = false }) {
+  const label = expanded ? "Hide Instrument Specifications" : readOnly ? "View Instrument Specifications" : "View or Edit Instrument Specifications";
   return <button type="button" className="icon-btn-ghost instrument-library-specifications" title={label}
     aria-label={`${label} ${name}`} aria-expanded={expanded} onClick={onClick}>
     <svg viewBox="0 0 32 32" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">

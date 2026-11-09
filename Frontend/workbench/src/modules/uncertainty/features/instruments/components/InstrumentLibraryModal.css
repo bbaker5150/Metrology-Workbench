@@ -51,13 +51,4 @@
 .instrument-library-window tr:is(:hover, .selected-row, .instrument-selected) > .cell-sync .instrument-row-delete,
 .instrument-library-window .cell-sync:focus-within .instrument-row-delete { opacity: 1; pointer-events: auto; }
 
-.instrument-review-inbox { overflow: auto; padding: 0 12px 12px; }
-.instrument-review-inbox ~ .instrument-table-scroll { display: none; }
-.instrument-review-inbox h4 { margin: 10px 0; }
-.instrument-review-row { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; padding: 7px 0; border-top: 1px solid var(--border-color); }
-.instrument-review-row details { min-width: 0; flex: 1; overflow-wrap: anywhere; }
-.instrument-review-row summary { cursor: pointer; }
-.instrument-review-spec { margin: 4px 0 4px 12px; font-size: .82rem; }
-.instrument-review-spec > div { display: flex; align-items: baseline; gap: .75em; }
-.instrument-review-spec dt { font-weight: 600; text-transform: capitalize; }
-.instrument-review-spec dd { margin: 0; }
+.instrument-library-header .icon-btn-ghost[aria-pressed="true"] { color: var(--primary-color); background: var(--input-background); }

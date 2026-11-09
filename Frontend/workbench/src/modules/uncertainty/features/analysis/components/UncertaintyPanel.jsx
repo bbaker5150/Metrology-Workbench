@@ -2210,9 +2210,10 @@ const inlineDescInputStyle = {
   font: "inherit",
   width: "100%",
 };
-function associatedTypeBRecords(item, library) {
+function associatedTypeBRecords(item, library, submittedOnly = false) {
   const definition = item.instrument || {};
   if (Array.isArray(definition.typeBComponents)) return definition.typeBComponents;
+  if (submittedOnly) return [];
   const linkedId = item.libraryInstrumentId || definition.libraryInstrumentId || definition.id || definition.sourceId;
   const match = library?.find(entry => linkedId && sameId(entry.id, linkedId))
     || library?.find(entry => definition.sourceId && sameId(entry.id, definition.sourceId))
@@ -2221,7 +2222,7 @@ function associatedTypeBRecords(item, library) {
   return match?.typeBComponents || resolveInstrumentTypeB(item);
 }
 
-function InstrumentTypeBDialog({ target, session, library, onSave, onClose }) {
+function InstrumentTypeBDialog({ target, session, library, onSave, onClose, readOnly = false }) {
   if (!target) return null;
   const item = (target.kind === "uut" ? session.uuts : session.tmdes)?.find(row => sameId(row.id, target.id));
   if (!item) return null;
@@ -2235,8 +2236,8 @@ function InstrumentTypeBDialog({ target, session, library, onSave, onClose }) {
           <SymbolButton type="button" className="modal-close-button" aria-label="Close associated Type B" onClick={onClose} />
         </div>
         <div className="instrument-typeb-dialog-body">
-          <TypeBComponentsEditor components={associatedTypeBRecords(item, library)}
-            onChange={records => onSave(target.kind, { ...item, instrument: { ...item.instrument, typeBComponents: records } })}
+          <TypeBComponentsEditor components={associatedTypeBRecords(item, library, readOnly)} readOnly={readOnly}
+            onChange={readOnly ? undefined : records => onSave(target.kind, { ...item, instrument: { ...item.instrument, typeBComponents: records } })}
             referenceUnit={item.instrument?.functions?.[0]?.unit || item.tolerance?.unit || ""} />
         </div>
       </div>
@@ -2252,6 +2253,7 @@ export const EditableDescriptionCell = ({
   instruments = [],
   currentDefinitionId,
   onPickLibrary,
+  readOnly = false,
 }) => {
   const [local, setLocal] = useState({ make, model, name, nickname });
   const [editing, setEditing] = useState(false);
@@ -2406,10 +2408,10 @@ export const EditableDescriptionCell = ({
 
   const displayDescription = formatInstrumentIdentity({
     manufacturer: local.make, model: local.model, description: local.name, nickname: local.nickname,
-  }, "Click to add description");
+  }, readOnly ? "Untitled instrument" : "Click to add description");
   return (
     <div ref={anchorRef} className="inline-desc-cell">
-      {editing ? (
+      {readOnly ? <span className="inline-desc-combined">{displayDescription}</span> : editing ? (
         <div className="inline-desc-fields" onMouseDown={(e) => e.stopPropagation()}>
           <label className="inline-desc-field">
             <input {...props("make")} placeholder="Mfr." className="inline-desc-subinput" />
@@ -2541,7 +2543,7 @@ export const EditableDescriptionCell = ({
 // standard assumption for a least-significant-digit / quantization error.
 const RESOLUTION_DIST_DEFAULT = "3.464";
 
-const EditableCustomFieldCell = ({ value = "", onCommit, ariaLabel, editLabel, expandOnFocus = true }) => {
+const EditableCustomFieldCell = ({ value = "", onCommit, ariaLabel, editLabel, expandOnFocus = true, readOnly = false }) => {
   const [draft, setDraft] = useState(value ?? "");
   const [editing, setEditing] = useState(false);
   const inputRef = useRef(null);
@@ -2555,6 +2557,7 @@ const EditableCustomFieldCell = ({ value = "", onCommit, ariaLabel, editLabel, e
     setDraft(value ?? "");
     setEditing(false);
   };
+  if (readOnly) return <span className={`inline-tolerance-summary${value ? "" : " is-empty"}`}>{value || "Not Set"}</span>;
   if (!editing) {
     return (
       <button
@@ -2633,11 +2636,13 @@ const EditableCustomColumnHeader = ({
   onDelete,
   inputLabel = "Column name",
   onDraftChange,
+  readOnly = false,
 }) => {
   const editLabel = column.editLabel ?? column.label ?? "Name";
   const [draft, setDraft] = useState(editLabel);
   useEffect(() => { if (!editing) setDraft(editLabel); }, [editLabel, editing]);
   const finish = () => onCommit(String(draft || "").trim() || "Name");
+  if (readOnly) return <span className="instrument-custom-column-header"><span className="instrument-custom-column-label">{column.label || "Name"}</span></span>;
   if (!editing) {
     return (
       <span className="instrument-custom-column-header">
@@ -3080,7 +3085,7 @@ const InstrumentTableHeader = ({
                         <span>Range</span>
                       </span>
                     )
-                  : columnKey.startsWith("qualifier") ? <EditableCustomColumnHeader column={{ key: columnKey, label, editLabel: qualifierEditNames ? qualifierEditNames[Number(columnKey.slice(9) || 1) - 1] || "Qualifier" : label }} editing={editingQualifier === columnKey} onEdit={setEditingQualifier}
+                  : columnKey.startsWith("qualifier") ? <EditableCustomColumnHeader readOnly={!onRenameQualifier} column={{ key: columnKey, label, editLabel: qualifierEditNames ? qualifierEditNames[Number(columnKey.slice(9) || 1) - 1] || "Qualifier" : label }} editing={editingQualifier === columnKey} onEdit={setEditingQualifier}
                       inputLabel={`Qualifier ${Number(columnKey.slice(9) || 1)} column name`}
                       onDraftChange={name => onRenameQualifier?.(Number(columnKey.slice(9) || 1) - 1, name)}
                       onCommit={name => { onRenameQualifier?.(Number(columnKey.slice(9) || 1) - 1, name); setEditingQualifier(null); }} /> : label}
@@ -3539,7 +3544,9 @@ export const ResolutionCellInput = ({
   const summary = formatResolutionSummaryText(value, unit, fallbackUnit);
 
   if (!editable) {
-    return <>{summary || "Not Set"}</>;
+    const dist = errorDistributions.find(entry => String(entry.value) === String(distribution || RESOLUTION_DIST_DEFAULT));
+    return <span className="inline-tolerance-readview"><span className={`inline-tolerance-summary${summary ? "" : " is-empty"}`}
+      title={summary && dist ? dist.label : undefined}>{summary || "Not Set"}</span></span>;
   }
 
   if (!isEditing) {
@@ -3662,7 +3669,7 @@ export const InlineDistributionCell = ({ divisor, editable = true, onChange }) =
   // Read-only surfaces keep a compact label; editable tables use the shared
   // empty-state styling even before a tolerance band makes this cell active.
   if (!editable) {
-    return <>{label}</>;
+    return <span className="inline-tolerance-readview"><span className={`inline-tolerance-summary inline-distribution-summary${isUnset ? " is-empty" : ""}`}>{label}</span></span>;
   }
   if (!isEditing) {
     const open = (e) => {
@@ -4773,7 +4780,7 @@ const SingleSidedToleranceEditor = ({
 // The close is deferred so a blurred input commits before the editor unmounts.
 // Independent sources share the instrument description, but never participate
 // in range calculations. Selection and deletion share the range-row controls.
-export const InstrumentUncertaintyRow = ({ source, activeRange, referencePoint, style, onChange, onRemove, onAddSecondary, sourceIndex = 0, sourceCount = 1, rowProps = {}, selected = false, showRowActions = false, qualifierEnabled = false, renderCustomAfter = () => null }) => {
+export const InstrumentUncertaintyRow = ({ source, activeRange, referencePoint, style, onChange, onRemove, onAddSecondary, readOnly = false, sourceIndex = 0, sourceCount = 1, rowProps = {}, selected = false, showRowActions = false, qualifierEnabled = false, renderCustomAfter = () => null }) => {
   const sourceRowRef = useRef(null);
   useLayoutEffect(() => {
     if (sourceIndex !== 0) return undefined;
@@ -4813,7 +4820,7 @@ export const InstrumentUncertaintyRow = ({ source, activeRange, referencePoint, 
       {sourceIndex === 0 && <span className="instrument-uncertainty-rail" aria-label="Additional uncertainty"><span>{sourceCount === 1 ? <>ADD’L<br />UNC.</> : "ADD’L UNCERTAINTY"}</span></span>}
       <div className="range-row-cell">
       <div className="instrument-source-row-name">
-        {editingName ? <input className="instrument-custom-field-input instrument-source-name-input" style={{ width: `calc(${Math.max(5, (name || "Name").length)}ch + 16px)` }} aria-label="Uncertainty name" value={name} autoFocus
+        {readOnly ? <span className={`inline-tolerance-summary${source.name ? "" : " is-empty"}`}>{source.name || "Uncertainty"}</span> : editingName ? <input className="instrument-custom-field-input instrument-source-name-input" style={{ width: `calc(${Math.max(5, (name || "Name").length)}ch + 16px)` }} aria-label="Uncertainty name" value={name} autoFocus
           placeholder="Name" onChange={event => setName(event.target.value)}
           onBlur={() => { commitName(); setEditingName(false); }}
           onKeyDown={event => {
@@ -4821,7 +4828,7 @@ export const InstrumentUncertaintyRow = ({ source, activeRange, referencePoint, 
             if (event.key === "Enter") { event.preventDefault(); commitName(); setEditingName(false); setOpenEditor(true); }
           }} /> : <button type="button" className={`inline-tolerance-summary${source.name ? "" : " is-empty"}`} onClick={() => setEditingName(true)}>{source.name || "Uncertainty"}</button>}
       </div>
-        {showRowActions && <SymbolButton type="button" className="range-row-delete" title="Delete uncertainty" aria-label={`Remove ${source.name || "uncertainty"}`}
+        {!readOnly && showRowActions && <SymbolButton type="button" className="range-row-delete" title="Delete uncertainty" aria-label={`Remove ${source.name || "uncertainty"}`}
           onMouseDown={event => event.stopPropagation()}
           onClick={event => { event.stopPropagation(); onRemove(); }} />}
       </div>
@@ -4833,7 +4840,7 @@ export const InstrumentUncertaintyRow = ({ source, activeRange, referencePoint, 
       // Blurring it on pointer-down can resize the row and move the target.
       if (editingName && event.button === 0 && event.target.closest(".inline-tolerance-summary")) event.preventDefault();
     }}><InlineToleranceCell tolerance={tolerance} activeRange={activeRange}
-      referencePoint={referencePoint} biasRole="source" editable summaryOverride={summary} onAddSecondary={onAddSecondary}
+      referencePoint={referencePoint} biasRole="source" editable readOnly={readOnly} summaryOverride={summary} onAddSecondary={onAddSecondary}
       openRequested={openEditor} onOpenRequestHandled={() => setOpenEditor(false)}
       onCommit={(type, value) => {
         const updated = applyToleranceCaseChange(tolerance, type, value);
@@ -4842,7 +4849,7 @@ export const InstrumentUncertaintyRow = ({ source, activeRange, referencePoint, 
           ...(tmdeUncertaintyDefinition ? { dynamicDefinition: tmdeUncertaintyDefinition } : {}) });
       }} /></td>
     {renderCustomAfter("tolerance")}
-    <td className="cell-distribution"><InlineDistributionCell
+    <td className="cell-distribution"><InlineDistributionCell editable={!readOnly}
       divisor={getBandDistDivisor(tolerance)}
       onChange={distribution => onChange(kind === "parametric" ? { ...source, tolerance: {
         ...applyBandDistribution(source.tolerance || {}, distribution), bandDistribution: distribution,
@@ -4862,6 +4869,7 @@ export const InlineToleranceCell = ({
   measurementPoint = referencePoint,
   dynamicComponent,
   editable,
+  readOnly = false,
   showMeasurementStatus = false,
   biasRole,
   onCommit,
@@ -4923,14 +4931,14 @@ export const InlineToleranceCell = ({
   // Start at the saved magnitude, or the top magnitude for an empty source.
   // The full-scale reference is not a tolerance magnitude.
   useLayoutEffect(() => {
-    if (!isEditing || !containerRef.current) return;
+    if (readOnly || !isEditing || !containerRef.current) return;
     const inputs = Array.from(containerRef.current.querySelectorAll(selectedType !== "parametric"
       ? '.dynamic-equation-entry input, .dynamic-budget-editor input:not([disabled])'
       : '.inline-tolerance-input:not(.inline-tolerance-input--fs):not([disabled])'));
     const firstControl = (selectedType === "parametric" && inputs.find(input => input.value.trim() !== "")) || inputs[0];
     firstControl?.focus({ preventScroll: true });
     firstControl?.select();
-  }, [isEditing, selectedType, selectedSourceId, dynamicModebarTarget]);
+  }, [readOnly, isEditing, selectedType, selectedSourceId, dynamicModebarTarget]);
 
   const dismissToleranceEditor = useCallback(() => { setIsEditing(false); }, []);
   useInlineColumnDismiss({
@@ -4940,6 +4948,7 @@ export const InlineToleranceCell = ({
   });
 
   const updateSelectedSource = patch => {
+    if (readOnly) return;
     if (selectedSecondary) {
       onCommit("__replace__", { ...tolerance, tmdeSecondaryUncertainties: secondarySources.map(source =>
         source.id === selectedSecondary.id ? { ...source, ...patch } : source) });
@@ -4948,6 +4957,7 @@ export const InlineToleranceCell = ({
     }
   };
   const commitSelectedTolerance = (typeKey, component) => {
+    if (readOnly) return;
     if (!selectedSecondary) return onCommit(typeKey, component);
     updateSelectedSource({ tolerance: applyToleranceCaseChange(selectedTolerance, typeKey, component) });
   };
@@ -4971,8 +4981,8 @@ export const InlineToleranceCell = ({
         <button
           type="button"
           className={`inline-tolerance-summary${hasValue ? "" : " is-empty"}${tolerance.whicheverIsGreater ? " is-alternative" : ""}`}
-          title={hasValue ? (tolerance.whicheverIsGreater ? getSpecRows(tolerance)[0] : "Edit tolerance") : "Set tolerance"}
-          aria-label={hasValue ? undefined : "Set tolerance"}
+          title={readOnly ? "Inspect tolerance" : hasValue ? (tolerance.whicheverIsGreater ? getSpecRows(tolerance)[0] : "Edit tolerance") : "Set tolerance"}
+          aria-label={hasValue ? undefined : readOnly ? "Inspect tolerance" : "Set tolerance"}
           onMouseDown={(event) => {
             event.stopPropagation();
             if (event.button !== 0) return;
@@ -4989,7 +4999,7 @@ export const InlineToleranceCell = ({
         </button>
         {secondarySources.length > 0 && <span className="instrument-secondary-pills">
           {secondarySources.map(source => <button type="button" key={source.id}
-            className="instrument-secondary-pill" title={`Edit ${source.name}`}
+            className="instrument-secondary-pill" title={`${readOnly ? "Inspect" : "Edit"} ${source.name}`}
             onClick={event => { event.stopPropagation(); setSelectedSourceId(source.id); setIsEditing(true); }}>
             + {source.name}
           </button>)}
@@ -4999,6 +5009,7 @@ export const InlineToleranceCell = ({
   }
 
   const commitEditorMode = (nextShape, nextSidedness) => {
+    if (readOnly) return;
     const normalizedSidedness =
       nextShape === "asymmetric" && nextSidedness === "single"
         ? "single"
@@ -5014,6 +5025,10 @@ export const InlineToleranceCell = ({
     );
   };
 
+  // A disabled fieldset preserves the existing specification layout and
+  // native controls while keeping source navigation outside it interactive.
+  const ManualControls = readOnly ? "fieldset" : React.Fragment;
+  const manualControlProps = readOnly ? { disabled: true, style: { display: "contents" } } : {};
   return (
     <div
       ref={containerRef}
@@ -5027,7 +5042,7 @@ export const InlineToleranceCell = ({
           dismissToleranceEditor();
           return;
         }
-        if (event.key !== "Tab" || event.shiftKey) return;
+        if (readOnly || event.key !== "Tab" || event.shiftKey) return;
         const controls = Array.from(
           containerRef.current?.querySelectorAll(
             "input:not([disabled]), select:not([disabled]), button:not([disabled])",
@@ -5052,6 +5067,7 @@ export const InlineToleranceCell = ({
           <button
             type="button"
             className={shapeMode === "symmetric" ? "is-active" : ""}
+            disabled={readOnly}
             aria-pressed={shapeMode === "symmetric"}
             title="Symmetric tolerance"
             onClick={() => commitEditorMode("symmetric", "double")}
@@ -5061,6 +5077,7 @@ export const InlineToleranceCell = ({
           <button
             type="button"
             className={shapeMode === "asymmetric" ? "is-active" : ""}
+            disabled={readOnly}
             aria-pressed={shapeMode === "asymmetric"}
             title="Asymmetric tolerance"
             onClick={() => commitEditorMode("asymmetric", sidedness)}
@@ -5072,6 +5089,7 @@ export const InlineToleranceCell = ({
           <button
             type="button"
             className={sidedness === "double" ? "is-active" : ""}
+            disabled={readOnly}
             aria-pressed={sidedness === "double"}
             title="Double-sided tolerance"
             onClick={() => commitEditorMode(shapeMode, "double")}
@@ -5087,7 +5105,7 @@ export const InlineToleranceCell = ({
                 ? "Single-sided tolerance"
                 : "Single-sided tolerances are asymmetric"
             }
-            disabled={shapeMode !== "asymmetric"}
+            disabled={readOnly || shapeMode !== "asymmetric"}
             onClick={() => commitEditorMode("asymmetric", "single")}
           >
             SS
@@ -5096,9 +5114,9 @@ export const InlineToleranceCell = ({
         {activeBiasRole && <div className="inline-tolerance-mini-toggle" role="group" aria-label="Bias controls">
           <button type="button" className={showBias ? "is-active" : ""}
             aria-pressed={showBias} aria-expanded={showBias}
-            title="Edit bias" onClick={() => {
+            title={readOnly ? "Inspect bias" : "Edit bias"} disabled={readOnly && selectedTolerance.bias?.value == null} onClick={() => {
               // Turning Bias off removes the offset, rather than merely hiding it.
-              if (showBias) {
+              if (showBias && !readOnly) {
                 const { bias: removedBias, ...withoutBias } = selectedTolerance;
                 commitSelectedTolerance("__replace__", withoutBias);
               }
@@ -5107,7 +5125,7 @@ export const InlineToleranceCell = ({
         </div>}
       </div>
       </>}
-      {(biasRole === "tmde" || biasRole === "source" || onAddSecondary || onUncertaintyKindChange) && <div className="instrument-source-toolbar">
+      {!readOnly && (biasRole === "tmde" || biasRole === "source" || onAddSecondary || onUncertaintyKindChange) && <div className="instrument-source-toolbar">
         <div className="instrument-source-actions">
           <UncertaintyTypeMenu value={selectedType} onChange={kind => {
             if (onUncertaintyKindChange) return onUncertaintyKindChange(kind);
@@ -5135,7 +5153,7 @@ export const InlineToleranceCell = ({
         </div>
       </div>}
       </div>
-      {selectedType === "parametric" ? <>
+      {selectedType === "parametric" ? <ManualControls {...manualControlProps}>
       {(sidedness === "single"
         ? TOLERANCE_TYPE_OPTIONS.filter((opt) => opt.key === "singleSided")
         : TOLERANCE_TYPE_OPTIONS.filter((opt) => opt.key !== "singleSided")
@@ -5185,11 +5203,12 @@ export const InlineToleranceCell = ({
         <BiasValueEditor label={activeBiasRole === "uut" ? "Range UUT bias" : "Range source bias"}
           value={selectedTolerance.bias} unit={activeRange.unit || referencePoint?.unit}
           onChange={bias => commitSelectedTolerance("__replace__", { ...selectedTolerance, bias: { ...bias, corrected: false } })} />
-        {selectedTolerance.bias?.corrected && <span className="instrument-bias-legacy-correction">Saved as corrected; editing the bias makes it active.</span>}
+        {selectedTolerance.bias?.corrected && <span className="instrument-bias-legacy-correction">{readOnly ? "Saved as corrected" : "Saved as corrected; editing the bias makes it active."}</span>}
       </div>}
       </div>}
-      </> : <>
+      </ManualControls> : <>
         <DynamicUncertaintyFields definition={selectedDefinition || createDynamicDefinition(selectedType, referencePoint || activeRange)}
+          readOnly={readOnly}
           component={dynamicComponent} measurementPoint={measurementPoint || referencePoint || activeRange}
           referencePoint={referencePoint || activeRange} UnitSelectComponent={UnitSelect} showPreview={false} modebarTarget={dynamicModebarTarget}
           onChange={patch => updateSelectedSource(selectedSecondary ? { dynamicDefinition: { ...selectedDefinition, ...patch } } : { tmdeUncertaintyDefinition: { ...selectedDefinition, ...patch } })} />
@@ -5259,6 +5278,7 @@ export const RangeCell = ({
   activeIndex,
   activeRange = {},
   editable,
+  readOnly = false,
   onSelect,
   onEditBound,
   onEditUnit,
@@ -5348,13 +5368,16 @@ export const RangeCell = ({
 
   // Keep read/edit DOM separate: a summary press can open the editor before
   // mouseup, and must never turn into a click on a newly mounted input.
-  if (!showEditor) {
+  if (!showEditor || readOnly) {
     const rangeSummary = textMode ? formatQualifierValue(activeRange) : formatRangeSummary(activeRange);
     // Use the same blank-cell affordance as an unentered range in the expanded
     // editor. `rangeSummary` remains the source of truth for expand-vs-edit.
     // An empty range is a valid all-values specification, not required data
     // that the user has omitted. Match the other unset instrument fields.
     const summary = rangeSummary || "Not Set";
+    if (readOnly) return <div className="inline-range-editor"><div className="inline-range-main">
+      <span className={`inline-tolerance-summary${rangeSummary ? "" : " is-empty"}`}>{summary}</span>
+    </div></div>;
     const openEditor = (e) => {
       e.stopPropagation();
       // A blank initial range should open its own inputs immediately. Only an
@@ -7016,9 +7039,16 @@ const QuickAddRow = ({
   );
 };
 
+const cancelReviewDrag = event => {
+  event.preventDefault();
+  event.stopPropagation();
+};
+
 // --- UPDATED: SUMMARY DASHBOARD ---
 const SummaryDashboard = ({
   libraryMode = false,
+  libraryReviewMode = false,
+  libraryEmptyMessage,
   libraryToolbar,
   onReviewSubmission,
   libraryRenderSpecifications,
@@ -7059,7 +7089,10 @@ const SummaryDashboard = ({
   keyboardShortcutsEnabled = true,
   onInstrumentSelection: onWorkspaceInstrumentSelection = () => {},
 }) => {
-  const onInstrumentSelection = () => { claimWorkspaceSelection(libraryMode ? "library" : "instruments"); onWorkspaceInstrumentSelection(); };
+  const onInstrumentSelection = () => {
+    if (!libraryReviewMode) claimWorkspaceSelection(libraryMode ? "library" : "instruments");
+    onWorkspaceInstrumentSelection();
+  };
   sessionData = useMemo(() => migrateMeasurementAreas(sessionData), [sessionData]);
   const getRangeView = useMemo(() => createInstrumentRangeViewCache(), [sessionData.uuts, sessionData.tmdes]);
   const latestSessionDataRef = useRef(sessionData);
@@ -7096,6 +7129,9 @@ const SummaryDashboard = ({
     [summaryFunctionColorByKey],
   );
   const { syncToShared, getDiff } = useInstrumentSync(onInstrumentSynced);
+  const renderTmdeSyncBadge = item => <SyncBadge item={item} onReview={onReviewSubmission}
+    allowSessionDemotion={!libraryMode} onSync={libraryReviewMode ? undefined : () => handleSyncItem("tmde", item)}
+    onDemote={libraryReviewMode ? undefined : () => handleDemoteItem("tmde", item)} />;
   const libraryColumnItems = libraryMode ? sessionData.tmdes.filter(item => libraryExpandedIds.includes(item.id))
     .sort((a, b) => (libraryVisibleIds || libraryExpandedIds).indexOf(a.id) - (libraryVisibleIds || libraryExpandedIds).indexOf(b.id)) : sessionData.tmdes;
   const libraryHeaderItem = libraryMode ? libraryColumnItems.find(item => item.id === (libraryActiveId ?? currentTmdeSelection?.at(-1)))
@@ -7195,7 +7231,7 @@ const SummaryDashboard = ({
     setEditingCustomColumnKey(null);
   };
   const renderCustomColumnHeader = (kind, column) => (
-    <EditableCustomColumnHeader
+    <EditableCustomColumnHeader readOnly={libraryReviewMode}
       column={column}
       editing={editingCustomColumnKey === column.key}
       onEdit={setEditingCustomColumnKey}
@@ -7227,7 +7263,7 @@ const SummaryDashboard = ({
       const group = instrumentCustomFieldGroup(item, column.key, rows, index);
       if (!group) return null;
       return <td key={column.key} data-custom-column={`custom:${column.key}`} rowSpan={rows ? group.rangeIds.length : rowSpan} className="instrument-custom-field-cell">
-        <EditableCustomFieldCell value={group.value}
+        <EditableCustomFieldCell value={group.value} readOnly={libraryReviewMode}
           onCommit={(value) => updateCustomField(kind, item.id, column.key, value, group.rangeIds)} />
       </td>;
     });
@@ -8607,7 +8643,7 @@ const SummaryDashboard = ({
 
     const qualifierEnabled = (kind === "uut" ? uutTableColumns : tmdeTableColumns).qualifierEnabled;
     const splitQualifierCells = customColumnsFor(kind).some(column => column.insertAfter === "range" || column.insertAfter?.startsWith("qualifier"));
-    const span = rangeView.rowSpan(range);
+    const span = libraryReviewMode && !rangeView.rows.length ? 1 : rangeView.rowSpan(range);
     const updateQualifier = (action, patch, depth = 1) => {
       const current = (latestSessionDataRef.current[kind === "uut" ? "uuts" : "tmdes"] || []).find(entry => sameId(entry.id, item.id)) || item;
       const exists = getInstrumentRangeRows(current).some(row => sameId(rangeIdOf(row), rangeKey));
@@ -8631,7 +8667,7 @@ const SummaryDashboard = ({
           <div
             className={`range-row-cell${showRangeActions ? "" : " range-row-cell--without-actions"}${hasBlankRange([range]) ? " range-row-cell--blank" : ""}`}
           >
-            <RangeCell
+            <RangeCell readOnly={libraryReviewMode}
               ranges={[range]}
               closeKey={Boolean(range.qualifier)}
               activeIndex={0}
@@ -8687,7 +8723,7 @@ const SummaryDashboard = ({
             .some(row => (selectedRangeIds[itemStateKey(kind, item.id)] || []).some(id => sameId(id, rangeIdOf(row))));
           return <React.Fragment key={depth}><td rowSpan={rowSpan} colSpan={qualifier.qualifier || splitQualifierCells ? 1 : Number(qualifierEnabled) - depth + 1} data-range-cell="true" data-qualifier-cell={depth} data-actions-selected={actionsSelected || undefined} className="cell-value qualifier-range-cell" onContextMenu={event => openRangeRowMenu(event, kind, item, range, rangeIndex)}>
             <div className="range-row-cell">
-              <RangeCell ranges={[qualifier]} activeIndex={0} activeRange={{ ...qualifier, id: `${rangeKey}:qualifier:${depth}` }} editable textMode
+              <RangeCell ranges={[qualifier]} activeIndex={0} activeRange={{ ...qualifier, id: `${rangeKey}:qualifier:${depth}` }} editable readOnly={libraryReviewMode} textMode
                 closeKey={Boolean(qualifier.qualifier)}
                 onEditBound={(field, value) => updateQualifier("patch", { [field]: value }, depth)}
                 onEditUnit={unit => updateQualifier("patch", { unit }, depth)}
@@ -8695,11 +8731,11 @@ const SummaryDashboard = ({
                 openRequested={pendingQualifierEditKey === `${kind}:${item.id}:${rangeKey}:${depth}`}
                 onOpenRequestHandled={() => setPendingQualifierEditKey(null)}
                 onAdvanceRange={() => updateQualifier("add", {}, depth)} />
-              <span className="range-row-controls">
+              {!libraryReviewMode && <span className="range-row-controls">
                 {!qualifier.qualifier && <button type="button" className="range-qualifier-add" aria-label="Add nested qualifier" title="Add qualifier" onMouseDown={event => event.stopPropagation()} onClick={event => { event.stopPropagation(); updateQualifier("enable", {}, depth + 1); }}>+ Qual</button>}
                 <SymbolButton add type="button" className="range-row-add" title="Add qualifier range" aria-label="Add qualifier range" onClick={event => { event.stopPropagation(); updateQualifier("add", {}, depth); }} />
                 <SymbolButton type="button" className="range-row-delete" title="Delete qualifier range" aria-label="Delete qualifier range" onClick={event => { event.stopPropagation(); updateQualifier("remove", {}, depth); }} />
-              </span>
+              </span>}
             </div>
           </td>{custom}</React.Fragment>;
         })}
@@ -8709,7 +8745,7 @@ const SummaryDashboard = ({
           className="cell-tolerance"
           title={(kind === "uut" ? getUutSpecRows(tolerance) : getSpecRows(tolerance))[0]}
         >
-          <InlineToleranceCell biasRole={kind}
+          <InlineToleranceCell biasRole={kind} readOnly={libraryReviewMode}
             onAddSecondary={kind === "tmde" ? type => addInstrumentSource(item, type, range) : undefined}
             tolerance={tolerance}
             activeRange={range}
@@ -8735,6 +8771,7 @@ const SummaryDashboard = ({
           <>
             <td className="cell-distribution" title="Spec band distribution">
               <InlineDistributionCell
+                editable={!libraryReviewMode}
                 divisor={getBandDistDivisor(tolerance)}
                 onChange={(value) =>
                   setRangeBandDistribution(kind, item, rangeKey, value)
@@ -8749,7 +8786,7 @@ const SummaryDashboard = ({
           className="cell-value"
           title={formatResolutionLabel(range)}
         >
-          <ResolutionCellInput
+          <ResolutionCellInput editable={!libraryReviewMode}
             value={range?.resolution ?? range?.measuringResolution}
             unit={range?.resolutionUnit ?? range?.measuringResolutionUnit}
             fallbackUnit={range?.unit}
@@ -9235,6 +9272,15 @@ const SummaryDashboard = ({
   };
 
   const openInstrumentRowMenu = (e, kind, item) => {
+    if (libraryReviewMode) {
+      if (!associatedTypeBRecords(item, instruments, true).length) return;
+      e.preventDefault();
+      e.stopPropagation();
+      setRowMenu({ x: e.clientX, y: e.clientY, items: [{
+        label: "View associated Type B", icon: faFlask, action: () => setTypeBEditor({ kind, id: item.id }),
+      }] });
+      return;
+    }
     if (!onSessionSave) return;
     selectedInstrumentAreasRef.current[`${kind}:${item.id}`] = pasteAreaFromEvent(e, item);
     pasteDestinationRef.current = { kind, areaKey: pasteAreaFromEvent(e, item), targetId: item.id };
@@ -10097,7 +10143,9 @@ const SummaryDashboard = ({
           ref={tmdeTableHeight.containerRef}
           className="panel-table-container instrument-panel-table-container"
           data-tour="tmde-table"
-          {...libraryInstrumentDropHandlers(latestSessionDataRef, onSessionSave, "tmde", sessionData.id === "instrument-library")}
+          {...(libraryReviewMode ? {
+            onDragStartCapture: cancelReviewDrag, onDragOverCapture: cancelReviewDrag, onDropCapture: cancelReviewDrag,
+          } : libraryInstrumentDropHandlers(latestSessionDataRef, onSessionSave, "tmde", sessionData.id === "instrument-library"))}
           style={tmdeTableHeight.containerStyle}
         >
           <table
@@ -10120,11 +10168,11 @@ const SummaryDashboard = ({
               libraryMode={libraryMode}
               qualifierNames={libraryMode ? instrumentQualifierNames(libraryColumnItems) : sessionData.qualifierColumnNames?.tmde || []}
               qualifierEditNames={libraryMode ? Array.from({ length: instrumentQualifierDepth(libraryColumnItems) }, (_, index) => libraryQualifierOwner(index)?.instrument?.qualifierColumnNames?.[index]) : undefined}
-              onRenameQualifier={(index, name) => { if (libraryMode) { renameLibraryQualifier(index, name); return; } const names = [...(sessionData.qualifierColumnNames?.tmde || [])]; names[index] = name; onSessionSave({ ...sessionData, qualifierColumnNames: { ...sessionData.qualifierColumnNames, tmde: names } }); }}
+              onRenameQualifier={libraryReviewMode ? undefined : (index, name) => { if (libraryMode) { renameLibraryQualifier(index, name); return; } const names = [...(sessionData.qualifierColumnNames?.tmde || [])]; names[index] = name; onSessionSave({ ...sessionData, qualifierColumnNames: { ...sessionData.qualifierColumnNames, tmde: names } }); }}
               customColumns={customColumnsFor("tmde")}
               columns={tmdeTableColumns}
               renderCustomColumnHeader={renderCustomColumnHeader}
-              onInsertAfter={tmdeNamesOnly ? undefined : (columnKey) => requestCustomColumn("tmde", columnKey)}
+              onInsertAfter={tmdeNamesOnly || libraryReviewMode ? undefined : (columnKey) => requestCustomColumn("tmde", columnKey)}
             /></>}
             {libraryMode && !libraryExpandedIds.length && <>
               <colgroup><col /><col style={{ "--instrument-live-column-width": "92px" }} /></colgroup>
@@ -10134,7 +10182,7 @@ const SummaryDashboard = ({
               {groupedTmdeRows.length === 0 ? (libraryMode ? (
                 <tr className="panel-empty-row">
                   <td colSpan={libraryMode && !libraryExpandedIds.length ? 2 : getInstrumentColumnOrder("tmde", customColumnsFor("tmde"), tmdeTableColumns.qualifierEnabled).length}>
-                    <span>No instruments match. Add an instrument or adjust your search.</span>
+                    <span>{libraryEmptyMessage || (libraryReviewMode ? "No instruments are awaiting validation." : "No instruments match. Add an instrument or adjust your search.")}</span>
                   </td>
                 </tr>
               ) : null) : (
@@ -10158,6 +10206,7 @@ const SummaryDashboard = ({
                       {renderInstrumentDeleteButton("tmde", tmde, tmdeFnKey)}
                       <tr data-instrument-id={tmde.id} data-measurement-area={tmdeFnKey} style={functionRowStyle(tmdeFnKey)} draggable={false}
                         onDragStart={event => onLibraryDragStart?.(event, tmde.id)}
+                        onContextMenu={event => openInstrumentRowMenu(event, "tmde", tmde)}
                         onClick={event => {
                           if (event.target.closest('button:not(.instrument-library-name), input, select, a')) return;
                           handleTmdeClick(event, tmde.id, true);
@@ -10175,7 +10224,7 @@ const SummaryDashboard = ({
                       </td>
                       <td className="cell-sync">
                         <div className="instrument-row-tools">
-                          <SyncBadge item={tmde} onReview={onReviewSubmission} allowSessionDemotion={false} onSync={() => handleSyncItem("tmde", tmde)} onDemote={() => handleDemoteItem("tmde", tmde)} />
+                          {renderTmdeSyncBadge(tmde)}
                           {renderInstrumentDeleteButton("tmde", tmde, tmdeFnKey, true)}
                         </div>
                       </td>
@@ -10209,7 +10258,7 @@ const SummaryDashboard = ({
                   // Expanded "view all ranges": one real <tr> per range (see the
                   // UUT block above for the rationale). TMDE adds the Distribution
                   // per-range cell.
-                  if (showAllRanges || visibleRangeRows.length > 1 || ranges.length === 1) {
+                  if (libraryReviewMode || showAllRanges || visibleRangeRows.length > 1 || ranges.length === 1) {
                     const n = visibleRangeRows.length;
                     const sources = instrumentUncertaintySources(tmde);
                     const spanRows = n + sources.length;
@@ -10259,7 +10308,7 @@ const SummaryDashboard = ({
                                     onMoveUp={() => moveInstrument("tmde", tmde.id, tmdeFnKey, -1)}
                                     onMoveDown={() => moveInstrument("tmde", tmde.id, tmdeFnKey, 1)}
                                   />}
-                                  <EditableDescriptionCell
+                                  <EditableDescriptionCell readOnly={libraryReviewMode}
                                     name={tmde.name}
                                     nickname={tmde.nickname}
                                     make={tmde.instrument?.manufacturer}
@@ -10294,7 +10343,7 @@ const SummaryDashboard = ({
                                   style={{ textAlign: "center" }}
                                 >
                                   <div className="instrument-row-tools">
-                                    <SyncBadge item={tmde} onReview={onReviewSubmission} allowSessionDemotion={!libraryMode} onSync={() => handleSyncItem("tmde", tmde)} onDemote={() => handleDemoteItem("tmde", tmde)} />
+                                    {renderTmdeSyncBadge(tmde)}
                                     {libraryMode && renderInstrumentDeleteButton("tmde", tmde, tmdeFnKey, true)}
                                   </div>
                                 </td>
@@ -10302,7 +10351,7 @@ const SummaryDashboard = ({
                             </tr>
                           );
                         })}
-                      {sources.map((source, sourceIndex) => <InstrumentUncertaintyRow qualifierEnabled={tmdeTableColumns.qualifierEnabled} key={source.id} source={source} sourceIndex={sourceIndex} sourceCount={sources.length}
+                      {sources.map((source, sourceIndex) => <InstrumentUncertaintyRow readOnly={libraryReviewMode} qualifierEnabled={tmdeTableColumns.qualifierEnabled} key={source.id} source={source} sourceIndex={sourceIndex} sourceCount={sources.length}
                             onAddSecondary={type => addInstrumentSource(tmde, type, activeRange)}
                             showRowActions={lastSelectionTarget === "range" && selectedRangeIds[itemStateKey("tmde", tmde.id)]?.includes(uncertaintyRowId(source.id))}
                             selected={selectedRangeIds[itemStateKey("tmde", tmde.id)]?.includes(uncertaintyRowId(source.id)) ?? isSelected}
@@ -10313,7 +10362,7 @@ const SummaryDashboard = ({
                               "data-measurement-area": tmdeFnKey,
                               onMouseDownCapture: event => selectRangeRow(event, "tmde", tmde, null, uncertaintyRowId(source.id), tmdeRowKey),
                               onClickCapture: event => { if (event.ctrlKey || event.metaKey || event.shiftKey) { event.preventDefault(); event.stopPropagation(); } },
-                              onContextMenu: event => openUncertaintyRowMenu(event, tmde, source),
+                              onContextMenu: event => libraryReviewMode ? openInstrumentRowMenu(event, "tmde", tmde) : openUncertaintyRowMenu(event, tmde, source),
                             }}
                             style={functionRowStyle(tmdeFnKey)}
                             activeRange={activeRange}
@@ -10609,7 +10658,7 @@ const SummaryDashboard = ({
                           style={{ textAlign: "center" }}
                         >
                           <div className="instrument-row-tools">
-                            <SyncBadge item={tmde} onReview={onReviewSubmission} allowSessionDemotion={!libraryMode} onSync={() => handleSyncItem("tmde", tmde)} onDemote={() => handleDemoteItem("tmde", tmde)} />
+                            {renderTmdeSyncBadge(tmde)}
                             {libraryMode && renderInstrumentDeleteButton("tmde", tmde, tmdeFnKey, true)}
                           </div>
                         </td>
@@ -10651,7 +10700,7 @@ const SummaryDashboard = ({
 
       <ContextMenu menu={rowMenu} onClose={() => setRowMenu(null)} />
 
-      <InstrumentTypeBDialog target={typeBEditor} session={sessionData} library={instruments} onSave={persistInlineItem} onClose={() => setTypeBEditor(null)} />
+      <InstrumentTypeBDialog target={typeBEditor} session={sessionData} library={instruments} readOnly={libraryReviewMode} onSave={persistInlineItem} onClose={() => setTypeBEditor(null)} />
                                 </div>
                               );
 };
@@ -17391,6 +17440,8 @@ const UncertaintyPanel = (props) => {
     return (
       <SummaryDashboard
         libraryMode={props.libraryMode}
+        libraryReviewMode={props.libraryReviewMode}
+        libraryEmptyMessage={props.libraryEmptyMessage}
         libraryToolbar={props.libraryToolbar}
         onReviewSubmission={props.onReviewSubmission}
         libraryRenderSpecifications={props.libraryRenderSpecifications}
@@ -17398,7 +17449,7 @@ const UncertaintyPanel = (props) => {
         libraryExpandedIds={props.libraryExpandedIds}
         libraryActiveId={props.libraryActiveId}
         onLibraryExpand={props.onLibraryExpand}
-        onLibraryDragStart={props.onLibraryDragStart}
+        onLibraryDragStart={props.libraryReviewMode ? undefined : props.onLibraryDragStart}
         viewMode={viewMode}
         contextId={testPointData.id}
         rangeData={testPointData.rangeData}
@@ -17420,17 +17471,17 @@ const UncertaintyPanel = (props) => {
         onSelectTestPoint={props.onSelectTestPoint}
         // New Actions Passed Down
         onDeleteUut={props.onDeleteUut}
-        onDeleteTmdeDefinition={props.onDeleteTmdeDefinition}
-        onSessionSave={props.onSessionSave}
+        onDeleteTmdeDefinition={props.libraryReviewMode ? undefined : props.onDeleteTmdeDefinition}
+        onSessionSave={props.libraryReviewMode ? undefined : props.onSessionSave}
         instruments={props.instruments || []}
-        onDeleteLibraryInstrument={props.onDeleteLibraryInstrument}
-        onSaveInstrument={props.onSaveInstrument}
+        onDeleteLibraryInstrument={props.libraryReviewMode ? undefined : props.onDeleteLibraryInstrument}
+        onSaveInstrument={props.libraryReviewMode ? undefined : props.onSaveInstrument}
         onInstrumentSynced={props.onInstrumentSynced}
         showToast={props.showToast}
         setNotification={props.setNotification}
         collapsedFunctionKeys={collapsedFunctionKeys}
         setCollapsedFunctionKeys={setCollapsedFunctionKeys}
-        keyboardShortcutsEnabled={props.keyboardShortcutsEnabled}
+        keyboardShortcutsEnabled={props.libraryReviewMode ? false : props.keyboardShortcutsEnabled}
         onInstrumentSelection={props.onInstrumentSelection}
       />
     );

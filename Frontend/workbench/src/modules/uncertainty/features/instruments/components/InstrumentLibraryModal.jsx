@@ -3,10 +3,9 @@ import React, { useEffect, useLayoutEffect, useMemo, useRef, useState } from "re
 import ReactDOM from "react-dom";
 import axios from "axios";
 import { UNCERTAINTY_API } from "../../../constants/constants";
-import { buildValidatedSnapshot } from "../../../utils/instrumentSync";
 import { instrumentRequestConfig } from "../../../utils/deviceKey";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faSearch, faTools, faPlus, faBookOpen, faInbox, faLink } from "@fortawesome/free-solid-svg-icons";
+import { faSearch, faTools, faPlus, faBookOpen, faInbox } from "@fortawesome/free-solid-svg-icons";
 import { LIBRARY_INSTRUMENT_MIME } from "../../../utils/libraryInstrumentDrag";
 import UncertaintyPanel from "../../analysis/components/UncertaintyPanel";
 import NotificationModal from "../../../components/modals/NotificationModal";
@@ -18,14 +17,6 @@ import "./InstrumentLibraryModal.css";
 import InstrumentSpecificationsButton from "./InstrumentSpecificationsButton";
 import { claimWorkspaceSelection, WORKSPACE_SELECTION_EVENT } from "../../../utils/workspaceSelection";
 
-function ReviewSpecifications({ value }) {
-  if (value == null || typeof value !== "object") return String(value ?? "—");
-  return <dl className="instrument-review-spec">{Object.entries(value).filter(([key, child]) =>
-    key !== "id" && child != null && child !== "" && (typeof child !== "object" || Object.keys(child).length > 0)
-  ).map(([key, child]) => <div key={key}><dt>{Array.isArray(value) ? child?.name || Number(key) + 1 : key.replace(/([a-z])([A-Z])/g, "$1 $2")}</dt>
-    <dd><ReviewSpecifications value={child} /></dd></div>)}</dl>;
-}
-
 const libraryEntries = instruments => instruments.filter(item => item.scope !== "session");
 const rowFor = instrument => ({ id: instrument.id, name: instrument.description || "", nickname: instrument.nickname || "", instrument,
   customFields: instrument.customFields, rangeCustomFields: instrument.rangeCustomFields });
@@ -34,35 +25,60 @@ const definitionFor = row => ({ ...row.instrument, description: row.name || "", 
   ...(row.customFields ? { customFields: row.customFields } : {}),
   ...(row.rangeCustomFields ? { rangeCustomFields: row.rangeCustomFields } : {}),
 });
-const initialSession = instruments => ({ id: "instrument-library", tmdes: libraryEntries(instruments).map(rowFor), uuts: [], testPoints: [], measurementAreas: [], measurementAreaGroups: [] });
+const emptyInstruments = [];
+const tableSession = (id, tmdes) => ({ id, tmdes, uuts: [], testPoints: [], measurementAreas: [], measurementAreaGroups: [] });
 const libraryPoint = { id: "instrument-library", viewMode: "session" };
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+const submissionId = review => String(review.reviewId ?? review.id);
+const reviewRowId = review => `review-${submissionId(review)}`;
 
-// The library is an adapter around the actual overview instrument table. Range
-// rendering, editors, selection, clipboard and creation all stay in that table.
-export default function InstrumentLibraryModal({ isOpen, onClose, instruments = [], onSaveToLibrary, onDelete, onInstrumentSynced, flushLibraryRef, libraryDraftRows, onChangeDrafts, zoom = 1 }) {
-  const [reviewState, setReviewState] = useState({ canValidate: false, reviews: [] });
-  const [inboxOpen, setInboxOpen] = useState(false);
-  const [reviewAttempt, setReviewAttempt] = useState(0);
-  const validating = useRef(false);
-  useEffect(() => {
-    if (!isOpen) { setInboxOpen(false); return; }
-    let active = true;
-    axios.get(`${UNCERTAINTY_API}/instrument-reviews/`, instrumentRequestConfig()).then(({ data }) => {
-      if (active) setReviewState({ canValidate: data?.canValidate === true, reviews: data?.reviews || [] });
-    }).catch(() => { if (active) setReviewState({ canValidate: false, reviews: [], error: "Could not load validation access." }); });
-    return () => { active = false; };
-  }, [isOpen, inboxOpen, reviewAttempt]);
-  const dragSelection = useRef(null);
-  const [session, setSession] = useState(() => initialSession(instruments));
-  const current = useRef(session);
-  // A blank created by Add is local to this window until its first committed
-  // edit. Existing empty library records and pasted records are ordinary rows.
-  const newRows = useRef(new Set());
+function useLibraryBrowseState() {
   const [selection, setSelection] = useState([]);
   const [expandedIds, setExpandedIds] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [query, setQuery] = useState("");
+  return { selection, setSelection, expandedIds, setExpandedIds, activeId, setActiveId, query, setQuery };
+}
+
+// The library is an adapter around the actual overview instrument table. Range
+// rendering, editors, selection, clipboard and creation all stay in that table.
+export default function InstrumentLibraryModal({ isOpen, onClose, instruments = emptyInstruments, onSaveToLibrary, onDelete, onInstrumentSynced, flushLibraryRef, libraryDraftRows, onChangeDrafts, zoom = 1 }) {
+  const [reviewState, setReviewState] = useState({ canValidate: false, reviews: [] });
+  const [inboxOpen, setInboxOpen] = useState(false);
+  const [reviewAttempt, setReviewAttempt] = useState(0);
+  const validating = useRef(false);
+  const reviewRequest = useRef(null);
+  useEffect(() => {
+    if (!isOpen) { setInboxOpen(false); setReviewState({ canValidate: false, reviews: [] }); return; }
+    const controller = new AbortController();
+    reviewRequest.current = controller;
+    axios.get(`${UNCERTAINTY_API}/instrument-reviews/`, { ...instrumentRequestConfig(), signal: controller.signal }).then(({ data }) => {
+      if (controller.signal.aborted) return;
+      const canValidate = data?.canValidate === true;
+      setReviewState({ canValidate, reviews: canValidate && Array.isArray(data.reviews) ? data.reviews : [] });
+      if (!canValidate) setInboxOpen(false);
+    }).catch(() => {
+      if (controller.signal.aborted) return;
+      setReviewState({ canValidate: false, reviews: [], error: "Could not load validation access." });
+      setInboxOpen(false);
+    });
+    return () => controller.abort();
+  }, [isOpen, inboxOpen, reviewAttempt]);
+  const dragSelection = useRef(null);
+  const [session, setSession] = useState(() => tableSession("instrument-library", libraryEntries(instruments).map(rowFor)));
+  const current = useRef(session);
+  // A blank created by Add is local to this window until its first committed
+  // edit. Existing empty library records and pasted records are ordinary rows.
+  const newRows = useRef(new Set());
+  const libraryBrowse = useLibraryBrowseState();
+  const inboxBrowse = useLibraryBrowseState();
+  const reviewing = inboxOpen && reviewState.canValidate;
+  const { selection, setSelection, expandedIds, setExpandedIds, activeId, setActiveId, query, setQuery } = reviewing ? inboxBrowse : libraryBrowse;
+  const reviewSession = useMemo(() => tableSession("instrument-review-inbox",
+    // A SharePoint submission has its own item ID. Two authors may submit the same instrument ID.
+    reviewState.reviews.map(review => ({ ...rowFor(review), id: reviewRowId(review) })),
+  ), [reviewState.reviews]);
+  const displayedSession = reviewing ? reviewSession : session;
   const [notification, setNotification] = useState(null);
   const [saving, setSaving] = useState(0);
   const [error, setError] = useState("");
@@ -91,11 +107,11 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
     if (!isOpen) return;
     const collapse = event => {
       if (event.key !== "Escape" || event.defaultPrevented || document.querySelector('[role="alertdialog"], [role="menu"], [role="listbox"]')) return;
-      if (!expandedIds.length && !selection.some(id => newRows.current.has(id))) return;
+      if (!expandedIds.length && (reviewing || !selection.some(id => newRows.current.has(id)))) return;
       event.preventDefault(); event.stopImmediatePropagation();
       const active = document.activeElement;
       if (windowRef.current?.contains(active)) active.blur?.();
-      const discardIds = new Set([...selection, ...expandedIds].filter(id => newRows.current.has(id)));
+      const discardIds = new Set(reviewing ? [] : [...selection, ...expandedIds].filter(id => newRows.current.has(id)));
       if (discardIds.size) {
         onChangeDrafts?.(current.current.tmdes.filter(row => discardIds.has(row.id)), false);
         discardIds.forEach(id => newRows.current.delete(id));
@@ -106,7 +122,7 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
     };
     window.addEventListener("keydown", collapse, true);
     return () => window.removeEventListener("keydown", collapse, true);
-  }, [isOpen, expandedIds, selection, onChangeDrafts]);
+  }, [isOpen, reviewing, expandedIds, selection, onChangeDrafts, setExpandedIds, setSelection]);
   useEffect(() => {
     if (!isOpen) return;
     const release = event => {
@@ -114,7 +130,7 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
     };
     window.addEventListener(WORKSPACE_SELECTION_EVENT, release);
     return () => window.removeEventListener(WORKSPACE_SELECTION_EVENT, release);
-  }, [isOpen]);
+  }, [isOpen, setSelection]);
   useLayoutEffect(() => {
     if (!isOpen || !windowRef.current || hasOpened.current) return;
     hasOpened.current = true;
@@ -155,9 +171,9 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
     newRows.current = new Set(drafts.map(row => row.id));
     if (restored.length) {
       const restoredIds = restored.map(row => row.id);
-      setExpandedIds(previous => [...new Set([...previous, ...restoredIds])]);
-      setSelection(restoredIds);
-      setActiveId(restoredIds.at(-1));
+      libraryBrowse.setExpandedIds(previous => [...new Set([...previous, ...restoredIds])]);
+      libraryBrowse.setSelection(restoredIds);
+      libraryBrowse.setActiveId(restoredIds.at(-1));
     }
     replace({ ...current.current, tmdes: [...entries.map(instrument => {
       const prior = old.get(String(instrument.id));
@@ -204,31 +220,31 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
       }
     }
   };
-  const visibleIds = useMemo(() => session.tmdes.map(row => ({ row, instrument: definitionFor(row) }))
+  const visibleIds = useMemo(() => displayedSession.tmdes.map(row => ({ row, instrument: definitionFor(row) }))
     .filter(({ instrument }) => !query || instrumentMatchesSearch(instrument, query))
     .sort((a, b) => collator.compare(a.instrument.description || "", b.instrument.description || ""))
-    .map(({ row }) => row.id), [session.tmdes, query]);
+    .map(({ row }) => row.id), [displayedSession.tmdes, query]);
   useEffect(() => {
     const visible = new Set(visibleIds);
     setSelection(previous => {
       const next = previous.filter(id => visible.has(id));
       return next.length === previous.length ? previous : next;
     });
-  }, [visibleIds]);
+  }, [visibleIds, setSelection]);
   useEffect(() => {
     const visible = new Set(visibleIds);
     setExpandedIds(previous => {
       const next = previous.filter(id => visible.has(id));
       return next.length === previous.length ? previous : next;
     });
-  }, [visibleIds]);
+  }, [visibleIds, setExpandedIds]);
   useEffect(() => {
     if (!isOpen || (!selection.length && !expandedIds.length)) return;
     const collapseOutsideLibrary = event => {
       // Keep header dragging, table edits and portaled controls inside the
       // library interaction. Wait until click so blur-driven saves finish first.
       if (windowRef.current?.contains(event.target) || event.target.closest?.("[data-theme-toggle], [data-library-toggle]")) return;
-      if (event.target.closest?.(".inline-unit-menu, .inline-tolerance-shape-menu, .inline-tolerance-shape-backdrop, .inline-desc-search, .modal-overlay, [role='alertdialog'], [role='dialog']:not(.instrument-library-window)")) return;
+      if (event.target.closest?.(".inline-unit-menu, .inline-tolerance-shape-menu, .inline-tolerance-shape-backdrop, .inline-desc-search, .context-menu, .modal-overlay, [role='alertdialog'], [role='dialog']:not(.instrument-library-window)")) return;
       const active = document.activeElement;
       if (windowRef.current?.contains(active)) active.blur?.();
       setExpandedIds([]);
@@ -236,7 +252,7 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
     };
     document.addEventListener("click", collapseOutsideLibrary, true);
     return () => document.removeEventListener("click", collapseOutsideLibrary, true);
-  }, [isOpen, selection.length, expandedIds.length]);
+  }, [isOpen, selection.length, expandedIds.length, setExpandedIds, setSelection]);
   const remove = async ids => {
     const rows = current.current.tmdes.filter(row => ids.includes(row.id));
     if (!rows.length || removing.current) return;
@@ -270,8 +286,10 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
   };
   const requestValidation = review => {
     const label = formatInstrumentIdentity(review);
-    const id = review.reviewId || review.id;
-    setNotification({ title: "Validate instrument", message: `Validate ${label} and publish these specifications to the shared library?`,
+    const id = submissionId(review);
+    const target = review.sourceId && instruments.find(item => ["shared", "validated"].includes(item.scope) && String(item.id) === String(review.sourceId));
+    const message = `Validate ${label} and publish these specifications to the shared library?`;
+    setNotification({ title: "Validate instrument", message: target ? `${message} This updates ${formatInstrumentIdentity(target)}.` : message,
       confirmText: "Validate", secondaryText: "Cancel", onSecondary: () => setNotification(null),
       onConfirm: async () => {
         if (validating.current) return;
@@ -279,20 +297,37 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
         try {
           const { data } = await axios.post(`${UNCERTAINTY_API}/instrument-reviews/${encodeURIComponent(id)}/validate/`,
             { reviewVersion: review.reviewVersion }, instrumentRequestConfig());
+          // An earlier inbox load may still contain the submission that just cleared.
+          reviewRequest.current?.abort();
           onInstrumentSynced?.(data, review.id);
-          setReviewState(previous => ({ ...previous, reviews: previous.reviews.filter(item => (item.reviewId || item.id) !== id) }));
+          setReviewState(previous => ({ ...previous, reviews: previous.reviews.filter(item => submissionId(item) !== id) }));
           setNotification({ title: "Instrument validated", message: `${label} is now shared.` });
         } catch (failure) {
           setNotification({ title: "Validation failed", message: failure.response?.data?.detail || "Could not validate this instrument. Try again." });
+          setReviewAttempt(count => count + 1);
         } finally { validating.current = false; }
       } });
   };
   const reviewFromLibrary = async instrument => {
     try {
       const { data } = await axios.get(`${UNCERTAINTY_API}/instrument-reviews/`, instrumentRequestConfig());
-      const current = data?.reviews?.find(review => String(review.id) === String(instrument.id) && review.owner === instrument.owner);
-      if (current) requestValidation(current);
-      else setNotification({title: "Submission unavailable", message: "This instrument is no longer pending in your validation inbox."});
+      const current = data?.canValidate && data.reviews?.find(review => String(review.id) === String(instrument.id) && review.owner === instrument.owner);
+      if (!current) {
+        setNotification({title: "Submission unavailable", message: "This instrument is no longer pending in your validation inbox."});
+        return;
+      }
+      if (instrument.reviewVersion != null && String(instrument.reviewVersion) === String(current.reviewVersion)) {
+        requestValidation(current);
+        return;
+      }
+      // The library may still show an older copy. Open the submitted specs before offering approval.
+      const id = reviewRowId(current);
+      setReviewState({ canValidate: true, reviews: data.reviews });
+      inboxBrowse.setQuery("");
+      inboxBrowse.setActiveId(id);
+      inboxBrowse.setSelection([id]);
+      inboxBrowse.setExpandedIds([id]);
+      setInboxOpen(true);
     } catch (failure) {
       setNotification({title: "Could not load submission", message: failure.response?.data?.detail || "Reopen the inbox and try again."});
     }
@@ -316,7 +351,7 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
   return ReactDOM.createPortal(<div ref={windowRef} data-specifications-expanded={isOpen && expandedIds.length > 0 || undefined} className={`uncertainty-module instrument-library-window modal-content floating-window-content${!expandedIds.length ? " is-names-only" : ""}`} role="dialog" aria-label="Instrument library"
     onPointerDownCapture={event => {
       const id = event.target.closest?.('tr[data-instrument-id]')?.dataset.instrumentId;
-      const row = current.current.tmdes.find(item => String(item.id) === id);
+      const row = displayedSession.tmdes.find(item => String(item.id) === id);
       if (row) {
         claimWorkspaceSelection("library");
         // Commit a header edit to its original instrument before changing owner.
@@ -324,20 +359,23 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
         if (windowRef.current?.contains(active) && active.matches?.(".instrument-custom-column-name-input")) active.blur();
         setActiveId(row.id);
       }
-      dragSelection.current = row ? { id: row.id, ids: selection.includes(row.id) ? [...selection] : [row.id] } : null;
+      dragSelection.current = !reviewing && row ? { id: row.id, ids: selection.includes(row.id) ? [...selection] : [row.id] } : null;
     }}
     data-scoped-zoom-key="instrument-library" data-zoom-level={zoom} hidden={!isOpen} inert={!isOpen}
     style={{ display: isOpen ? undefined : 'none', left: position.x, top: position.y, '--instrument-library-scale': zoom }}>
-    <div className="scoped-zoom-content instrument-library-content" style={{ zoom }}>
+    <div className="scoped-zoom-content instrument-library-content" role={reviewing ? "region" : undefined}
+      aria-label={reviewing ? "Pending instrument validations" : undefined} style={{ zoom }}>
     {reviewState.error && <div className="instrument-library-save-error"><span role="status">{reviewState.error}</span><button onClick={() => setReviewAttempt(count => count + 1)}>Retry</button></div>}
-    {error && <div className="instrument-library-save-error"><span role="alert">{error}</span><button onClick={() => [...failed.current.values()].forEach(enqueue)}>Retry save</button></div>}
-    <UncertaintyPanel libraryMode testPointData={libraryPoint} sessionData={session}
+    {!reviewing && error && <div className="instrument-library-save-error"><span role="alert">{error}</span><button onClick={() => [...failed.current.values()].forEach(enqueue)}>Retry save</button></div>}
+    <UncertaintyPanel key={displayedSession.id} libraryMode libraryReviewMode={reviewing}
+      libraryEmptyMessage={reviewing ? (reviewState.reviews.length ? "No instruments match your search." : "No instruments are awaiting validation.") : undefined}
+      testPointData={libraryPoint} sessionData={displayedSession}
       libraryExpandedIds={expandedIds} libraryActiveId={activeId} onLibraryExpand={id => { setActiveId(id); setExpandedIds(previous => previous.includes(id) ? previous : [...previous, id]); }}
       libraryRenderSpecifications={id => {
         const expanded = expandedIds.includes(id);
-        const row = session.tmdes.find(item => item.id === id);
+        const row = displayedSession.tmdes.find(item => item.id === id);
         const name = formatInstrumentIdentity(row, "Untitled instrument");
-        return <InstrumentSpecificationsButton name={name} expanded={expanded}
+        return <InstrumentSpecificationsButton name={name} expanded={expanded} readOnly={reviewing}
           onClick={event => {
             event.stopPropagation(); document.activeElement?.blur?.();
             claimWorkspaceSelection("library");
@@ -346,13 +384,13 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
             setExpandedIds(previous => previous.includes(id) ? previous.filter(item => item !== id) : [...previous, id]);
           }} />;
       }}
-      onLibraryDragStart={startLibraryDrag}
-      onReviewSubmission={reviewState.canValidate ? reviewFromLibrary : undefined}
-      libraryVisibleIds={visibleIds} onSessionSave={updateSession} instruments={instruments}
-      onSaveInstrument={onSaveToLibrary} onDeleteLibraryInstrument={onDelete} onInstrumentSynced={onInstrumentSynced}
+      onReviewSubmission={reviewing ? requestValidation : reviewState.canValidate ? reviewFromLibrary : undefined}
+      libraryVisibleIds={visibleIds} instruments={instruments}
+      {...(!reviewing && { onLibraryDragStart: startLibraryDrag, onSessionSave: updateSession, onSaveInstrument: onSaveToLibrary,
+        onDeleteLibraryInstrument: onDelete, onInstrumentSynced, onDeleteTmdeDefinition: remove })}
       setNotification={setNotification} currentTmdeSelection={selection} setCurrentTmdeSelection={setSelection}
-      onDeleteTmdeDefinition={remove} keyboardShortcutsEnabled={isOpen && !inboxOpen}
-      libraryToolbar={add => <><div className="panel-card-header instrument-panel-card-header instrument-library-header" onMouseDown={event => {
+      keyboardShortcutsEnabled={isOpen && !reviewing}
+      libraryToolbar={add => <div className="panel-card-header instrument-panel-card-header instrument-library-header" onMouseDown={event => {
         // Keep the focused draft and editor geometry intact throughout a drag.
         if (!event.target.closest("button, input, .no-drag")) event.preventDefault();
         handleMouseDown(event);
@@ -369,23 +407,7 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
         </div>
         <SymbolButton className="icon-btn-ghost" aria-label="Close instrument library" onClick={close} />
         </div>
-      </div>{inboxOpen && reviewState.canValidate && <section className="instrument-review-inbox" aria-label="Pending instrument validations">
-        <h4>Pending validation</h4>
-        {!reviewState.reviews.length && <p>No instruments are awaiting validation.</p>}
-        {reviewState.reviews.filter(review => !query || instrumentMatchesSearch(review, query)).map(review => {
-          const label = formatInstrumentIdentity(review);
-          const target = instruments.find(item => item.scope === "validated" && String(item.id) === String(review.sourceId));
-          return <div className="instrument-review-row" key={review.reviewId || review.id}>
-            <details><summary>{label}</summary>
-              {target && <p>Updates {formatInstrumentIdentity(target)}</p>}
-              <ReviewSpecifications value={{ ...buildValidatedSnapshot(review), customFields: review.customFields,
-                rangeCustomFields: review.rangeCustomFields, acShuntIdentity: review.acShuntIdentity }} />
-            </details>
-            <button type="button" className="inline-sync-badge inline-sync-badge--yellow" aria-label={`Validate ${label}`}
-              title={`Validate ${label}`} onClick={() => requestValidation(review)}><FontAwesomeIcon icon={faLink} /></button>
-          </div>;
-        })}
-      </section>}</>} />
+      </div>} />
     </div>
     <NotificationModal {...notification} isOpen={!!notification} onClose={() => setNotification(null)} />
   </div>, document.body);

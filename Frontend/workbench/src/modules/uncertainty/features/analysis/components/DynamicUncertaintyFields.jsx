@@ -11,7 +11,7 @@ import { parse } from "../../../utils/equationMath";
 import { equationTexOptions } from "../../../utils/equationPresentation";
 import katex from "katex";
 
-function CompactEquationInput({ value, label, onChange, onAdvance }) {
+function CompactEquationInput({ value, label, onChange, onAdvance, readOnly }) {
   const [editing, setEditing] = useState(true);
   const inputRef = useRef(null);
   const blurFrame = useRef(null);
@@ -26,7 +26,7 @@ function CompactEquationInput({ value, label, onChange, onAdvance }) {
   return editing || !markup ? <input ref={node => {
     inputRef.current = node;
     if (node && focusOnMount.current) { focusOnMount.current = false; node.focus(); }
-  }} aria-label={label} placeholder="a * x + b" value={value}
+  }} aria-label={label} placeholder="a * x + b" value={value} readOnly={readOnly}
     style={{ "--equation-input-width": `calc(${Math.max(12, value.length + 1)}ch + 12px)` }}
     aria-invalid={Boolean(value && !markup)} onChange={event => onChange(event.target.value)}
     // Let the clicked control receive its click before shrinking this input.
@@ -41,7 +41,7 @@ function CompactEquationInput({ value, label, onChange, onAdvance }) {
       if (event.key !== "Enter" || !markup) return;
       event.preventDefault(); event.stopPropagation();
       setEditing(false); onAdvance();
-    }} /> : <button type="button" className="dynamic-equation-summary" aria-label={`Edit ${label.toLowerCase()}`}
+    }} /> : <button type="button" className="dynamic-equation-summary" aria-label={`${readOnly ? "View" : "Edit"} ${label.toLowerCase()}`}
       onPointerDown={event => event.stopPropagation()}
       onMouseDown={event => event.stopPropagation()}
       onClick={event => {
@@ -55,7 +55,7 @@ function CompactEquationInput({ value, label, onChange, onAdvance }) {
 
 const emptyRow = () => ({ id: uuid(), point: "", values: {} });
 
-function CollapsibleUnitControl({ value, label, onChange, UnitSelectComponent }) {
+function CollapsibleUnitControl({ value, label, onChange, UnitSelectComponent, readOnly }) {
   const [editing, setEditing] = useState(false);
   const rootRef = useRef(null);
   useEffect(() => {
@@ -78,21 +78,22 @@ function CollapsibleUnitControl({ value, label, onChange, UnitSelectComponent })
         requestAnimationFrame(() => rootRef.current?.querySelector('button')?.focus());
       }
     }}>
-    {editing ? <UnitSelectComponent ariaLabel={label} value={value} onChange={onChange} compact width="max-content" />
-      : <button type="button" className="dynamic-unit-summary" aria-label={`Edit ${label.toLowerCase()}`} onClick={() => setEditing(true)}>{getUnitDisplayLabel(value) || 'Units'}</button>}
+    {editing && !readOnly ? <UnitSelectComponent ariaLabel={label} value={value} onChange={onChange} compact width="max-content" />
+      : <button type="button" className="dynamic-unit-summary" disabled={readOnly} aria-label={readOnly ? label : `Edit ${label.toLowerCase()}`} onClick={() => setEditing(true)}>{getUnitDisplayLabel(value) || 'Units'}</button>}
   </span>;
 }
 
 // Shared uncertainty-value editor. Distribution belongs to the surrounding table column.
 export default function DynamicUncertaintyFields({
   definition: draft, component = {}, referencePoint, measurementPoint = referencePoint,
-  onChange, UnitSelectComponent, showPreview = true, modebarTarget,
+  onChange, UnitSelectComponent, showPreview = true, modebarTarget, readOnly = false,
 }) {
   const rowRef = useRef(null);
   const draftRef = useRef(draft);
   draftRef.current = draft;
   const variableCache = useRef(draft?.variables || {});
   const change = patch => {
+    if (readOnly) return;
     draftRef.current = { ...draftRef.current, ...patch };
     onChange(patch);
   };
@@ -165,7 +166,7 @@ export default function DynamicUncertaintyFields({
   const unitField = (key, label) => (
     <div className="dynamic-inline-field">
 
-      {<CollapsibleUnitControl label={label} value={key === "measurementUnit" ? measurementUnit : draft[key]} onChange={value => {
+      {<CollapsibleUnitControl label={label} readOnly={readOnly} value={key === "measurementUnit" ? measurementUnit : draft[key]} onChange={value => {
           if (key !== 'measurementUnit') { change({ [key]: value }); return; }
           const rows = draftRef.current.rows.map(row => {
             if (row.point === '' || row.point == null) return row;
@@ -178,14 +179,14 @@ export default function DynamicUncertaintyFields({
   );
   const symmetryControl = (<div className="dynamic-budget-modebar">
               <div className="inline-tolerance-mini-toggle" role="group" aria-label="Error limit symmetry">
-                <button type="button" title="Symmetric tolerance" aria-pressed={draft.mode !== "limits"} className={draft.mode !== "limits" ? "is-active" : ""} onClick={() => changeSymmetry(false)}>±</button>
-                <button type="button" title="Asymmetric tolerance" aria-pressed={draft.mode === "limits"} className={draft.mode === "limits" ? "is-active" : ""} onClick={() => changeSymmetry(true)}>+/−</button>
+                <button type="button" disabled={readOnly} title="Symmetric tolerance" aria-pressed={draft.mode !== "limits"} className={draft.mode !== "limits" ? "is-active" : ""} onClick={() => changeSymmetry(false)}>±</button>
+                <button type="button" disabled={readOnly} title="Asymmetric tolerance" aria-pressed={draft.mode === "limits"} className={draft.mode === "limits" ? "is-active" : ""} onClick={() => changeSymmetry(true)}>+/−</button>
               </div>
             </div>);
   const equationInputs = draft.kind === "equation" ? <div className="dynamic-equation-inputs">{(draft.mode === "limits" ? ["lowerEquation", "upperEquation"] : ["equation"]).map(key => <div className="dynamic-equation-entry" key={key}>
                 <span>{key === "equation" ? "±" : key === "lowerEquation" ? "Low" : "High"}</span>
                 <CompactEquationInput label={key === "equation" ? "Uncertainty equation" : key === "lowerEquation" ? "Low error limit equation" : "High error limit equation"} value={draft[key] || ""}
-                  onChange={value => updateEquation(value, key)}
+                  readOnly={readOnly} onChange={value => updateEquation(value, key)}
                   onAdvance={() => {
                     const next = Object.keys(draft.variables).find(symbol => symbol !== draft.pointVariable && draft.variables[symbol].value === "");
                     if (next) rowRef.current?.querySelector(`[data-dynamic-nominal="${next}"]`)?.focus();
@@ -206,11 +207,12 @@ export default function DynamicUncertaintyFields({
                   {cells.map((cell, col) => <td key={`${cell.column || "point"}:${cell.key}`}>
                     <span className="dynamic-cell-value">
                     {cell.key === "value" && <span aria-hidden="true">±</span>}
-                    <GrowingNumericInput style={{ "--dynamic-column-width": columnWidths[col] }} inputMode="decimal" data-dynamic-cell={`${index}:${col}`} aria-label={`${cell.label} row ${index + 1}`}
+                    <GrowingNumericInput readOnly={readOnly} style={{ "--dynamic-column-width": columnWidths[col] }} inputMode="decimal" data-dynamic-cell={`${index}:${col}`} aria-label={`${cell.label} row ${index + 1}`}
                       data-has-value={String(cell.key === "point" ? row.point ?? "" : row.values?.[cell.column]?.[cell.key] ?? "").trim() !== ""}
                       placeholder="—" value={cell.key === "point" ? displayPoint(row.point) : row.values?.[cell.column]?.[cell.key] ?? ""}
                       onChange={event => { const rows = [...draft.rows]; setCell(rows, index, cell, event.target.value); change({ rows }); }}
                       onPaste={event => {
+                        if (readOnly) return;
                         const text = event.clipboardData.getData("text/plain");
                         if (!/[\t\n]/.test(text)) return;
                         event.preventDefault();
@@ -223,7 +225,7 @@ export default function DynamicUncertaintyFields({
                         change({ rows });
                       }}
                       onKeyDown={event => {
-                        if (event.key === "Tab" && !event.shiftKey && index === draft.rows.length - 1 && col === cells.length - 1 && (row.point !== "" || event.currentTarget.value !== "")) {
+                        if (!readOnly && event.key === "Tab" && !event.shiftKey && index === draft.rows.length - 1 && col === cells.length - 1 && (row.point !== "" || event.currentTarget.value !== "")) {
                           event.preventDefault(); event.stopPropagation(); addRow();
                         } else if (["ArrowUp", "ArrowDown"].includes(event.key)) {
                           const next = index + (event.key === "ArrowUp" ? -1 : 1);
@@ -233,9 +235,9 @@ export default function DynamicUncertaintyFields({
                     </span>
                   </td>)}
                   <td className="dynamic-row-action-cell">
-                    <SymbolButton add type="button" className="dynamic-inline-action dynamic-row-add" title="Add row below" aria-label={`Add table row after row ${index + 1}`}
+                    <SymbolButton add type="button" disabled={readOnly} className="dynamic-inline-action dynamic-row-add" title="Add row below" aria-label={`Add table row after row ${index + 1}`}
                       onClick={() => addRow(index + 1)} />
-                    <SymbolButton type="button" className="dynamic-inline-action dynamic-row-remove" title="Remove row" aria-label={`Delete table row ${index + 1}`}
+                    <SymbolButton type="button" disabled={readOnly} className="dynamic-inline-action dynamic-row-remove" title="Remove row" aria-label={`Delete table row ${index + 1}`}
                       onClick={() => change({ rows: draft.rows.length === 1 ? [emptyRow()] : draft.rows.filter(r => r.id !== row.id) })} />
                   </td>
                 </tr>)}
@@ -246,13 +248,13 @@ export default function DynamicUncertaintyFields({
                 <thead><tr><th>Variable</th><th>Description</th><th><span className="dynamic-column-heading">Value {unitField("outputUnit", "Uncertainty unit")}</span></th></tr></thead>
                 <tbody>{Object.entries(draft.variables).map(([symbol, variable]) => <tr key={symbol}>
                   <td className="dynamic-variable-symbol">{symbol}</td>
-                  <td><input aria-label={`${symbol} name`} placeholder="Description" value={variable.name}
+                  <td><input aria-label={`${symbol} name`} readOnly={readOnly} placeholder="Description" value={variable.name}
                     onChange={event => change({ variables: { ...draft.variables, [symbol]: { ...variable, name: event.target.value } } })} /></td>
                   <td><div className="dynamic-variable-value">
                     {draft.pointVariable === symbol ? <span className="dynamic-bound-value">{displayPoint(boundValue)} {getUnitDisplayLabel(measurementUnit)}</span> :
-                      <GrowingNumericInput inputMode="decimal" placeholder="Value" data-dynamic-nominal={symbol} aria-label={`${symbol} nominal`} value={variable.value}
+                      <GrowingNumericInput readOnly={readOnly} inputMode="decimal" placeholder="Value" data-dynamic-nominal={symbol} aria-label={`${symbol} nominal`} value={variable.value}
                         onChange={event => change({ variables: { ...draft.variables, [symbol]: { ...variable, value: event.target.value } } })} />}
-                    <button type="button" className="dynamic-inline-action dynamic-variable-binding" data-ui-toggle aria-pressed={draft.pointVariable === symbol}
+                    <button type="button" disabled={readOnly} className="dynamic-inline-action dynamic-variable-binding" data-ui-toggle aria-pressed={draft.pointVariable === symbol}
                       aria-label={`Use measurement point for ${symbol}`} title={draft.pointVariable === symbol ? "Linked to this measurement point · click to enter a fixed value" : "Use this measurement point"}
                       onClick={() => change({ pointVariable: draft.pointVariable === symbol ? "" : symbol })}><FontAwesomeIcon icon={faLink} /></button>
                   </div></td>

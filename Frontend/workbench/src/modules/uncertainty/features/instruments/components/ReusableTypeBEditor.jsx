@@ -11,7 +11,7 @@ export function TypeBAddMenu({ onAdd }) {
     options={[{ value: "manual", label: "Add manual component" }, { value: "table", label: "Add tabular component" }, { value: "equation", label: "Add equation component" }]}
     onChange={onAdd} showOptionMeta={false} />;
 }
-export default function ReusableTypeBEditor({ components, onChange, referenceUnit, onActivate, activeId, showAddButton = true }) {
+export default function ReusableTypeBEditor({ components, onChange, referenceUnit, onActivate, activeId, showAddButton = true, readOnly = false }) {
   const [editingId, setEditingId] = useState(null);
   const point = { value: "", unit: referenceUnit };
   const update = (record, component) => onChange(components.map(item => item.id === record.id
@@ -19,20 +19,20 @@ export default function ReusableTypeBEditor({ components, onChange, referenceUni
   const remove = record => onChange(components.filter(item => item.id !== record.id));
   const add = kind => { const record = createInstrumentBudgetComponent(kind, referenceUnit); onChange([...components, record]); setEditingId(record.id); onActivate?.(record.id); };
   return <div className="instrument-reusable-typeb">
-    {showAddButton && <div className="spec-toolbar-actions"><TypeBAddMenu onAdd={add} /></div>}
-    {components.some(item => item.budgetComponent) && <div className="budget-section-table-wrap"><table className="uncertainty-budget-table"><thead><tr><th>Error source</th><th>Error limits / equation</th><th>Distribution</th><th>Type</th><th>Standard uncertainty</th><th>Actions</th></tr></thead><tbody>
+    {showAddButton && !readOnly && <div className="spec-toolbar-actions"><TypeBAddMenu onAdd={add} /></div>}
+    {components.some(item => item.budgetComponent) && <div className="budget-section-table-wrap"><table className="uncertainty-budget-table"><thead><tr><th>Error source</th><th>Error limits / equation</th><th>Distribution</th><th>Type</th><th>Standard uncertainty</th>{!readOnly && <th>Actions</th>}</tr></thead><tbody>
       {components.filter(item => item.budgetComponent).map(record => {
         const component = record.budgetComponent;
-        if (component.dynamicDefinitionId) return <DynamicBudgetComponentRow key={record.id}
+        if (component.dynamicDefinitionId) return <DynamicBudgetComponentRow key={record.id} readOnly={readOnly}
           ToleranceEditorComponent={InlineToleranceCell}
           component={resolveDynamicComponent(component, component.dynamicDefinition, point)} referencePoint={point} UnitSelectComponent={UnitSelect}
-          autoEdit={editingId === record.id || (activeId === record.id && component.inlineDraft === true)} onEditorOpened={() => setEditingId(null)}
-          onCommit={definition => update(record, { ...component, dynamicDefinition: definition, name: definition.name, inlineDraft: false })}
-          onRemove={() => remove(record)} />;
-        return <InlineManualComponentRow key={record.id} component={component} referencePoint={point} sigFigs={6}
+          autoEdit={!readOnly && (editingId === record.id || (activeId === record.id && component.inlineDraft === true))} onEditorOpened={() => setEditingId(null)}
+          onCommit={readOnly ? undefined : definition => update(record, { ...component, dynamicDefinition: definition, name: definition.name, inlineDraft: false })}
+          onRemove={readOnly ? undefined : () => remove(record)} />;
+        return <InlineManualComponentRow key={record.id} readOnly={readOnly} component={component} referencePoint={point} sigFigs={6}
           ToleranceEditorComponent={InlineToleranceCell} applyToleranceChange={applyToleranceCaseChange} formatToleranceSummary={getSpecRows}
-          onCommit={draft => update(record, normalizeInlineManualComponent({ component, draft, referencePoint: point }))}
-          onRemove={() => remove(record)} />;
+          onCommit={readOnly ? undefined : draft => update(record, normalizeInlineManualComponent({ component, draft, referencePoint: point }))}
+          onRemove={readOnly ? undefined : () => remove(record)} />;
       })}
     </tbody></table></div>}
   </div>;

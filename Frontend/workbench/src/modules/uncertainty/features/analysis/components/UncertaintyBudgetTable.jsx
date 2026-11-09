@@ -370,6 +370,7 @@ export const InlineManualComponentRow = ({
   applyToleranceChange,
   formatToleranceSummary,
   onKindChange,
+  readOnly = false,
   autoEdit = false,
   onCommit,
   onRemove,
@@ -379,10 +380,13 @@ export const InlineManualComponentRow = ({
   const rowRef = useRef(null);
   const nameInputRef = useRef(null);
   const draftKey = `manual:${component.id}`;
-  const recovered = useRef(readEditorDraft(draftKey));
-  const [editing, setEditing] = useState(Boolean(autoEdit || component.inlineDraft || recovered.current));
+  const [recovered] = useState(() => readOnly ? null : readEditorDraft(draftKey));
+  const [editorOpen, setEditing] = useState(!readOnly && Boolean(autoEdit || component.inlineDraft || recovered));
+  const editing = editorOpen && !readOnly;
   const [activeField, setActiveField] = useState(autoEdit ? "tolerance" : "name");
-  const [draft, setDraft] = useState(() => recovered.current || getInlineManualDraft(component));
+  const savedDraft = useMemo(() => getInlineManualDraft(component), [component]);
+  const [editedDraft, setDraft] = useState(() => recovered || savedDraft);
+  const draft = readOnly ? savedDraft : editedDraft;
   const draftRef = useRef(draft);
   const pendingFinishRef = useRef(null);
 
@@ -394,19 +398,18 @@ export const InlineManualComponentRow = ({
   };
 
   useEffect(() => {
-    if (!editing) {
-      const next = getInlineManualDraft(component);
-      draftRef.current = next;
-      setDraft(next);
+    if (!editing && !readOnly) {
+      draftRef.current = savedDraft;
+      setDraft(savedDraft);
     }
-  }, [component, editing]);
+  }, [savedDraft, editing, readOnly]);
 
   useEffect(() => {
-    if (!component.inlineDraft) return;
+    if (readOnly || !component.inlineDraft) return;
     setEditing(true);
     const frame = window.requestAnimationFrame(() => nameInputRef.current?.focus({ preventScroll: true }));
     return () => window.cancelAnimationFrame(frame);
-  }, [component.inlineDraft]);
+  }, [component.inlineDraft, readOnly]);
 
   useEffect(
     () => () => {
@@ -414,7 +417,7 @@ export const InlineManualComponentRow = ({
         window.clearTimeout(pendingFinishRef.current);
       }
     },
-    [],
+    [readOnly],
   );
 
   const finish = () => {
@@ -508,7 +511,9 @@ export const InlineManualComponentRow = ({
     });
     return () => window.cancelAnimationFrame(frame);
   }, [activeField, editing]);
-  const fieldSummary = (field, text, empty = !text || text === "Not Set") => (
+  const fieldSummary = (field, text, empty = !text || text === "Not Set") => readOnly ? (
+    <span className={`inline-tolerance-summary${empty ? " is-empty" : ""}`}>{text || "Not Set"}</span>
+  ) : (
     <button type="button" className={`inline-tolerance-summary${empty ? " is-empty" : ""}`}
       aria-label={`Edit ${field === "name" ? "error source name" : field}`}
       onClick={() => activateField(field)}>{text || "Not Set"}</button>
@@ -576,16 +581,19 @@ export const InlineManualComponentRow = ({
         className={`budget-inline-manual-row${component.inlineValidation ? " has-warning" : ""}`}
         title={
           component.inlineValidation ||
-          "Click anywhere on this manual component to edit it"
+          (readOnly ? undefined : "Click anywhere on this manual component to edit it")
         }
-        onKeyDownCapture={handleFieldTab}
-        onClick={event => activateField(fields[event.target.closest("td")?.cellIndex] || "name")}
+        onKeyDownCapture={readOnly ? undefined : handleFieldTab}
+        onClick={readOnly ? undefined : event => activateField(fields[event.target.closest("td")?.cellIndex] || "name")}
       >
-        <td {...budgetDragProps(component)} className="budget-source-cell has-order-controls" data-budget-field="name">
-          <BudgetOrderControls onMoveUp={onMoveUp} onMoveDown={onMoveDown} />
+        <td {...(!readOnly && budgetDragProps(component))} className={readOnly ? "budget-source-cell" : "budget-source-cell has-order-controls"} data-budget-field="name">
+          {!readOnly && <BudgetOrderControls onMoveUp={onMoveUp} onMoveDown={onMoveDown} />}
           {fieldSummary("name", component.name)}
         </td>
-        <td data-budget-field="tolerance">{fieldSummary("tolerance", ToleranceEditorComponent && !structuredTolerance.whicheverIsGreater ? <ToleranceEditorComponent tolerance={structuredTolerance} editable={false} /> : toleranceText, toleranceText === "Not Set")}</td>
+        <td data-budget-field="tolerance">{readOnly && ToleranceEditorComponent ?
+          <ToleranceEditorComponent tolerance={draft.tolerance} referencePoint={referencePoint}
+            activeRange={{ id: component.id, ...manualFullScaleReference(draft, referencePoint) }} editable readOnly /> :
+          fieldSummary("tolerance", ToleranceEditorComponent && !structuredTolerance.whicheverIsGreater ? <ToleranceEditorComponent tolerance={structuredTolerance} editable={false} /> : toleranceText, toleranceText === "Not Set")}</td>
         <td data-budget-field="distribution">{fieldSummary("distribution", component.distribution)}</td>
         <td className="budget-component-type" data-budget-field="type">{fieldSummary("type", component.type || "B")}</td>
         {showDof && <td>{isRepeatabilityComponent(component) && Number.isFinite(Number(component.dof)) ? Math.round(Number(component.dof)) : formatDof(component.dof)}</td>}
@@ -598,7 +606,7 @@ export const InlineManualComponentRow = ({
             </span>
           )}
         </td>
-        <td className="action-cell">{removeAction}</td>
+        {!readOnly && <td className="action-cell">{removeAction}</td>}
       </tr>
     );
   }

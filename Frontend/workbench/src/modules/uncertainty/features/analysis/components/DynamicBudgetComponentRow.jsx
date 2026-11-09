@@ -5,7 +5,7 @@ import DynamicUncertaintyFields from "./DynamicUncertaintyFields";
 import { FLUSH_EDITORS } from "../../../hooks/usePageExitRecovery";
 import { readEditorDraft, saveEditorDraft, clearEditorDraft } from "../../../utils/editorRecovery";
 import { budgetDragProps } from "../../../utils/instrumentBudgetComponents";
-import React, { useCallback, useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowUp, faArrowDown, faExclamationTriangle } from "@fortawesome/free-solid-svg-icons";
 import InlineMenuSelect from "../../../components/common/InlineMenuSelect";
@@ -22,16 +22,19 @@ const implicitUnits = (definition, point) => definition && ({ ...definition, mea
 
 export default function DynamicBudgetComponentRow({
   component, referencePoint, measurementPoint = referencePoint, showDof, onCommit, onRemove, onMoveUp, onMoveDown,
-  onKindChange,
+  onKindChange, readOnly = false,
   ToleranceEditorComponent,
   displayUncertainty = value => value,
   UnitSelectComponent = FallbackUnitSelect, autoEdit = false, onEditorOpened,
 }) {
   const [dynamicModebarTarget, setDynamicModebarTarget] = useState(null);
   const draftKey = `dynamic:${component.id}`;
-  const recovered = useRef(readEditorDraft(draftKey));
-  const [draft, setDraft] = useState(() => recovered.current || implicitUnits(component.dynamicDefinition, referencePoint, measurementPoint));
-  const [editing, setEditing] = useState(autoEdit || Boolean(recovered.current));
+  const [recovered] = useState(() => readOnly ? null : readEditorDraft(draftKey));
+  const savedDefinition = useMemo(() => implicitUnits(component.dynamicDefinition, referencePoint),
+    [component.dynamicDefinition, referencePoint?.unit]);
+  const [editedDraft, setDraft] = useState(() => recovered || savedDefinition);
+  const draft = readOnly ? savedDefinition : editedDraft;
+  const [editing, setEditing] = useState(!readOnly && (autoEdit || Boolean(recovered)));
   const [naming, setNaming] = useState(false);
   const [distributionEditing, setDistributionEditing] = useState(false);
   const editorActive = editing || naming || distributionEditing;
@@ -40,56 +43,57 @@ export default function DynamicBudgetComponentRow({
   const draftRef = useRef(draft);
   const definitionRef = useRef(component.dynamicDefinition);
   const commitRef = useRef(onCommit);
-  const dirty = useRef(Boolean(recovered.current));
+  const dirty = useRef(Boolean(recovered));
   const pendingCommit = useRef(null);
   const variableCache = useRef(draft?.variables || {});
   definitionRef.current = component.dynamicDefinition;
   commitRef.current = onCommit;
 
   useEffect(() => {
-    if (!editing && !naming) {
+    if (!readOnly && !editing && !naming) {
       // A SharePoint save may not have reached the parent yet. Do not replace
       // the just-committed table/equation with its older empty definition and
       // flash "Not Set" on collapse. Accept the next changed saved definition.
       if (pendingCommit.current && JSON.stringify(component.dynamicDefinition) === pendingCommit.current.previous) return;
       pendingCommit.current = null;
-      draftRef.current = implicitUnits(component.dynamicDefinition, referencePoint, measurementPoint);
+      draftRef.current = savedDefinition;
       setDraft(draftRef.current);
       variableCache.current = component.dynamicDefinition?.variables || {};
     }
-  }, [component.dynamicDefinition, referencePoint?.unit, measurementPoint?.unit, editing, naming]);
+  }, [component.dynamicDefinition, savedDefinition, readOnly, editing, naming]);
 
   const change = useCallback(patch => {
+    if (readOnly) return;
     const next = { ...draftRef.current, ...patch };
     dirty.current = true;
     draftRef.current = next;
     setDraft(next);
     saveEditorDraft(draftKey, next);
-  }, [draftKey]);
+  }, [draftKey, readOnly]);
   const finish = useCallback((cancel = false, keepCellEditors = false) => {
-    if (cancel) {
+    if (!readOnly && cancel) {
       draftRef.current = definitionRef.current;
       setDraft(definitionRef.current);
       variableCache.current = definitionRef.current?.variables || {};
-    } else if (dirty.current) {
+    } else if (!readOnly && dirty.current) {
       pendingCommit.current = { previous: JSON.stringify(definitionRef.current) };
       commitRef.current?.(draftRef.current);
     }
-    clearEditorDraft(draftKey);
+    if (!readOnly) clearEditorDraft(draftKey);
     dirty.current = false;
     setEditing(false);
     if (!keepCellEditors) {
       setNaming(false);
       setDistributionEditing(false);
     }
-  }, [draftKey]);
+  }, [draftKey, readOnly]);
 
   useEffect(() => {
-    if (!editorActive) return;
+    if (!editorActive || readOnly) return;
     const flush = () => finish();
     window.addEventListener(FLUSH_EDITORS, flush);
     return () => window.removeEventListener(FLUSH_EDITORS, flush);
-  }, [editorActive, finish]);
+  }, [editorActive, readOnly, finish]);
 
   const focusEditor = useCallback(() => {
     requestAnimationFrame(() => {
@@ -107,13 +111,13 @@ export default function DynamicBudgetComponentRow({
 
   const openedAutomatically = useRef(false);
   useEffect(() => {
-    if (!autoEdit) { openedAutomatically.current = false; return; }
+    if (readOnly || !autoEdit) { openedAutomatically.current = false; return; }
     if (openedAutomatically.current) return;
     openedAutomatically.current = true;
     setEditing(true);
     onEditorOpened?.();
     focusEditor();
-  }, [autoEdit, onEditorOpened, focusEditor]);
+  }, [autoEdit, readOnly, onEditorOpened, focusEditor]);
 
   useEffect(() => {
     if (!editorActive) return;
@@ -156,7 +160,7 @@ export default function DynamicBudgetComponentRow({
   };
   const openEditor = () => {
     setEditing(true);
-    focusEditor();
+    if (!readOnly) focusEditor();
   };
   return (
     <tr ref={rowRef} className={`budget-dynamic-row budget-inline-manual-row${editorActive ? ` is-editing is-editing-${editing ? "tolerance" : naming ? "name" : "distribution"}` : ""}${preview.pendingReason ? " has-warning" : ""}`}
@@ -165,6 +169,7 @@ export default function DynamicBudgetComponentRow({
         // controls (especially remove/reorder) retain their own behavior.
         if (editorActive || event.target.closest("button, input, select, textarea, .action-cell, .budget-order-controls")) return;
         const cell = event.target.closest("td")?.cellIndex;
+        if (readOnly) { if (cell === 1) openEditor(); return; }
         if (cell === 0) setNaming(true);
         else if (cell === 2) setDistributionEditing(true);
         else openEditor();
@@ -183,15 +188,15 @@ export default function DynamicBudgetComponentRow({
           restoreTriggerFocus();
         }
       }}>
-      <td {...budgetDragProps(component)} className="budget-source-cell has-order-controls">
-        <div className="budget-order-controls">
+      <td {...(!readOnly && budgetDragProps(component))} className={readOnly ? "budget-source-cell" : "budget-source-cell has-order-controls"}>
+        {!readOnly && <div className="budget-order-controls">
           <button type="button" title="Move component up" aria-label="Move component up" onClick={onMoveUp}><FontAwesomeIcon icon={faArrowUp} /></button>
           <button type="button" title="Move component down" aria-label="Move component down" onClick={onMoveDown}><FontAwesomeIcon icon={faArrowDown} /></button>
-        </div>
+        </div>}
         {/* Names wrap within their existing column; they never request the
             temporary column expansion used by multi-control limit editors. */}
         <div className={naming ? "dynamic-source-editor" : "dynamic-source-content"}>
-        {naming ? (
+        {readOnly ? <span className="inline-tolerance-summary dynamic-source-label">{sourceName || "Not Set"}</span> : naming ? (
           <InlineSourceNameEditor autoFocus className="budget-inline-input budget-inline-name dynamic-source-name" aria-label="Error source name" placeholder="Not Set" value={draft.name}
             onBlur={() => editing ? setNaming(false) : finish()}
             onFocus={() => { if (!editing) setNaming(true); }}
@@ -204,11 +209,11 @@ export default function DynamicBudgetComponentRow({
           tolerance={{ tmdeUncertaintyDefinition: draft }}
           activeRange={{ id: component.id, value: referencePoint?.value, max: referencePoint?.value, unit: referencePoint?.unit }}
           referencePoint={referencePoint} measurementPoint={measurementPoint} dynamicComponent={component}
-          editable openRequested={editing} summaryOverride={preview.dynamicSummary || "Not Set"}
+          editable readOnly={readOnly} openRequested={editing} summaryOverride={preview.dynamicSummary || "Not Set"}
           // The shared editor dismisses when another cell receives focus.
           // Commit its draft without closing the newly opened name/distribution.
           onEditingChange={active => { if (active) setEditing(true); else if (editing) finish(false, true); }}
-          onUncertaintyKindChange={onKindChange ? kind => {
+          onUncertaintyKindChange={!readOnly && onKindChange ? kind => {
             clearEditorDraft(draftKey); dirty.current = false;
             onKindChange(kind, draftRef.current);
           } : undefined}
@@ -217,22 +222,22 @@ export default function DynamicBudgetComponentRow({
             if (definition) change(definition);
           }} /> : !editing ? (
           <button ref={triggerRef} type="button" className={`inline-tolerance-summary${preview.dynamicSummary ? "" : " is-empty"}`}
-            title={preview.pendingReason || `Edit ${kindLabel.toLowerCase()} uncertainty`} onClick={openEditor}>
+            title={preview.pendingReason || `${readOnly ? "Inspect" : "Edit"} ${kindLabel.toLowerCase()} uncertainty`} onClick={openEditor}>
             {preview.dynamicSummary || "Not Set"}
           </button>
         ) : (
           <>
-          {onKindChange && <div className="budget-uncertainty-type-toolbar"><span className="dynamic-symmetry-slot" ref={setDynamicModebarTarget} /><UncertaintyTypeMenu value={draft.kind} onChange={kind => {
+          {!readOnly && onKindChange && <div className="budget-uncertainty-type-toolbar"><span className="dynamic-symmetry-slot" ref={setDynamicModebarTarget} /><UncertaintyTypeMenu value={draft.kind} onChange={kind => {
             clearEditorDraft(draftKey); dirty.current = false;
             onKindChange(kind, draftRef.current);
           }}/></div>}
-          <DynamicUncertaintyFields definition={draft} component={component} showPreview={draft.kind !== "table"}
+          <DynamicUncertaintyFields readOnly={readOnly} definition={draft} component={component} showPreview={draft.kind !== "table"}
             referencePoint={referencePoint} measurementPoint={measurementPoint}
             onChange={change} UnitSelectComponent={UnitSelectComponent} modebarTarget={dynamicModebarTarget} />
           </>
         )}
       </td>
-      <td>{distributionEditing ? <select autoFocus className="mini-select budget-inline-distribution" aria-label="Error limit distribution" value={draft.mode === "standard" ? "standard" : distributionValue}
+      <td>{readOnly ? <span className="inline-tolerance-summary">{draft.mode === "standard" ? "Standard uncertainty (k=1)" : distributionLabel}</span> : distributionEditing ? <select autoFocus className="mini-select budget-inline-distribution" aria-label="Error limit distribution" value={draft.mode === "standard" ? "standard" : distributionValue}
         onChange={event => { changeDistribution(event.target.value); setDistributionEditing(false); }}>
         <option value="" disabled>Not Set</option>{draft.mode === "standard" && <option value="standard">Standard uncertainty (k=1)</option>}
         {!distributionOption && Number(draft.distribution) > 0 && <option value={distributionValue}>{distributionLabel}</option>}
@@ -240,7 +245,7 @@ export default function DynamicBudgetComponentRow({
       </select> : <button type="button" className={`inline-tolerance-summary${draft.distribution ? "" : " is-empty"}`} aria-label="Edit error limit distribution" onClick={() => setDistributionEditing(true)}>{draft.mode === "standard" ? "Standard uncertainty (k=1)" : distributionLabel}</button>}</td>
       <td className="budget-component-type">B</td>{showDof && <td>∞</td>}
       <td>{/incompatible|No unit is set/i.test(preview.pendingReason || "") ? <span role="img" aria-label={preview.pendingReason} title={preview.pendingReason} className="budget-pending-uncertainty" style={{ color: "var(--status-warning, #b58100)" }}><FontAwesomeIcon icon={faExclamationTriangle} /></span> : <span className={displayedStd.value == null ? "inline-tolerance-summary is-empty budget-inline-not-set" : "budget-standard-uncertainty"} title={preview.pendingReason || undefined}>{displayedStd.value == null ? "Not Set" : `± ${Number(displayedStd.value.toPrecision(6))} ${getUnitDisplayLabel(displayedStd.unit)}`}</span>}</td>
-      <td className="action-cell"><SymbolButton type="button" title="Remove component from this budget" aria-label="Remove dynamic component" onClick={() => onRemove?.(component.id, component)} /></td>
+      {!readOnly && <td className="action-cell"><SymbolButton type="button" title="Remove component from this budget" aria-label="Remove dynamic component" onClick={() => onRemove?.(component.id, component)} /></td>}
     </tr>
   );
 }

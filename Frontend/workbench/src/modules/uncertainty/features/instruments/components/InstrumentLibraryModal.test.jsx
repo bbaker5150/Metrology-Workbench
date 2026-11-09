@@ -636,23 +636,105 @@ it('combines unique qualifier names while editing only the active instrument nam
  expect(save.mock.calls.every(([item])=>item.id==='B')).toBe(true);
 });
 
-it('lets SMEs inspect submissions and confirm publication from the inbox', async () => {
- const review={...definition('ReviewMeter','pending'),reviewVersion:'3'};
+it('shows the same compact row, range choices and expanded specifications in the inbox and library', async () => {
+ const meter = { ...definition('ReviewMeter', 'pending'), owner: 'analyst', reviewId: '71', reviewVersion: '3', qualifierColumnNames: ['Frequency'] };
+ const originalRange = meter.functions[0].ranges[0];
+ meter.functions[0].ranges = [
+   { ...originalRange, qualifier: { text: '60 Hz' } },
+   { ...originalRange, id: 'wide', max: 100, resolution: 0.1, qualifier: { text: '400 Hz' }, tolerances: { reading: { value: 2, unit: '%' } } },
+ ];
+ const other = { ...definition('Bridge', 'pending'), owner: 'other', reviewId: '72', reviewVersion: '1' };
+ const save = vi.fn();
+ axios.get.mockResolvedValue({ data: { canValidate: true, reviews: [meter, other] } });
+ try {
+   render(<InstrumentLibraryModal isOpen instruments={[meter]} onClose={vi.fn()} onSaveToLibrary={save}/>);
+   const library = screen.getByRole('dialog', { name: 'Instrument library' });
+   const inspect = surface => {
+     const specs = () => within(surface).getByRole('button', { name: /instrument specifications .*ReviewMeter/i });
+     expect(specs()).toHaveAttribute('aria-expanded', 'false');
+     const compactRow = specs().closest('tr');
+     const columns = table => within(table).getAllByRole('columnheader').map(cell => cell.dataset.instrumentColumn);
+     const compactColumns = columns(compactRow.closest('table'));
+     expect(compactColumns).toEqual(['description', 'sync']);
+     const name = within(compactRow).getByRole('button', { name: /select instrument .*ReviewMeter/i });
+     const range = within(compactRow).getByRole('button', { name: /range/i });
+     fireEvent.click(range);
+     const options = within(screen.getByRole('listbox')).getAllByRole('option');
+     const rangeDescriptions = options.map(option => option.textContent);
+     expect(rangeDescriptions).toEqual([expect.stringContaining('60 Hz'), expect.stringContaining('400 Hz')]);
+     fireEvent.click(options[1]);
+     expect(range).toHaveTextContent('0 to 100 V');
+     fireEvent.click(specs());
+     expect(specs()).toHaveAttribute('aria-expanded', 'true');
+     const detailTable = specs().closest('table');
+     if (surface !== library) {
+       expect(within(detailTable).queryByTitle('Edit tolerance')).toBeNull();
+       expect(within(detailTable).queryByRole('button', { name: 'Add range' })).toBeNull();
+     }
+     const detailColumns = columns(detailTable);
+     expect(detailColumns).toEqual(expect.arrayContaining(['range', 'resolution', 'tolerance', 'qualifier']));
+     const detailCells = [...detailTable.querySelectorAll('td.cell-value, [data-qualifier-cell], td.cell-distribution, td.cell-tolerance')].map(cell => {
+       const content = cell.cloneNode(true);
+       content.querySelectorAll('.range-row-controls').forEach(controls => controls.remove());
+       return content.textContent.trim();
+     });
+     expect(detailCells).toEqual(expect.arrayContaining(['60 Hz', '400 Hz', '± 1% IV', '± 2% IV', expect.stringContaining('0.01')]));
+     const tolerance = detailTable.querySelector('td.cell-tolerance');
+     fireEvent.click(within(tolerance).getByTitle(surface === library ? 'Edit tolerance' : 'Inspect tolerance'));
+     const toleranceInputs = [...tolerance.querySelectorAll('.inline-tolerance-input')];
+     const toleranceValues = toleranceInputs.map(input => input.value);
+     expect(toleranceValues).toContain('1');
+     if (surface !== library) toleranceInputs.forEach(input => expect(input).toBeDisabled());
+     fireEvent.click(specs());
+     expect(specs()).toHaveAttribute('aria-expanded', 'false');
+     return { name: name.textContent, compactColumns, rangeDescriptions, detailColumns, detailCells, toleranceValues };
+   };
+   const expected = inspect(library);
+   fireEvent.click(await within(library).findByRole('button', { name: 'Validation inbox' }));
+   const inbox = await within(library).findByRole('region', { name: 'Pending instrument validations' });
+   const search = within(library).getByRole('textbox', { name: 'Search instruments' });
+   expect(within(inbox).getByRole('button', { name: /instrument specifications .*Bridge/i })).toBeInTheDocument();
+   fireEvent.change(search, { target: { value: 'ReviewMeter' } });
+   expect(within(inbox).queryByRole('button', { name: /instrument specifications .*Bridge/i })).toBeNull();
+   expect(inspect(inbox)).toEqual(expected);
+   fireEvent.change(search, { target: { value: '' } });
+   expect(within(inbox).getByRole('button', { name: /instrument specifications .*Bridge/i })).toBeInTheDocument();
+   expect(save).not.toHaveBeenCalled();
+ } finally {
+   axios.get.mockResolvedValue({ data: { canValidate: false, reviews: [] } });
+ }
+});
+
+it('publishes only the confirmed inbox submission when two authors submit the same instrument id', async () => {
+ const review={...definition('ReviewMeter','pending'),owner:'analyst-a',reviewId:'71',reviewVersion:'3'};
+ const other={...review,owner:'analyst-b',reviewId:'72',reviewVersion:'5',model:'Other meter',description:'Second submission'};
  const publish=vi.fn();
- axios.get.mockResolvedValue({data:{canValidate:true,reviews:[review]}});
+ axios.get.mockResolvedValue({data:{canValidate:true,reviews:[review,other]}});
+ axios.post.mockClear();
  axios.post.mockResolvedValueOnce({data:{...review,scope:'validated'}});
  try {
    render(<InstrumentLibraryModal isOpen onClose={()=>{}} instruments={[]} onInstrumentSynced={publish}/>);
    const inbox=await screen.findByRole('button',{name:'Validation inbox'});
    fireEvent.click(inbox);
    const queue=await screen.findByRole('region',{name:'Pending instrument validations'});
-   fireEvent.click(within(queue).getByRole('button',{name:/Validate Example ReviewMeter/}));
+   const reviewRow=within(queue).getByRole('button',{name:/instrument specifications .*ReviewMeter/i}).closest('tr');
+   fireEvent.click(within(reviewRow).getByRole('button',{name:'Pending validation — click to validate'}));
    const confirm=screen.getByRole('alertdialog');
    expect(confirm).toHaveTextContent('publish these specifications');
+   expect(axios.post).not.toHaveBeenCalled();
    expect(publish).not.toHaveBeenCalled();
    fireEvent.click(within(confirm).getByRole('button',{name:'Validate'}));
+   await waitFor(()=>expect(axios.post).toHaveBeenCalledWith(expect.stringMatching(/\/instrument-reviews\/71\/validate\/$/),{reviewVersion:'3'},expect.any(Object)));
    await waitFor(()=>expect(publish).toHaveBeenCalledWith(expect.objectContaining({scope:'validated'}),'ReviewMeter'));
-   expect(queue).toHaveTextContent('No instruments are awaiting validation.');
+   expect(within(queue).queryByRole('button',{name:/instrument specifications .*ReviewMeter/i})).toBeNull();
+   const remainingRow=within(queue).getByRole('button',{name:/instrument specifications .*Other meter/i}).closest('tr');
+   expect(axios.post).toHaveBeenCalledTimes(1);
+   fireEvent.click(within(screen.getByRole('alertdialog',{name:'Instrument validated'})).getByText('Close',{selector:'button'}));
+   axios.post.mockResolvedValueOnce({data:{...other,scope:'validated'}});
+   fireEvent.click(within(remainingRow).getByRole('button',{name:'Pending validation — click to validate'}));
+   fireEvent.click(within(screen.getByRole('alertdialog',{name:'Validate instrument'})).getByRole('button',{name:'Validate'}));
+   await waitFor(()=>expect(queue).toHaveTextContent('No instruments are awaiting validation.'));
+   expect(axios.post).toHaveBeenLastCalledWith(expect.stringMatching(/\/instrument-reviews\/72\/validate\/$/),{reviewVersion:'5'},expect.any(Object));
  } finally {axios.get.mockResolvedValue({data:{canValidate:false,reviews:[]}});}
 });
 
@@ -669,4 +751,19 @@ it('admits a reviewer from a pending library sync icon and keeps ordinary users 
    fireEvent.click(await screen.findByRole('button',{name:'Pending validation — click to validate'}));
    expect(await screen.findByRole('alertdialog')).toHaveTextContent('Validate Example LocalMeter');
  } finally {axios.get.mockResolvedValue({data:{canValidate:false,reviews:[]}});}
+});
+
+it('opens the latest submitted specs before approving an older library copy', async () => {
+  const old = { ...definition('Meter', 'pending'), owner: 'analyst', reviewVersion: '1' };
+  const latest = { ...old, model: 'Revised', reviewId: '93', reviewVersion: '2' };
+  axios.get.mockResolvedValue({ data: { canValidate: true, reviews: [latest] } });
+  try {
+    render(<InstrumentLibraryModal isOpen instruments={[old]} onClose={vi.fn()} />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Pending validation — click to validate' }));
+    const queue = await screen.findByRole('region', { name: 'Pending instrument validations' });
+    expect(within(queue).getByRole('button', { name: /hide instrument specifications .*Revised/i })).toHaveAttribute('aria-expanded', 'true');
+    expect(screen.queryByRole('alertdialog')).toBeNull();
+    fireEvent.click(within(queue).getByRole('button', { name: 'Pending validation — click to validate' }));
+    expect(screen.getByRole('alertdialog')).toHaveTextContent('Validate Example Revised');
+  } finally { axios.get.mockResolvedValue({ data: { canValidate: false, reviews: [] } }); }
 });

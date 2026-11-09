@@ -46,3 +46,36 @@ it('does not collapse a refocused equation when a queued blur finishes', async()
  await new Promise(resolve=>requestAnimationFrame(resolve));
  expect(screen.getByRole('textbox',{name:'Uncertainty equation'})).toHaveValue('a+b');
 });
+
+it('shows the submitted equation as text or KaTeX without changing it', () => {
+  const definition = { ...createDynamicDefinition('equation', { unit: 'V' }),
+    equation: '2*x', variables: { x: { name: 'Input', value: '5' } } };
+  const save = vi.fn();
+  render(<DynamicUncertaintyFields definition={definition} readOnly onChange={save} showPreview={false} />);
+  const input = screen.getByRole('textbox', { name: 'Uncertainty equation' });
+  expect(input).toHaveAttribute('readonly');
+  expect(screen.getByRole('textbox', { name: 'x nominal' })).toHaveValue('5');
+  fireEvent.keyDown(input, { key: 'Enter' });
+  const summary = screen.getByRole('button', { name: 'View uncertainty equation' });
+  expect(summary.querySelector('.katex')).toBeInTheDocument();
+  fireEvent.click(summary);
+  expect(screen.getByRole('textbox', { name: 'Uncertainty equation' })).toHaveValue('2*x');
+  expect(save).not.toHaveBeenCalled();
+});
+
+it('lets reviewers inspect tabular values without changing cells or adding rows', () => {
+  const definition = createDynamicDefinition('table', { value: 10, unit: 'V' });
+  definition.rows[0].values = { [definition.columns[0].id]: { value: '0.25' } };
+  const save = vi.fn();
+  render(<DynamicUncertaintyFields definition={definition} readOnly onChange={save} showPreview={false} />);
+  const value = screen.getByRole('textbox', { name: 'Uncertainty row 1' });
+  expect(value).toHaveValue('0.25');
+  expect(value).toHaveAttribute('readonly');
+  expect(screen.getByRole('button', { name: 'Add table row after row 1' })).toBeDisabled();
+  expect(screen.getByRole('button', { name: 'Point unit' })).toBeDisabled();
+  expect(screen.getByTitle('Asymmetric tolerance')).toBeDisabled();
+  fireEvent.paste(value, { clipboardData: { getData: () => '1\t2\n3\t4' } });
+  fireEvent.keyDown(value, { key: 'Tab' });
+  expect(screen.queryByRole('textbox', { name: 'Uncertainty row 2' })).toBeNull();
+  expect(save).not.toHaveBeenCalled();
+});
