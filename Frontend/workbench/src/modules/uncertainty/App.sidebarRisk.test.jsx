@@ -51,6 +51,30 @@ test('retains column hover when crossing rows without rescanning or repainting t
   query.mockRestore();
 });
 
+test("column hover reaches the outer row edges and meets at the gap midpoint under zoom", () => {
+  const { container } = render(<div className="sidebar-points-scroll-wrapper">
+    <SidebarPointItem point={{ id: "a", testPointInfo: { parameter: { value: 1, unit: "V" } } }}
+      visibleColumns={{ value: true, warningIcons: true }} columnOrder={["value", "warningIcons"]}
+      onSelect={vi.fn()} onSave={vi.fn()} />
+  </div>);
+  const list = container.firstChild;
+  const row = list.firstChild;
+  const value = row.querySelector('[data-sidebar-column="value"]');
+  const info = row.querySelector('[data-sidebar-column="warningIcons"]');
+  row.style.columnGap = "4px";
+  Object.defineProperty(row, "offsetWidth", { value: 146 });
+  // At 50% zoom the 80px and 40px tracks occupy 40px and 20px on screen.
+  row.getBoundingClientRect = () => ({ left: 10, right: 83, width: 73 });
+  value.getBoundingClientRect = () => ({ left: 15.5, right: 55.5 });
+  info.getBoundingClientRect = () => ({ left: 57.5, right: 77.5 });
+  fireEvent.mouseOver(value);
+  expect(list.style.getPropertyValue("--point-hover-left")).toBe("0px");
+  expect(list.style.getPropertyValue("--point-hover-right")).toBe("93px");
+  fireEvent.mouseOver(info);
+  expect(list.style.getPropertyValue("--point-hover-left")).toBe("93px");
+  expect(list.style.getPropertyValue("--point-hover-right")).toBe("146px");
+});
+
 describe("measurement-point value editing", () => {
   test('migrates saved TMDE limits to named columns while preserving dynamic defaults, order and explicit hidden choices', () => {
     const session = {tmdes:[{id:'meter',name:'Meter'}]};

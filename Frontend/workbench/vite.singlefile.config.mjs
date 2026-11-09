@@ -40,6 +40,7 @@ const projectRoot = process.cwd();
 
 export default defineConfig({
   base: './',
+  define: { 'import.meta.env.VITE_SHAREPOINT_SINGLEFILE': JSON.stringify('1') },
   plugins: [
     react(),
     docxRuntime(),

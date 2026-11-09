@@ -925,8 +925,10 @@ const UncertaintyBudgetTable = ({
   const isDirect = measurementType === "direct";
   const relativeAvailable = canDisplayRelativeUncertainty(referencePoint);
   const autoPpm = isPpmBudget(calcResults?.calculatedBudgetGroups?.find(group => group.kind === 'final')?.components || components);
-  const displayMode = isDirect && (uncertaintyDisplayMode === 'ppm' || (uncertaintyDisplayMode === 'auto' && autoPpm)) && relativeAvailable ? 'ppm' : 'absolute';
-  const displayUncertainty = magnitude => budgetUncertaintyDisplay(magnitude, referencePoint, isDirect && displayMode === 'ppm' ? 'ppm' : null);
+  const singleFileSharePoint = import.meta.env.VITE_SHAREPOINT_SINGLEFILE === '1';
+  const automaticDisplay = singleFileSharePoint || uncertaintyDisplayMode === 'auto';
+  const displayInPpm = isDirect && relativeAvailable && (automaticDisplay ? autoPpm : uncertaintyDisplayMode === 'ppm');
+  const displayUncertainty = magnitude => budgetUncertaintyDisplay(magnitude, referencePoint, displayInPpm ? 'ppm' : null);
   const displayResults = group => {
     if (!isDirect || group.kind !== 'final') return group.results;
     // Final result magnitudes are already expressed in the point's unit.
@@ -1681,7 +1683,7 @@ const UncertaintyBudgetTable = ({
                   ? <>{simplifyBudgetLabel(group.label).replace(/\s+uncertainty budget$/i, "")} <span className="budget-heading-suffix">Uncertainty Budget</span></>
                   : simplifyBudgetLabel(group.label)}</h4>
                 <div className="budget-section-title-actions">
-                  {isDirect && group.kind === 'final' && (
+                  {isDirect && group.kind === 'final' && !singleFileSharePoint && (
                     <label className="budget-uncertainty-display" title={relativeAvailable ? `Relative uncertainty is referenced to |${referencePoint.value} ${getUnitDisplayLabel(referencePoint.unit)}|. Error limits retain their entered units.` : 'Relative display requires a finite, nonzero measurement point with a known unit.'}>
                       <span>Display</span>
                       <select className="mini-select" aria-label="Uncertainty display" value={uncertaintyDisplayMode === 'ppm' && !relativeAvailable ? 'absolute' : uncertaintyDisplayMode}
@@ -1772,7 +1774,7 @@ const UncertaintyBudgetTable = ({
                 <ResultsCard
                   title={group === groups.at(-1) ? "Final Results" : "Results"}
                   results={displayResults(group)}
-                  unit={isDirect && group.kind === 'final' && displayMode === 'ppm' ? 'ppm' : group.kind === "final" ? derivedUnit : group.unit || derivedUnit}
+                  unit={group.kind === 'final' && displayInPpm ? 'ppm' : group.kind === "final" ? derivedUnit : group.unit || derivedUnit}
                   sigFigs={getGroupSigFigs(group)}
                   isFinal={group === groups.at(-1)}
                   useEffectiveDof={

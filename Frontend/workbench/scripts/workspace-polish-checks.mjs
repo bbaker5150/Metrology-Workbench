@@ -68,6 +68,18 @@ export async function checkWorkspacePolish({ frame, page, saved, until, check })
         return data.length === cells.length && data.every((cell, index) => Math.abs(cell.width - cells[index].width) < 2 && Math.abs(cell.left - cells[index].left) < 2);
       });
   })));
+  check('the Measurement and Risk bands align with their columns and share one continuous underline',
+    await frame.locator('.sidebar-column-header-stack').evaluate(stack => {
+      const bands = stack.querySelector('.sidebar-column-groups');
+      const [measurement, risk] = [...bands.children].map(group => group.getBoundingClientRect());
+      const [value, pfa, pfr] = [...stack.querySelector('.sidebar-column-headers').children]
+        .map(cell => cell.getBoundingClientRect());
+      const aligned = (a, b) => Math.abs(a - b) < 1;
+      return getComputedStyle(bands).borderBottomStyle === 'solid' &&
+        parseFloat(getComputedStyle(bands).borderBottomWidth) > 0 &&
+        aligned(measurement.left, value.left) && aligned(measurement.right, value.right) &&
+        aligned(risk.left, pfa.left) && aligned(risk.right, pfr.right);
+    }));
   await frame.getByRole('button', { name: 'Columns', exact: true }).click();
   await fullViewColumns.getByRole('button', { name: 'Reset Columns' }).click();
   await fullViewColumns.getByRole('button', { name: 'Close column settings' }).click();

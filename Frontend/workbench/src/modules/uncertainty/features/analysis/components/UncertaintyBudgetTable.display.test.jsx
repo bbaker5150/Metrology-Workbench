@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { fireEvent, render, screen, within } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import UncertaintyBudgetTable from './UncertaintyBudgetTable';
 import { normalizeInlineManualComponent } from '../utils/manualComponentUtils';
 import { createDynamicDefinition, createDynamicComponent } from '../../../utils/dynamicBudgetComponents';
@@ -84,5 +84,27 @@ describe('direct budget display selection', () => {
   it('leaves derived budgets unchanged', () => {
     render(<Budget measurementType="derived" initialMode="ppm" />);
     expect(screen.queryByLabelText('Uncertainty display')).not.toBeInTheDocument();
+  });
+});
+
+describe('single-file SharePoint budget display', () => {
+  afterEach(() => vi.unstubAllEnvs());
+
+  const ppmRows = getBudgetComponentsFromTolerance({ id: 'source',
+    floor: { high: 2, low: -2, unit: 'ppm', distribution: '1.960' } }, { value: 10, unit: 'A' });
+
+  it.each([
+    ['all-ppm sources', 'absolute', ppmRows, 10, '2 ppm'],
+    ['mixed sources', 'ppm', [...ppmRows, ...components], 10, '0.00002 A'],
+    ['a zero reference', 'ppm', ppmRows, 0, '0.00002 A'],
+  ])('uses Auto for %s even when a different mode was saved', (_, savedMode, rows, value, expected) => {
+    vi.stubEnv('VITE_SHAREPOINT_SINGLEFILE', '1');
+    const onChange = vi.fn();
+    const { container } = render(<Budget initialMode={savedMode} components={rows} value={value} onChange={onChange} />);
+    expect(screen.queryByLabelText('Uncertainty display')).not.toBeInTheDocument();
+    expect(screen.queryByText('Display')).not.toBeInTheDocument();
+    expect(screen.queryByText(/relative unavailable/i)).not.toBeInTheDocument();
+    expect(within(container.querySelector('.budget-results-card')).getByText(expected)).toBeInTheDocument();
+    expect(onChange).not.toHaveBeenCalled();
   });
 });

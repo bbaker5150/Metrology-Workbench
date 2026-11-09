@@ -1379,12 +1379,15 @@ export const SidebarPointItem = ({
     if (hovered?.classList.contains("is-cell-hovered")) return;
     list.querySelectorAll(".is-cell-hovered").forEach(cell => cell.classList.remove("is-cell-hovered"));
     if (!column) return;
-    const bounds = row.getBoundingClientRect();
+    const hoveredRow = hovered.parentElement;
+    const bounds = hoveredRow.getBoundingClientRect();
     const cellBounds = hovered.getBoundingClientRect();
-    const scale = bounds.width / row.offsetWidth || 1;
-    const halfGap = parseFloat(getComputedStyle(row).columnGap) / 2 || 0;
-    list.style.setProperty("--point-hover-left", `${(cellBounds.left - bounds.left) / scale - halfGap}px`);
-    list.style.setProperty("--point-hover-right", `${(cellBounds.right - bounds.left) / scale + halfGap}px`);
+    const scale = bounds.width / hoveredRow.offsetWidth || 1;
+    const halfGap = parseFloat(getComputedStyle(hoveredRow).columnGap) / 2 || 0;
+    const left = column === leadingVisibleColumn ? 0 : (cellBounds.left - bounds.left) / scale - halfGap;
+    const right = hovered.dataset.sidebarColumnLast === "true" ? bounds.width / scale : (cellBounds.right - bounds.left) / scale + halfGap;
+    list.style.setProperty("--point-hover-left", `${left}px`);
+    list.style.setProperty("--point-hover-right", `${right}px`);
     list.querySelectorAll(".point-grid-item > [data-sidebar-column]").forEach(cell => {
       if (cell.dataset.sidebarColumn === column) cell.classList.add("is-cell-hovered");
     });

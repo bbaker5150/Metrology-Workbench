@@ -1596,12 +1596,11 @@ body[data-point-breakdown-enabled] .uncertainty-module .point-grid-item[data-bre
 
 .sidebar-column-groups {
   display: grid;
-  column-gap: 8px;
   align-items: stretch;
   width: 100%;
   min-width: min-content;
-  padding: 0 10px;
-  box-sizing: border-box;
+  border-inline: var(--sidebar-point-row-border) solid transparent;
+  border-bottom: 2px solid rgba(var(--primary-rgb), 0.22);
   background: rgba(var(--primary-rgb), 0.018);
 }
 
@@ -1609,7 +1608,6 @@ body[data-point-breakdown-enabled] .uncertainty-module .point-grid-item[data-bre
   min-width: 0;
   padding: 6px 8px 5px;
   overflow: hidden;
-  border-bottom: 2px solid rgba(var(--primary-rgb), 0.22);
   color: var(--text-color-muted);
   font-size: 0.54rem;
   font-weight: 750;
@@ -15758,6 +15756,7 @@ body.theme-cyberpunk:not(.dark-mode) .range-label-row.active {
 }
 
 /* Header and data rows must use identical horizontal geometry. */
+.sidebar-column-groups,
 .sidebar-column-headers,
 .point-grid-item {
   column-gap: var(--sidebar-point-column-gap);
@@ -16443,10 +16442,9 @@ body.theme-cyberpunk .industry-table tr.selected-row {
 /* Point grid items - tighter */
 .point-grid-item {
   min-height: 28px;
-  padding: 5px 10px;
+  padding-block: 5px;
   margin-bottom: 1px;
   font-size: 0.8rem;
-  gap: 8px;
 }
 
 .point-grid-item .point-section {
@@ -18772,7 +18770,7 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   color: inherit;
 }
 
-.uncertainty-module .measurement-group-container .sidebar-column-group {
+.uncertainty-module .measurement-group-container .sidebar-column-groups {
   border-bottom-color: color-mix(
     in srgb,
     var(--sidebar-function-color, var(--primary-color)) 46%,
@@ -19099,12 +19097,9 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
      paints for itself. */
   top: calc(-1 * var(--sidebar-point-row-inset));
   bottom: calc(-1 * var(--sidebar-point-row-inset));
-  /* Overlap the fill of the merged column to the left by a pixel, for the same
-     reason the vertical fills overlap. */
-  left: -1px;
-  /* Reach through the column gap so a run also closes the seam between itself
-     and the column beside it, the way merged table cells read. */
-  right: calc(-1 * var(--sidebar-point-column-gap));
+  /* The column guide and selection perimeter run down each gap's midpoint. */
+  left: calc(-0.5 * var(--sidebar-point-column-gap));
+  right: calc(-0.5 * var(--sidebar-point-column-gap));
   background: var(--sidebar-point-cell-fill);
   /* Above the point row surfaces, below the selected row's rail and the
      merged label that spans the run. */
@@ -19132,9 +19127,14 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   .measurement-group-container
   .point-grid-item
   .point-grouped-cell--leading::after {
-  left: calc(
-    -1 * (var(--sidebar-point-row-pad) + var(--sidebar-point-row-border) + 1px)
-  );
+  left: calc(-1 * (var(--sidebar-point-row-pad) + var(--sidebar-point-row-border)));
+}
+
+.uncertainty-module
+  .measurement-group-container
+  .point-grid-item
+  .point-grouped-cell[data-sidebar-column-last="true"]::after {
+  right: calc(-1 * (var(--sidebar-point-row-pad) + var(--sidebar-point-row-border)));
 }
 
 /* The selected point still needs its own rail, and the fills above would bury
@@ -19206,9 +19206,9 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
 
 .uncertainty-module .sidebar-column-resizer {
   position: absolute;
-  top: 0;
-  bottom: 0;
-  right: calc(-1 * var(--sidebar-point-column-gap) / 2);
+  top: -7px;
+  bottom: -6px;
+  right: calc(-1 * var(--sidebar-point-column-gap));
   width: var(--sidebar-point-column-gap);
   cursor: col-resize;
   touch-action: none;
@@ -19218,14 +19218,18 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
 .uncertainty-module .sidebar-column-resizer::after {
   content: "";
   position: absolute;
-  top: 50%;
-  height: 14px;
+  top: 0;
+  bottom: 0;
   left: 50%;
   width: 1px;
-  transform: translateY(-50%);
+  transform: translateX(-50%);
   border-radius: 0;
-  background: var(--text-color-muted, #64748b);
+  background: color-mix(in srgb, #94a3b8 35%, transparent);
   transition: background-color 0.1s ease;
+}
+
+.uncertainty-module .sidebar-column-header-cell:last-child .sidebar-column-resizer:not(:hover):not(:active)::after {
+  background: transparent;
 }
 
 .uncertainty-module .sidebar-column-resizer:hover::after,
@@ -19338,7 +19342,6 @@ body.dark-mode
 /* Vertical rules sit in the center of the existing column gap and use the
    same one-pixel divider token as horizontal row rules. Their layer is above
    grouped-cell fills but below content and resize handles. */
-.uncertainty-module .sidebar-column-header-cell:not(:last-child)::before,
 .uncertainty-module .point-grid-item > :not(:last-child)::before {
   content: "";
   position: absolute;
@@ -19347,11 +19350,6 @@ body.dark-mode
   background: var(--table-divider-color);
   pointer-events: none;
   z-index: 2;
-}
-
-.uncertainty-module .sidebar-column-header-cell:not(:last-child)::before {
-  top: 0;
-  bottom: 0;
 }
 
 .uncertainty-module .point-grid-item > :not(:last-child) {
@@ -19463,7 +19461,6 @@ body.dark-mode
   --sidebar-point-divider-color: var(--sidebar-sticky-surface);
 }
 
-.uncertainty-module .sidebar-column-header-cell:not(:last-child)::before,
 .uncertainty-module .point-grid-item > :not(:last-child)::before {
   background: var(--sidebar-point-divider-color, var(--sidebar-sticky-surface));
 }
@@ -21244,6 +21241,7 @@ body.dark-mode .uncertainty-module { --numeric-text: #fff; }
 .uncertainty-module .measurement-group-container .point-grid-item,
 body.dark-mode .uncertainty-module .measurement-group-container .point-grid-item:is(.active, .active-point, :hover) {
   margin-bottom: 0;
+  border-radius: 0;
   box-shadow: none !important;
 }
 body.dark-mode .uncertainty-module .measurement-group-container .point-grid-item { box-shadow: none !important; }
@@ -21316,17 +21314,11 @@ body.dark-mode .uncertainty-module .measurement-group-container .point-grid-item
 /* Tint the full column band through row padding as well as its cells. The
    gradient paints only; its bounds never change table or editor geometry. */
 .uncertainty-module .measurement-group-container .point-grid-item:has(> .is-cell-hovered) {
-  background: linear-gradient(to right, transparent var(--point-hover-left), var(--sidebar-point-surface-hover) var(--point-hover-left), var(--sidebar-point-surface-hover) var(--point-hover-right), transparent var(--point-hover-right)) var(--sidebar-point-surface) !important;
+  background: linear-gradient(to right, transparent var(--point-hover-left), var(--sidebar-point-surface-hover) var(--point-hover-left), var(--sidebar-point-surface-hover) var(--point-hover-right), transparent var(--point-hover-right)) border-box var(--sidebar-point-surface) !important;
 }
 .uncertainty-module .measurement-group-container .point-grid-item:is(.active, .active-point):has(> .is-cell-hovered) {
-  background: linear-gradient(to right, transparent var(--point-hover-left), color-mix(in srgb, var(--sidebar-point-surface-selected) 85%, var(--sidebar-function-color)) var(--point-hover-left), color-mix(in srgb, var(--sidebar-point-surface-selected) 85%, var(--sidebar-function-color)) var(--point-hover-right), transparent var(--point-hover-right)) var(--sidebar-point-surface-selected) !important;
+  background: linear-gradient(to right, transparent var(--point-hover-left), color-mix(in srgb, var(--sidebar-point-surface-selected) 85%, var(--sidebar-function-color)) var(--point-hover-left), color-mix(in srgb, var(--sidebar-point-surface-selected) 85%, var(--sidebar-function-color)) var(--point-hover-right), transparent var(--point-hover-right)) border-box var(--sidebar-point-surface-selected) !important;
 }
-/* Header rules use the same continuous line, with the wider invisible drag
-   target retained. The visual last column has no extra trailing rule. */
-.uncertainty-module .sidebar-column-header-cell::before { content: none; }
-.uncertainty-module .sidebar-column-resizer { top: -7px; bottom: -6px; right: calc(-1 * var(--sidebar-point-column-gap)); }
-.uncertainty-module .sidebar-column-resizer::after { top: 0; bottom: 0; height: auto; transform: none; background: color-mix(in srgb, #94a3b8 35%, transparent); }
-.uncertainty-module .sidebar-column-header-cell:last-child .sidebar-column-resizer:not(:hover):not(:active)::after { background: transparent; }
 
 /* The row gradient owns the complete hovered column band, including padding.
    Painting a second fill on its centered text-height child creates a smaller
@@ -21514,7 +21506,7 @@ body.light-mode .uncertainty-module :is(.content-area, .results-content, .result
    scrollLeft would add overflow at the right edge and extend the scrollbar. */
 .uncertainty-module .measurement-points-zoom-surface,
 .uncertainty-module .measurement-points-zoom-surface > .scoped-zoom-content { width: max-content; }
-.uncertainty-module .measurement-points-table { width: max-content; min-width: 100%; }
+.uncertainty-module .measurement-points-table { width: max-content; min-width: 0; }
 .uncertainty-module .measurement-points-zoom-surface .sidebar-global-actions {
   position: sticky; left: 0; right: auto; width: calc(100cqw / var(--scoped-content-zoom, 1));
   transform: none;

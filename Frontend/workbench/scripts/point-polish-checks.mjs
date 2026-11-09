@@ -59,6 +59,24 @@ export async function checkPointPolish({ frame, page, check, until, saved }) {
           Math.abs(Number(line.getAttribute('y2')) * scale + bounds.top - last.getBoundingClientRect().bottom) < .6;
       }) && cells.every(cell => getComputedStyle(cell, '::before').content === 'none');
     })));
+    check(`merged fills meet the vertical rules and reach the row edges (${label})`, await frame.locator('.measurement-points-table-content').evaluate(content => {
+      const bounds = content.getBoundingClientRect();
+      const scale = bounds.width / content.offsetWidth;
+      const guides = [...content.querySelectorAll('.point-column-guide')]
+        .map(line => bounds.left + Number(line.getAttribute('x1')) * scale);
+      const cells = [...content.querySelectorAll('.point-grouped-cell')];
+      return cells.length > 0 && cells.every(cell => {
+        const row = cell.parentElement;
+        const order = getComputedStyle(row).gridTemplateAreas.replaceAll('"', '').split(/\s+/);
+        const index = order.indexOf(cell.dataset.sidebarColumn);
+        const box = cell.getBoundingClientRect();
+        const fill = getComputedStyle(cell, '::after');
+        const left = index === 0 ? row.getBoundingClientRect().left : guides[index - 1];
+        const right = index === order.length - 1 ? row.getBoundingClientRect().right : guides[index];
+        return Math.abs(box.left + parseFloat(fill.left) * scale - left) < .6 &&
+          Math.abs(box.right - parseFloat(fill.right) * scale - right) < .6;
+      });
+    }));
   };
   await verifyGuides('default');
   check('header resize rules align with the body rules', await frame.locator('.measurement-points-table-content').evaluate(content => {
@@ -71,9 +89,17 @@ export async function checkPointPolish({ frame, page, check, until, saved }) {
     });
   }));
   const zoomContent = frame.locator('.measurement-points-zoom-surface > .scoped-zoom-content');
-  await zoomContent.evaluate(node => { node.style.zoom = '.8'; });
+  await frame.locator('body').evaluate(() => localStorage.setItem('workbench:ui-scale-lock', 'false'));
+  const wheelStep = deltaY => zoomContent.evaluate((node, deltaY) => {
+    node.dispatchEvent(new WheelEvent('wheel', { bubbles: true, cancelable: true, ctrlKey: true, deltaY }));
+  }, deltaY);
+  await wheelStep(100);
+  await wheelStep(100);
+  check('the point list is rendered at 80 percent zoom', await until(async () =>
+    await zoomContent.evaluate(node => Number(getComputedStyle(node).zoom) === 0.8)));
   await verifyGuides('80 percent');
-  await zoomContent.evaluate(node => { node.style.zoom = '1'; });
+  await wheelStep(-100);
+  await wheelStep(-100);
   await frame.getByRole('button', { name: 'Columns', exact: true }).click();
   await frame.getByRole('button', { name: 'Hide Point Information', exact: true }).click();
   await frame.getByRole('button', { name: 'Close column settings', exact: true }).click();
