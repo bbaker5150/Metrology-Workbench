@@ -437,6 +437,100 @@ it("updates a submitted session instrument when its SME-approved definition is l
 });
 
 describe("local instrument persistence", () => {
+  it('demotes all copies of a removed local instrument, preserves specifications, and persists undo and redo', async () => {
+    const local = {id:'private-meter', legacyLocalId:'old-private-meter', scope:'local', owner:'bench',
+      sourceId:'shared-origin', validatedSnapshot:{model:'Original'}, model:'Library meter', functions:[]};
+    const functions = [{name:'Torque', ranges:[{min:0, max:60, unit:'lbf·ft', tolerance:{iv:0.1}}]}];
+    const sibling = {id:'other-private', scope:'local', sourceId:'private-meter', model:'Separate private copy'};
+    let library = [local, sibling];
+    let storedSessions = [
+      {id:1, name:'Bench', uuts:[{id:'uut-row', libraryInstrumentId:local.id, instrument:{...local, id:'uut-instance', functions}}],
+        tmdes:[{id:'tmde-row', quantity:3, instrument:{...local, functions}}, {id:'other-row', instrument:sibling}], testPoints:[]},
+      {id:2, name:'Second bench', tmdes:[{id:'legacy-row', instrument:{...local, id:local.legacyLocalId, functions}},
+        {id:'pending-row', instrument:{...local, scope:'pending'}}], testPoints:[]},
+    ];
+    axios.get.mockImplementation(async url => ({data:url.endsWith('/sessions/') ? storedSessions : url.endsWith('/instruments/') ? library : []}));
+    axios.put.mockImplementation(async (_url, session) => {
+      storedSessions = storedSessions.map(item => item.id === session.id ? JSON.parse(JSON.stringify(session)) : item);
+      return {};
+    });
+    const {result, unmount} = renderHook(() => useSessionManager());
+    await waitFor(() => expect(result.current.sessionsLoaded && result.current.instruments.length).toBe(2));
+    let finishDelete;
+    axios.delete.mockImplementationOnce(() => new Promise(resolve => {
+      finishDelete = () => { library = [sibling]; resolve({}); };
+    }));
+    let deleting;
+    act(() => { deleting = result.current.deleteInstrument(local.id); });
+    await waitFor(() => expect(finishDelete).toBeTypeOf('function'));
+    act(() => result.current.updateSession({...result.current.currentSessionData, name:'Edited while deleting',
+      tmdes:result.current.currentSessionData.tmdes.map(row => row.id === 'tmde-row'
+        ? {...row, instrument:{...row.instrument, model:'Latest session specs'}} : row)}));
+    await act(async () => { finishDelete(); await deleting; });
+    const copies = () => [result.current.sessions[0].uuts[0], result.current.sessions[0].tmdes[0], result.current.sessions[1].tmdes[0]];
+    const expectDetached = () => {
+      expect(result.current.instruments).toEqual([sibling]);
+      for (const row of copies()) expect(row).toMatchObject({libraryInstrumentId:null, instrument:{scope:'session', owner:'', sourceId:'', validatedSnapshot:null, functions}});
+      expect(result.current.sessions[0].tmdes[0]).toMatchObject({id:'tmde-row', quantity:3, instrument:{model:'Latest session specs'}});
+      expect(result.current.sessions[0].tmdes[1].instrument).toEqual(sibling);
+      expect(result.current.sessions[1].tmdes[1].instrument.scope).toBe('pending');
+      expect(result.current.sessions[0].name).toBe('Edited while deleting');
+    };
+    expectDetached();
+    expect(readRecovery().saves['1'].session.tmdes[0].instrument.scope).toBe('session');
+    expect(readRecovery().saves['2'].session.tmdes[0].instrument.scope).toBe('session');
+    act(() => expect(result.current.undoLastSessionChange()).toBe(true));
+    expect(result.current.instruments).toContainEqual(local);
+    for (const row of copies()) expect(row.instrument).toMatchObject({scope:'local', owner:'bench', sourceId:'shared-origin', functions});
+    expect(result.current.sessions[0].uuts[0].libraryInstrumentId).toBe(local.id);
+    expect(result.current.sessions[0].tmdes[0].instrument.model).toBe('Latest session specs');
+    act(() => expect(result.current.redoLastSessionChange()).toBe(true));
+    expectDetached();
+    await waitFor(() => {
+      expect(storedSessions[0].tmdes[0].instrument.scope).toBe('session');
+      expect(storedSessions[1].tmdes[0].instrument.scope).toBe('session');
+    });
+    unmount();
+    const reopened = renderHook(() => useSessionManager());
+    await waitFor(() => expect(reopened.result.current.sessionsLoaded && reopened.result.current.instruments.length).toBe(1));
+    expect(reopened.result.current.sessions[0].uuts[0].instrument.scope).toBe('session');
+    expect(reopened.result.current.sessions[0].tmdes[0].instrument).toMatchObject({scope:'session', model:'Latest session specs', functions});
+    expect(reopened.result.current.sessions[1].tmdes[0].instrument.scope).toBe('session');
+  });
+  it('retains the library and local session link when removal is rejected', async () => {
+    const local = {id:'private-meter', scope:'local', model:'Saved meter', functions:[]};
+    const session = {id:1, tmdes:[{id:'row', instrument:local}], testPoints:[]};
+    axios.get.mockImplementation(async url => ({data:url.endsWith('/sessions/') ? [session] : url.endsWith('/instruments/') ? [local] : []}));
+    const {result} = renderHook(() => useSessionManager());
+    await waitFor(() => expect(result.current.sessionsLoaded && result.current.instruments.length).toBe(1));
+    axios.delete.mockRejectedValueOnce(new Error('Access denied'));
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      await act(async () => { await expect(result.current.deleteInstrument(local.id)).rejects.toThrow('Access denied'); });
+      expect(result.current.instruments).toEqual([local]);
+      expect(result.current.sessions[0].tmdes[0].instrument).toEqual(local);
+      expect(axios.put).not.toHaveBeenCalled();
+      expect(result.current.undoLastSessionChange()).toBe(false);
+    } finally { log.mockRestore(); }
+  });
+  it('recovers the session-only state when reopened before its session save reaches the server', async () => {
+    const local = {id:'private-meter', scope:'local', functions:[{name:'Torque', ranges:[{min:0, max:60}]}]};
+    const session = {id:1, uuts:[{id:'row', instrument:local}], testPoints:[]};
+    let library = [local];
+    axios.get.mockImplementation(async url => ({data:url.endsWith('/sessions/') ? [session] : url.endsWith('/instruments/') ? library : []}));
+    axios.delete.mockImplementation(async () => { library = []; return {}; });
+    const first = renderHook(() => useSessionManager());
+    await waitFor(() => expect(first.result.current.sessionsLoaded && first.result.current.instruments.length).toBe(1));
+    await act(async () => first.result.current.deleteInstrument(local.id));
+    expect(axios.put).not.toHaveBeenCalled();
+    first.unmount();
+    const reopened = renderHook(() => useSessionManager());
+    await waitFor(() => expect(reopened.result.current.sessionsLoaded).toBe(true));
+    expect(reopened.result.current.instruments).toEqual([]);
+    expect(reopened.result.current.sessions[0].uuts[0].instrument).toMatchObject({scope:'session', functions:local.functions});
+    await waitFor(() => expect(axios.put).toHaveBeenCalledWith(expect.stringContaining('/sessions/1/'),
+      expect.objectContaining({uuts:[expect.objectContaining({instrument:expect.objectContaining({scope:'session', functions:local.functions})})]})));
+  });
   it.each([true, false])('checks a saved shared link against a complete library read (offline=%s)', async offline => {
     const row = {id:'row', instrument:{id:'instance', scope:'validated', sourceId:'public-id', model:'Saved specs'}};
     const session = {id:1, uuts:[row], testPoints:[]};

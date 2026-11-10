@@ -304,8 +304,8 @@ it('shows local/shared sync actions in simplified rows and uses search without a
  expect(screen.queryByRole('button',{name:'Filter instruments'})).not.toBeInTheDocument();
  const local=document.querySelector('tr[data-instrument-id="A"]');
  const shared=document.querySelector('tr[data-instrument-id="B"]');
- expect(within(local).getByRole('button',{name:'Local library — click to submit for validation'})).toBeInTheDocument();
- expect(within(shared).getByRole('button',{name:'Shared library — right-click to make local'})).toBeInTheDocument();
+ expect(within(local).getByRole('button',{name:'My library. Click to submit for SME validation.'})).toBeInTheDocument();
+ expect(within(shared).getByRole('button',{name:'Validated shared. Right-click to make a local copy.'})).toBeInTheDocument();
  fireEvent.change(screen.getByLabelText('Search instruments'),{target:{value:'Meter B'}});
  expect(document.querySelector('tr[data-instrument-id="B"]')).toHaveTextContent('Meter B');
  expect(document.querySelector('tr[data-instrument-id="A"]')).toBeNull();
@@ -718,7 +718,7 @@ it('publishes only the confirmed inbox submission when two authors submit the sa
    fireEvent.click(inbox);
    const queue=await screen.findByRole('region',{name:'Pending instrument validations'});
    const reviewRow=within(queue).getByRole('button',{name:/instrument specifications .*ReviewMeter/i}).closest('tr');
-   fireEvent.click(within(reviewRow).getByRole('button',{name:'Pending validation — click to validate'}));
+   fireEvent.click(within(reviewRow).getByRole('button',{name:'Awaiting validation. Click to review and validate.'}));
    const confirm=screen.getByRole('alertdialog');
    expect(confirm).toHaveTextContent('publish these specifications');
    expect(axios.post).not.toHaveBeenCalled();
@@ -731,7 +731,7 @@ it('publishes only the confirmed inbox submission when two authors submit the sa
    expect(axios.post).toHaveBeenCalledTimes(1);
    fireEvent.click(within(screen.getByRole('alertdialog',{name:'Instrument validated'})).getByText('Close',{selector:'button'}));
    axios.post.mockResolvedValueOnce({data:{...other,scope:'validated'}});
-   fireEvent.click(within(remainingRow).getByRole('button',{name:'Pending validation — click to validate'}));
+   fireEvent.click(within(remainingRow).getByRole('button',{name:'Awaiting validation. Click to review and validate.'}));
    fireEvent.click(within(screen.getByRole('alertdialog',{name:'Validate instrument'})).getByRole('button',{name:'Validate'}));
    await waitFor(()=>expect(queue).toHaveTextContent('No instruments are awaiting validation.'));
    expect(axios.post).toHaveBeenLastCalledWith(expect.stringMatching(/\/instrument-reviews\/72\/validate\/$/),{reviewVersion:'5'},expect.any(Object));
@@ -742,13 +742,13 @@ it('admits a reviewer from a pending library sync icon and keeps ordinary users 
  const item={...definition('LocalMeter','pending'),owner:'analyst',reviewVersion:'2'};
  const view=render(<InstrumentLibraryModal isOpen instruments={[item]} onClose={()=>{}}/>);
  expect(screen.queryByRole('button',{name:'Validation inbox'})).toBeNull();
- fireEvent.click(screen.getByRole('button',{name:'Submitted for SME validation'}));
+ fireEvent.click(screen.getByRole('button',{name:'Awaiting validation. Submitted for SME review.'}));
  expect(screen.queryByRole('alertdialog')).toBeNull();
  view.unmount();
  axios.get.mockResolvedValue({data:{canValidate:true,reviews:[item]}});
  try {
    render(<InstrumentLibraryModal isOpen instruments={[item]} onClose={()=>{}}/>);
-   fireEvent.click(await screen.findByRole('button',{name:'Pending validation — click to validate'}));
+   fireEvent.click(await screen.findByRole('button',{name:'Awaiting validation. Click to review and validate.'}));
    expect(await screen.findByRole('alertdialog')).toHaveTextContent('Validate Example LocalMeter');
  } finally {axios.get.mockResolvedValue({data:{canValidate:false,reviews:[]}});}
 });
@@ -759,11 +759,11 @@ it('opens the latest submitted specs before approving an older library copy', as
   axios.get.mockResolvedValue({ data: { canValidate: true, reviews: [latest] } });
   try {
     render(<InstrumentLibraryModal isOpen instruments={[old]} onClose={vi.fn()} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Pending validation — click to validate' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Awaiting validation. Click to review and validate.' }));
     const queue = await screen.findByRole('region', { name: 'Pending instrument validations' });
     expect(within(queue).getByRole('button', { name: /hide instrument specifications .*Revised/i })).toHaveAttribute('aria-expanded', 'true');
     expect(screen.queryByRole('alertdialog')).toBeNull();
-    fireEvent.click(within(queue).getByRole('button', { name: 'Pending validation — click to validate' }));
+    fireEvent.click(within(queue).getByRole('button', { name: 'Awaiting validation. Click to review and validate.' }));
     expect(screen.getByRole('alertdialog')).toHaveTextContent('Validate Example Revised');
   } finally { axios.get.mockResolvedValue({ data: { canValidate: false, reviews: [] } }); }
 });

@@ -32,6 +32,31 @@ function normalizeLegacySharedScopes(session) {
   return result;
 }
 
+const SESSION_ONLY_LINK = {
+  scope: "session", owner: "", libraryInstrumentId: null, sourceId: "",
+  formerPublicationId: undefined, reviewVersion: undefined,
+  validatedSnapshot: null, localOverride: true,
+};
+
+function detachLocalInstrument(session, instrument) {
+  const ids = new Set([instrument.id, instrument.legacyLocalId].filter(id => id != null).map(String));
+  let result = session;
+  for (const key of ["uuts", "tmdes"]) {
+    let changed = false;
+    const rows = (session[key] || []).map(row => {
+      const definition = row.instrument;
+      // sourceId identifies a shared origin, which other local copies may use.
+      // Only the removed private record's own IDs identify its session copies.
+      if (definition?.scope !== "local" || ![definition.id, definition.libraryInstrumentId, row.libraryInstrumentId]
+        .some(id => id != null && ids.has(String(id)))) return row;
+      changed = true;
+      return { ...row, libraryInstrumentId: null, instrument: { ...definition, ...SESSION_ONLY_LINK } };
+    });
+    if (changed) result = { ...result, [key]: rows };
+  }
+  return result;
+}
+
 function sessionImageUploads(session, imageData) {
   return (session.noteImages || []).flatMap(({ id, fileName, fileObject }) => {
     const data = imageData.get(id) || imageData.get(String(id)) || fileObject;
@@ -557,34 +582,45 @@ const useSessionManager = () => {
     // A matching session instance can have its own Type B collection before a
     // library edit. Retain the actual row values for both sides of this step.
     const session = sessionsRef.current.find(item => item.id === syncSessionId);
-    const next = session && after ? syncInstrumentBudgetComponents(session, after) : session;
-    const sessionChanged = next !== session;
-    if (sessionChanged) commitLibrarySession(next);
+    const removingLocal = before?.scope === "local" && !after;
+    const changes = (removingLocal ? sessionsRef.current : session && after ? [session] : [])
+      .map(previous => ({ previous, next: removingLocal
+        ? detachLocalInstrument(previous, before) : syncInstrumentBudgetComponents(previous, after) }))
+      .filter(change => change.previous !== change.next);
+    const sessionChanged = changes.length > 0;
+    for (const change of changes) commitLibrarySession(change.next);
     // Shared writes require a fresh authorization at their storage boundary.
     if ([before, after].some(item => item && (item.password || ["validated", "shared", "pending"].includes(item.scope)))) return;
     if (!sessionChanged && sameSessionValue(before, after)) return;
     const draft = after && !before && libraryDraftRowsRef.current.find(row => row.instrument.id === id);
     if (draft) setDraftPresence([draft], false);
-    const snapshot = (record, source) => {
-      if (!sessionChanged) return { record };
-      const rows = { uuts: new Map(), tmdes: new Map() };
-      for (const key of ["uuts", "tmdes"]) {
-        (source[key] || []).forEach((row, index) => {
-          if (session[key][index] !== next[key][index]) rows[key].set(row.id, row.instrument?.typeBComponents);
-        });
-      }
-      return { record, rows };
+    const snapshot = (record, side) => {
+      const linkedSessions = new Map(changes.map(change => {
+        const rows = { uuts: new Map(), tmdes: new Map() };
+        for (const key of ["uuts", "tmdes"]) {
+          (change[side][key] || []).forEach((row, index) => {
+            if (change.previous[key][index] === change.next[key][index]) return;
+            rows[key].set(row.id, removingLocal
+              ? { libraryInstrumentId: row.libraryInstrumentId, instrument: Object.fromEntries(
+                Object.keys(SESSION_ONLY_LINK).map(field => [field, row.instrument?.[field]])) }
+              : { instrument: { typeBComponents: row.instrument?.typeBComponents } });
+          });
+        }
+        return [change[side].id, rows];
+      }));
+      return { record, linkedSessions };
     };
-    const restore = ({ record: item, rows }) => {
+    const restore = ({ record: item, linkedSessions }) => {
       // Undoing the first committed edit returns to the exact blank row added
       // in the preceding history step, without saving that blank to disk.
       if (draft) setDraftPresence([draft], !item);
-      const live = rows && sessionsRef.current.find(value => value.id === syncSessionId);
-      if (live) {
+      for (const [sessionId, rows] of linkedSessions) {
+        const live = sessionsRef.current.find(value => value.id === sessionId);
+        if (!live) continue;
         const restored = { ...live };
         for (const key of ["uuts", "tmdes"]) {
           restored[key] = (live[key] || []).map(row => rows[key].has(row.id)
-            ? { ...row, instrument: { ...row.instrument, typeBComponents: rows[key].get(row.id) } } : row);
+            ? { ...row, ...rows[key].get(row.id), instrument: { ...row.instrument, ...rows[key].get(row.id).instrument } } : row);
         }
         commitLibrarySession(restored);
       }
@@ -598,7 +634,7 @@ const useSessionManager = () => {
         : axios.delete(`${url}${encodeURIComponent(id)}/`, { ...instrumentRequestConfig(), params: { owner: getDeviceKey() } })
       ).catch(error => console.error("Failed to persist instrument history", error));
     };
-    recordHistoryAction(snapshot(before, session), snapshot(after, next), restore,
+    recordHistoryAction(snapshot(before, "previous"), snapshot(after, "next"), restore,
       `library:${id}:${!sessionChanged && before && after ? "edit" : ++undoSequenceRef.current}`);
   }, [commitLibrarySession, recordHistoryAction, replaceInstruments, setDraftPresence]);
 

@@ -11838,18 +11838,18 @@ input.inline-desc-subinput:focus-visible {
 }
 
 .inline-sync-badge {
-  width: 24px;
-  height: 24px;
+  width: 28px;
+  height: 28px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
   padding: 0;
   border: 1px solid transparent;
   border-radius: 6px;
-  background: transparent;
-  color: var(--text-color-muted);
+  background: var(--instrument-status-background);
+  color: var(--instrument-status-color);
   cursor: pointer;
-  font-size: 0.78rem;
+  font-size: 16px;
   line-height: 1;
 }
 
@@ -11874,33 +11874,59 @@ input.inline-desc-subinput:focus-visible {
   margin: 0 auto;
 }
 
-/* The badge sits in an instrument row, which carries its function's colour.
-   Hovering it picked up the application blue instead, so the button read as
-   belonging to a different function than the row it was in. */
-.inline-sync-badge:hover:not(:disabled) {
-  background: color-mix(
-    in srgb,
-    var(--instrument-function-color, var(--primary-color)) 10%,
-    transparent
-  );
-  border-color: color-mix(
-    in srgb,
-    var(--instrument-function-color, var(--primary-color)) 28%,
-    transparent
-  );
+/* Status colors stay readable against every measurement-area row tint. */
+.inline-sync-badge:is(:hover, :focus-visible):not(:disabled) {
+  border-color: currentColor;
+}
+
+.inline-sync-badge:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 2px;
 }
 
 .inline-sync-badge:disabled {
   cursor: default;
-  opacity: 0.65;
+  opacity: 1;
 }
 
 .inline-sync-badge--green {
-  color: #2ecc71;
+  --instrument-status-color: #15803d;
+  --instrument-status-background: #f0fdf4;
 }
 
 .inline-sync-badge--red {
-  color: #e74c3c;
+  --instrument-status-color: #475569;
+  --instrument-status-background: #f1f5f9;
+}
+
+.inline-sync-badge--orange {
+  --instrument-status-color: #1d4ed8;
+  --instrument-status-background: #eff6ff;
+}
+
+.inline-sync-badge--yellow {
+  --instrument-status-color: #a16207;
+  --instrument-status-background: #fffbeb;
+}
+
+body.dark-mode .inline-sync-badge--red {
+  --instrument-status-color: #cbd5e1;
+  --instrument-status-background: #1e293b;
+}
+
+body.dark-mode .inline-sync-badge--orange {
+  --instrument-status-color: #93c5fd;
+  --instrument-status-background: #172554;
+}
+
+body.dark-mode .inline-sync-badge--yellow {
+  --instrument-status-color: #fcd34d;
+  --instrument-status-background: #422006;
+}
+
+body.dark-mode .inline-sync-badge--green {
+  --instrument-status-color: #86efac;
+  --instrument-status-background: #052e16;
 }
 
 .inline-sync-badge--none {
@@ -22289,9 +22315,6 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
 .instrument-row-action[data-active] .instrument-row-delete,
 .instrument-row-action:focus-within .instrument-row-delete { opacity: 1; pointer-events: auto; }
 
-.inline-sync-badge--orange { color: #c05b10; }
-.inline-sync-badge--yellow { color: #b8860b; }
-
 /* Qualifier row actions use the same icon box and glyph scale. */
 .qualifier-range-cell .range-row-controls :is(.range-row-add, .range-row-delete) { font-size: 12px; }
 .qualifier-range-cell .range-row-controls :is(.range-row-add, .range-row-delete) svg { width: 12px; height: 12px; }
@@ -22305,7 +22328,7 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
 
 /* Instrument actions share the measurement-area surface of editable fields,
    including the delete button in the independent action strip. */
-.uncertainty-module .instrument-equipment-table :is(.range-row-add, .range-row-delete, .range-qualifier-add, .inline-sync-badge, .instrument-library-specifications, .instrument-row-delete):is(:hover, :focus-visible):not(:disabled),
+.uncertainty-module .instrument-equipment-table :is(.range-row-add, .range-row-delete, .range-qualifier-add, .instrument-library-specifications, .instrument-row-delete):is(:hover, :focus-visible):not(:disabled),
 .uncertainty-module .instrument-row-action .instrument-row-delete:is(:hover, :focus-visible):not(:disabled) {
   color: var(--function-input-accent, var(--primary-color));
   background: color-mix(in srgb, var(--function-input-accent, var(--primary-color)) 10%, transparent);

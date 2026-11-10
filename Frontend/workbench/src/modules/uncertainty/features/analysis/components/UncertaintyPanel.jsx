@@ -72,7 +72,9 @@ import {
   faRulerCombined,
   faTools,
   faBookOpen,
-  faLink,
+  faFileLines,
+  faUser,
+  faClock,
   faLinkSlash,
   faChevronDown,
   faChevronRight,
@@ -2003,11 +2005,12 @@ const applyBandDistribution = (tolerance = {}, value) => {
 
 export const SyncBadge = ({ item, onSync, onDemote, onReview, allowSessionDemotion = true }) => {
   const state = computeSyncState(item?.instrument || item || {});
+  const icons = { red: faFileLines, orange: faUser, yellow: faClock, green: faCheckCircle };
   const labels = {
-    green: "Shared library — right-click to make local",
-    yellow: onReview ? "Pending validation — click to validate" : "Submitted for SME validation",
-    orange: allowSessionDemotion ? "Local library — click to submit for validation; right-click for session only" : "Local library — click to submit for validation",
-    red: "Session only — click to save locally",
+    green: "Validated shared. Right-click to make a local copy.",
+    yellow: onReview ? "Awaiting validation. Click to review and validate." : "Awaiting validation. Submitted for SME review.",
+    orange: allowSessionDemotion ? "My library. Click to submit for SME validation. Right-click for Session only." : "My library. Click to submit for SME validation.",
+    red: "Session only. Click to save to My library.",
   };
   const label = labels[state];
   const click = state === "yellow" ? onReview : onSync;
@@ -2018,7 +2021,7 @@ export const SyncBadge = ({ item, onSync, onDemote, onReview, allowSessionDemoti
     event.preventDefault(); event.stopPropagation();
     if (state === "green" || (state === "orange" && allowSessionDemotion)) onDemote?.();
   }} disabled={!onSync && !onDemote && !onReview} aria-disabled={state === "yellow" && !onReview || undefined} title={label} aria-label={label}>
-    <FontAwesomeIcon icon={state === "green" ? faLink : faLinkSlash} />
+    <FontAwesomeIcon icon={icons[state]} />
   </button>;
 };
 
