@@ -946,12 +946,18 @@ export const SidebarPointItem = ({
       preferredId &&
       (group.pointIdSet ? group.pointIdSet.has(preferredId) : group.pointIds?.some((id) => String(id) === preferredId));
 
-    if (preferredBelongsToGroup) {
+    const isSharedPlainClick = group?.span > 1 && !e.ctrlKey && !e.metaKey && !e.shiftKey;
+    if (preferredBelongsToGroup || isSharedPlainClick) {
       if (onRequestSharedMemberEdit) {
         e.stopPropagation();
         e.preventDefault();
         commitFocusedPointField(e.currentTarget);
-        onRequestSharedMemberEdit?.(preferredSharedEditPointId, field);
+        // Every merged edit must temporarily split its member out of the run.
+        // A local editor left the spanning cell's paint above the input when
+        // the previous selection was outside this group.
+        const memberId = preferredBelongsToGroup ? preferredSharedEditPointId : point.id;
+        if (!preferredBelongsToGroup && !isSelected) onSelect?.(e, point);
+        onRequestSharedMemberEdit(memberId, field);
         if (e.type === "mousedown") sharedFieldPressRef.current = field;
         return;
       }
@@ -6355,7 +6361,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
 
                         {points.length === 0 && sidebarData.find(area => !area.isUnassigned && !(area.points || []).length)?.id === fnGroup.id && (
                           <div className="measurement-point-empty-hint">
-                            Click + to add a measurement point <span aria-hidden="true">↑</span>
+                            <div className="empty-hint-label">Click + to add a measurement point</div><span aria-hidden="true">↑</span>
                           </div>
                         )}
                         {isFnExpanded && points.length > 0 && (

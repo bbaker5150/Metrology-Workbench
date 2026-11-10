@@ -6,6 +6,7 @@ import { getInstrumentRangeRows } from "./instrumentFunctionSelection";
 import { reconcileTmdeInstances, refreshTmdeInstancesFromMasters } from "./tmdeReconcile";
 import { validateEquation } from "./equationValidation";
 import { resolveTmdeTransferComponent } from './tmdeTransferComponent';
+import { budgetToleranceUnitMismatch } from './incompleteBudget';
 
 const numeric = v => v !== "" && v != null && Number.isFinite(Number(v));
 const finite = pair => {
@@ -90,7 +91,7 @@ export function computePointTmdeLimits(point, session = {}) {
         ? ranges.find(r=>String(r.rangeId??r.id)===String(c.tmdeBudgetRangeId) && (!c.tmdeBudgetFunctionId || !r.functionId || String(r.functionId)===String(c.tmdeBudgetFunctionId)))
         : resolutionRange(master, { functionId: c.tmdeBudgetFunctionId }, reference || {});
       if (!range) throw Error("A linked TMDE range is missing; reassign its budget source.");
-      if (range.unit && unitSystem.units[range.unit] && reference?.unit && unitSystem.units[range.unit].quantity !== unitSystem.units[reference.unit]?.quantity) throw Error("TMDE and measurement units differ; correct the equation input units.");
+      if (budgetToleranceUnitMismatch(range, reference?.unit, unitSystem)) throw Error("TMDE and measurement units differ; correct the equation input units.");
       const key=JSON.stringify([String(master.id),String(range.rangeId??range.id),c.variableType || ""]);
       if (seen.has(key) || sources.some(s=>String(s.sourceId)===String(master.id) && s.variableType===c.variableType && (!s.rangeId || String(s.rangeId)===String(range.rangeId??range.id)))) continue;
       seen.add(key);
@@ -108,7 +109,7 @@ export function computePointTmdeLimits(point, session = {}) {
         ref={value:dynamicMeasurementValue(ref,targetUnit),unit:targetUnit};
       }
       if (!numeric(ref?.value) || !unitSystem.units[ref?.unit]) throw Error("A TMDE measurement value or unit is missing.");
-      const specs=(calculateUncertaintyFromToleranceObject(source.tolerance,ref).breakdown || []).filter(c=>numeric(c.absoluteLow)&&numeric(c.absoluteHigh));
+      const specs=(calculateUncertaintyFromToleranceObject(source.tolerance,ref,false,{unitContext:"budget"}).breakdown || []).filter(c=>numeric(c.absoluteLow)&&numeric(c.absoluteHigh));
       if (!specs.length) throw Error("A linked TMDE has no usable specification limits.");
       const value=Number(ref.value),scale=unitSystem.units[ref.unit].to_si;
       const lo=specs.reduce((v,c)=>v+Number(c.absoluteLow)-value,0),hi=specs.reduce((v,c)=>v+Number(c.absoluteHigh)-value,0);

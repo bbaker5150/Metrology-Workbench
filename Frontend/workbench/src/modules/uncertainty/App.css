@@ -21782,7 +21782,8 @@ body.light-mode .uncertainty-module :is(.instrument-equipment-table, .instrument
 
 /* Measured against the actual add controls, including scoped zoom. */
 .uncertainty-module .instrument-first-hint { position: relative; }
-.uncertainty-module :is(.measurement-point-empty-hint, .measurement-area-empty-hint) { padding-right: 46px; }
+.uncertainty-module :is(.measurement-point-empty-hint, .measurement-area-empty-hint) { padding-right: var(--hint-content-right, 46px); }
+.measurement-point-empty-hint .empty-hint-label { min-width: 0; overflow-wrap: anywhere; }
 .uncertainty-module :is(.measurement-point-empty-hint, .measurement-area-empty-hint) > span {
   position: absolute; left: var(--hint-arrow-left, calc(100% - 26px)); transform: translateX(-50%); width: 24px;
 }

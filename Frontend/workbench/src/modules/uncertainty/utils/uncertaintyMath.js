@@ -1,5 +1,5 @@
 import { inputSymbol } from "./budgetScope";
-import { toleranceUnitMismatch } from "./incompleteBudget";
+import { toleranceUnitMismatch, budgetToleranceUnitMismatch } from "./incompleteBudget";
 import { rangeMaximum } from "./instrumentFullScale";
 import { floorBoundText, floorBoundsAreSymmetric } from "./floorToleranceNotation";
 import { prefixedUnitKey, registerUnitPrefixes, SI_PREFIX_OPTIONS } from "./siPrefixes";
@@ -1030,7 +1030,7 @@ export const fullScaleInUnit = (tolerance, pointUnit) => {
 // UPDATED: calculateUncertaintyFromToleranceObject
 // Includes fixes for: Normalization, Positive Low Values, and Zero Nominal Value
 // =================================================================================
-export const selectGreatestTolerance = (tolerance, point) => {
+export const selectGreatestTolerance = (tolerance, point, options) => {
   if (!tolerance?.whicheverIsGreater || !point || point.value === "" || point.value == null) return tolerance;
   const keys = ["reading", "range", "floor", "readings_iv", "db"];
   const base = { ...tolerance, whicheverIsGreater: false, max: tolerance.max ?? tolerance.range?.value };
@@ -1043,7 +1043,7 @@ export const selectGreatestTolerance = (tolerance, point) => {
     const term = key === "floor" ? effectiveFloorTerm(tolerance) : tolerance[key];
     if (!term) continue;
     const candidate = { ...base, [key]: term };
-    const { breakdown } = calculateUncertaintyFromToleranceObject(candidate, point, true);
+    const { breakdown } = calculateUncertaintyFromToleranceObject(candidate, point, true, options);
     const magnitude = breakdown.reduce((sum, row) => sum + Math.abs(row.absoluteHigh - row.absoluteLow) / 2, 0);
     if (breakdown.length && magnitude > greatest) { greatest = magnitude; winner = candidate; }
   }
@@ -1053,7 +1053,8 @@ export const selectGreatestTolerance = (tolerance, point) => {
 export const calculateUncertaintyFromToleranceObject = (
   rawToleranceObject,
   referenceMeasurementPoint,
-  excludeResolution = false
+  excludeResolution = false,
+  { unitContext = "measurement" } = {},
 ) => {
   
   // 1. Structure Normalization
@@ -1098,9 +1099,10 @@ export const calculateUncertaintyFromToleranceObject = (
     return { standardUncertainty: 0, totalToleranceForTar: 0, breakdown: [] };
   }
 
-  const unitError = toleranceUnitMismatch(toleranceObject, referenceMeasurementPoint.unit, unitSystem);
+  const validateUnits = unitContext === "budget" ? budgetToleranceUnitMismatch : toleranceUnitMismatch;
+  const unitError = validateUnits(toleranceObject, referenceMeasurementPoint.unit, unitSystem);
   if (unitError) return { standardUncertainty: NaN, totalToleranceForTar: NaN, breakdown: [], error: unitError };
-  toleranceObject = selectGreatestTolerance(toleranceObject, referenceMeasurementPoint);
+  toleranceObject = selectGreatestTolerance(toleranceObject, referenceMeasurementPoint, { unitContext });
   const nominalValue = parseFloat(referenceMeasurementPoint.value);
   const nominalUnit = referenceMeasurementPoint.unit;
   const fullScale = fullScaleInUnit(toleranceObject, nominalUnit);
@@ -1297,7 +1299,7 @@ export const calculateUncertaintyFromToleranceObject = (
   };
 };
 
-export const getToleranceErrorSummary = (toleranceObject, referencePoint) => {
+export const getToleranceErrorSummary = (toleranceObject, referencePoint, options) => {
   if (
     !toleranceObject ||
     Object.keys(toleranceObject).length <= 1 ||
@@ -1311,7 +1313,9 @@ export const getToleranceErrorSummary = (toleranceObject, referencePoint) => {
 
   const { breakdown } = calculateUncertaintyFromToleranceObject(
     toleranceObject,
-    referencePoint
+    referencePoint,
+    false,
+    options,
   );
 
   const nominalValue = parseFloat(referencePoint.value);
@@ -1350,8 +1354,9 @@ export const getToleranceErrorSummary = (toleranceObject, referencePoint) => {
   )} / ${totalLowDeviation.toPrecision(3)} ${nominalUnitLabel}`;
 };
 
-export const getAbsoluteLimits = (toleranceObject, referencePoint, { snap = true } = {}) => {
-  const unitError = toleranceUnitMismatch(toleranceObject, referencePoint?.unit, unitSystem);
+export const getAbsoluteLimits = (toleranceObject, referencePoint, { snap = true, unitContext = "measurement" } = {}) => {
+  const validateUnits = unitContext === "budget" ? budgetToleranceUnitMismatch : toleranceUnitMismatch;
+  const unitError = validateUnits(toleranceObject, referencePoint?.unit, unitSystem);
   if (unitError) return { high: "N/A", low: "N/A", reason: unitError };
   if (
     !toleranceObject || toleranceObject.rangeSelection === "required" ||
@@ -1394,7 +1399,9 @@ export const getAbsoluteLimits = (toleranceObject, referencePoint, { snap = true
 
   const { breakdown } = calculateUncertaintyFromToleranceObject(
     toleranceObject,
-    referencePoint
+    referencePoint,
+    false,
+    { unitContext },
   );
 
   if (breakdown.length === 0) {
@@ -1494,7 +1501,9 @@ export const getTmdeAbsoluteLimits = (tmdeTolerances, uutNominal) => {
     try {
       ({ breakdown } = calculateUncertaintyFromToleranceObject(
         tmde.tolerance || tmde,
-        refPoint
+        refPoint,
+        false,
+        { unitContext: "budget" },
       ));
     } catch {
       continue;
@@ -1554,7 +1563,7 @@ export const getTmdeAbsoluteLimitEntries = (tmdeTolerances) => {
 
     let limits;
     try {
-      limits = getAbsoluteLimits(tmde.tolerance || tmde, referencePoint);
+      limits = getAbsoluteLimits(tmde.tolerance || tmde, referencePoint, { unitContext: "budget" });
     } catch {
       return [];
     }
@@ -2191,7 +2200,7 @@ export const calculateDerivedUncertainty = (
       // Calculate Standard Uncertainty
       const toleranceSource = tmde.tolerance || tmde;
       const { standardUncertainty: ui_ppm } =
-        calculateUncertaintyFromToleranceObject(toleranceSource, tmde.measurementPoint, true);
+        calculateUncertaintyFromToleranceObject(toleranceSource, tmde.measurementPoint, true, { unitContext: "budget" });
 
       const nominalInBase = unitSystem.toBaseUnit(
         nominalValue,

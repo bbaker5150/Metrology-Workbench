@@ -670,6 +670,48 @@ describe("measurement-point value editing", () => {
     expect(onRequestSharedMemberEdit).toHaveBeenCalledWith("p2", "section");
   });
 
+  test.each(['section', 'qualifier'])('isolates a merged %s editor on the first click from a different selected run', field => {
+    const onSave = vi.fn();
+    const valueFor = point => field === 'section' ? point.section : point.testPointInfo.qualifier.value;
+    const Harness = () => {
+      const [points, setPoints] = React.useState(['p1', 'p2', 'p3', 'outside'].map((id, index) => ({
+        id, section: index < 3 ? '4.1.11 /4.1.14' : 'Other',
+        testPointInfo: { parameter: { value: index + 1, unit: 'V' }, qualifier: { value: index < 3 ? '60' : '70', unit: 'Hz' } },
+      })));
+      const [selected, setSelected] = React.useState('outside');
+      const [pending, setPending] = React.useState(null);
+      return <div>{points.map((point, index) => <SidebarPointItem key={point.id} point={point}
+        visibleColumns={{ section: true, qualifier: true, value: true }}
+        isSelected={selected === point.id} preferredSharedEditPointId={selected}
+        onSelect={() => setSelected(point.id)}
+        cellGroups={{ [field]: getConsecutiveSidebarCellGroupDuringEdit(points, index, valueFor, field, pending) }}
+        onRequestSharedMemberEdit={(pointId, nextField) => setPending({ pointId, field: nextField })}
+        autoEditField={pending?.pointId === point.id ? pending.field : null}
+        onAutoEditFieldConsumed={() => setPending(null)}
+        onSave={updated => { onSave(updated); setPoints(items => items.map(item => item.id === updated.id ? updated : item)); }}
+      />)}</div>;
+    };
+    const { container } = render(<Harness/>);
+    const firstCell = () => container.querySelector(`[data-point-id="p1"] .point-${field}`);
+    const clickMerged = () => fireEvent.mouseDown(firstCell().querySelector('[data-point-editor-trigger]'), { button: 0 });
+    clickMerged();
+    let editor = firstCell().querySelector('input');
+    expect(editor).toHaveFocus();
+    expect(firstCell()).not.toHaveClass('point-grouped-cell');
+    expect(container.querySelector(`[data-point-id="p2"] .point-${field}`)).toHaveClass('point-grouped-cell--start');
+    fireEvent.keyDown(editor, { key: 'Escape' });
+    expect(onSave).not.toHaveBeenCalled();
+    expect(firstCell()).toHaveClass('point-grouped-cell--start');
+    clickMerged();
+    editor = firstCell().querySelector('input');
+    fireEvent.change(editor, { target: { value: 'Updated' } });
+    fireEvent.blur(editor);
+    expect(onSave).toHaveBeenCalledTimes(1);
+    expect(onSave.mock.calls[0][0].id).toBe('p1');
+    expect(valueFor(onSave.mock.calls[0][0])).toBe('Updated');
+    expect(container.querySelector(`[data-point-id="p2"] .point-${field} .point-grouped-cell-label`)).toHaveTextContent(field === 'section' ? '4.1.11 /4.1.14' : '60');
+  });
+
   test("edits only a selected continuation member of a shared Section", () => {
     const onSave = vi.fn();
     const onAutoEditFieldConsumed = vi.fn();

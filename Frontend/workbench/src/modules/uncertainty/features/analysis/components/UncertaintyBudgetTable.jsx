@@ -569,7 +569,7 @@ export const InlineManualComponentRow = ({
     const tolerance = Number(original.toleranceLimit);
     const structuredTolerance = original.tolerance || component.tolerance || {};
     const structuredSummary = structuredTolerance.whicheverIsGreater
-      ? getToleranceErrorSummary(structuredTolerance, referencePoint)
+      ? getToleranceErrorSummary(structuredTolerance, referencePoint, { unitContext: "budget" })
       : formatToleranceSummary?.(structuredTolerance)?.[0];
     const toleranceText =
       !isStandard && structuredSummary && structuredSummary !== "-"
@@ -1261,7 +1261,7 @@ const UncertaintyBudgetTable = ({
                       const qualifierLabel = formatQualifierPath(range, component.budgetQualifierNames);
                       return { value: String(index), rangeLabel: [rangeLabel, qualifierLabel].filter(Boolean).join(" | "),
                         label: formatRangeDetail?.(range, manualReferencePoint, component.budgetQualifierNames)
-                          || [rangeLabel, qualifierLabel, getToleranceErrorSummary(range, manualReferencePoint)].filter(Boolean).join(" | ") };
+                          || [rangeLabel, qualifierLabel, getToleranceErrorSummary(range, manualReferencePoint, { unitContext: "budget" })].filter(Boolean).join(" | ") };
                     })}
                     onChange={index => onComponentUpdate?.(component.id, { selectedBudgetRange: component.budgetRangeOptions[Number(index)] }, component)} />
                 )}

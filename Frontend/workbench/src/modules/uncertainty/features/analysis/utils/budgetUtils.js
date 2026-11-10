@@ -1,5 +1,5 @@
 import { applyTmdeUncertaintyOverrides } from "../../../utils/tmdeUncertaintySources";
-import { hasNominalValue, toleranceNeedsNominal, unresolvedComponent, absoluteBudgetComponent, relativeBudgetUnit, budgetUnitMismatch } from "../../../utils/incompleteBudget";
+import { hasNominalValue, toleranceNeedsNominal, unresolvedComponent, absoluteBudgetComponent, relativeBudgetUnit, budgetUnitMismatch, budgetToleranceUnitMismatch } from "../../../utils/incompleteBudget";
 import { resolveDynamicComponent } from "../../../utils/dynamicBudgetComponents";
 /**
  * * This utility file contains helper functions for breaking down tolerance objects
@@ -223,7 +223,8 @@ export const getBudgetComponentsFromTolerance = (
     return [{ ...primary, name: `${toleranceObject.name || "TMDE"} - TMDE Error`, isCore: true }, ...remaining, ...secondaryComponents];
   }
 
-  toleranceObject = selectGreatestTolerance(toleranceObject, referenceMeasurementPoint);
+  const mismatch = budgetToleranceUnitMismatch(toleranceObject, referenceMeasurementPoint.unit, unitSystem);
+  toleranceObject = selectGreatestTolerance(toleranceObject, referenceMeasurementPoint, { unitContext: "budget" });
   const budgetComponents = [];
   const nominalValue = parseFloat(referenceMeasurementPoint.value);
   const nominalUnit = referenceMeasurementPoint.unit;
@@ -538,6 +539,8 @@ export const getBudgetComponentsFromTolerance = (
       const resolved = calculateUncertaintyFromToleranceObject(
         mc.tolerance,
         referenceMeasurementPoint,
+        false,
+        { unitContext: "budget" },
       );
       if (!Number.isFinite(resolved.standardUncertainty) || resolved.standardUncertainty <= 0) {
         return null;
@@ -716,18 +719,19 @@ export const getBudgetComponentsFromTolerance = (
     },
   );
 
-  const mismatch = [toleranceObject.unit, ...["reading", "range", "floor", "readings_iv"].map(key => toleranceObject[key]?.unit)]
-    .map(unit => budgetUnitMismatch(unit, nominalUnit, unitSystem)).find(Boolean);
   return [...budgetComponents.map(component => {
+    const resolutionMismatch = component.isResolution ? budgetUnitMismatch(component.resolutionUnit, nominalUnit, unitSystem) : null;
+    const manualMismatch = component.isManual ? budgetUnitMismatch(component.manualUnit, nominalUnit, unitSystem) : null;
+    const componentMismatch = resolutionMismatch || manualMismatch || mismatch;
     // A missing or incompatible point unit cannot supply the native display
     // frame. Retain the instrument frame; internal PPM/base values stay intact.
     const physicalUnit = unit => unit && !relativeBudgetUnit(unit) ? unit : null;
     const sourceUnit = (component.isResolution
-      ? toleranceObject.resolutionUnit || toleranceObject.measuringResolutionUnit
+      ? component.resolutionUnit
       : component.isManual ? physicalUnit(component.manualUnit) : null)
       || toleranceObject.unit || toleranceObject.functionUnit
       || ["floor", "readings_iv", "reading", "range"].map(key => physicalUnit(toleranceObject[key]?.unit)).find(Boolean);
-    if (sourceUnit && (!nominalUnit || budgetUnitMismatch(sourceUnit, nominalUnit, unitSystem))) {
+    if (sourceUnit && (!nominalUnit || (componentMismatch && budgetUnitMismatch(sourceUnit, nominalUnit, unitSystem)))) {
       const scale = (unitSystem.units[component.unit_native]?.to_si || 1) / (unitSystem.units[sourceUnit]?.to_si || 1);
       component = { ...component, unit_native: sourceUnit,
         value_native: component.value_native == null ? null : component.value_native * scale,
@@ -735,15 +739,15 @@ export const getBudgetComponentsFromTolerance = (
       };
     }
 
-    const resolutionMismatch = component.isResolution ? budgetUnitMismatch(toleranceObject.resolutionUnit || toleranceObject.measuringResolutionUnit, nominalUnit, unitSystem) : null;
-    if (resolutionMismatch || mismatch) {
+    if (componentMismatch) {
       // Preserve the source specification for display. Numeric uncertainty stays
       // unresolved: incompatible dimensions must never be relabeled as the UUT.
       const authoredTolerance = component.isResolution
-        ? { floor: { high: toleranceObject.resolution ?? toleranceObject.measuringResolution,
-            symmetric: true, unit: toleranceObject.resolutionUnit || toleranceObject.measuringResolutionUnit || toleranceObject.unit } }
+        ? { floor: { high: component.resolution, symmetric: true, unit: component.resolutionUnit } }
+        : component.isManual
+          ? { floor: { high: component.manualRawValue, symmetric: true, unit: component.manualUnit } }
         : toleranceObject;
-      return unresolvedComponent({ ...component, authoredTolerance }, resolutionMismatch || mismatch);
+      return unresolvedComponent({ ...component, authoredTolerance }, componentMismatch);
     }
     if (!Number.isFinite(Number(component.value_native)) || component.distribution === "Not Set" || (component.name.endsWith(" - Accuracy") && missingAccuracyDistribution)) {
       return unresolvedComponent(component, "Choose an error limit distribution to calculate standard uncertainty.");

@@ -45,6 +45,38 @@ export const budgetUnitMismatch = (unit, target, unitSystem) => {
     : null;
 };
 
+/** A TMDE uncertainty specification can be evaluated in the measurement frame:
+ * reading-relative terms use that nominal, and physical terms carry their own
+ * units. The instrument range frame participates only in an active relative
+ * full-scale term. In particular, range.value is a reference, not an error.
+ * UUT acceptance limits retain the stricter range validation below.
+ */
+export const budgetToleranceUnitMismatch = (raw, target, unitSystem) => {
+  const outer = (Array.isArray(raw) ? raw[0] : raw) || {};
+  const tolerance = { ...outer, ...(outer.tolerance || outer.tolerances || {}) };
+  const active = (term, isRange = false) => term && [term.high, term.low, term.limit, ...(!isRange ? [term.value] : [])].some(value =>
+    value != null && String(value).trim() !== "" && Number(value) !== 0);
+  // Match effectiveFloorTerm: even an explicit zero floor overrides its legacy
+  // alias, while an empty floor editor must not hide an authored readings_iv.
+  const hasFloor = tolerance.floor && [tolerance.floor.high, tolerance.floor.low, tolerance.floor.value]
+    .some(value => !Number.isNaN(parseFloat(value)));
+  const terms = [tolerance.reading,
+    hasFloor ? tolerance.floor : tolerance.readings_iv || tolerance.floor,
+    tolerance.singleSided].filter(term => active(term));
+  if (active(tolerance.range, true)) terms.push(tolerance.range);
+  const mismatch = terms
+    .map(term => budgetUnitMismatch(term.unit || target, target, unitSystem)).find(Boolean);
+  if (mismatch) return mismatch;
+  if (active(tolerance.range, true) && relative(tolerance.range.unit)) {
+    const rangeUnit = tolerance.unit || tolerance.functionUnit;
+    const quantity = rangeUnit && unitSystem.getQuantity(rangeUnit);
+    const targetQuantity = target && unitSystem.getQuantity(target);
+    if (quantity && targetQuantity && quantity !== targetQuantity)
+      return `Unit mismatch: ${rangeUnit} cannot be combined in a ${target} uncertainty budget.`;
+  }
+  return null;
+};
+
 /** Validate the physical frame BEFORE evaluating any UUT limit or uncertainty.
  * Relative terms (%/ppm/ppb/dB) are dimensionless specifications; their parent
  * range unit still has to match the measured quantity. Only authored terms

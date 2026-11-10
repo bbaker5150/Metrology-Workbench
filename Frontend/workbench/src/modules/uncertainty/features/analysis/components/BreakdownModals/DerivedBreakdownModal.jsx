@@ -110,6 +110,7 @@ const DerivedBreakdownModal = ({ isOpen, onClose, breakdownData }) => {
                 tmde.tolerance || tmde,
                 reference,
                 true,
+                { unitContext: "budget" },
             );
             const nominalBase = unitSystem.toBaseUnit(
                 Number(reference.value),

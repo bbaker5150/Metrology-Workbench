@@ -3,6 +3,7 @@ import { getInstrumentRangeRows } from './instrumentFunctionSelection';
 import { reconcileTmdeInstances, refreshTmdeInstancesFromMasters, tmdeInstanceMatchesMaster } from './tmdeReconcile';
 import { resolutionRange, matchingResolution, formatPointLimit } from './pointLimitDisplay';
 import { calculateUncertaintyFromToleranceObject, getAbsoluteLimits, getUnitDisplayLabel, unitSystem } from './uncertaintyMath';
+import { budgetToleranceUnitMismatch } from './incompleteBudget';
 import { dynamicMeasurementValue } from './dynamicBudgetComponents';
 import { resolveY5020Resolution } from './y5020Resolution';
 
@@ -56,12 +57,12 @@ export function getPointTmdeSpecifications(point, master, session = {}) {
       const unit = range.measuringResolutionUnit || range.resolutionUnit || targetUnit;
       entry.specification = Number(resolution) > 0 ? `Resolution: ${resolution} ${getUnitDisplayLabel(unit)}` : 'Resolution: Not Set';
       entry.reason = 'Only resolution is used from this instrument at this point; no accuracy limits are applied.';
-    } else if (validNominal && from && (!to || from.quantity === to.quantity)) {
+    } else if (validNominal && from && !budgetToleranceUnitMismatch(range, entry.reference?.unit, unitSystem)) {
       try {
         const tolerance = { ...range, ...(range.tolerance || range.tolerances || {}) };
-        const breakdown = calculateUncertaintyFromToleranceObject(tolerance, entry.reference).breakdown || [];
+        const breakdown = calculateUncertaintyFromToleranceObject(tolerance, entry.reference, false, { unitContext: 'budget' }).breakdown || [];
         if (tolerance.singleSided || breakdown.some(row => row.absoluteLow != null && row.absoluteHigh != null)) {
-          const bounds = getAbsoluteLimits(tolerance, entry.reference, { snap: false });
+          const bounds = getAbsoluteLimits(tolerance, entry.reference, { snap: false, unitContext: 'budget' });
           if (bounds.reason || bounds.rawLow == null || bounds.rawHigh == null) {
             entry.reason = bounds.reason || 'The linked specification has no usable limits.';
           } else {

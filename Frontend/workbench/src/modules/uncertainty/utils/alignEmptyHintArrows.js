@@ -28,5 +28,10 @@ export function alignEmptyHintArrows(root) {
     }
     const left = `${center}px`;
     if (hint.style.getPropertyValue("--hint-arrow-left") !== left) hint.style.setProperty("--hint-arrow-left", left);
+    // The add button can sit inside the hint's right edge. Reserve space up to
+    // the measured arrow, not a fixed inset that lets the text run beneath it.
+    const arrowWidth = hint.lastElementChild?.offsetWidth || 24;
+    const contentRight = `${Math.max(0, hint.offsetWidth - center) + arrowWidth / 2 + 8}px`;
+    if (hint.style.getPropertyValue("--hint-content-right") !== contentRight) hint.style.setProperty("--hint-content-right", contentRight);
   });
 }
