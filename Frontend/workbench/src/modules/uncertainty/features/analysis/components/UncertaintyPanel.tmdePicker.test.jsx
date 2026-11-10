@@ -76,7 +76,7 @@ it.each([["direct", 1], ["direct", 2], ["derived", 1], ["derived", 2]])("groups 
     expect(option).toHaveTextContent(source.name + " (" + (source.kind === "parametric" ? "Manual" : source.kind === "table" ? "Table" : "Equation") + ") |");
     expect(option).not.toHaveTextContent("Reference meter");
     expect(option.textContent.split(" | ")).toHaveLength(3);
-    expect(option).toHaveTextContent(index === 0 ? "± 0.3 V | Rectangular" : "± 0.2 V |");
+    expect(option).toHaveTextContent(index === 0 ? "± 0.3 V | Rectangular" : `±0.2 V (${source.kind === "table" ? "Table" : "Eq."}) | Normal (Std. Unc.)`);
     fireEvent.click(option);
     const rows = update.mock.calls.at(-1)[0].components;
     expect(rows).toHaveLength(1);

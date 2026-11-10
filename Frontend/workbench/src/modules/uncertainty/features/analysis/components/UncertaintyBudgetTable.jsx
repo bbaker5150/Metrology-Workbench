@@ -6,6 +6,7 @@ import { readEditorDraft, saveEditorDraft, clearEditorDraft } from "../../../uti
 import { budgetDragProps } from "../../../utils/instrumentBudgetComponents";
 import { rawDecimal } from "../../../utils/rawDecimal";
 import { budgetUncertaintyDisplay, canDisplayRelativeUncertainty, isPpmBudget } from "../../../utils/budgetDisplay";
+import { measurementAreaAccent } from "../../../utils/measurementAreaColors";
 import GrowingNumericInput from "../../../components/common/GrowingNumericInput";
 import InlineMenuSelect from "../../../components/common/InlineMenuSelect";
 import InlineSourceNameEditor from "../../../components/common/InlineSourceNameEditor";
@@ -1674,7 +1675,7 @@ const UncertaintyBudgetTable = ({
   // configured confidence and any Type A repeatability that lowers the
   // effective DOF (which raises k via the Student-t quantile).
   return (
-    <div className="budget-stack">
+    <div className="budget-stack" style={measurementAreaColor ? { "--primary-color": measurementAreaAccent(measurementAreaColor) } : undefined}>
       {groups.map((group) => (
         <React.Fragment key={group.id}>
           <section className="budget-section-row">

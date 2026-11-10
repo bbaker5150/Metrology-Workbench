@@ -147,6 +147,28 @@ it.each(['session','point'])('nests text qualifiers and collapses parents in %s 
  expect(ranges[1].tolerances).toEqual({});
 });
 
+it.each(['session','point'])('deletes a nested qualifier without removing its parent or instrument specification in %s', viewMode => {
+ render(<Harness viewMode={viewMode}/>);
+ const row=document.querySelector('tr[data-range-group="uut:u1"]');
+ fireEvent.mouseDown(row.querySelector('[data-range-cell]'));
+ fireEvent.click(within(row).getByRole('button',{name:'Add qualifier',exact:true}));
+ const parent=row.querySelector('[data-qualifier-cell="1"]');
+ const parentInput=within(parent).getByRole('textbox',{name:'Qualifier value'});
+ fireEvent.change(parentInput,{target:{value:'DC mode'}});fireEvent.blur(parentInput);
+ fireEvent.click(within(parent).getByRole('button',{name:'Add nested qualifier'}));
+ const child=row.querySelector('[data-qualifier-cell="2"]');
+ const childInput=within(child).getByRole('textbox',{name:'Qualifier value'});
+ fireEvent.change(childInput,{target:{value:'90 days'}});fireEvent.blur(childInput);
+ fireEvent.click(within(child).getByRole('button',{name:'Delete qualifier range'}));
+ const ranges=JSON.parse(screen.getByTestId('state').textContent).uuts[0].instrument.functions[0].ranges;
+ expect(ranges).toHaveLength(1);
+ expect(ranges[0].qualifier.text).toBe('DC mode');
+ expect(ranges[0].qualifier.qualifier).toBeUndefined();
+ expect(ranges[0].tolerances).toEqual({reading:{value:1,unit:'%'}});
+ expect(row.querySelector('[data-qualifier-cell="2"]')).toBeNull();
+ expect(within(parent).getByRole('button',{name:'Add nested qualifier'})).toBeInTheDocument();
+});
+
 it.each(['session','point'])('keeps custom columns as Name fields at their selected position beside nested qualifiers in %s',viewMode=>{
  render(<Harness viewMode={viewMode}/>);
  const row=document.querySelector('tr[data-range-group="uut:u1"]');

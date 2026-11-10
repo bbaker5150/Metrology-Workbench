@@ -61,7 +61,7 @@ export async function checkIndependentColumns({ frame, page, saved, until, check
       check(`${label} zoom leaves no trailing panel strip`, (await matchesPanel(table)).noStrip);
     }
     const beforeFit = await geometry(table);
-    await table.getByRole('button', { name: 'Resize Sync column', exact: true }).dblclick();
+    await table.getByRole('button', { name: 'Resize Status column', exact: true }).dblclick();
     await settle();
     const afterFit = await geometry(table);
     check(`${label} fitting the final column fills only its left neighbour`,

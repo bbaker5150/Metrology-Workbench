@@ -4439,6 +4439,13 @@ body.dark-mode .symbol-popout .symbol-button:hover {
 }
 
 .budget-stack {
+  /* Shared inline editors and their portaled menus inherit the selected
+     measurement area's accent, just like the instrument tables. Derive the
+     companion tokens here so they do not retain the module's default blue. */
+  --function-input-accent: var(--primary-color);
+  --primary-color-light: color-mix(in srgb, var(--primary-color) 14%, transparent);
+  --primary-color-glow: color-mix(in srgb, var(--primary-color) 40%, transparent);
+  --table-hover-row-bg: color-mix(in srgb, var(--primary-color) 6%, transparent);
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -4489,7 +4496,7 @@ body.dark-mode .symbol-popout .symbol-button:hover {
 .budget-stack-toolbar button:hover {
   color: var(--primary-color);
   border-color: transparent;
-  background: rgba(var(--primary-rgb), 0.06);
+  background: color-mix(in srgb, var(--primary-color) 6%, transparent);
   box-shadow: none;
   transform: none;
 }
@@ -4742,7 +4749,7 @@ body.dark-mode .symbol-popout .symbol-button:hover {
 .budget-section-title-actions button:hover {
   color: var(--primary-color);
   border-color: transparent;
-  background: rgba(var(--primary-rgb), 0.06);
+  background: color-mix(in srgb, var(--primary-color) 6%, transparent);
   box-shadow: none;
   transform: none;
 }
@@ -4779,7 +4786,7 @@ body.dark-mode .symbol-popout .symbol-button:hover {
   .budget-section-settings-menu
   .budget-settings-action:hover {
   color: var(--primary-color);
-  background: rgba(var(--primary-rgb), 0.06);
+  background: color-mix(in srgb, var(--primary-color) 6%, transparent);
 }
 
 .budget-section-settings-menu .budget-settings-action svg {
@@ -5152,7 +5159,7 @@ body.dark-mode :is(.budget-results-dof-label, .budget-propagation-control, .poin
 
 .budget-inline-input:focus {
   border-color: var(--primary-color);
-  box-shadow: 0 0 0 2px rgba(var(--primary-rgb), 0.12);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--primary-color) 12%, transparent);
 }
 
 .budget-inline-name {
@@ -21460,6 +21467,8 @@ body.dark-mode .uncertainty-module .measurement-group-container .point-grid-item
   }
   body.uncertainty-active select:not([multiple]) option:is(:hover, :focus-visible) { background: rgba(var(--primary-rgb), .1); outline: none; }
   body.uncertainty-active select:not([multiple]) option:checked { background: rgba(var(--primary-rgb), .16); color: var(--primary-color); font-weight: 700; }
+  body.uncertainty-active .budget-stack select:not([multiple]) option:is(:hover, :focus-visible) { background: color-mix(in srgb, var(--primary-color) 10%, transparent); }
+  body.uncertainty-active .budget-stack select:not([multiple]) option:checked { background: color-mix(in srgb, var(--primary-color) 16%, transparent); }
   body.uncertainty-active select:not([multiple]) option:disabled { opacity: .5; cursor: default; }
   body.uncertainty-active select:not([multiple]) option::checkmark { margin-inline-start: auto; order: 1; }
   body.uncertainty-active select:not([multiple])::picker-icon { color: var(--text-color-muted); font-size: .7em; }
@@ -22276,6 +22285,7 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
 .range-qualifier-add { border: 0; background: transparent; color: var(--text-muted); font: inherit; font-size: 10px; padding: 2px 5px; white-space: nowrap; cursor: pointer; }
 .range-qualifier-add:hover { color: var(--primary-color); background: var(--primary-color-light); border-radius: 3px; }
 .qualifier-range-cell { position: relative; }
+.uncertainty-module .instrument-equipment-table td.qualifier-range-cell { padding-inline: 8px; }
 .uncertainty-module .instrument-equipment-table .qualifier-range-cell .range-row-cell {
   display: flex; flex-direction: column; align-items: stretch; gap: 2px; min-width: 0;
 }
@@ -22291,7 +22301,11 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
   font: inherit; line-height: 1.4;
 }
 .uncertainty-module .instrument-equipment-table .qualifier-range-cell .range-row-controls {
-  align-self: flex-end; width: auto; max-width: 100%; flex-wrap: wrap; justify-content: flex-end;
+  align-self: flex-end; width: auto; min-width: 0; max-width: 100%; flex-wrap: wrap; justify-content: flex-end;
+}
+.uncertainty-module .instrument-equipment-table .qualifier-range-cell .range-row-controls .range-qualifier-add {
+  max-width: 100%; min-height: 24px; height: auto; box-sizing: border-box;
+  white-space: normal; overflow-wrap: anywhere;
 }
 .qualifier-range-cell:not([data-actions-selected]):not(:has(.is-editing)) .range-row-controls { display: none; }
 .qualifier-row-actions { display: inline-flex; gap: 3px; margin-left: 6px; opacity: 0; }
@@ -22350,6 +22364,11 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
 .uncertainty-module .instrument-equipment-table tr.inline-range-row :is(.range-row-cell, .range-stack-row):is(:hover, :focus-within) .range-qualifier-add,
 .uncertainty-module .instrument-equipment-table tr.inline-range-row .range-row-cell:has(> .inline-range-editor.is-editing) .range-row-controls > button,
 .uncertainty-module .instrument-equipment-table tr.inline-range-row .range-qualifier-add:focus-visible { opacity: 1; pointer-events: auto; }
+/* Rowspans and wrapped text leave padding outside the inner editor. Hovering
+   any part of a selected qualifier must expose its complete action group. */
+.uncertainty-module .instrument-equipment-table tr.inline-range-row .qualifier-range-cell:is(:hover, :focus-within) .range-row-controls > button {
+  opacity: 1; pointer-events: auto;
+}
 
 /* Instrument actions share the measurement-area surface of editable fields,
    including the delete button in the independent action strip. */

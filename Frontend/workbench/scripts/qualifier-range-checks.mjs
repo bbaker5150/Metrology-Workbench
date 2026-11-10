@@ -33,7 +33,7 @@ export async function checkQualifierRanges({frame, page, saved, until, check}) {
       await baseRange.locator('.range-row-cell').hover();
       await first.getByRole('button',{name:'Add qualifier',exact:true}).click();
       check(`${view} ${kind} new qualifier opens focused`, await qualifier.getByRole('textbox',{name:'Qualifier value'}).evaluate(node=>node===document.activeElement));
-      check(`${view} ${kind} qualifier is one text input`, await qualifier.locator('input').count()===1);
+      check(`${view} ${kind} qualifier is one multiline text field`, await qualifier.locator('textarea').count()===1 && await qualifier.getByRole('textbox',{name:'Qualifier value'}).count()===1);
       await qualifier.getByRole('textbox',{name:'Qualifier value'}).fill('100 – 1000 Hz');
       await qualifier.getByRole('textbox',{name:'Qualifier value'}).press('Tab');
       check(`${view} ${kind} Tab advances to qualifier actions`, await qualifier.getByRole('button',{name:'Add nested qualifier'}).evaluate(node=>node===document.activeElement));
@@ -49,11 +49,13 @@ export async function checkQualifierRanges({frame, page, saved, until, check}) {
       if (await second.getAttribute('data-actions-selected') !== 'true')
         await second.click({position:{x:5,y:5}});
       await second.hover();
-      check(`${view} ${kind} qualifier controls align beside inputs`,await second.evaluate(cell=>{
+      check(`${view} ${kind} qualifier controls wrap below the field within their cell`,await second.evaluate(cell=>{
         const editor=cell.querySelector('.inline-range-editor').getBoundingClientRect();
         const add=cell.querySelector('.range-row-add').getBoundingClientRect();
         const remove=cell.querySelector('.range-row-delete').getBoundingClientRect();
-        return add.left>=editor.right-1 && remove.left>=add.right && remove.right<=cell.getBoundingClientRect().right && Math.abs(add.top-remove.top)<1;
+        const box=cell.getBoundingClientRect();
+        return [add,remove].every(button=>button.top>=editor.bottom && button.left>=box.left && button.right<=box.right && button.bottom<=box.bottom)
+          && (remove.left>=add.right || remove.top>=add.bottom);
       }));
       check(`${view} ${kind} instrument delete remains visible during scroll`, await table.evaluate(async table=>{
         await new Promise(requestAnimationFrame);
@@ -114,12 +116,17 @@ export async function checkQualifierRanges({frame, page, saved, until, check}) {
         const edge=cell.getBoundingClientRect().right;
         const add=cell.querySelector('.range-row-add').getBoundingClientRect();
         const remove=cell.querySelector('.range-row-delete').getBoundingClientRect();
-        return [...cell.querySelectorAll('input, .range-row-controls button')].every(node=>node.getBoundingClientRect().right<=edge-1)
+        return [...cell.querySelectorAll('textarea, .range-row-controls button')].every(node=>node.getBoundingClientRect().right<=edge-1)
           && Math.abs(add.width-remove.width)<.5 && Math.abs(add.height-remove.height)<.5;
       })));
 
       await child.getByRole('textbox',{name:'Qualifier value'}).fill('90 days');
       await child.getByRole('textbox',{name:'Qualifier value'}).press('Enter');
+      await child.hover({position:{x:3,y:3}});
+      check(`${view} ${kind} hovering nested qualifier padding exposes the delete control`,await until(()=>child.getByRole('button',{name:'Delete qualifier range'}).evaluate(button=>{
+        const box=button.getBoundingClientRect(), cell=button.closest('td').getBoundingClientRect(), style=getComputedStyle(button);
+        return style.opacity==='1' && style.pointerEvents!=='none' && box.left>=cell.left && box.right<=cell.right && box.bottom<=cell.bottom;
+      })));
       await table.locator('[data-instrument-column="qualifier2"] .instrument-custom-column-label').click();
       await table.getByRole('textbox',{name:'Qualifier 2 column name'}).fill('Calibration interval');
       await table.getByRole('textbox',{name:'Qualifier 2 column name'}).press('Enter');

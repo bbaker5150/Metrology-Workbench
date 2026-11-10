@@ -97,7 +97,7 @@ beforeEach(() => {
 });
 
 describe("UncertaintyApp", () => {
-  test("undoes and redoes Add in the library before and after the first saved edit", async () => {
+  test("undoes and redoes Add and edits in the library without promoting a session draft", async () => {
     apiMock.state.sessions = [{id:1, name:'Bench', uuts:[], tmdes:[], testPoints:[], uncReq:{}}];
     render(<ThemeProvider><NotificationProvider><MemoryRouter><UncertaintyApp /></MemoryRouter></NotificationProvider></ThemeProvider>);
     fireEvent.click(await screen.findByRole('button',{name:'Instrument Library'}));
@@ -113,14 +113,19 @@ describe("UncertaintyApp", () => {
     const make = within(row()).getByPlaceholderText('Mfr.');
     fireEvent.change(make,{target:{value:'Example'}});
     fireEvent.keyDown(make,{key:'Escape'});
-    await waitFor(() => expect(apiMock.post.mock.calls.at(-1)[1].manufacturer).toBe('Example'));
+    await waitFor(() => expect(row()).toHaveTextContent('Example'));
+    expect(within(row()).getByRole('button', { name: 'Session only. Click to save to My library.' })).toHaveClass('inline-sync-badge--red');
+    expect(apiMock.post).not.toHaveBeenCalled();
     shortcut('z');
-    await waitFor(() => expect(row()?.querySelector('.inline-desc-combined')).toHaveTextContent('Click to add description'));
+    await waitFor(() => expect(within(row()).getByRole('button', { name: 'Select instrument Untitled instrument' })).toBeInTheDocument());
+    expect(row()).not.toHaveTextContent('Example');
     expect(row().dataset.instrumentId).toBe(id);
     shortcut('z'); expect(row()).toBeNull();
     shortcut('y'); expect(row().dataset.instrumentId).toBe(id);
     shortcut('y'); await waitFor(() => expect(row()).toHaveTextContent('Example'));
     expect(library.querySelectorAll('tr[data-instrument-id]')).toHaveLength(1);
+    expect(within(row()).getByRole('button', { name: 'Session only. Click to save to My library.' })).toHaveClass('inline-sync-badge--red');
+    expect(apiMock.post).not.toHaveBeenCalled();
   });
   test("waits for an in-flight library edit before applying undo and redo", async () => {
     apiMock.state.sessions = [{id: 1, name: 'Bench', uuts: [], tmdes: [], testPoints: [], uncReq:{}}];
@@ -1080,7 +1085,9 @@ describe("UncertaintyApp", () => {
     expect(
       uutRow.style.getPropertyValue("--instrument-function-color"),
     ).not.toBe("");
-    expect(uutTable).toHaveStyle({ width: "100%", minWidth: "310px" });
+    expect(uutTable).toHaveStyle({ width: "100%", minWidth: "346px" });
+    expect(uutTable.querySelector('th[data-instrument-column="sync"]')).toHaveTextContent('Status');
+    expect(within(uutTable).getByRole('button', { name: 'Resize Status column', exact: true })).toBeInTheDocument();
     const widths = Array.from(uutTable.querySelectorAll("col")).map((column) =>
       Number.parseFloat(column.style.width),
     );
@@ -1094,13 +1101,18 @@ describe("UncertaintyApp", () => {
     const resizedWidths = Array.from(uutTable.querySelectorAll("col")).map(
       (column) => Number.parseFloat(column.style.width),
     );
-    expect(resizedWidths.reduce((sum, width) => sum + width, 0)).toBeCloseTo(1212, 5);
-    expect(resizedWidths[0]).toBeCloseTo(widths[0] * 12 + 12, 5);
-    expect(resizedWidths[1]).toBeCloseTo(widths[1] * 12, 5);
+    // With no jsdom geometry, the defaults supply 1224px, including the 96px
+    // Status column. Keyboard resizing adds 12px only to Description.
+    const defaultTableWidth = 1224;
+    const percentToPixels = defaultTableWidth / 100;
+    expect(resizedWidths.reduce((sum, width) => sum + width, 0)).toBeCloseTo(defaultTableWidth + 12, 5);
+    expect(resizedWidths[0]).toBeCloseTo(widths[0] * percentToPixels + 12, 5);
+    expect(resizedWidths[1]).toBeCloseTo(widths[1] * percentToPixels, 5);
     const resizedTableWidth = Number.parseFloat(uutTable.style.minWidth);
     expect(resizedTableWidth).toBeGreaterThan(1000);
-    expect(resizedWidths[1]).toBeCloseTo(widths[1] * 12, 5);
-    expect(resizedWidths.at(-1)).toBeCloseTo(widths.at(-1) * 12, 5);
+    expect(resizedWidths[1]).toBeCloseTo(widths[1] * percentToPixels, 5);
+    expect(resizedWidths.at(-1)).toBeCloseTo(widths.at(-1) * percentToPixels, 5);
+    expect(resizedWidths.at(-1)).toBe(96);
     fireEvent.keyDown(document.body, { key: "z", ctrlKey: true });
     expect(uutTable.querySelector("col").style.width).toContain("%");
     fireEvent.keyDown(document.body, { key: "y", ctrlKey: true });
