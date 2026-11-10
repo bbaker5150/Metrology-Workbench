@@ -4899,9 +4899,9 @@ body.dark-mode .symbol-popout .symbol-button:hover {
 }
 
 /* ==========================================================================
-   Effective DOF toggle — styled identically to the ac-shunt DirectionToggle
-   (brushed-metal puck switch). Copied here because the uncertainty module
-   loads its own stylesheet, independent of the ac-shunt module's.
+   Effective DOF toggle — shares the ac-shunt DirectionToggle's brushed-metal
+   puck structure, with a dark finish tuned to measurement-area colors.
+   The uncertainty module loads its own independent stylesheet.
    ========================================================================== */
 :is(.budget-results-dof-label, .budget-propagation-control, .point-mode-control) .direction-toggle-switch {
   position: relative;
@@ -5011,18 +5011,19 @@ body.dark-mode .symbol-popout .symbol-button:hover {
     inset 0 -1px 2px rgba(15, 23, 42, 0.2);
 }
 
-/* Dark-mode overrides (heavy gunmetal), matching the ac-shunt toggle. */
+/* Dark tracks retain their state contrast without burying the area accent
+   beneath the inset shadow. Light-mode controls keep their existing finish. */
 body.dark-mode :is(.budget-results-dof-label, .budget-propagation-control, .point-mode-control) .direction-toggle-slider {
-  background: color-mix(in srgb, var(--surface-sunken) 50%, #000 50%);
+  background: color-mix(in srgb, var(--text-color-muted) 14%, var(--surface-sunken, var(--content-background)));
   box-shadow:
-    inset 0 3px 8px rgba(0, 0, 0, 0.8),
-    inset 0 0 0 1px rgba(255, 255, 255, 0.05),
-    0 1px 1px rgba(255, 255, 255, 0.05);
+    inset 0 2px 4px rgba(0, 0, 0, 0.32),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.22),
+    0 1px 2px rgba(255, 255, 255, 0.08);
 }
 
 body.dark-mode :is(.budget-results-dof-label, .budget-propagation-control, .point-mode-control) .direction-toggle-slider::after {
   background: repeating-linear-gradient(
-    -45deg, transparent, transparent 3px, rgba(0, 0, 0, 0.4) 3px, rgba(0, 0, 0, 0.4) 6px
+    -45deg, transparent, transparent 3px, rgba(0, 0, 0, 0.16) 3px, rgba(0, 0, 0, 0.16) 6px
   );
 }
 
@@ -5044,29 +5045,36 @@ body.dark-mode :is(.budget-results-dof-label, .budget-propagation-control, .poin
 }
 
 body.dark-mode :is(.budget-results-dof-label, .budget-propagation-control, .point-mode-control) .direction-toggle-switch input:checked + .direction-toggle-slider {
-  background: color-mix(in srgb, var(--primary-color) 25%, #000 75%);
+  background: color-mix(in srgb, var(--primary-color) 58%, var(--content-background));
   box-shadow:
-    inset 0 3px 8px rgba(0, 0, 0, 0.8),
-    inset 0 0 0 1px var(--primary-color),
-    0 0 12px color-mix(in srgb, var(--primary-color) 40%, transparent);
+    inset 0 2px 4px rgba(0, 0, 0, 0.28),
+    inset 0 0 0 1px color-mix(in srgb, var(--primary-color) 75%, white),
+    0 0 8px color-mix(in srgb, var(--primary-color) 65%, transparent),
+    0 0 18px color-mix(in srgb, var(--primary-color) 28%, transparent);
 }
 
 body.dark-mode :is(.budget-results-dof-label, .budget-propagation-control, .point-mode-control) .direction-toggle-switch input:checked + .direction-toggle-slider:before {
   background:
-    radial-gradient(circle at 50% 50%, #fff 6%, var(--primary-color) 16%, transparent 22%),
+    radial-gradient(circle at 50% 50%, #fff 10%, var(--primary-color) 24%, transparent 32%),
     conic-gradient(
       from 180deg at 50% 50%,
-      #e2e8f0 0deg,
-      #64748b 90deg,
-      #e2e8f0 180deg,
-      #64748b 270deg,
-      #e2e8f0 360deg
+      #f8fafc 0deg,
+      #94a3b8 90deg,
+      #f8fafc 180deg,
+      #94a3b8 270deg,
+      #f8fafc 360deg
     );
   box-shadow:
-    0 2px 4px rgba(0, 0, 0, 0.6),
-    0 0 8px var(--primary-color),
+    0 1px 3px rgba(0, 0, 0, 0.3),
+    0 0 10px var(--primary-color),
+    0 0 16px color-mix(in srgb, var(--primary-color) 60%, transparent),
     inset 0 1px 1px rgba(255, 255, 255, 0.9),
-    inset 0 -1px 2px rgba(0, 0, 0, 0.5);
+    inset 0 -1px 2px rgba(0, 0, 0, 0.24);
+}
+
+body.dark-mode :is(.budget-results-dof-label, .budget-propagation-control, .point-mode-control) .direction-toggle-switch input:focus-visible + .direction-toggle-slider {
+  outline: 2px solid color-mix(in srgb, var(--primary-color) 75%, white);
+  outline-offset: 3px;
 }
 
 .manual-dof-column {
