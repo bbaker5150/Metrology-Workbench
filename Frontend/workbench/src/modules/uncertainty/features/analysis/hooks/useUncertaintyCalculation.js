@@ -222,6 +222,25 @@ export const useUncertaintyCalculation = (
     let derivedUcInputs_Base = 0;
     let calculatedBudgetGroups = [];
     let monteCarloResult = null;
+    const clearPersistedResults = () => {
+      // Relative and absolute totals are read by different result surfaces.
+      // Clear them together, including sessions already marked invalid by an
+      // older build that left numeric results behind. Once cleared, do not
+      // save again when the parent renders the same incomplete inputs.
+      const cleared = {
+        combined_uncertainty: null, combined_uncertainty_absolute_base: null,
+        combined_uncertainty_inputs_native: null, combined_uncertainty_inputs_base: null,
+        effective_dof: null, k_value: null,
+        expanded_uncertainty: null, expanded_uncertainty_absolute_base: null,
+        is_detailed_uncertainty_calculated: false,
+        calculatedBudgetComponents: [], calculatedBudgetGroups: [], calculatedNominalValue: null,
+        risk8MonteCarloResult: null,
+      };
+      const hasStoredResults = Object.entries(cleared).some(([key, value]) =>
+        Array.isArray(value) ? testPointData[key]?.length > 0
+          : value === false ? Boolean(testPointData[key]) : testPointData[key] != null);
+      if (hasStoredResults) onDataSave(cleared);
+    };
 
     try {
       setCalculationError(null);
@@ -284,12 +303,7 @@ export const useUncertaintyCalculation = (
         if (derived) final.results = { combined: null, expanded: null, pendingReason: "Complete the equation input values and units to calculate total uncertainty." };
         groups.push(final);
         setCalcResults({ calculatedBudgetComponents: groups.flatMap(g => g.components), calculatedBudgetGroups: groups, is_detailed_uncertainty_calculated: false });
-        if (testPointData.is_detailed_uncertainty_calculated) onDataSave({
-          combined_uncertainty: null, combined_uncertainty_absolute_base: null,
-          effective_dof: null, k_value: null, expanded_uncertainty: null,
-          expanded_uncertainty_absolute_base: null, is_detailed_uncertainty_calculated: false,
-          calculatedBudgetComponents: [], calculatedBudgetGroups: [], calculatedNominalValue: null,
-        });
+        clearPersistedResults();
         return;
       }
 
@@ -318,18 +332,7 @@ export const useUncertaintyCalculation = (
         !hasVariableNominals
       ) {
         setCalcResults(null);
-        if (testPointData.is_detailed_uncertainty_calculated) {
-          onDataSave({
-            combined_uncertainty: null,
-            effective_dof: null,
-            k_value: null,
-            expanded_uncertainty: null,
-            is_detailed_uncertainty_calculated: false,
-            calculatedBudgetComponents: [],
-            calculatedBudgetGroups: [],
-            calculatedNominalValue: null,
-          });
-        }
+        clearPersistedResults();
         return;
       }
 
@@ -402,19 +405,7 @@ export const useUncertaintyCalculation = (
         if (derivedCalculationResult.missingInputs) {
           setCalcResults(null);
           setCalculationError(null); 
-          
-          if (testPointData.is_detailed_uncertainty_calculated) {
-            onDataSave({
-              combined_uncertainty: null,
-              effective_dof: null,
-              k_value: null,
-              expanded_uncertainty: null,
-              is_detailed_uncertainty_calculated: false,
-              calculatedBudgetComponents: [],
-              calculatedBudgetGroups: [],
-              calculatedNominalValue: null,
-            });
-          }
+          clearPersistedResults();
           return;
         }
 
@@ -1089,18 +1080,7 @@ export const useUncertaintyCalculation = (
           ))
       ) {
         setCalcResults(null);
-        if (testPointData.is_detailed_uncertainty_calculated) {
-          onDataSave({
-            combined_uncertainty: null,
-            effective_dof: null,
-            k_value: null,
-            expanded_uncertainty: null,
-            is_detailed_uncertainty_calculated: false,
-            calculatedBudgetComponents: [],
-            calculatedBudgetGroups: [],
-            calculatedNominalValue: null,
-          });
-        }
+        clearPersistedResults();
         return;
       }
 
@@ -1246,18 +1226,7 @@ export const useUncertaintyCalculation = (
         calculatedBudgetGroups,
         is_detailed_uncertainty_calculated: false,
       });
-      if (testPointData.is_detailed_uncertainty_calculated) {
-        onDataSave({
-          combined_uncertainty: null,
-          effective_dof: null,
-          k_value: null,
-          expanded_uncertainty: null,
-          is_detailed_uncertainty_calculated: false,
-          calculatedBudgetComponents: [],
-          calculatedBudgetGroups: [],
-          calculatedNominalValue: null,
-        });
-      }
+      clearPersistedResults();
     }
   }, [
     testPointData.id,

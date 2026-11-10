@@ -93,6 +93,10 @@ export async function checkSeptember22({ frame, page, saved, until, check }) {
     }));
     const point = saved().testPoints[0];
     return noNumbers && point.is_detailed_uncertainty_calculated === false && point.expanded_uncertainty_absolute_base == null;
+  }), JSON.stringify({
+    cells: await first.evaluate(node => Object.fromEntries(['lowLimit', 'highLimit', 'standardUncertainty', 'measurementUncertainty', 'pfa', 'pfr'].map(key => [key, node.querySelector(`[data-sidebar-column="${key}"]`)?.textContent ?? null]))),
+    calculated: saved().testPoints[0].is_detailed_uncertainty_calculated,
+    expanded: saved().testPoints[0].expanded_uncertainty_absolute_base,
   }));
   check('empty PFA/PFR cards retain populated dimensions in the budget layout', JSON.stringify(await cardSizes()) === JSON.stringify(populatedCards));
   await capture('september22-incompatible-units');

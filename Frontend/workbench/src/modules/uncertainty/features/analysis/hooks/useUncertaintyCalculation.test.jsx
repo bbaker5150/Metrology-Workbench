@@ -36,6 +36,61 @@ const uutResolution = {
   resolutionDistribution: "3.464",
 };
 
+it('clears every persisted uncertainty total when equation output units become incompatible, then recalculates', async () => {
+  const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+  let point = directPoint({ measurementType: 'derived', equationString: 'a',
+    variableMappings: { a: 'Voltage' }, variableNominals: { a: { value: 10, unit: 'V' } } });
+  const sources = [{ ...tmdeAccuracy, variableType: 'Voltage' }];
+  const tolerance = {}, manual = [];
+  const save = vi.fn(patch => { point = { ...point, ...patch }; });
+  const { result, rerender } = renderHook(({ nominal }) => useUncertaintyCalculation(
+    point, sessionData, sources, tolerance, nominal, manual, save,
+  ), { initialProps: { nominal: { value: 10, unit: 'V' } } });
+  try {
+    await waitFor(() => expect(point.is_detailed_uncertainty_calculated).toBe(true));
+    const previousExpanded = point.expanded_uncertainty_absolute_base;
+    expect(previousExpanded).toBeGreaterThan(0);
+    rerender({ nominal: { value: 10, unit: 'A' } });
+    await waitFor(() => expect(result.current.calculationError).not.toBeNull());
+    expect(point).toMatchObject({
+      is_detailed_uncertainty_calculated: false,
+      combined_uncertainty: null, combined_uncertainty_absolute_base: null,
+      combined_uncertainty_inputs_native: null, combined_uncertainty_inputs_base: null,
+      expanded_uncertainty: null, expanded_uncertainty_absolute_base: null,
+      effective_dof: null, k_value: null, calculatedNominalValue: null,
+      calculatedBudgetComponents: [], calculatedBudgetGroups: [], risk8MonteCarloResult: null,
+    });
+    expect(result.current.calcResults.calculatedBudgetComponents.length).toBeGreaterThan(0);
+    rerender({ nominal: { value: 10, unit: 'V' } });
+    await waitFor(() => expect(point.is_detailed_uncertainty_calculated).toBe(true));
+    expect(point.expanded_uncertainty_absolute_base).toBeCloseTo(previousExpanded);
+    expect(result.current.calculationError).toBeNull();
+  } finally { errors.mockRestore(); }
+});
+
+it('repairs already-invalid persisted totals once without repeatedly saving cleared results', async () => {
+  const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+  let point = directPoint({ measurementType: 'derived', equationString: 'a',
+    variableMappings: { a: 'Voltage' }, variableNominals: { a: { value: 10, unit: 'V' } },
+    is_detailed_uncertainty_calculated: false,
+    combined_uncertainty_absolute_base: .1, expanded_uncertainty_absolute_base: .2,
+    risk8MonteCarloResult: { hash: 'old-result' } });
+  const sources = [{ ...tmdeAccuracy, variableType: 'Voltage' }], tolerance = {}, manual = [];
+  const nominal = { value: 10, unit: 'A' };
+  const save = vi.fn(patch => { point = { ...point, ...patch }; });
+  const { rerender } = renderHook(({ rows }) => useUncertaintyCalculation(
+    point, sessionData, rows, tolerance, nominal, manual, save,
+  ), { initialProps: { rows: sources } });
+  try {
+    await waitFor(() => expect(point.expanded_uncertainty_absolute_base).toBeNull());
+    expect(point.combined_uncertainty_absolute_base).toBeNull();
+    expect(point.risk8MonteCarloResult).toBeNull();
+    expect(save).toHaveBeenCalledTimes(1);
+    rerender({ rows: [...sources] });
+    expect(save).toHaveBeenCalledTimes(1);
+  } finally { errors.mockRestore(); }
+});
+
 const renderDirectCalculation = (
   pointOverrides = {},
   {
