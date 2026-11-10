@@ -180,6 +180,15 @@ export function createSharePointAdapter({ store, apiRoot, fallback }) {
         axiosError.config = config;
         axiosError.response = respond(config, { detail: error.message }, status);
         axiosError.isAxiosError = true;
+        // The adapter also assigns status codes to local errors. Only a real
+        // SharePoint response can supply an HTTP status and request ID.
+        axiosError.httpStatus = error.httpStatus ?? null;
+        if (error instanceof SharePointError) {
+          axiosError.status = error.status;
+          axiosError.operation = error.operation;
+          axiosError.requestId = error.requestId;
+          axiosError.serverMessage = error.serverMessage;
+        }
         throw axiosError;
       }
     }

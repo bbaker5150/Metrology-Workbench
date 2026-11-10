@@ -153,17 +153,16 @@ export async function getFormDigest(webUrl, fetchImpl = fetch) {
     return digestCache.value;
   }
 
-  const response = await fetchImpl(`${webUrl}/_api/contextinfo`, {
+  const response = await fetchSharePoint(webUrl, '/_api/contextinfo', {
     method: 'POST',
     credentials: 'include',
     headers: { Accept: JSON_ACCEPT, 'Content-Length': '0' },
-  });
+  }, fetchImpl);
 
   if (!response.ok) {
-    throw new SharePointError(
+    throw responseError(response, 'POST /_api/contextinfo', await response.text().catch(() => ''),
       'Could not obtain a SharePoint form digest. You may be signed out, or this page may not ' +
         'be hosted inside the SharePoint site it is trying to write to.',
-      response.status,
     );
   }
 
@@ -173,7 +172,7 @@ export async function getFormDigest(webUrl, fetchImpl = fetch) {
     body.FormDigestTimeoutSeconds || body.d?.GetContextWebInformation?.FormDigestTimeoutSeconds || 1800;
 
   if (!value) {
-    throw new SharePointError('SharePoint returned no form digest value.', response.status);
+    throw responseError(response, 'POST /_api/contextinfo', '', 'SharePoint returned no form digest value.');
   }
 
   // Refresh a minute early so a long-running request cannot straddle expiry.
@@ -191,13 +190,34 @@ export class SharePointError extends Error {
   }
 }
 
+function responseError(response, context, detail, message) {
+  const reason = sharePointErrorMessage(detail);
+  const error = new SharePointError(message || describeFailure(context, response.status, reason), response.status, detail);
+  error.httpStatus = response.status;
+  error.operation = context.split('?')[0];
+  error.requestId = response.headers?.get?.('SPRequestGuid') || response.headers?.get?.('request-id');
+  error.serverMessage = reason || (response.ok ? message : 'SharePoint returned no error message.');
+  return error;
+}
+
+async function fetchSharePoint(webUrl, path, options, fetchImpl) {
+  try {
+    return await fetchImpl(`${webUrl}${path}`, options);
+  } catch (cause) {
+    const error = new SharePointError(cause?.message || String(cause));
+    error.operation = `${options.method} ${path.split('?')[0]}`;
+    error.cause = cause;
+    throw error;
+  }
+}
+
 /** GET returning parsed JSON. */
 export async function spGet(webUrl, path, fetchImpl = fetch) {
-  const response = await fetchImpl(`${webUrl}${path}`, {
+  const response = await fetchSharePoint(webUrl, path, {
     method: 'GET',
     credentials: 'include',
     headers: { Accept: JSON_ACCEPT },
-  });
+  }, fetchImpl);
   return readJson(response, `GET ${path}`);
 }
 
@@ -218,24 +238,24 @@ export async function spPost(
   if (!raw && body !== undefined) {
     requestHeaders['Content-Type'] = contentType;
   }
-  const response = await fetchImpl(`${webUrl}${path}`, {
+  const response = await fetchSharePoint(webUrl, path, {
     method: 'POST',
     credentials: 'include',
     headers: requestHeaders,
     body: raw ? body : body === undefined ? undefined : JSON.stringify(body),
-  });
+  }, fetchImpl);
   return readJson(response, `POST ${path}`);
 }
 
 /** GET returning the raw response text, for file contents. */
 export async function spGetText(webUrl, path, fetchImpl = fetch) {
-  const response = await fetchImpl(`${webUrl}${path}`, {
+  const response = await fetchSharePoint(webUrl, path, {
     method: 'GET',
     credentials: 'include',
     headers: { Accept: '*/*' },
-  });
+  }, fetchImpl);
   if (!response.ok) {
-    throw new SharePointError(describeFailure(`GET ${path}`, response.status), response.status);
+    throw responseError(response, `GET ${path}`, await response.text().catch(() => ''));
   }
   return response.text();
 }
@@ -244,18 +264,14 @@ async function readJson(response, context) {
   if (response.status === 204) return {};
   if (!response.ok) {
     const detail = await response.text().catch(() => '');
-    throw new SharePointError(
-      describeFailure(context, response.status, detail),
-      response.status,
-      detail,
-    );
+    throw responseError(response, context, detail);
   }
   const text = await response.text();
   if (!text) return {};
   try {
     return JSON.parse(text);
   } catch {
-    throw new SharePointError(`${context} returned a response that was not JSON.`, response.status);
+    throw responseError(response, context, '', 'SharePoint returned a response that was not JSON.');
   }
 }
 
@@ -284,8 +300,7 @@ export function sharePointErrorMessage(detail) {
 }
 
 /** Turn a bare status into something an analyst can act on. */
-function describeFailure(context, status, detail) {
-  const reason = sharePointErrorMessage(detail);
+function describeFailure(context, status, reason) {
   const because = reason ? ` SharePoint said: ${reason}` : '';
 
   if (status === 403) {

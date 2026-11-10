@@ -765,8 +765,11 @@ describe("UniversalInstrumentModal library synchronization", () => {
     fireEvent.click(screen.getByRole("button", { name: /Save configuration/i }));
     fireEvent.click(screen.getByRole("button", { name: /Submit for validation/i }));
 
-    expect(await screen.findByText("Submission denied.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /Submit for validation/i })).toBeEnabled();
+    const dialog = await screen.findByRole("alertdialog", { name: "Could not submit instrument for validation" });
+    expect(within(dialog).getByRole("button", { name: "Copy error details" })).toBeInTheDocument();
+    expect(dialog).toHaveTextContent("Submission denied.");
+    expect(dialog).toHaveTextContent("403");
+    expect(within(dialog).getByRole("button", { name: /Submit for validation/i })).toBeEnabled();
     expect(props.onSave).not.toHaveBeenCalled();
     expect(props.onClose).not.toHaveBeenCalled();
   });

@@ -1,5 +1,5 @@
 import SymbolButton from "../common/SymbolButton";
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import ReactDOM from "react-dom";
 import { useFloatingWindow } from "../../hooks/useFloatingWindow";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
@@ -14,6 +14,7 @@ const NotificationModal = ({
   onClose, 
   title = "Notification", 
   message, 
+  copyable = false,
   onConfirm,
   confirmText = "OK",
   isIconConfirm = false,
@@ -28,6 +29,47 @@ const NotificationModal = ({
 }) => {
   const [inputValue, setInputValue] = useState(initialInputValue);
   const [inputError, setInputError] = useState("");
+  const [copyState, setCopyState] = useState("");
+  const manualCopyField = useRef(null);
+  const copyButton = useRef(null);
+  const report = copyable ? `${title}\n${message}` : "";
+
+  useLayoutEffect(() => {
+    setCopyState("");
+  }, [isOpen, report]);
+
+  const copyErrorDetails = async (event) => {
+    const button = event.currentTarget;
+    let nextState = "copied";
+    try {
+      await navigator.clipboard.writeText(report);
+    } catch {
+      nextState = "manual";
+    }
+    if (!button.isConnected) return;
+    setCopyState(nextState);
+    if (nextState === "manual" && manualCopyField.current) {
+      manualCopyField.current.focus();
+      manualCopyField.current.select();
+    }
+  };
+
+  useLayoutEffect(() => {
+    const field = manualCopyField.current;
+    if (!field || copyState !== "manual") return;
+    field.focus();
+    field.select();
+    // Some SharePoint frames allow the browser's native copy command even
+    // when the asynchronous Clipboard API is unavailable.
+    try {
+      if (document.execCommand?.("copy")) {
+        setCopyState("copied");
+        copyButton.current?.focus();
+      }
+    } catch {
+      // Leave the report selected for a keyboard or context-menu copy.
+    }
+  }, [copyState]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -63,7 +105,8 @@ const NotificationModal = ({
       if (event.key === "Escape") {
         event.preventDefault();
         onClose?.();
-      } else if (event.key === "Enter" && !event.shiftKey) {
+      } else if (event.key === "Enter" && !event.shiftKey &&
+          event.target !== copyButton.current && event.target !== manualCopyField.current) {
         event.preventDefault();
         if (onConfirm) handleConfirm();
         else onClose?.();
@@ -80,7 +123,7 @@ const NotificationModal = ({
   let tone = "info";
   
   const lowerTitle = title.toLowerCase();
-  if (lowerTitle.includes("delete") || lowerTitle.includes("warning") || lowerTitle.includes("error")) {
+  if (copyable || lowerTitle.includes("delete") || lowerTitle.includes("warning") || lowerTitle.includes("error")) {
     icon = faExclamationTriangle;
     tone = "danger";
   } else if (lowerTitle.includes("success") || lowerTitle.includes("saved")) {
@@ -110,9 +153,9 @@ const NotificationModal = ({
             <FontAwesomeIcon icon={icon} />
           </span>
           <div>
-            <span className="notification-window-eyebrow">
+            {!copyable && <span className="notification-window-eyebrow">
               {tone === "danger" ? "Confirmation required" : "Notification"}
-            </span>
+            </span>}
             <h3 id="notification-modal-title">{title}</h3>
           </div>
         </div>
@@ -125,7 +168,21 @@ const NotificationModal = ({
       </div>
 
       <div className="window-body">
-        <p>{message}</p>
+        {copyable && copyState === "manual" ? (
+          <textarea
+            ref={manualCopyField}
+            className="notification-error-details"
+            aria-label="Error details"
+            value={report}
+            rows={5}
+            readOnly
+          />
+        ) : <p className={copyable ? "notification-error-details" : undefined}>{message}</p>}
+
+        {copyable && <div className="notification-copy-status" role="status">
+          {copyState === "copied" && "Error details copied."}
+          {copyState === "manual" && "Copy the selected details with your keyboard or the context menu."}
+        </div>}
 
         {inputLabel && (
           <label className="notification-window-field">
@@ -157,6 +214,17 @@ const NotificationModal = ({
         )}
 
         <div className="notification-window-actions">
+          {copyable && (
+            <button
+              key={report}
+              ref={copyButton}
+              type="button"
+              className="notification-window-confirm notification-window-confirm--secondary"
+              onClick={copyErrorDetails}
+            >
+              Copy error details
+            </button>
+          )}
           {onConfirm && (
             <button
               className={`notification-window-confirm notification-window-confirm--${tone}`}

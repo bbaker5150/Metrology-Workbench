@@ -735,8 +735,9 @@ const UniversalInstrumentModal = ({
         }
         setPendingSync(null);
         setSyncNotice({
-            title: "Sync Error",
-            message: result.message || "Could not sync this instrument.",
+            title: "Could not submit instrument for validation",
+            message: result.message,
+            copyable: true,
         });
     };
 
@@ -1545,8 +1546,9 @@ const UniversalInstrumentModal = ({
             <NotificationModal
                 isOpen={pendingInstrumentSave}
                 onClose={() => setPendingInstrumentSave(false)}
-                title="Submit instrument changes"
+                title={submissionError ? "Could not submit instrument for validation" : "Submit instrument changes"}
                 message={submissionError || "Submit the edited instrument for SME validation and use it in this session, or save it only in this session."}
+                copyable={Boolean(submissionError)}
                 confirmText="Submit for validation"
                 onConfirm={completeLibrarySave}
                 secondaryText="Session Only"
@@ -1566,6 +1568,7 @@ const UniversalInstrumentModal = ({
                 onClose={() => setSyncNotice(null)}
                 title={syncNotice?.title}
                 message={syncNotice?.message}
+                copyable={syncNotice?.copyable}
             />
             <NotificationModal
                 isOpen={validationNotice}

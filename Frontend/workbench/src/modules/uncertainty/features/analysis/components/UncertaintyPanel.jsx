@@ -174,6 +174,7 @@ import {
   buildValidatedSnapshot,
   diffFromSnapshot,
 } from "../../../utils/instrumentSync";
+import { formatInstrumentSyncError } from "../../../utils/instrumentSyncError";
 import { v4 as uuidv4 } from "uuid";
 import useInstrumentSync from "../../../hooks/useInstrumentSync";
 import TypeBComponentsEditor from "../../instruments/components/TypeBComponentsEditor";
@@ -7353,7 +7354,7 @@ const SummaryDashboard = ({
         sourceId: definition.sourceId || (definition.scope === "validated" ? definition.id : undefined),
         validatedSnapshot: definition.validatedSnapshot || (definition.scope === "validated" ? buildValidatedSnapshot(definition) : null) };
       if (scope === "local") {
-        if (!onSaveInstrument) return;
+        if (!onSaveInstrument) throw new Error("Saving to the local instrument library is unavailable in this view.");
         const saved = await onSaveInstrument(nextDefinition, { requireSaved: true });
         id = saved?.id || id;
       }
@@ -7367,8 +7368,12 @@ const SummaryDashboard = ({
         id, libraryInstrumentId: id, scope, localOverride: true,
         sourceId: nextDefinition.sourceId, validatedSnapshot: nextDefinition.validatedSnapshot }), { skipLibrarySave: true });
       setLocalLibraryChoices(previous => ({ ...previous, [key]: scope }));
-    } catch {
-      setNotification?.({ title: "Could not change sync state", message: "Please try again." });
+    } catch (error) {
+      setNotification?.({
+        title: scope === "local" ? "Could not save instrument to Local" : "Could not return instrument to Session",
+        message: formatInstrumentSyncError(error),
+        copyable: true,
+      });
     } finally {
       syncScopeChanges.current.delete(key);
     }
@@ -7406,8 +7411,9 @@ const SummaryDashboard = ({
           return;
         }
         setNotification({
-          title: "Sync Error",
-          message: result.message || "Could not sync this instrument.",
+          title: "Could not submit instrument for validation",
+          message: result.message,
+          copyable: true,
         });
       },
     });
@@ -11630,7 +11636,7 @@ function DetailedView({
         sourceId: definition.sourceId || (definition.scope === "validated" ? definition.id : undefined),
         validatedSnapshot: definition.validatedSnapshot || (definition.scope === "validated" ? buildValidatedSnapshot(definition) : null) };
       if (scope === "local") {
-        if (!onSaveInstrument) return;
+        if (!onSaveInstrument) throw new Error("Saving to the local instrument library is unavailable in this view.");
         const saved = await onSaveInstrument(nextDefinition, { requireSaved: true });
         id = saved?.id || id;
       }
@@ -11644,8 +11650,12 @@ function DetailedView({
         id, libraryInstrumentId: id, scope, localOverride: true,
         sourceId: nextDefinition.sourceId, validatedSnapshot: nextDefinition.validatedSnapshot }), { skipLibrarySave: true });
       setLocalLibraryChoices(previous => ({ ...previous, [key]: scope }));
-    } catch {
-      setNotification?.({ title: "Could not change sync state", message: "Please try again." });
+    } catch (error) {
+      setNotification?.({
+        title: scope === "local" ? "Could not save instrument to Local" : "Could not return instrument to Session",
+        message: formatInstrumentSyncError(error),
+        copyable: true,
+      });
     } finally {
       syncScopeChanges.current.delete(key);
     }
@@ -11683,8 +11693,9 @@ function DetailedView({
           return;
         }
         setNotification({
-          title: "Sync Error",
-          message: result.message || "Could not sync this instrument.",
+          title: "Could not submit instrument for validation",
+          message: result.message,
+          copyable: true,
         });
       },
     });

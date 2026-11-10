@@ -10101,6 +10101,31 @@ body.dark-mode .bug-card {
   user-select: text;
 }
 
+.notification-window .notification-error-details {
+  width: 100%;
+  box-sizing: border-box;
+  max-height: min(30vh, 18rem);
+  overflow: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  user-select: text;
+}
+
+.notification-window textarea.notification-error-details {
+  padding: 8px;
+  border: 1px solid var(--border-color);
+  border-radius: 5px;
+  background: var(--input-bg);
+  color: inherit;
+  font: inherit;
+}
+
+.notification-copy-status:not(:empty) {
+  margin-top: 8px;
+  color: var(--text-color-muted);
+  font-size: 0.82rem;
+}
+
 .notification-window-field {
   display: grid;
   gap: 7px;

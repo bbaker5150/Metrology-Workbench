@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { createSharePointAdapter } from "./axiosSharePointAdapter";
-import { SharePointError } from "./spContext";
+import { SharePointError, spGet } from "./spContext";
 
 const API = "http://localhost:8000/api/uncertainty";
 
@@ -240,7 +240,27 @@ describe("error translation", () => {
 
   it("defaults an unclassified failure to 500", async () => {
     store.listInstruments.mockRejectedValue(new Error("boom"));
-    await expect(call("get", "/instruments/")).rejects.toMatchObject({ response: { status: 500 } });
+    await expect(call("get", "/instruments/")).rejects.toMatchObject({ response: { status: 500 }, httpStatus: null });
+  });
+
+  it("preserves the actual failed draft request, server reason and request ID for reporting", async () => {
+    const path = "/_api/web/lists/getbytitle('Uncertalytics%20-%20Instrument%20Drafts')/items";
+    const fetchImpl = async () => new Response(JSON.stringify({ error: { message: { value: "Access denied." } } }), {
+      status: 403, headers: { SPRequestGuid: "6deea371-209b-4ac1-a898-221764d03440" },
+    });
+    store.saveInstrument.mockImplementation(() => spGet(store.webUrl, path + "?$filter=AuthorId eq 41", fetchImpl));
+    await expect(call("post", "/instruments/", { id: "meter", scope: "local" })).rejects.toMatchObject({
+      httpStatus: 403, serverMessage: "Access denied.", operation: `GET ${path}`,
+      requestId: "6deea371-209b-4ac1-a898-221764d03440",
+    });
+  });
+
+  it("names the failed request when SharePoint could not be reached", async () => {
+    const fetchImpl = async () => { throw new TypeError("Failed to fetch"); };
+    store.saveInstrument.mockImplementation(() => spGet(store.webUrl, "/_api/web/currentuser?$select=Id", fetchImpl));
+    await expect(call("post", "/instruments/", { id: "meter", scope: "local" })).rejects.toMatchObject({
+      message: "Failed to fetch", httpStatus: null, operation: "GET /_api/web/currentuser",
+    });
   });
 
   it("carries the message into response.data.detail where callers look", async () => {
