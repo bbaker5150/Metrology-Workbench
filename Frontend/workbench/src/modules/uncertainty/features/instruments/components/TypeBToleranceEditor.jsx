@@ -183,6 +183,7 @@ const TypeBToleranceEditor = ({
       <div className="typeb-tolerance-main">
         <InlineToleranceCell
           tolerance={tolerance}
+          useRangeFullScale={false}
           activeRange={{
             id: component.id,
             max: referencePoint.value,

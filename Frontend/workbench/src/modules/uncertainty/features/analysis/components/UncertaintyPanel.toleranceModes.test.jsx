@@ -3,20 +3,23 @@ import userEvent from "@testing-library/user-event";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import {
+  applyItemRangePatch,
   applyToleranceCaseChange,
   InlineDistributionCell,
   InlineToleranceCell,
+  pasteInstrumentIntoSession,
 } from "./UncertaintyPanel";
 import { getAbsoluteLimits } from "../../../utils/uncertaintyMath";
+import { getBudgetComponentsFromTolerance } from "../utils/budgetUtils";
 
-const ToleranceHarness = ({ initialTolerance = {} }) => {
+const ToleranceHarness = ({ initialTolerance = {}, maximum = "10" }) => {
   const [tolerance, setTolerance] = useState(initialTolerance);
   return (
     <>
     <output data-testid="tolerance-data">{JSON.stringify(tolerance)}</output>
     <InlineToleranceCell
       tolerance={tolerance}
-      activeRange={{ id: "r1", unit: "V", max: "10" }}
+      activeRange={{ id: "r1", unit: "V", max: maximum }}
       editable
       onCommit={(key, component) =>
         setTolerance((current) =>
@@ -29,6 +32,54 @@ const ToleranceHarness = ({ initialTolerance = {} }) => {
 };
 
 describe("inline tolerance global modes", () => {
+  it("tracks the maximum until the user types a full scale and restores tracking when cleared", () => {
+    const { container, rerender } = render(<ToleranceHarness />);
+    fireEvent.click(screen.getByRole("button", { name: "Set tolerance" }));
+    const fs = screen.getByRole("textbox", { name: "Full scale" });
+    expect(fs).toHaveValue("10");
+    expect(fs).toHaveStyle({ fontStyle: "italic" });
+    fireEvent.focus(fs);
+    fireEvent.blur(fs);
+    const percent = container.querySelectorAll(".inline-tolerance-term")[1].querySelector("input");
+    fireEvent.change(percent, { target: { value: "1" } });
+    fireEvent.blur(percent);
+    expect(JSON.parse(screen.getByTestId("tolerance-data").textContent).range.value).toBe("");
+    rerender(<ToleranceHarness maximum="20" />);
+    expect(fs).toHaveValue("20");
+    // Retyping the same number is an intentional override.
+    fireEvent.input(fs, { target: { value: "20" } });
+    fireEvent.blur(fs);
+    const saved = JSON.parse(screen.getByTestId("tolerance-data").textContent);
+    expect(saved.range).toMatchObject({ fullScaleManual: true, value: "20" });
+    rerender(<ToleranceHarness maximum="35" />);
+    expect(fs).toHaveValue("20");
+    expect(fs).toHaveStyle({ fontStyle: "normal" });
+    fireEvent.change(fs, { target: { value: "" } });
+    fireEvent.blur(fs);
+    expect(fs).toHaveValue("35");
+    expect(fs).toHaveStyle({ fontStyle: "italic" });
+  });
+
+  it.each([
+    ["old default", { value: "10.0" }, 30],
+    ["old override", { value: "20" }, 20],
+    ["explicit maximum", { value: "10", fullScaleManual: true }, 10],
+    ["explicit zero", { value: "0", fullScaleManual: true }, 0],
+  ])("preserves %s through instrument paste, range edits, limits, and budget calculation", (_, override, fs) => {
+    const range = { id: "r", min: "0", max: "10", unit: "V",
+      tolerances: { range: { high: "1", low: "-1", unit: "%", distribution: "1.732", ...override } } };
+    const item = { id: "source", instrument: { functions: [{ id: "fn", name: "Voltage", ranges: [range] }] } };
+    const copied = pasteInstrumentIntoSession({ tmdes: [item] }, { kind: "tmde", mode: "copy", item }, "tmde").row;
+    const copiedRange = copied.instrument.functions[0].ranges[0];
+    const edit = applyItemRangePatch(copied, copiedRange.id, { max: "20" });
+    const edited = applyItemRangePatch(edit, copiedRange.id, { max: "30" }).instrument.functions[0].ranges[0];
+    const point = { value: 1000, unit: "mV" };
+    expect(Number(getAbsoluteLimits(edited, point).rawHigh)).toBeCloseTo(1000 + fs * 10);
+    const [component] = getBudgetComponentsFromTolerance(edited, point);
+    expect(component?.toleranceLimit_native ?? 0).toBeCloseTo(fs * 10);
+    expect(range.max).toBe("10");
+  });
+
   it("accepts the highlighted floor unit with Enter and tabs from the trigger", () => {
     render(<ToleranceHarness />);
     fireEvent.click(screen.getByRole("button", { name: "Set tolerance" }));

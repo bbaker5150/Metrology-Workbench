@@ -681,6 +681,82 @@ describe("record lists", () => {
 });
 
 describe("user-scoped instrument records", () => {
+  it('rejects an incomplete publication listing even when the failed page returns HTTP 200', async () => {
+    http.on(/PublishedInstruments'\)\/items\?/, {json:{value:[], '@odata.nextLink':WEB + '/_api/publications-page-two'}});
+    http.on(/publications-page-two/, {json:{}});
+    await expect(store.listInstruments()).rejects.toThrow(/incomplete instrument listing/);
+  });
+  it('finishes interrupted approval cleanup after removal without republishing or clearing a newer submission', async () => {
+    vi.spyOn(store, 'canValidateInstruments').mockResolvedValue(true);
+    const draft = {Id:19, RecordId:'41:meter', AuthorId:41, owshiddenversion:2,
+      PayloadJson:'{"id":"meter","scope":"pending","model":"Submitted"}'};
+    draftRows.push(draft);
+    http.on(/InstrumentDrafts'\)\/items\(19\)\?/, () => ({json:draft}));
+    http.on(/InstrumentDrafts'\)\/items\(19\)$/, ({init}) => {
+      if (init.headers['IF-MATCH'] !== `"${draft.owshiddenversion}"`) return {status:412};
+      Object.assign(draft, JSON.parse(init.body));
+      draft.owshiddenversion++;
+      return {status:204};
+    });
+    http.on(/PublishedInstruments'\)\/items\?/, {json:{value:[{Id:70, RecordId:'meter', PayloadJson:JSON.stringify({
+      id:'meter', scope:'validated', model:'Published', _uncertaintyApprovals:{19:'2'}, _uncertaintyArchive:{at:'2026-11-10'},
+    })}]}});
+    expect((await store.listInstruments()).map(record => record.scope)).toEqual(['local']);
+    expect((await store.instrumentReviews()).reviews).toEqual([]);
+    await expect(store.validateInstrument('19', '2')).rejects.toThrow(/has been removed/);
+    expect(JSON.parse(draft.SubmittedJson)._uncertaintyArchive).toBeDefined();
+    expect((await store.instrumentReviews()).reviews).toEqual([]);
+    draft.SubmittedJson = '{"id":"meter","scope":"pending","model":"New specs"}';
+    draft.owshiddenversion++;
+    await expect(store.validateInstrument('19', '2')).rejects.toThrow(/has been removed/);
+    expect((await store.listInstruments()).find(record => record.scope === 'pending').model).toBe('New specs');
+    expect((await store.instrumentReviews()).reviews.map(review => review.model)).toEqual(['New specs']);
+    expect(http.calls.filter(call => call.method === 'POST' && call.url.includes('PublishedInstruments'))).toEqual([]);
+  });
+  it.each(['approved draft', 'migrated original'])('restores the removed publication only to its %s author and keeps later edits private', async origin => {
+    const id = 'meter';
+    const publication = {Id:70, RecordId:id, AuthorId:56, owshiddenversion:5, PayloadJson:JSON.stringify({
+      id, scope:'validated', model:'Latest specifications', sourceId:id, validatedSnapshot:{model:'Latest specifications'},
+      _uncertaintyApprovals:origin === 'approved draft' ? {'19':'2'} : {},
+    })};
+    http.on(/PublishedInstruments'\)\/items\?/, ({url}) => ({
+      json:{value:!url.includes('RecordId eq') || url.includes("RecordId eq 'meter'") ? [publication] : []},
+    }));
+    http.on(/PublishedInstruments'\)\/items\(70\)$/, ({init}) => {
+      if (init.headers['IF-MATCH'] !== `"${publication.owshiddenversion}"`) return {status:412};
+      Object.assign(publication, JSON.parse(init.body));
+      publication.owshiddenversion++;
+      return {status:204};
+    });
+    if (origin === 'approved draft') {
+      draftRows.push({Id:19, RecordId:'41:meter', AuthorId:41, owshiddenversion:3,
+        PayloadJson:JSON.stringify({id, scope:'pending', _uncertaintyArchive:{at:'2026-11-01'}})});
+    } else {
+      http.on(/UncertaintyInstruments'\)\/items\?/, {json:{value:[{Id:15, AuthorId:41, RecordId:id,
+        PayloadJson:JSON.stringify({id,scope:'shared',model:'Original specifications'})}]}});
+    }
+    const other = new SharePointStore({webUrl:WEB, fetchImpl:http, currentUser:{id:56}});
+    if (origin === 'migrated original') {
+      expect(await other.deleteInstrument(id, 'calibrate')).toBeNull();
+    } else {
+      expect(await store.deleteInstrument(id, 'calibrate')).toMatchObject({scope:'local', formerPublicationId:id});
+    }
+    expect(await other.listInstruments()).toEqual([]);
+    const [restored] = await store.listInstruments();
+    expect(restored).toMatchObject({formerPublicationId:id, scope:'local', model:'Latest specifications', owner:'sharepoint-user:41', sourceId:''});
+    expect(computeSyncState(restored)).toBe('orange');
+    expect(restored).not.toHaveProperty('_uncertaintyApprovals');
+    expect(restored).not.toHaveProperty('_uncertaintyArchive');
+    if (origin === 'approved draft') {
+      await store.saveInstrument({...restored, model:'Edited privately'});
+      expect((await store.listInstruments()).map(row => row.model)).toEqual(['Edited privately']);
+      expect((await store.deleteInstrument(id, 'calibrate')).model).toBe('Edited privately');
+    }
+    expect(await other.listInstruments()).toEqual([]);
+    await store.deleteInstrument(restored.id);
+    expect(await store.listInstruments()).toEqual([]);
+    expect(JSON.parse(publication.PayloadJson)._uncertaintyArchive.userId).toBe(origin === 'migrated original' ? 56 : 41);
+  });
   it('keeps a deliberately demoted instrument orange after library reload', async () => {
     const base={id:'shared',scope:'validated',model:'Meter'};
     const local={...base,id:'copy',scope:'local',sourceId:'shared',localOverride:true,validatedSnapshot:buildValidatedSnapshot(base)};

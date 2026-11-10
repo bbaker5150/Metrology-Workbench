@@ -25,8 +25,32 @@ export const DEFAULT_PREFIX = 'Uncertainty';
 export const isArchived = (record) => Boolean(record?._uncertaintyArchive?.at);
 const isPublished = record => ['validated', 'shared'].includes(record?.scope);
 function publishedDefinition(record) {
-  const { _uncertaintyApprovals, ...definition } = record;
+  const { _uncertaintyApprovals, _uncertaintyArchive, formerPublicationId, ...definition } = record;
   return { ...definition, scope: 'validated' };
+}
+// The private draft's native item ID in the publication receipt identifies the
+// submitter even for approvals made before removal supported a Local copy.
+// Migrated publications have an author-owned row in the original list instead.
+function localFromPublication({ item, record }, submittedDraft, legacy, owner) {
+  const approvedDraft = submittedDraft && String(submittedDraft.record.id) === String(record.id) &&
+    record._uncertaintyApprovals?.[submittedDraft.item.Id];
+  const migratedOriginal = isPublished(legacy?.record) && String(legacy.record.id) === String(record.id);
+  if (!approvedDraft && !migratedOriginal) return null;
+  const id = `local-from-publication-${item.Id}`;
+  return {
+    ...publishedDefinition(record), id, libraryInstrumentId: id, formerPublicationId: record.id,
+    scope: 'local', owner, sourceId: '', validatedSnapshot: null, localOverride: true,
+  };
+}
+function draftsWithoutApproval(drafts, catalog) {
+  const publications = new Map(catalog.map(({record}) => [String(record.id), record]));
+  return drafts.filter(({record, item}) => {
+    if (isArchived(record)) return false;
+    const publication = publications.get(String(record.sourceId || record.id));
+    // Publication can commit before the version-checked draft cleanup.
+    // A newer pending revision is still a real submission.
+    return record.scope !== 'pending' || publication?._uncertaintyApprovals?.[item.Id] !== String(item.owshiddenversion);
+  });
 }
 const instrumentAccess = {
   instruments: { ReadSecurity: 2, WriteSecurity: 4 },
@@ -315,11 +339,13 @@ export class SharePointStore {
     return verified;
   }
 
-  async getItems(path) {
+  async getItems(path, { requireRows = false } = {}) {
     const items = [];
     while (path) {
       const body = await this.get(path);
-      items.push(...(body.value || body.d?.results || []));
+      const rows = body.value || body.d?.results;
+      if (requireRows && !Array.isArray(rows)) throw new SharePointError('SharePoint returned an incomplete instrument listing.', 502);
+      items.push(...(rows || []));
       const next = body['odata.nextLink'] || body['@odata.nextLink'] || body.d?.__next;
       if (!next) break;
       const url = new URL(next, `${this.webUrl}${path}`);
@@ -749,7 +775,7 @@ export class SharePointStore {
     if (authorId != null) conditions.push(`AuthorId eq ${Number(authorId)}`);
     const filter = conditions.length ? `&$filter=${conditions.join(' and ')}` : '';
     const submitted = key === 'instrumentDrafts' ? ',SubmittedJson' : '';
-    const items = await this.getItems(`${listApi(this.prefix, key)}/items?$select=Id,RecordId,PayloadJson,AuthorId,owshiddenversion${submitted}${filter}&$top=5000`);
+    const items = await this.getItems(`${listApi(this.prefix, key)}/items?$select=Id,RecordId,PayloadJson,AuthorId,owshiddenversion${submitted}${filter}&$top=5000`, {requireRows:true});
     const rows = items.map(item => ({ item, record: this.parsePayload(item, key) })).filter(row => row.record);
     if (key !== 'instrumentDrafts') return rows;
     // Item IDs have a stable native order even when two tabs create the same
@@ -773,15 +799,22 @@ export class SharePointStore {
     ]);
     const ownDrafts = drafts.filter(({ item }) => Number(item.AuthorId) === user.id);
     // Tombstones also suppress the older local record in the read-only catalog.
-    const superseded = new Set(ownDrafts.map(({ record }) => String(record.id)));
+    const ownById = new Map(ownDrafts.map(row => [String(row.record.id), row]));
+    const legacyById = new Map(legacy.filter(({item, record}) => Number(item.AuthorId) === user.id && !isArchived(record))
+      .map(row => [String(row.record.id), row]));
     const owner = sharePointInstrumentOwnerKey(user);
     return [
       ...catalog.filter(({record}) => !isArchived(record) && isPublished(record))
         .map(({record}) => publishedDefinition(record)),
+      ...catalog.filter(({record}) => isArchived(record) && isPublished(record)).flatMap(row => {
+        const id = String(row.record.id);
+        const local = localFromPublication(row, ownById.get(id), legacyById.get(id), owner);
+        return local && !ownById.has(local.id) ? [local] : [];
+      }),
       ...legacy.filter(({item, record}) => !isArchived(record) && !isPublished(record) &&
-        Number(item.AuthorId) === user.id && !superseded.has(String(record.id)))
+        Number(item.AuthorId) === user.id && !ownById.has(String(record.id)))
         .map(({record}) => ({ ...record, scope: 'local', owner })),
-      ...ownDrafts.filter(({record}) => !isArchived(record)).map(({record, item}) => ({
+      ...draftsWithoutApproval(ownDrafts, catalog).map(({record, item}) => ({
         ...record, scope: record.scope === 'pending' ? 'pending' : 'local', owner,
         ...(record.scope === 'pending' && { reviewVersion: String(item.owshiddenversion) }),
       })),
@@ -793,8 +826,9 @@ export class SharePointStore {
     if (['validated', 'shared'].includes(record.scope)) throw new SharePointError('Submit a local copy for SME validation.', 403);
     await this.ensureInstrumentSecurity();
     const user = await this.currentUser();
-    const { password, reviewVersion, _uncertaintyArchive, _uncertaintyApprovals, ...safe } = record;
+    const { password, reviewVersion, _uncertaintyArchive, _uncertaintyApprovals, formerPublicationId, ...safe } = record;
     const canonical = { ...safe, owner: sharePointInstrumentOwnerKey(user), scope: record.scope === 'pending' ? 'pending' : 'local' };
+    if (formerPublicationId != null && /^local-from-publication-\d+$/.test(record.id)) canonical.formerPublicationId = formerPublicationId;
     await this.writeOwnInstrument(user, canonical, reviewVersion);
     if (canonical.scope === 'pending') {
       const [saved] = await this.instrumentRows('instrumentDrafts', `${user.id}:${record.id}`, user.id);
@@ -859,7 +893,10 @@ export class SharePointStore {
     if (!(await this.canValidateInstruments())) return { canValidate: false, reviews: [] };
     await this.ensureInstrumentSecurity();
     const rows = await this.instrumentRows('instrumentDrafts');
-    return { canValidate: true, reviews: rows.filter(({record}) => record.scope === 'pending' && !isArchived(record))
+    const pending = rows.filter(({record}) => record.scope === 'pending' && !isArchived(record));
+    if (!pending.length) return { canValidate: true, reviews: [] };
+    const catalog = await this.instrumentRows('publishedInstruments');
+    return { canValidate: true, reviews: draftsWithoutApproval(pending, catalog)
       .map(({item, record}) => ({ ...record, reviewId: String(item.Id), reviewVersion: String(item.owshiddenversion) })) };
   }
 
@@ -884,14 +921,19 @@ export class SharePointStore {
       localOverride: false, validatedSnapshot: buildValidatedSnapshot(record) };
     const catalogItem = async () => (await this.instrumentRows('publishedInstruments', target)).find(({record: entry}) => isPublished(entry));
     const existing = await catalogItem();
-    if (isArchived(existing?.record)) throw new SharePointError('This shared instrument has been removed.', 409);
+    const removed = isArchived(existing?.record);
+    const removedError = () => new SharePointError('This shared instrument has been removed.', 409);
     // The receipt is saved atomically with the public definition. If another
     // submission changes that definition before a retry, the retry only
     // finishes cleanup and returns the newer public contents.
     const wasPublished = entry => entry?.record._uncertaintyApprovals?.[reviewId] === version;
+    if (removed && !wasPublished(existing)) throw removedError();
     if (wasPublished(existing)) {
       canonical = publishedDefinition(existing.record);
-      if (isArchived(record) || String(item.owshiddenversion) !== version) return canonical;
+      if (isArchived(record) || String(item.owshiddenversion) !== version) {
+        if (removed) throw removedError();
+        return canonical;
+      }
     } else {
       if (isArchived(record) || String(item.owshiddenversion) !== version) {
         throw new SharePointError('This submission changed. Reopen the inbox to review it again.', 409);
@@ -924,6 +966,7 @@ export class SharePointStore {
       await this.post(path, { headers: { 'X-HTTP-Method': 'MERGE', 'IF-MATCH': `"${version}"` },
         body: { PayloadJson: payload, SubmittedJson: payload } });
     } catch (error) { if (error.status !== 412) throw error; }
+    if (removed) throw removedError();
     return canonical;
   }
 
@@ -935,13 +978,35 @@ export class SharePointStore {
       this.instrumentRows('instruments', recordId, user.id),
     ]);
     const ownDraft = drafts.find(({item}) => Number(item.AuthorId) === user.id);
-    const shared = catalog.find(({record}) => !isArchived(record) && ['shared', 'validated'].includes(record.scope));
-    const legacyLocal = legacy.find(({item, record}) => Number(item.AuthorId) === user.id && !isArchived(record) && !isPublished(record));
+    const publication = catalog.find(({record}) => isPublished(record));
+    const shared = publication && !isArchived(publication.record);
+    const ownLegacy = legacy.find(({item, record}) => Number(item.AuthorId) === user.id && !isArchived(record));
+    const legacyLocal = ownLegacy && !isPublished(ownLegacy.record) ? ownLegacy : null;
+    if (password != null || (shared && !legacyLocal && (!ownDraft || isArchived(ownDraft.record)))) {
+      if (!password || password !== this.libraryPassword) throw new SharePointError('Invalid shared-library password.', 403);
+      if (!publication) return;
+      const restored = localFromPublication(publication, ownDraft, ownLegacy, sharePointInstrumentOwnerKey(user));
+      if (!shared) {
+        // A caller may retry a successful removal after the author already
+        // edited or removed the recovered copy.
+        return restored && (await this.listInstruments()).find(record => record.id === restored.id && record.scope === 'local');
+      }
+      const version = publication.item.owshiddenversion;
+      if (version != null) {
+        await this.post(`${listApi(this.prefix, 'publishedInstruments')}/items(${publication.item.Id})`, {
+          headers: { 'X-HTTP-Method': 'MERGE', 'IF-MATCH': `"${version}"` },
+          body: { PayloadJson: JSON.stringify(await this.archivedRecord(publication.record)) },
+        });
+      } else await this.archiveListItem('publishedInstruments', publication.item);
+      return restored;
+    }
     if (ownDraft && !isArchived(ownDraft.record)) await this.archiveListItem('instrumentDrafts', ownDraft.item);
     else if (!ownDraft && legacyLocal) await this.writeOwnInstrument(user, await this.archivedRecord(legacyLocal.record));
-    else if (shared) {
-      if (!password || password !== this.libraryPassword) throw new SharePointError('Invalid shared-library password.', 403);
-      await this.archiveListItem('publishedInstruments', shared.item);
+    else if (!ownDraft && /^local-from-publication-\d+$/.test(recordId)) {
+      // Untouched Local copies have no editable draft yet. A private tombstone
+      // suppresses this projection without writing to the archived publication.
+      const restored = (await this.listInstruments()).find(record => record.id === recordId && record.scope === 'local');
+      if (restored) await this.writeOwnInstrument(user, await this.archivedRecord(restored));
     }
   }
 

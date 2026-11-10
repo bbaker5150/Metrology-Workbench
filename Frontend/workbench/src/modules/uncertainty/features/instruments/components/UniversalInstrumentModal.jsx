@@ -4,6 +4,7 @@ import { historyShortcut } from "../../../utils/historyShortcut";
 import LibraryInstrumentRow from "./LibraryInstrumentRow";
 import { instrumentForRole } from "../../../utils/acShuntInstrumentRole";
 import { instrumentDeleteTarget } from "../../../utils/instrumentIdentity";
+import { patchInstrumentRange } from "../../../utils/instrumentFullScale";
 import { normalizeInstrumentTypeBComponents } from "../../../utils/instrumentBudgetComponents";
 import { withInstrumentEditorDrafts } from "../../../utils/instrumentBudgetComponents";
 import { readEditorDraft, saveEditorDraft, clearEditorDraft } from "../../../utils/editorRecovery";
@@ -967,7 +968,7 @@ const UniversalInstrumentModal = ({
                         }
                         : {}),
                     ranges: (f.ranges || []).map(r =>
-                        r.id === rangeId ? { ...r, ...patch } : r
+                        r.id === rangeId ? patchInstrumentRange(r, patch) : r
                     ),
                 };
             })

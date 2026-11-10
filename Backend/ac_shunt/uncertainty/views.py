@@ -8,6 +8,7 @@ note images each get their own small collection endpoints.
 """
 import hashlib
 import secrets
+from uuid import UUID
 
 from django.conf import settings
 from django.contrib.auth.models import Group
@@ -247,7 +248,10 @@ def validate_instrument(request, instrument_id):
             "owner": "", "validatedSnapshot": {key: definition[key] for key in snapshot_fields if key in definition},
             "localOverride": False,
         })
-        obj.owner = obj.review_owner = ""
+        # Keep the original submitter on the server through later approvals by
+        # other authors. The public representation omits this ownership.
+        origin = target or submitted
+        obj.owner, obj.review_owner = origin.owner, origin.review_owner
         obj.save(update_fields=["owner", "review_owner"])
         if submitted.pk != obj.pk:
             submitted.delete()
@@ -262,7 +266,33 @@ def instrument_detail(request, instrument_id):
         if instrument and instrument.scope == "validated":
             if (request.data.get("password") or "") != _library_password():
                 return Response({"detail": "Invalid shared-library password."}, status=403)
+            # Old approvals cleared ownership. Upgraded legacy drafts also
+            # have a durable actor-to-successor mapping and can be recovered.
+            if not instrument.review_owner:
+                try:
+                    successor_id = UUID(instrument.id)
+                except ValueError:
+                    successor_id = None
+                successor = models.LegacyInstrumentUse.objects.filter(private_id=successor_id).first() if successor_id else None
+                if successor:
+                    instrument.review_owner = successor.actor
+                    instrument.owner = models.Instrument.objects.filter(pk=successor.legacy_id).values_list("owner", flat=True).first() or ""
+            if instrument.review_owner:
+                instrument.scope = "local"
+                instrument.source_id = ""
+                instrument.validated_snapshot = None
+                instrument.local_override = True
+                instrument.save(update_fields=["scope", "owner", "review_owner", "source_id", "validated_snapshot", "local_override", "updated_at"])
+                if instrument.review_owner == _review_owner(request):
+                    return Response(serializers.instrument_to_dict(instrument))
+                return Response(status=status.HTTP_204_NO_CONTENT)
         if instrument and instrument.scope in {"local", "pending"}:
+            if request.data.get("password"):
+                # A retry of shared removal must not delete the restored draft.
+                if (instrument.scope == "local" and instrument.review_owner and instrument.review_owner == _review_owner(request)
+                        and request.data["password"] == _library_password()):
+                    return Response(serializers.instrument_to_dict(instrument))
+                return Response(status=status.HTTP_204_NO_CONTENT)
             if instrument.scope == "local" and not instrument.review_owner:
                 if not instrument.owner or request.query_params.get("owner") != instrument.owner:
                     return Response(status=404)

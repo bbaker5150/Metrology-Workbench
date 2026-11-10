@@ -6,7 +6,7 @@ import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import {  faLink } from "@fortawesome/free-solid-svg-icons";
 import GrowingNumericInput from "../../../components/common/GrowingNumericInput";
 import { getUnitDisplayLabel } from "../../../utils/uncertaintyMath";
-import { resolveDynamicComponent, validateBudgetEquation, dynamicMeasurementValue } from "../../../utils/dynamicBudgetComponents";
+import { resolveDynamicComponent, validateBudgetEquation, dynamicMeasurementUnit, dynamicMeasurementValue } from "../../../utils/dynamicBudgetComponents";
 import { parse } from "../../../utils/equationMath";
 import { equationTexOptions } from "../../../utils/equationPresentation";
 import katex from "katex";
@@ -99,10 +99,15 @@ export default function DynamicUncertaintyFields({
   };
   if (!draft) return null;
   const preview = resolveDynamicComponent({ ...component, dynamicOutputId: component.dynamicOutputId || draft.columns?.[0]?.id }, draft, referencePoint || {}, measurementPoint || {});
-  let boundValue = "Not Set";
-  try { boundValue = dynamicMeasurementValue(draft.kind === "equation" ? measurementPoint : referencePoint, draft.measurementUnit); } catch { /* The live preview explains incomplete inputs. */ }
   const kindLabel = draft.kind === "table" ? "Tabular" : "Equation";
-  const measurementUnit = draft.kind === "table" && draft.measurementUnitExplicit ? draft.measurementUnit : (draft.kind === "equation" ? measurementPoint?.unit : referencePoint?.unit) || draft.measurementUnit;
+  const measurementUnit = draft.kind === "equation"
+    ? dynamicMeasurementUnit(draft, referencePoint) || measurementPoint?.unit
+    : (draft.measurementUnitExplicit ? draft.measurementUnit : referencePoint?.unit) || draft.measurementUnit;
+  let boundValue = "Not Set";
+  if (draft.kind === "equation" && draft.pointVariable) {
+    try { boundValue = Number(dynamicMeasurementValue(measurementPoint, measurementUnit).toPrecision(14)); }
+    catch { /* The live preview explains incomplete inputs. */ }
+  }
   const displayPoint = value => {
     if (value === "" || value == null || measurementUnit === draft.measurementUnit) return value;
     try { return Number(dynamicMeasurementValue({ value, unit: draft.measurementUnit }, measurementUnit).toPrecision(14)); } catch { return value; }
@@ -164,18 +169,18 @@ export default function DynamicUncertaintyFields({
     change(patch);
   };
   const unitField = (key, label) => (
-    <div className="dynamic-inline-field">
-
-      {<CollapsibleUnitControl label={label} readOnly={readOnly} value={key === "measurementUnit" ? measurementUnit : draft[key]} onChange={value => {
+    <span className="dynamic-inline-field">
+      <CollapsibleUnitControl label={label} readOnly={readOnly} value={key === "measurementUnit" ? measurementUnit : draft[key] || referencePoint?.unit} onChange={value => {
           if (key !== 'measurementUnit') { change({ [key]: value }); return; }
+          if (draft.kind === "equation") { change({ measurementUnit: value, measurementUnitExplicit: true }); return; }
           const rows = draftRef.current.rows.map(row => {
             if (row.point === '' || row.point == null) return row;
             try { return { ...row, point: dynamicMeasurementValue({ value: row.point, unit: draftRef.current.measurementUnit }, value) }; }
             catch { return row; }
           });
           change({ measurementUnit: value, measurementUnitExplicit: true, rows });
-        }} UnitSelectComponent={UnitSelectComponent} />}
-    </div>
+        }} UnitSelectComponent={UnitSelectComponent} />
+    </span>
   );
   const symmetryControl = (<div className="dynamic-budget-modebar">
               <div className="inline-tolerance-mini-toggle" role="group" aria-label="Error limit symmetry">
@@ -245,13 +250,13 @@ export default function DynamicUncertaintyFields({
             </> : <>
 
               {<div className="dynamic-table-scroll"><table className="dynamic-input-table dynamic-variable-table">
-                <thead><tr><th>Variable</th><th>Description</th><th><span className="dynamic-column-heading">Value {unitField("outputUnit", "Uncertainty unit")}</span></th></tr></thead>
+                <thead><tr><th>Variable</th><th>Description</th><th>Value</th></tr></thead>
                 <tbody>{Object.entries(draft.variables).map(([symbol, variable]) => <tr key={symbol}>
                   <td className="dynamic-variable-symbol">{symbol}</td>
                   <td><input aria-label={`${symbol} name`} readOnly={readOnly} placeholder="Description" value={variable.name}
                     onChange={event => change({ variables: { ...draft.variables, [symbol]: { ...variable, name: event.target.value } } })} /></td>
                   <td><div className="dynamic-variable-value">
-                    {draft.pointVariable === symbol ? <span className="dynamic-bound-value">{displayPoint(boundValue)} {getUnitDisplayLabel(measurementUnit)}</span> :
+                    {draft.pointVariable === symbol ? <span className="dynamic-bound-value">{boundValue} {unitField("measurementUnit", "Linked point unit")}</span> :
                       <GrowingNumericInput readOnly={readOnly} inputMode="decimal" placeholder="Value" data-dynamic-nominal={symbol} aria-label={`${symbol} nominal`} value={variable.value}
                         onChange={event => change({ variables: { ...draft.variables, [symbol]: { ...variable, value: event.target.value } } })} />}
                     <button type="button" disabled={readOnly} className="dynamic-inline-action dynamic-variable-binding" data-ui-toggle aria-pressed={draft.pointVariable === symbol}
@@ -260,6 +265,7 @@ export default function DynamicUncertaintyFields({
                   </div></td>
                 </tr>)}</tbody>
               </table></div>}
+              <div className="dynamic-equation-result-unit">Result unit {unitField("outputUnit", "Uncertainty unit")}</div>
             </>}
             {showPreview && preview.pendingReason !== "This uncertainty column was removed from the shared table." && <div className="dynamic-editor-footer">
               <span className={`dynamic-editor-preview${preview.pendingReason ? " is-pending" : ""}`} role="status">

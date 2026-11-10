@@ -592,6 +592,7 @@ export const InlineManualComponentRow = ({
         </td>
         <td data-budget-field="tolerance">{readOnly && ToleranceEditorComponent ?
           <ToleranceEditorComponent tolerance={draft.tolerance} referencePoint={referencePoint}
+            useRangeFullScale={false}
             activeRange={{ id: component.id, ...manualFullScaleReference(draft, referencePoint) }} editable readOnly /> :
           fieldSummary("tolerance", ToleranceEditorComponent && !structuredTolerance.whicheverIsGreater ? <ToleranceEditorComponent tolerance={structuredTolerance} editable={false} /> : toleranceText, toleranceText === "Not Set")}</td>
         <td data-budget-field="distribution">{fieldSummary("distribution", component.distribution)}</td>
@@ -680,6 +681,7 @@ export const InlineManualComponentRow = ({
                 onKindChange(kind, draftRef.current);
               } : undefined}
               tolerance={draft.tolerance || {}}
+              useRangeFullScale={false}
               referencePoint={referencePoint}
               activeRange={{
                 id: component.id,

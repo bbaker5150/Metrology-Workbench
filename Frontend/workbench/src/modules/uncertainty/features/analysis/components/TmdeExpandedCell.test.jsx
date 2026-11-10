@@ -60,6 +60,44 @@ it("accepts an authored tabular TMDE primary when adding its accuracy", () => {
     .toEqual({ ready: false, reason: "distribution" });
 });
 
+it("shows a manual secondary's own tolerance in the overview and at a point, merging its range and qualifier cells", () => {
+  const source = { id: "load", name: "Added load", kind: "parametric", tolerance: { floor: { high: 2, low: -2 } } };
+  const range = { unit: "lb", tolerances: { floor: { high: 12, low: -12, unit: "lb" } } };
+  const view = (point, customAnchor) => <table><tbody><InstrumentUncertaintyRow source={source}
+    activeRange={range} qualifierEnabled={2} referencePoint={point}
+    renderCustomAfter={anchor => anchor === customAnchor ? <td>Custom</td> : null} /></tbody></table>;
+  const { container, rerender } = render(view());
+  const rangeCell = () => container.querySelector(".cell-range");
+  const toleranceCell = () => container.querySelector(".cell-tolerance");
+  expect(rangeCell().colSpan).toBe(3);
+  expect(rangeCell().nextElementSibling).toBe(toleranceCell());
+  expect(toleranceCell()).toHaveTextContent("± 2 lb");
+  rerender(view({ value: 5, unit: "lb" }, "qualifier2"));
+  expect(toleranceCell()).toHaveTextContent("± 2 lb");
+  expect(rangeCell().colSpan).toBe(3);
+  expect(rangeCell().nextElementSibling).toHaveTextContent("Custom");
+  rerender(view(undefined, "qualifier"));
+  expect(rangeCell().colSpan).toBe(1);
+  expect(rangeCell().parentElement.cells[2]).toHaveTextContent("Custom");
+  expect(rangeCell().parentElement.cells[4]).toBe(toleranceCell());
+});
+
+it("shows and saves the range unit on the first floor edit and on pre-existing tolerances with a missing unit", () => {
+  let saved;
+  function Harness() {
+    const [tolerance, setTolerance] = useState({ floor: { high: "3", low: "-3", unit: "" } });
+    saved = tolerance;
+    return <InlineToleranceCell tolerance={tolerance} activeRange={{ unit: "lb-ft" }} editable
+      onCommit={(type, value) => setTolerance(current => applyToleranceCaseChange(current, type, value))} />;
+  }
+  const { container } = render(<Harness />);
+  fireEvent.click(screen.getByRole("button", { name: "± 3 lbf·ft" }));
+  const floor = container.querySelector('input[value="3"]');
+  fireEvent.change(floor, { target: { value: "4" } });
+  fireEvent.blur(floor);
+  expect(saved.floor).toMatchObject({ high: "4", unit: "lb-ft" });
+});
+
 it("shows Table in overview and the evaluated specification at a measurement point", async () => {
   const source = { id: "head", name: "Head Height", kind: "table", dynamicDefinition: {
     id: "table", kind: "table", mode: "standard", measurementUnit: "V", outputUnit: "V",

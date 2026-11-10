@@ -1,6 +1,11 @@
 const finiteOr = (value, fallback) =>
   Number.isFinite(Number(value)) ? Number(value) : fallback;
 
+export function getDocumentZoom() {
+  const zoomOf = element => parseFloat(getComputedStyle(element).zoom || element.style.zoom) || 1;
+  return zoomOf(document.documentElement) * zoomOf(document.body);
+}
+
 // Position a fixed menu beside its trigger without assuming the menu will fill
 // its max-height. Above-opening menus use a bottom anchor, so a short menu stays
 // next to the trigger instead of floating hundreds of pixels above it.

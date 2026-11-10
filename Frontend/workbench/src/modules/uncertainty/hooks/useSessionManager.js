@@ -212,6 +212,7 @@ const useSessionManager = () => {
   const selectedSessionIdRef = useRef(null);
   const selectedTestPointIdRef = useRef(null);
   const instrumentsRef = useRef([]);
+  const lastListedInstrumentIds = useRef(null);
   const sharedDataRef = useRef({ equations: [], bug_reports: [] });
   const instrumentSaveQueuesRef = useRef(new Map());
   // One chronological history for the whole uncertainty workspace. Keeping a
@@ -389,8 +390,10 @@ const useSessionManager = () => {
         throw instrumentResult.reason;
       }
       const instRes = instrumentResult.value;
+      if (!Array.isArray(instRes.data)) throw new Error("The library returned an incomplete instrument listing.");
+      lastListedInstrumentIds.current = new Set(instRes.data.map(item => String(item.id)));
       replaceInstruments(
-        dedupeLibraryInstruments([...(Array.isArray(instRes.data) ? instRes.data : []),
+        dedupeLibraryInstruments([...instRes.data,
           ...Object.values(readRecovery().libraryEdits || {}).map(entry => entry.instrument)]),
       );
     } catch (e) {
@@ -681,13 +684,14 @@ const useSessionManager = () => {
     });
   }, [dedupeLibraryInstruments, replaceInstruments]);
 
-  // A saved session may still contain the yellow snapshot from before an
-  // SME approved it. Reconcile matching definitions without changing any
-  // session-specific fields or adopting a different version of the specs.
+  // Update library status on embedded definitions while retaining the session's
+  // own specifications, quantities, and other per-instance values.
   useEffect(() => {
     if (!instrumentsLoaded || !sessionsLoaded) return;
     const byId = new Map(instruments.flatMap(record => record.legacyLocalId
       ? [[String(record.legacyLocalId), record], [String(record.id), record]] : [[String(record.id), record]]));
+    const byFormerPublication = new Map(instruments.filter(record => record.formerPublicationId != null)
+      .map(record => [String(record.formerPublicationId), record]));
     replaceSessions(previous => previous.map(session => {
       let next = session;
       for (const [key, role] of [["uuts", "uut"], ["tmdes", "tmde"]]) {
@@ -695,7 +699,21 @@ const useSessionManager = () => {
         let changed = false;
         const updated = rows.map(row => {
           const definition = row.instrument;
-          if (!definition || !["local", "pending"].includes(definition.scope)) return row;
+          if (!definition || !["local", "pending", "validated"].includes(definition.scope)) return row;
+          const linkedId = definition.sourceId || definition.libraryInstrumentId || row.libraryInstrumentId;
+          const publicId = String(linkedId || definition.id);
+          if (definition.scope === "validated" || (definition.scope === "pending" && byId.get(String(definition.id))?.scope !== "pending")) {
+            const local = byFormerPublication.get(publicId) || byId.get(publicId);
+            const publicationGone = definition.scope === "validated" && linkedId && !local && lastListedInstrumentIds.current?.has(publicId) === false;
+            if (local?.scope === "local" || publicationGone) {
+              changed = true;
+              const id = local?.id ?? definition.id;
+              return { ...row, libraryInstrumentId: local?.id ?? null, instrument: { ...definition,
+                id, libraryInstrumentId: local?.id ?? null, scope: local ? "local" : "session", owner: local?.owner || "",
+                formerPublicationId: local?.formerPublicationId, sourceId: "", reviewVersion: undefined, validatedSnapshot: null, localOverride: true } };
+            }
+          }
+          if (definition.scope === "validated") return row;
           const candidate = byId.get(String(definition.id)) ||
             (definition.scope === "pending" && byId.get(String(definition.sourceId)));
           if (!candidate || !["pending", "validated"].includes(candidate.scope) || candidate.scope === definition.scope) return row;
@@ -712,34 +730,51 @@ const useSessionManager = () => {
     }));
   }, [sessionsLoaded, instrumentsLoaded, instruments, replaceSessions]);
 
-  const refreshPendingInstruments = useCallback(async () => {
-    const pending = instrumentsRef.current.filter(item => item.scope === "pending");
-    if (!pending.length) return;
+  const refreshInstrumentLibrary = useCallback(async () => {
+    const watched = instrumentsRef.current.filter(item => ["pending", "validated", "shared"].includes(item.scope));
+    if (!watched.length) return;
     try {
       const { data } = await axios.get(`${UNCERTAINTY_API}/instruments/`, {
         ...instrumentRequestConfig(), params: { owner: getDeviceKey() },
       });
       if (!Array.isArray(data)) return;
-      for (const item of pending) {
-        if (!instrumentsRef.current.includes(item) || data.some(entry => String(entry.id) === String(item.id) && entry.scope === "pending")) continue;
-        const approved = data.find(entry => entry.scope === "validated" && String(entry.id) === String(item.sourceId || item.id));
-        if (approved) reconcileSyncedInstrument(approved, item.id);
-      }
+      const byId = new Map(data.map(entry => [String(entry.id), entry]));
+      lastListedInstrumentIds.current = new Set(byId.keys());
+      const byFormerPublication = new Map(data.filter(entry => entry.scope === "local" && entry.formerPublicationId != null)
+        .map(entry => [String(entry.formerPublicationId), entry]));
+      replaceInstruments(current => {
+        const next = new Map(current.map(entry => [String(entry.id), entry]));
+        for (const item of watched) {
+          const id = String(item.id);
+          if (next.get(id) !== item) continue; // A local edit or sync finished during the read.
+          const publicId = String(item.sourceId || item.id);
+          const latest = byId.get(id) || byId.get(publicId) || byFormerPublication.get(publicId);
+          if (latest?.scope === item.scope || (!latest && item.scope === "pending")) continue;
+          next.delete(id);
+          if (latest) next.set(String(latest.id), latest);
+        }
+        return [...next.values()];
+      });
     } catch { /* Keep the last known status until the next library open. */ }
-  }, [reconcileSyncedInstrument]);
+  }, [replaceInstruments]);
 
   // --- 2.2 Delete Instrument ---
   const deleteInstrument = useCallback(async (instrumentId, { password } = {}) => {
     try {
       const before = instrumentsRef.current.find(item => String(item.id) === String(instrumentId));
-      await queueRecordWrite(instrumentSaveQueuesRef.current, String(instrumentId), () => axios.delete(`${UNCERTAINTY_API}/instruments/${encodeURIComponent(instrumentId)}/`, {
+      const response = await queueRecordWrite(instrumentSaveQueuesRef.current, String(instrumentId), () => axios.delete(`${UNCERTAINTY_API}/instruments/${encodeURIComponent(instrumentId)}/`, {
         ...instrumentRequestConfig(), params: { owner: getDeviceKey() },
         ...(password ? { data: { password } } : {}),
       }));
-      if (before) recordLibraryChange(instrumentId, before, undefined);
+      const restored = response?.data?.scope === "local" ? response.data : null;
+      // Reinstating a publication requires a new SME approval.
+      if (password) lastListedInstrumentIds.current?.delete(String(instrumentId));
+      else if (before) recordLibraryChange(instrumentId, before, undefined);
       const pending = readRecovery().libraryEdits?.[String(instrumentId)];
       if (pending) acknowledgeSession("libraryEdits", String(instrumentId), pending.token);
-      replaceInstruments((prev) => prev.filter((i) => i.id !== instrumentId));
+      replaceInstruments(prev => [...prev.filter(item => String(item.id) !== String(instrumentId) &&
+        (!restored || String(item.id) !== String(restored.id))), ...(restored ? [restored] : [])]);
+      return restored;
     } catch (e) {
       console.error("Failed to delete instrument from backend", e);
       throw e;
@@ -1436,7 +1471,7 @@ const useSessionManager = () => {
     libraryDraftRows,
     changeLibraryDrafts,
     reconcileSyncedInstrument,
-    refreshPendingInstruments,
+    refreshInstrumentLibrary,
     saveBugReport,
     deleteBugReport,
     deleteInstrument,

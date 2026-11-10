@@ -21,6 +21,19 @@ it('renders imported numeric resolutions in decimal form before the first edit',
   expect(screen.getByRole('button')).toHaveTextContent('0.0000001 V');
 });
 
+it('formats computed point tolerances in their output unit using the active range resolution or four significant digits', () => {
+  const tmdeUncertaintyDefinition = { kind: 'equation', equation: 'x / 7', pointVariable: 'x', variables: {},
+    columns: [{ id: 'u' }], mode: 'standard', measurementUnit: 'V', outputUnit: 'V' };
+  const tolerance = { tmdeUncertaintyDefinition };
+  const point = { value: 1, unit: 'V' };
+  const resolutionRange = { unit: 'V', resolution: 10, resolutionUnit: 'mV' };
+  expect(getCollapsedSpecRows(tolerance, point, resolutionRange)).toEqual(['± 0.14 V']);
+  expect(getCollapsedSpecRows(tolerance, point, { resolution: 1, unit: 'A' })).toEqual(['± 0.1429 V']);
+  expect(getCollapsedSpecRows(tolerance, { value: 0.001, unit: 'V' }, resolutionRange)).toEqual(['± 0.0001429 V']);
+  const limits = { ...tmdeUncertaintyDefinition, mode: 'limits', lowerEquation: '-x / 7', upperEquation: 'x / 3' };
+  expect(getCollapsedSpecRows({ tmdeUncertaintyDefinition: limits }, point, resolutionRange)).toEqual(['-0.14 to 0.33 V']);
+});
+
 it('includes the entire free-text qualifier path with renamed columns in budget menu details', () => {
  const qualified = {...range, qualifier: {text:'100 Hz – 1 kHz', qualifier:{text:'90 days'}}};
  const detail = formatRangeToleranceDetail(qualified, {value:20,unit:'A'}, ['Frequency band','Calibration interval']);

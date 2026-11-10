@@ -6,6 +6,7 @@ import useBlankInstrumentEscape from "../../../hooks/useBlankInstrumentEscape";
 import useInstrumentSpecificationsEscape from "../../../hooks/useInstrumentSpecificationsEscape";
 import useBudgetPickerPosition from "../../../hooks/useBudgetPickerPosition";
 import { instrumentForRole } from '../../../utils/acShuntInstrumentRole';
+import { isAutomaticFullScale, patchInstrumentRange, rangeMaximum } from "../../../utils/instrumentFullScale";
 import { InstrumentTableViewport, InstrumentDeleteAction } from "./InstrumentTableActions";
 import { consecutiveCellGroup } from "../../../utils/consecutiveCellGroup";
 import { cutQualifierRows, formatQualifierValue, formatQualifierPath, editQualifierRange, instrumentQualifierDepth, instrumentQualifierNames, qualifierAt, qualifierDepth, qualifierGroupKey, createInstrumentRangeViewCache } from "../../../utils/qualifierRanges";
@@ -25,6 +26,7 @@ import { inputSymbol, inputBinding } from "../../../utils/budgetScope";
 import useExclusiveMenu from "../../../hooks/useExclusiveMenu";
 import { claimWorkspaceClipboard, ownsWorkspaceClipboard } from "../../../utils/workspaceClipboard";
 import { getPointRequirements } from "../../../utils/pointRequirements";
+import { formatPointLimit, matchingResolution } from "../../../utils/pointLimitDisplay";
 import { claimWorkspaceSelection, WORKSPACE_SELECTION_EVENT } from "../../../utils/workspaceSelection";
 import GrowingNumericInput from "../../../components/common/GrowingNumericInput";
 import BiasValueEditor from "../../../components/common/BiasValueEditor";
@@ -120,7 +122,7 @@ import {
   normalizeDetailSectionOrder,
 } from "../../../utils/detailSectionOrder";
 import { getInstrumentRangeRows, isDraftInstrumentRange } from "../../../utils/instrumentFunctionSelection";
-import { getAnchoredMenuPlacement } from "../../../utils/anchoredMenuPosition";
+import { getAnchoredMenuPlacement, getDocumentZoom } from "../../../utils/anchoredMenuPosition";
 import { rankUnitOptions } from "../../../utils/unitSearch";
 import {
   refreshTmdeInstancesFromMasters,
@@ -149,6 +151,7 @@ import {
   selectGreatestTolerance,
   getToleranceErrorSummary,
   getAbsoluteLimits,
+  fullScaleInUnit,
   calculateUncertaintyFromToleranceObject,
   effectiveFloorTerm,
   canonicalUnit,
@@ -1065,8 +1068,8 @@ export const applyItemRangePatch = (item, rangeId, rangePatch) => {
   const sharedPatch = Object.fromEntries(Object.entries(rangePatch).filter(([key]) => ["min", "max", "value", "isSingleValue", "unit", "unitless"].includes(key)));
   const patch = (ranges) =>
     (ranges || []).map((r) => {
-      if (!rangeMatches(r, rangeId)) return target?.qualifier && qualifierGroupKey(r) === qualifierGroupKey(target) && Object.keys(sharedPatch).length ? { ...r, ...sharedPatch } : r;
-      const next = { ...r, ...rangePatch };
+      if (!rangeMatches(r, rangeId)) return target?.qualifier && qualifierGroupKey(r) === qualifierGroupKey(target) && Object.keys(sharedPatch).length ? patchInstrumentRange(r, sharedPatch) : r;
+      const next = patchInstrumentRange(r, rangePatch);
       if (Object.keys(resolutionPatch).length) {
         for (const nested of ["tolerance", "tolerances"]) {
           if (next[nested] && typeof next[nested] === "object") next[nested] = { ...next[nested], ...resolutionPatch };
@@ -1174,11 +1177,14 @@ const applyItemRangeTolerance = (item, rangeId, tolerance) =>
 // Absolute tolerance terms describe the same physical quantity as their range.
 // Keep those units synchronized when a range changes from, for example, in to
 // ft. Relative IV/FS terms and dB deliberately retain their own unit systems.
+const physicalToleranceUnit = (component, rangeUnit = "") =>
+  component?._unitExplicit ? component.unit || "" : component?.unit || rangeUnit;
+
 export const syncTolerancePhysicalUnits = (tolerance = {}, unit = "") => {
   const next = { ...(tolerance || {}) };
   ["floor", "readings_iv", "singleSided"].forEach((key) => {
     if (next[key] && typeof next[key] === "object") {
-      next[key] = { ...next[key], unit: next[key].unit || unit };
+      next[key] = { ...next[key], unit: physicalToleranceUnit(next[key], unit) };
     }
   });
   return next;
@@ -1230,7 +1236,10 @@ export const addRangeToItem = (item, activeRangeId) => {
   }
   const seededTolerances = blankToleranceFrom(getItemRangeTolerance(item, activeRangeId));
   for (const key of ["floor", "readings_iv", "singleSided"]) {
-    if (seededTolerances[key]) seededTolerances[key] = { ...seededTolerances[key], unit: "" };
+    if (seededTolerances[key]) {
+      const { _unitExplicit, ...term } = seededTolerances[key];
+      seededTolerances[key] = { ...term, unit: "" };
+    }
   }
   const newRange = { id: uuidv4(), min: "", max: "", unit: "", unitless: true, resolution: "", tolerances: seededTolerances };
   if (Array.isArray(item.ranges) && item.ranges.length > 0) {
@@ -2376,29 +2385,37 @@ export const EditableDescriptionCell = ({
   // flip it above the row when there isn't room below (so the list never gets
   // truncated off the bottom of the page with no way to reach the rest).
   const [menuPos, setMenuPos] = useState(null);
-  const updateMenuPos = useCallback(() => {
-    const el = anchorRef.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    const placement = getAnchoredMenuPlacement({ anchorRect: rect, viewportWidth: window.innerWidth, viewportHeight: window.innerHeight, preferredWidth: Math.max(280, rect.width), preferredMaxHeight: 320, gap: 4 });
-    setMenuPos({ ...placement, accent: getComputedStyle(el).getPropertyValue("--function-input-accent").trim() });
-  }, []);
   const showMenu = open && results.length > 0;
   useLayoutEffect(() => {
-    if (!showMenu) {
+    const fields = anchorRef.current?.querySelector(".inline-desc-fields");
+    if (!showMenu || !fields) {
       setMenuPos(null);
       return undefined;
     }
+    const updateMenuPos = () => {
+      const rect = fields.getBoundingClientRect();
+      const zoom = getDocumentZoom();
+      const placement = getAnchoredMenuPlacement({
+        anchorRect: { top: rect.top / zoom, bottom: rect.bottom / zoom, left: rect.left / zoom, right: rect.right / zoom },
+        viewportWidth: window.innerWidth / zoom, viewportHeight: window.innerHeight / zoom,
+        preferredWidth: Math.max(280, rect.width / zoom), preferredMaxHeight: 320, gap: 4,
+      });
+      setMenuPos({ ...placement, accent: getComputedStyle(fields).getPropertyValue("--function-input-accent").trim() });
+    };
     updateMenuPos();
-    // Capture-phase scroll so the menu tracks any scrolling ancestor (the
-    // table container), not just the window.
+    // Opening a new or copied row can resize the table after the first layout.
+    const observer = typeof ResizeObserver === "function" ? new ResizeObserver(updateMenuPos) : null;
+    for (const element of [fields, fields.closest("tr"), fields.closest("table")]) {
+      if (element) observer?.observe(element);
+    }
     window.addEventListener("scroll", updateMenuPos, true);
     window.addEventListener("resize", updateMenuPos);
     return () => {
+      observer?.disconnect();
       window.removeEventListener("scroll", updateMenuPos, true);
       window.removeEventListener("resize", updateMenuPos);
     };
-  }, [showMenu, updateMenuPos]);
+  }, [showMenu]);
 
   // Subtitle for a dropdown entry: "shared", or — for a local entry — what
   // differs from its shared origin, shown in place of the measurement area.
@@ -3620,7 +3637,6 @@ export const ResolutionCellInput = ({
         value={unit || fallbackUnit || ""}
         ariaLabel="Resolution unit"
         onChange={onCommitUnit}
-        width="72px"
       />
       {onCommitDistribution && (
         <InlineMenuSelect
@@ -3840,6 +3856,7 @@ const pruneBlankToleranceTerms = (tolerance = {}) => {
     if (
       Object.prototype.hasOwnProperty.call(next, key) &&
       !toleranceComponentHasNumericValue(key, next[key]) &&
+      !(key === "range" && next.range?.fullScaleManual && !toleranceComponentHasNumericEntry(key, next.range)) &&
       (!next[key]?._unitExplicit ||
         toleranceComponentHasNumericEntry(key, next[key]))
     ) {
@@ -3998,11 +4015,11 @@ export const applyToleranceEditorMode = (
   next._editorMode = { shape: nextShape, sidedness: nextSidedness };
   return pruneBlankToleranceTerms(next);
 };
-const defaultToleranceComponent = (typeKey, activeRange = {}, tolerance = {}) => {
+const defaultToleranceComponent = (typeKey, activeRange = {}, tolerance = {}, useRangeFullScale = true) => {
   const distribution = getBandDistDivisor(tolerance) || DISTRIBUTION_NOT_SET;
   if (typeKey === "range") {
     return {
-      value: activeRange?.max ?? "",
+      value: useRangeFullScale ? "" : activeRange?.max ?? "",
       high: "",
       low: "",
       unit: "%",
@@ -4179,20 +4196,21 @@ const ToleranceTermEditor = ({
   showHighSign = true,
   forcedMode = null,
   showShapeControl = true,
+  useRangeFullScale,
   onCommit,
 }) => {
-  const component =
-    getToleranceComponent(tolerance, typeKey) ||
-    defaultToleranceComponent(typeKey, activeRange, tolerance);
+  const defaults = defaultToleranceComponent(typeKey, activeRange, tolerance, useRangeFullScale);
+  const component = getToleranceComponent(tolerance, typeKey) || defaults;
   const [highValue, setHighValue] = useState(() =>
     componentLimitMagnitude(component, "high", typeKey),
   );
   const [lowValue, setLowValue] = useState(() =>
     componentLimitMagnitude(component, "low", typeKey),
   );
-  const [fullScale, setFullScale] = useState(() =>
-    toPlainNumber(component.value ?? activeRange?.max ?? ""),
-  );
+  const [fullScaleDraft, setFullScaleDraft] = useState(null);
+  const maximum = rangeMaximum(activeRange);
+  const automaticFS = useRangeFullScale && isAutomaticFullScale(component, maximum);
+  const fullScale = fullScaleDraft ?? toPlainNumber(automaticFS ? maximum : component.value ?? maximum);
   // Three-way per-term layout (non-reading): "symmetric" ± (one input),
   // "single" single-sided / unilateral (one input + a direction swap, the other
   // limit pinned to 0), or "asymmetric" (independent + / − inputs). reading is
@@ -4220,8 +4238,8 @@ const ToleranceTermEditor = ({
   useEffect(() => {
     setHighValue(componentLimitMagnitude(component, "high", typeKey));
     setLowValue(componentLimitMagnitude(component, "low", typeKey));
-    setFullScale(toPlainNumber(component.value ?? activeRange?.max ?? ""));
-  }, [typeKey, component.high, component.low, component.value, activeRange?.max]);
+  }, [typeKey, component.high, component.low, component.value]);
+  useEffect(() => setFullScaleDraft(null), [typeKey, rangeIdOf(activeRange), maximum, component.value]);
 
   const termMode = forcedMode || mode;
   const currentShape = toleranceShapeOption(termMode);
@@ -4231,8 +4249,9 @@ const ToleranceTermEditor = ({
 
   const commit = (patch = {}) => {
     const next = {
-      ...defaultToleranceComponent(typeKey, activeRange, tolerance),
+      ...defaults,
       ...component,
+      ...(typeKey === "floor" ? { unit: physicalToleranceUnit(component, activeRange.unit) } : {}),
       // Clear the single-sided marker by default; a threshold patch re-sets it
       // below. This keeps symmetric/asymmetric commits from carrying a stale
       // thresholdSide.
@@ -4290,9 +4309,10 @@ const ToleranceTermEditor = ({
     });
   };
   const commitFullScale = (raw) => {
+    if (fullScaleDraft === null) return;
     const trimmed = String(raw ?? "").trim();
-    if (trimmed === String(component.value ?? activeRange?.max ?? "")) return;
-    commit({ value: trimmed });
+    setFullScaleDraft(null);
+    commit({ value: trimmed, fullScaleManual: useRangeFullScale && trimmed !== "" ? true : undefined });
   };
   // Single-sided commit: magnitude on the chosen side, 0 on the other. A blank
   // value clears the term (so it prunes out like any other empty term).
@@ -4554,7 +4574,7 @@ const ToleranceTermEditor = ({
           />
         ) : typeKey === "floor" ? (
           <UnitSelect
-            value={component.unit || activeRange?.unit || ""}
+            value={physicalToleranceUnit(component, activeRange.unit)}
             ariaLabel="Tolerance unit"
             onChange={(unit) => commit({ unit, _unitExplicit: true })}
             width="82px"
@@ -4577,11 +4597,16 @@ const ToleranceTermEditor = ({
             inputMode="decimal"
             value={fullScale}
             placeholder="max"
-            onChange={(e) => setFullScale(e.target.value)}
+            aria-label="Full scale"
+            title={useRangeFullScale
+              ? automaticFS ? "Using the range maximum. Type a value to set a fixed full scale." : "Fixed full scale. Clear the value to use the range maximum."
+              : "Full scale"}
+            onInput={(e) => setFullScaleDraft(e.currentTarget.value)}
+            onChange={(e) => setFullScaleDraft(e.target.value)}
             onBlur={(e) => commitFullScale(e.target.value)}
             onKeyDown={(e) => e.key === "Enter" && e.currentTarget.blur()}
             className="inline-tolerance-input inline-tolerance-input--fs"
-            style={toleranceInputStyleFor(fullScale, { minCh: 6 })}
+            style={{ ...toleranceInputStyleFor(fullScale, { minCh: 6 }), fontStyle: automaticFS && fullScaleDraft === null ? "italic" : "normal" }}
           />
           <span>{getUnitDisplayLabel(activeRange?.unit || "")}</span>
           <span>)</span>
@@ -4630,12 +4655,12 @@ const SingleSidedToleranceEditor = ({
       ...component,
       direction,
       measurement,
-      unit: component.unit ?? activeRange?.unit ?? "",
+      unit: physicalToleranceUnit(component, activeRange.unit),
       ...patch,
     });
   };
   const limitLabel = direction === "low" ? "Lower limit" : "Upper limit";
-  const unit = component.unit ?? activeRange?.unit ?? "";
+  const unit = physicalToleranceUnit(component, activeRange.unit);
   const measurementOptions = [
     { value: "known", label: "Known nominal" },
     { value: "unknown", label: "Unknown nominal" },
@@ -4757,7 +4782,7 @@ const SingleSidedToleranceEditor = ({
       <UnitSelect
         value={unit}
         ariaLabel="Single-sided tolerance unit"
-        onChange={(nextUnit) => commit({ unit: nextUnit })}
+        onChange={(nextUnit) => commit({ unit: nextUnit, _unitExplicit: true })}
         width="82px"
       />
           </span>
@@ -4805,19 +4830,24 @@ export const InstrumentUncertaintyRow = ({ source, activeRange, referencePoint, 
   const [name, setName] = useState(source.name || "");
   useEffect(() => setName(source.name || ""), [source.name]);
   const kind = source.kind || "parametric";
-  const label = kind === "table" ? "Table" : kind === "equation" ? "Equation" : "Manual";
   const tolerance = { ...(source.tolerance || {}),
     tmdeUncertaintyDefinition: kind === "parametric" ? null : source.dynamicDefinition };
   const isConfigured = kind === "parametric" ? toleranceHasAnyValue(tolerance)
     : source.dynamicDefinition && !isEmptyDefinition(source.dynamicDefinition);
-  const summary = !isConfigured ? "Not Set" : !referencePoint ? label
-    : getCollapsedSpecRows(tolerance, referencePoint).join("; ") || "Not Set";
+  const summary = !isConfigured ? "Not Set" : !referencePoint && kind !== "parametric"
+    ? (kind === "table" ? "Table" : "Equation")
+    : getCollapsedSpecRows(tolerance, referencePoint, activeRange).join("; ") || "Not Set";
+  const rangeCustomCells = renderCustomAfter("range");
+  const qualifierCustomCells = Array.from({ length: Number(qualifierEnabled) }, (_, index) =>
+    renderCustomAfter(index ? `qualifier${index + 1}` : "qualifier"));
+  const splitQualifierCells = [rangeCustomCells, ...qualifierCustomCells.slice(0, -1)]
+    .some(cells => React.Children.count(cells) > 0);
   const commitName = () => { if (name !== source.name) onChange({ ...source, name }); };
   return <tr {...rowProps} ref={sourceRowRef} className={`instrument-function-row inline-range-row instrument-uncertainty-row${selected ? " instrument-selected is-selected-range" : ""}`}
     data-range-id={uncertaintyRowId(source.id)} data-range-selected={selected}
     data-uncertainty-source-id={source.id} data-single-source={sourceCount === 1 || undefined} style={{ ...style, "--uncertainty-source-count": sourceCount }}>
     {renderCustomAfter("description")}
-    <td className="cell-range instrument-uncertainty-name-cell" data-range-cell>
+    <td className="cell-range instrument-uncertainty-name-cell" data-range-cell colSpan={splitQualifierCells ? 1 : 1 + qualifierCustomCells.length}>
       {sourceIndex === 0 && <span className="instrument-uncertainty-rail" aria-label="Additional uncertainty"><span>{sourceCount === 1 ? <>ADD’L<br />UNC.</> : "ADD’L UNCERTAINTY"}</span></span>}
       <div className="range-row-cell">
       <div className="instrument-source-row-name">
@@ -4834,8 +4864,8 @@ export const InstrumentUncertaintyRow = ({ source, activeRange, referencePoint, 
           onClick={event => { event.stopPropagation(); onRemove(); }} />}
       </div>
     </td>
-    {renderCustomAfter("range")}
-    {Array.from({ length: Number(qualifierEnabled) }, (_, index) => <React.Fragment key={index}><td />{renderCustomAfter(index ? `qualifier${index + 1}` : "qualifier")}</React.Fragment>)}
+    {rangeCustomCells}
+    {qualifierCustomCells.map((custom, index) => <React.Fragment key={index}>{splitQualifierCells && <td />}{custom}</React.Fragment>)}
     <td className="cell-tolerance" onMouseDownCapture={event => {
       // Keep the name field mounted until the summary receives its click.
       // Blurring it on pointer-down can resize the row and move the target.
@@ -4868,6 +4898,7 @@ export const InlineToleranceCell = ({
   activeRange = {},
   referencePoint,
   measurementPoint = referencePoint,
+  useRangeFullScale = true,
   dynamicComponent,
   editable,
   readOnly = false,
@@ -4962,8 +4993,7 @@ export const InlineToleranceCell = ({
     if (!selectedSecondary) return onCommit(typeKey, component);
     updateSelectedSource({ tolerance: applyToleranceCaseChange(selectedTolerance, typeKey, component) });
   };
-  const summaryRows = getCollapsedSpecRows({ ...activeRange, ...tolerance }, referencePoint);
-  const summary = summaryOverride ?? summaryRows[0] ?? "";
+  const summary = summaryOverride ?? getCollapsedSpecRows({ ...activeRange, ...tolerance }, referencePoint, activeRange)[0] ?? "";
 
   // Read-only surfaces (no save handler) just render the clean summary.
   if (!editable) {
@@ -4982,7 +5012,7 @@ export const InlineToleranceCell = ({
         <button
           type="button"
           className={`inline-tolerance-summary${hasValue ? "" : " is-empty"}${tolerance.whicheverIsGreater ? " is-alternative" : ""}`}
-          title={readOnly ? "Inspect tolerance" : hasValue ? (tolerance.whicheverIsGreater ? getSpecRows(tolerance)[0] : "Edit tolerance") : "Set tolerance"}
+          title={readOnly ? "Inspect tolerance" : hasValue ? (tolerance.whicheverIsGreater ? summary : "Edit tolerance") : "Set tolerance"}
           aria-label={hasValue ? undefined : readOnly ? "Inspect tolerance" : "Set tolerance"}
           onMouseDown={(event) => {
             event.stopPropagation();
@@ -5174,6 +5204,7 @@ export const InlineToleranceCell = ({
               tolerance={selectedTolerance}
               activeRange={activeRange}
               typeKey={opt.key}
+              useRangeFullScale={useRangeFullScale}
               showHighSign={true}
               forcedMode={shapeMode}
               showShapeControl={false}
@@ -5788,7 +5819,7 @@ const handleRowSelection = (
 // share the one line instead of being split off (and dropped) into extra rows.
 // Returns a single-element array of lines; callers render line [0]. (A spec that
 // stores explicit sub-tolerances still expands to one line per sub-tolerance.)
-export const getSpecRows = (tolerance) => {
+export const getSpecRows = (tolerance, rangeUnit = tolerance?.unit || "") => {
   if (!tolerance) return ["-"];
   const definition = tolerance.tmdeUncertaintyDefinition || tolerance.tolerances?.tmdeUncertaintyDefinition || tolerance.tolerance?.tmdeUncertaintyDefinition;
   if (definition) return [`${definition.kind === "table" ? "Tabular" : "Algebraic"} TMDE uncertainty`];
@@ -5796,14 +5827,14 @@ export const getSpecRows = (tolerance) => {
   // Explicit sub-components (recursion): one combined line per sub-tolerance.
   if (Array.isArray(tolerance.tolerances) && tolerance.tolerances.length > 0) {
     const rows = [];
-    tolerance.tolerances.forEach((t) => rows.push(...getSpecRows(t)));
+    tolerance.tolerances.forEach((t) => rows.push(...getSpecRows(t, t?.unit || rangeUnit)));
     return rows;
   }
 
   const singleSided = tolerance.singleSided;
   if (Number.isFinite(parseFloat(singleSided?.limit))) {
     const isLow = singleSided.direction === "low";
-    const unit = getUnitDisplayLabel(singleSided.unit || "");
+    const unit = getUnitDisplayLabel(physicalToleranceUnit(singleSided, rangeUnit));
     const measurement =
       singleSided.measurement === "unknown"
         ? "Unknown nominal"
@@ -5820,8 +5851,8 @@ export const getSpecRows = (tolerance) => {
   // below — NOT listed as its own term — so a spec carrying both isn't shown (or
   // summed) as two floor values.
   const componentConfig = [
-    { key: "reading", tag: "IV" },
-    { key: "range", tag: "FS" },
+    { key: "reading", tag: "IV", defaultUnit: "%" },
+    { key: "range", tag: "FS", defaultUnit: "%" },
     { key: "floor", tag: "" },
     { key: "offset", tag: "offset" },
     { key: "linearity", tag: "lin" },
@@ -5897,7 +5928,9 @@ export const getSpecRows = (tolerance) => {
     // doesn't hide a real readings_iv).
     const source =
       cfg.key === "floor" ? effectiveFloorTerm(tolerance) : tolerance[cfg.key];
-    const comp = parseComp(source, cfg.unit);
+    if (cfg.key === "range" && !toleranceComponentHasNumericEntry("range", source)) continue;
+    const unit = cfg.key === "floor" ? physicalToleranceUnit(source, rangeUnit) : cfg.unit || source?.unit || cfg.defaultUnit;
+    const comp = parseComp(source, unit);
     if (!comp) continue;
     present.push({ comp, cfg });
     if (!comp.symmetric) anyAsymmetric = true;
@@ -5930,21 +5963,30 @@ export const getSpecRows = (tolerance) => {
 // Known/unknown is meaningful display context only for the explicit
 // single-sided workbook cases. getSpecRows already appends that state to those
 // rows, so ordinary symmetric/asymmetric UUT tolerances stay compact.
-export const getUutSpecRows = (tolerance) => getSpecRows(tolerance);
+export const getUutSpecRows = getSpecRows;
 
-export const getCollapsedSpecRows = (tolerance = {}, referencePoint) => {
+export const getCollapsedSpecRows = (tolerance = {}, referencePoint, range = tolerance) => {
   // Describe the authored specification. Selecting the largest term belongs
   // to the point calculation, never to the instrument's read-view summary.
   const spec = { ...tolerance, ...(tolerance.tolerance || tolerance.tolerances || {}) };
   const definition = spec.tmdeUncertaintyDefinition;
   if (definition && referencePoint?.value !== "" && referencePoint?.value != null) {
-    const resolved = resolveDynamicComponent({ dynamicOutputId: definition.columns?.[0]?.id }, definition, referencePoint);
+    const resolution = matchingResolution(range, definition.outputUnit || referencePoint.unit);
+    const formatValue = value => {
+      const number = Number(value);
+      if (resolution > 0) {
+        const formatted = formatPointLimit(number, resolution);
+        if (number === 0 || Number(formatted) !== 0) return formatted;
+      }
+      return String(Number(number.toPrecision(4)));
+    };
+    const resolved = resolveDynamicComponent({ dynamicOutputId: definition.columns?.[0]?.id }, definition, referencePoint, referencePoint, formatValue);
     if (definition.kind === "table") return [resolved.dynamicSummary
       ? `Tabular – ${resolved.dynamicSummary}`
       : /^No table entry/.test(resolved.pendingReason || "") ? "Tabular – No matching points" : "Not Set"];
     return [resolved.dynamicSummary || "Not Set"];
   }
-  return getSpecRows(spec);
+  return getSpecRows(spec, range?.unit || spec.unit || "");
 };
 
 const formatResolutionLabel = (range = {}) => {
@@ -6635,12 +6677,9 @@ const calculateToleranceMetrics = (activeTolerance, nominalObj) => {
     activeTolerance.tolerances?.range ||
     (typeof activeTolerance.range === "object" ? activeTolerance.range : null);
   if (rangeComp) {
-    const rangePcn = getComponentValue(rangeComp);
+    const rangePcn = parseFloat(rangeComp.high) || Math.abs(parseFloat(rangeComp.low)) || 0;
 
-    // FIX: Prioritize explicit "Range Value" (Manual FS) over "Range Max"
-    const manualFS = parseFloat(rangeComp.value);
-    const rangeMax = parseFloat(activeTolerance.max);
-    const fs = !isNaN(manualFS) ? manualFS : rangeMax;
+    const fs = fullScaleInUnit({ ...activeTolerance, range: rangeComp }, nominalObj.unit);
 
     if (rangePcn !== 0 && !isNaN(fs)) {
       // Basic % of Range calculation
@@ -8749,7 +8788,7 @@ const SummaryDashboard = ({
         <td
           data-range-tolerance-key={`${itemStateKey(kind, item.id)}:${rangeKey}`}
           className="cell-tolerance"
-          title={(kind === "uut" ? getUutSpecRows(tolerance) : getSpecRows(tolerance))[0]}
+          title={getSpecRows(tolerance, range.unit)[0]}
         >
           <InlineToleranceCell biasRole={kind} readOnly={libraryReviewMode}
             onAddSecondary={kind === "tmde" ? type => addInstrumentSource(item, type, range) : undefined}
@@ -9727,7 +9766,7 @@ const SummaryDashboard = ({
                   const { ranges, activeIndex, activeRange } = resolution;
                   const activeTolerance =
                     getItemRangeTolerance(uut, rangeIdOf(activeRange)) || activeRange;
-                  const specRows = getUutSpecRows(activeTolerance);
+                  const specRows = getUutSpecRows(activeTolerance, activeRange.unit);
                   const rowSpan = onSessionSave
                     ? 1
                     : specRows.length > 0
@@ -10027,7 +10066,7 @@ const SummaryDashboard = ({
                                       }
                                     />
                                   ) : (
-                                    getUutSpecRows(tolerance)[0]
+                                    getUutSpecRows(tolerance, range.unit)[0]
                                   )}
                                 </div>
                               );
@@ -10246,7 +10285,7 @@ const SummaryDashboard = ({
                   const { ranges, activeIndex, activeRange } = resolution;
                   const activeTolerance =
                     getItemRangeTolerance(tmde, rangeIdOf(activeRange)) || activeRange;
-                  const specRows = getSpecRows(activeTolerance);
+                  const specRows = getSpecRows(activeTolerance, activeRange.unit);
                   const rowSpan = onSessionSave
                     ? 1
                     : specRows.length > 0
@@ -10578,7 +10617,7 @@ const SummaryDashboard = ({
                                       }
                                     />
                                   ) : (
-                                    getSpecRows(tolerance)[0]
+                                    getSpecRows(tolerance, range.unit)[0]
                                   )}
                                 </div>
                               );
@@ -12488,7 +12527,7 @@ function DetailedView({
         <td
           data-range-tolerance-key={`${itemStateKey(kind, item.id)}:${rangeKey}`}
           className="cell-tolerance"
-          title={(kind === "uut" ? getUutSpecRows(tolerance) : getSpecRows(tolerance))[0]}
+          title={getSpecRows(tolerance, range.unit)[0]}
         >
           <InlineToleranceCell biasRole={kind}
             onAddSecondary={kind === "tmde" ? type => addInstrumentSource(item, type, range) : undefined}
@@ -16270,7 +16309,7 @@ function DetailedView({
                                       }
                                     />
                                   ) : (
-                                    getUutSpecRows(tolerance)[0]
+                                    getCollapsedSpecRows(tolerance, getInstrumentToleranceNominal("uut", uut, range), range)[0]
                                   )}
                                 </div>
                               );
@@ -17128,7 +17167,7 @@ function DetailedView({
                                           }
                                         />
                                       ) : (
-                                        getSpecRows(tolerance)[0]
+                                        getCollapsedSpecRows(tolerance, getInstrumentToleranceNominal("tmde", masterTmde, range), range)[0]
                                       )}
                                     </div>
                                   );

@@ -71,12 +71,13 @@ export const findDynamicTableRow = (definition, nominal) => {
 // physical quantity. Restore the input/output quantity without changing units
 // on correctly authored definitions (whose coefficients may depend on scale).
 export const dynamicMeasurementUnit = (definition, nominal) => {
+  if (definition.measurementUnitExplicit && definition.measurementUnit) return definition.measurementUnit;
   const measurement = unitSystem.units[definition.measurementUnit];
   const output = unitSystem.units[definition.outputUnit];
   if (definition.kind === "equation" && measurement && output && measurement.quantity !== output.quantity && output.quantity === unitSystem.units[nominal?.unit]?.quantity) return definition.outputUnit;
   return definition.measurementUnit || nominal?.unit || "";
 };
-export const resolveDynamicComponent = (component, definition, nominal, measurementPoint = nominal) => {
+export const resolveDynamicComponent = (component, definition, nominal, measurementPoint = nominal, formatSummaryValue) => {
   if (!definition) return unresolvedComponent(component, "This shared uncertainty definition is missing.");
   definition = { ...definition, measurementUnit: dynamicMeasurementUnit(definition, nominal), outputUnit: definition.outputUnit || nominal?.unit || "" };
   const column = definition.columns.find(c => c.id === component.dynamicOutputId);
@@ -99,10 +100,11 @@ export const resolveDynamicComponent = (component, definition, nominal, measurem
         if (!filled(values.low) || !filled(values.high)) throw Error("Enter both error limits for this measurement point.");
         if (Number(values.high) < Number(values.low)) throw Error("The upper error limit must be at least the lower limit.");
         magnitude = (Number(values.high) - Number(values.low)) / 2;
-        summary = `${values.low} to ${values.high}`;
+        summary = [values.low, values.high].map(formatSummaryValue || String).join(" to ");
       } else {
         if (!filled(values.value)) throw Error("Enter an uncertainty value for this measurement point.");
-        magnitude = Number(values.value); summary = String(magnitude);
+        magnitude = Number(values.value);
+        summary = (formatSummaryValue || String)(magnitude);
       }
     } else {
       const equations = definition.mode === "limits" ? [definition.lowerEquation, definition.upperEquation] : [definition.equation];
@@ -119,7 +121,7 @@ export const resolveDynamicComponent = (component, definition, nominal, measurem
       if (values.some(value => typeof value !== "number" || !Number.isFinite(value))) throw Error("The equation must produce one finite real number.");
       if (definition.mode === "limits" && values[1] < values[0]) throw Error("The upper error limit must be at least the lower limit.");
       magnitude = definition.mode === "limits" ? (values[1] - values[0]) / 2 : values[0];
-      summary = values.map(value => String(Number(value.toPrecision(8)))).join(" to ");
+      summary = values.map(formatSummaryValue || (value => String(Number(value.toPrecision(8))))).join(" to ");
     }
     if (magnitude < 0) throw Error("Uncertainty cannot be negative.");
     // The authored error limit is valid before a distribution is selected.

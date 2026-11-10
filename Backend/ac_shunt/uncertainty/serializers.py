@@ -216,7 +216,7 @@ def instrument_to_dict(i):
         "functions": i.functions or [],
         "typeBComponents": i.type_b_components or [],
         "scope": i.scope,
-        "owner": i.owner,
+        "owner": "" if i.scope == "validated" else i.owner,
         "sourceId": i.source_id,
         "validatedSnapshot": i.validated_snapshot or None,
         "localOverride": i.local_override,

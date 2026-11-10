@@ -589,6 +589,42 @@ class InstrumentLibraryScopeTests(APITestCase):
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(models.Instrument.objects.filter(id="delete-shared").exists())
 
+    def test_shared_removal_restores_latest_definition_to_original_submitter(self):
+        reviewer = sme_client()
+        author = self.client
+        author.credentials(**DEVICE_AUTH)
+        other = APIClient()
+        other.credentials(HTTP_AUTHORIZATION="InstrumentDevice 03544d15-563a-4180-81a1-eeda9702f503")
+        for client, submission in [(author, {"id": "meter", "model": "Original"}),
+                                   (other, {"id": "amendment", "sourceId": "meter", "model": "Revised"})]:
+            pending = client.post(INSTRUMENTS, {**submission, "scope": "pending", "owner": "bench"}, format="json")
+            self.assertEqual(pending.status_code, 201)
+            approved = reviewer.post(REVIEWS + submission["id"] + "/validate/",
+                                     {"reviewVersion": pending.data["reviewVersion"]}, format="json")
+            self.assertEqual(approved.status_code, 200)
+            self.assertEqual(approved.data["owner"], "")
+        removal = reviewer.delete(INSTRUMENTS + "meter/", {"password": "calibrate"}, format="json")
+        self.assertEqual(removal.status_code, 204)
+        self.assertEqual(other.get(INSTRUMENTS, {"owner": "bench"}).data, [])
+        [local] = author.get(INSTRUMENTS, {"owner": "bench"}).data
+        self.assertEqual((local["id"], local["scope"], local["model"], local["sourceId"]), ("meter", "local", "Revised", ""))
+        self.assertIsNone(local["validatedSnapshot"])
+        self.assertTrue(local["localOverride"])
+        self.assertEqual(author.post(INSTRUMENTS, {**local, "scope": "pending"}, format="json").status_code, 201)
+
+    def test_shared_removal_recovers_the_recorded_owner_of_an_old_legacy_submission(self):
+        models.Instrument.objects.create(id="old-private", scope="local", owner="bench", model="Legacy")
+        self.client.credentials(**DEVICE_AUTH)
+        pending = self.client.post(INSTRUMENTS, {"id":"old-private", "owner":"bench", "scope":"pending"}, format="json").data
+        reviewer = sme_client()
+        response = reviewer.post(REVIEWS + pending["id"] + "/validate/", {"reviewVersion":pending["reviewVersion"]}, format="json")
+        self.assertEqual(response.status_code, 200)
+        models.Instrument.objects.filter(pk=pending["id"]).update(review_owner="", owner="")
+        removed = reviewer.delete(INSTRUMENTS + pending["id"] + "/", {"password":"calibrate"}, format="json")
+        self.assertEqual(removed.status_code, 204)
+        [restored] = self.client.get(INSTRUMENTS, {"owner":"bench"}).data
+        self.assertEqual((restored["id"], restored["scope"], restored["owner"]), (pending["id"], "local", "bench"))
+
     def test_legacy_resave_does_not_demote_validated(self):
         models.Instrument.objects.create(id="val-2", scope="validated", model="3458A", description="original")
         # A scope-less re-save (legacy path) must keep it validated.

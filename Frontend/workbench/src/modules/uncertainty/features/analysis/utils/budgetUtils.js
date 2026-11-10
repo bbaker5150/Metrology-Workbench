@@ -16,6 +16,7 @@ import {
   distributionDivisorValue,
   resolveErrorDistribution,
   effectiveFloorTerm,
+  fullScaleInUnit,
   selectGreatestTolerance,
 } from "../../../utils/uncertaintyMath";
 
@@ -319,7 +320,7 @@ export const getBudgetComponentsFromTolerance = (
   );
 
   // % Full Scale (relative to Full Scale)
-  const rangeFS = parseFloat(toleranceObject.max) || parseFloat(toleranceObject.range?.value);
+  const rangeFS = fullScaleInUnit(toleranceObject, nominalUnit);
   totalAccuracyHalfSpan_Base += calculateComponentSpan(
     toleranceObject.range, "% Full Scale", rangeFS
   );

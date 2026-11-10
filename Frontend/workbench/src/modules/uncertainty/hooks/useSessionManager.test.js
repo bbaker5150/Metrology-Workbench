@@ -430,13 +430,46 @@ it("updates a submitted session instrument when its SME-approved definition is l
   expect(result.current.sessions[0].uuts[0].instrument).toMatchObject({id:"existing", scope:"validated", model:"Reference"});
   const approved = {...pending, id:"shared", scope:"validated", localOverride:false};
   library = [approved];
-  await act(async () => result.current.refreshPendingInstruments());
+  await act(async () => result.current.refreshInstrumentLibrary());
   expect(result.current.instruments).toEqual([approved]);
   expect(result.current.sessions[0].tmdes[0]).toMatchObject({id:"row", quantity:2,
     libraryInstrumentId:"shared", instrument:{id:"shared",scope:"validated",model:"DMM"}});
 });
 
 describe("local instrument persistence", () => {
+  it.each([true, false])('checks a saved shared link against a complete library read (offline=%s)', async offline => {
+    const row = {id:'row', instrument:{id:'instance', scope:'validated', sourceId:'public-id', model:'Saved specs'}};
+    const session = {id:1, uuts:[row], testPoints:[]};
+    axios.get.mockImplementation(async url => {
+      if (offline && url.endsWith('/instruments/')) throw new Error('Offline');
+      return {data:url.endsWith('/sessions/') ? [session] : []};
+    });
+    const {result} = renderHook(() => useSessionManager());
+    await waitFor(() => expect(result.current.sessionsLoaded).toBe(true));
+    expect(result.current.sessions[0].uuts[0].instrument).toMatchObject({scope:offline ? 'validated' : 'session', model:'Saved specs'});
+  });
+  it.each(['refresh', 'removal', 'reload'])('updates the creator’s shared icon to Local after %s without changing embedded specifications', async operation => {
+    const shared = {id:'meter', scope:'validated', sourceId:'meter', model:'Published'};
+    const local = {id:'restored', formerPublicationId:'meter', scope:'local', model:'Published', localOverride:true};
+    const session = {id:1, tmdes:[{id:'row', quantity:3, libraryInstrumentId:'meter', instrument:{...shared, model:'Session specifications'}}], testPoints:[]};
+    let records = operation === 'reload' ? [local] : [shared];
+    axios.get.mockImplementation(async url => ({data:url.endsWith('/sessions/') ? [session] : url.endsWith('/instruments/') ? records : []}));
+    const {result} = renderHook(() => useSessionManager());
+    await waitFor(() => expect(result.current.sessionsLoaded && result.current.instruments.length).toBe(1));
+    if (operation === 'refresh') {
+      axios.get.mockRejectedValueOnce(new Error('Offline'));
+      await act(async () => result.current.refreshInstrumentLibrary());
+      expect(result.current.sessions[0].tmdes[0].instrument.scope).toBe('validated');
+      records = [local];
+      await act(async () => result.current.refreshInstrumentLibrary());
+    } else if (operation === 'removal') {
+      axios.delete.mockResolvedValueOnce({data:local});
+      await act(async () => result.current.deleteInstrument('meter', {password:'calibrate'}));
+    }
+    expect(result.current.instruments).toEqual([local]);
+    expect(result.current.sessions[0].tmdes[0]).toMatchObject({quantity:3, libraryInstrumentId:'restored',
+      instrument:{id:'restored', scope:'local', model:'Session specifications', localOverride:true, sourceId:'', validatedSnapshot:null}});
+  });
   it("updates a local instrument when its specifications change", async () => {
     const savedLocal = {
       id: "local-dmm-1",

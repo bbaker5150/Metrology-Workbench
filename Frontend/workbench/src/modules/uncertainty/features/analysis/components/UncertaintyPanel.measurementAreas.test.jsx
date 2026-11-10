@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
 import UncertaintyPanel, { EditableDescriptionCell, buildFunctionGroupedRows } from './UncertaintyPanel';
 
@@ -16,6 +16,36 @@ const weightInstrument = { id: 'weight-library', manufacturer: 'Other', model: '
 const instruments = [weightInstrument, lengthInstrument];
 
 describe('description function search', () => {
+  it('positions the chooser outside the expanded fields on opening and after a zoomed table reflows', () => {
+    const originalZoom = document.body.style.zoom;
+    document.body.style.zoom = '1.25';
+    let bottom = 100;
+    let notifyResize;
+    vi.stubGlobal('ResizeObserver', class {
+      constructor(callback) { notifyResize = callback; }
+      observe() {}
+      disconnect() {}
+    });
+    const originalRect = HTMLElement.prototype.getBoundingClientRect;
+    const rect = vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function () {
+      return this.matches('.inline-desc-fields')
+        ? { top: bottom - 60, bottom, left: 10, right: 210, width: 200 }
+        : originalRect.call(this);
+    });
+    try {
+      render(<EditableDescriptionCell onCommit={vi.fn()} instruments={instruments} onPickLibrary={vi.fn()} />);
+      fireEvent.click(screen.getByRole('button', { name: 'Click to add description' }));
+      const menu = screen.getByRole('listbox', { name: 'Choose instrument' }).closest('.inline-desc-search');
+      expect(menu.style.top).toBe('84px');
+      bottom = 170;
+      act(() => notifyResize());
+      expect(menu.style.top).toBe('140px');
+    } finally {
+      rect.mockRestore();
+      vi.unstubAllGlobals();
+      document.body.style.zoom = originalZoom;
+    }
+  });
   it('omits the current auto-saved definition while retaining a different instrument with the same name', () => {
     const existing = { ...lengthInstrument, id: 'existing', scope: 'local' };
     const draft = { ...existing, id: 'new' };

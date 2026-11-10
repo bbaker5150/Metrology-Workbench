@@ -2255,7 +2255,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
     libraryDraftRows,
     changeLibraryDrafts,
     reconcileSyncedInstrument,
-    refreshPendingInstruments,
+    refreshInstrumentLibrary,
     saveBugReport,
     deleteBugReport,
     deleteInstrument,
@@ -3936,7 +3936,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
   // Modal remains only for the library browser and the EditSessionModal tab.
 
   const handleOpenLibrary = () => {
-    refreshPendingInstruments();
+    refreshInstrumentLibrary();
     setInstrumentModalConfig({
       mode: "library",
       data: null,

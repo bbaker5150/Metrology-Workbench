@@ -268,10 +268,12 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
           // Check the password at the shared storage boundary before deleting
           // local rows from a mixed selection.
           for (const row of [...rows].sort((a, b) => Number(isShared(b)) - Number(isShared(a)))) {
+            let restored;
             if (newRows.current.delete(row.id)) onChangeDrafts?.([row], false);
-            else await onDelete(row.instrument.id, isShared(row) ? { password } : undefined);
+            else restored = await onDelete(row.instrument.id, isShared(row) ? { password } : undefined);
             failed.current.delete(row.instrument.id);
-            replace({ ...current.current, tmdes: current.current.tmdes.filter(item => item.id !== row.id) });
+            const remaining = current.current.tmdes.filter(item => item.id !== row.id && (!restored || item.instrument.id !== restored.id));
+            replace({ ...current.current, tmdes: restored ? [...remaining, rowFor(restored)] : remaining });
           }
           setSelection(previous => previous.filter(id => !ids.includes(id)));
           if (!failed.current.size) setError("");

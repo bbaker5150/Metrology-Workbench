@@ -6,6 +6,7 @@ import { unitSystem } from "../../../utils/uncertaintyMath";
 import TypeBComponentsEditor from "./TypeBComponentsEditor";
 import { applyToleranceCaseChange, localizeSharedInstrumentEdit } from "../../analysis/components/UncertaintyPanel";
 import { validateInstrumentSpecifications } from "../../../utils/instrumentValidation";
+import { patchInstrumentRange } from "../../../utils/instrumentFullScale";
 
 export default function LibraryInstrumentRow({ instrument, selected, onSelect, onEdit, onSave, sourceBadge, draft: managedDraft, setDraft: setManagedDraft }) {
   const [localDraft, setLocalDraft] = useState(null);
@@ -18,7 +19,7 @@ export default function LibraryInstrumentRow({ instrument, selected, onSelect, o
   const value = draft || instrument;
   const patch = update => setDraft(previous => ({ ...(previous || instrument), ...update }));
   const patchFunction = (index, update) => patch({ functions: (value.functions || []).map((fn, i) => i === index ? { ...fn, ...update } : fn) });
-  const patchRange = (fi, ri, update) => patchFunction(fi, { ranges: value.functions[fi].ranges.map((range, i) => i === ri ? { ...range, ...update } : range) });
+  const patchRange = (fi, ri, update) => patchFunction(fi, { ranges: value.functions[fi].ranges.map((range, i) => i === ri ? patchInstrumentRange(range, update) : range) });
   const save = async () => {
     const issues = validateInstrumentSpecifications(value);
     if (issues.length) { setError(issues.map(issue => issue.message || String(issue)).join(" ")); return; }

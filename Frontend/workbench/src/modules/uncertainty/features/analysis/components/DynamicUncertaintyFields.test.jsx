@@ -1,5 +1,5 @@
 import React, {useState} from 'react';
-import {fireEvent, render, screen} from '@testing-library/react';
+import {fireEvent, render, screen, within} from '@testing-library/react';
 import {expect, it, vi} from 'vitest';
 import DynamicUncertaintyFields from './DynamicUncertaintyFields';
 import {createDynamicDefinition} from '../../../utils/dynamicBudgetComponents';
@@ -26,6 +26,37 @@ it('leaves incomplete equations editable on blur and Enter',()=>{
   fireEvent.blur(input); fireEvent.keyDown(input,{key:'Enter'});
   expect(input).toHaveAttribute('aria-invalid','true');
   expect(screen.queryByRole('button',{name:'Edit uncertainty equation'})).toBeNull();
+});
+
+it('shows the evaluated scale only on the linked variable and keeps result units separate', () => {
+  function UnitPicker({ ariaLabel, value, onChange }) {
+    return <select aria-label={ariaLabel} value={value} onChange={event => onChange(event.target.value)}>
+      {['V', 'mV'].map(unit => <option key={unit}>{unit}</option>)}
+    </select>;
+  }
+  function Equation() {
+    const [definition, save] = useState({
+      ...createDynamicDefinition('equation', { unit: 'V' }), mode: 'standard',
+      equation: 'x * a', pointVariable: 'x', variables: { x: { name: 'Point', value: '' }, a: { name: 'Factor', value: '2' } },
+    });
+    return <DynamicUncertaintyFields definition={definition} referencePoint={{ value: 500, unit: 'mV' }}
+      UnitSelectComponent={UnitPicker} onChange={patch => save(previous => ({ ...previous, ...patch }))} />;
+  }
+  render(<Equation />);
+  const linked = screen.getByRole('button', { name: 'Use measurement point for x' }).closest('tr');
+  const fixed = screen.getByRole('button', { name: 'Use measurement point for a' }).closest('tr');
+  expect(within(screen.getByRole('columnheader', { name: 'Value' })).queryByRole('button')).toBeNull();
+  expect(within(linked).getByText('0.5')).toBeInTheDocument();
+  expect(within(fixed).queryByRole('button', { name: 'Edit linked point unit' })).toBeNull();
+  expect(screen.getByRole('status')).toHaveTextContent('1 V');
+  fireEvent.click(within(linked).getByRole('button', { name: 'Edit linked point unit' }));
+  fireEvent.change(within(linked).getByRole('combobox'), { target: { value: 'mV' } });
+  expect(within(linked).getByText('500')).toBeInTheDocument();
+  expect(screen.getByRole('status')).toHaveTextContent('1000 V');
+  expect(screen.getByRole('button', { name: 'Edit uncertainty unit' })).toHaveTextContent('V');
+  fireEvent.click(within(fixed).getByRole('button', { name: 'Use measurement point for a' }));
+  expect(within(fixed).getByRole('button', { name: 'Edit linked point unit' })).toHaveTextContent('mV');
+  expect(within(linked).queryByRole('combobox')).toBeNull();
 });
 it('opens and focuses from a KaTeX glyph without bubbling into the surrounding editor', async()=>{
   const parentClick=vi.fn(), parentPress=vi.fn();

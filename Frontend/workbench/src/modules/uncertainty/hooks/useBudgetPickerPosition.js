@@ -1,5 +1,5 @@
 import { useLayoutEffect } from "react";
-import { getAnchoredMenuPlacement } from "../utils/anchoredMenuPosition";
+import { getAnchoredMenuPlacement, getDocumentZoom } from "../utils/anchoredMenuPosition";
 
 // The picker is portaled to body. Trigger rectangles are screen coordinates,
 // while its fixed CSS offsets are affected by the document's UI zoom.
@@ -8,8 +8,7 @@ export default function useBudgetPickerPosition(menuRef, picker) {
     const menu = menuRef.current;
     if (!picker || !menu) return;
     const position = () => {
-      const zoomOf = element => parseFloat(getComputedStyle(element).zoom || element.style.zoom) || 1;
-      const zoom = zoomOf(document.documentElement) * zoomOf(document.body);
+      const zoom = getDocumentZoom();
       const viewport = window.visualViewport;
       const placement = getAnchoredMenuPlacement({
         anchorRect: picker.anchor?.getBoundingClientRect() || picker.rect,

@@ -1,5 +1,6 @@
 import { inputSymbol } from "./budgetScope";
 import { toleranceUnitMismatch } from "./incompleteBudget";
+import { rangeMaximum } from "./instrumentFullScale";
 import { prefixedUnitKey, registerUnitPrefixes, SI_PREFIX_OPTIONS } from "./siPrefixes";
 import { getUnitSearchNames } from "./unitNames";
 import * as math from "./equationMath";
@@ -1013,6 +1014,15 @@ export const effectiveFloorTerm = (tolerance = {}) =>
     ? tolerance.floor
     : tolerance.readings_iv || tolerance.floor;
 
+export const fullScaleInUnit = (tolerance, pointUnit) => {
+  if (!tolerance?.range || typeof tolerance.range !== "object") return NaN;
+  const manual = parseFloat(tolerance.range.value);
+  const scale = Number.isFinite(manual) ? manual : parseFloat(rangeMaximum(tolerance));
+  const unit = tolerance.unit || tolerance.functionUnit;
+  return unit && pointUnit && unit !== pointUnit
+    ? unitSystem.fromBaseUnit(unitSystem.toBaseUnit(scale, unit), pointUnit) : scale;
+};
+
 // =================================================================================
 // UPDATED: calculateUncertaintyFromToleranceObject
 // Includes fixes for: Normalization, Positive Low Values, and Zero Nominal Value
@@ -1090,6 +1100,7 @@ export const calculateUncertaintyFromToleranceObject = (
   toleranceObject = selectGreatestTolerance(toleranceObject, referenceMeasurementPoint);
   const nominalValue = parseFloat(referenceMeasurementPoint.value);
   const nominalUnit = referenceMeasurementPoint.unit;
+  const fullScale = fullScaleInUnit(toleranceObject, nominalUnit);
   let totalVariance = 0;
   let totalLinearTolerance = 0;
   const breakdown = [];
@@ -1154,15 +1165,13 @@ export const calculateUncertaintyFromToleranceObject = (
       explanation = `${halfSpan.toExponential(3)} ${unitLabel}`;
     }
 
-    const rangeFsValue = parseFloat(toleranceObject.range?.value);
-    
     // Attempt PPM conversion
     const ppm = convertToPPM(
       valueInNominalUnits,
       nominalUnit,
       nominalValue,
       nominalUnit,
-      rangeFsValue
+      fullScale
     );
 
     // FIX: Fallback for 0 Nominal Value (PPM is NaN)
@@ -1208,7 +1217,7 @@ export const calculateUncertaintyFromToleranceObject = (
   addComponent(
     toleranceObject.range,
     "% Full Scale",
-    parseFloat(toleranceObject.range?.value) || parseFloat(toleranceObject.max)
+    fullScale
   );
   // ONE effective floor term (floor + its legacy readings_iv alias), value-aware
   // so a blank floor never shadows a real readings_iv (see effectiveFloorTerm).
@@ -2745,10 +2754,6 @@ export const recalculateTolerance = (instrument, value, unit, existingData = {})
   // Deep copy the raw specs from the matched range
   const specs = JSON.parse(JSON.stringify(matchedData.tolerances || matchedData.tolerance || {}));
 
-  // Determine Range Max for 'range' specs
-  let calculatedRangeMax = matchedData.rangeMax;
-  if (!calculatedRangeMax) calculatedRangeMax = parseFloat(value);
-
   // Apply updates to the specs structure (units, range values, etc.)
   const compKeys = ['reading', 'range', 'floor', 'readings_iv', 'db'];
 
@@ -2757,11 +2762,6 @@ export const recalculateTolerance = (instrument, value, unit, existingData = {})
       if (!specs[key].unit) {
         if (key === 'reading' || key === 'range') specs[key].unit = '%';
         else if (key === 'floor' || key === 'readings_iv') specs[key].unit = unit;
-      }
-      if (key === 'range') {
-        if (specs[key].value === undefined || specs[key].value === null || specs[key].value === "") {
-             specs[key].value = calculatedRangeMax;
-        }
       }
       if (specs[key].high) {
         const highVal = parseFloat(specs[key].high);
@@ -2781,6 +2781,7 @@ export const recalculateTolerance = (instrument, value, unit, existingData = {})
 
   return {
     ...specs,
+    ...(specs.range ? { max: matchedData.rangeMax ?? value, unit: matchedData.rangeUnit || unit } : {}),
     measuringResolution: matchedData.resolution
   };
 };
