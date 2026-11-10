@@ -238,6 +238,7 @@ const useSessionManager = () => {
   const selectedTestPointIdRef = useRef(null);
   const instrumentsRef = useRef([]);
   const lastListedInstrumentIds = useRef(null);
+  const approvedSubmissionIds = useRef(new Set());
   const sharedDataRef = useRef({ equations: [], bug_reports: [] });
   const instrumentSaveQueuesRef = useRef(new Map());
   // One chronological history for the whole uncertainty workspace. Keeping a
@@ -336,9 +337,16 @@ const useSessionManager = () => {
     setLibraryDraftRows(libraryDraftRowsRef.current);
   }, []);
   const changeLibraryDrafts = useCallback((rows, present) => {
-    const restore = value => setDraftPresence(rows, value);
-    recordHistoryAction(!present, present, restore, `library-drafts:${++undoSequenceRef.current}`);
-    restore(present);
+    const ids = new Set(rows.map(row => row.id));
+    const before = libraryDraftRowsRef.current.filter(row => ids.has(row.id));
+    const after = present ? rows : [];
+    if (sameSessionValue(before, after)) return;
+    const restore = value => {
+      setDraftPresence(rows, false);
+      if (value.length) setDraftPresence(value, true);
+    };
+    recordHistoryAction(before, after, restore, `library-drafts:${++undoSequenceRef.current}`);
+    restore(after);
   }, [setDraftPresence, recordHistoryAction]);
 
   const recordUndoSnapshot = useCallback((session, groupKey) => {
@@ -702,6 +710,15 @@ const useSessionManager = () => {
 
   const reconcileSyncedInstrument = useCallback((instrument, submittedId) => {
     if (!instrument?.id) return;
+    if (instrument.scope === "local" && submittedId != null) {
+      const current = instrumentsRef.current.find(item => String(item.id) === String(submittedId));
+      if (approvedSubmissionIds.current.has(String(submittedId)) || ["validated", "shared"].includes(current?.scope)) {
+        throw new Error("This instrument has already been validated. Refresh the library before changing its status.");
+      }
+    }
+    if (instrument.scope === "validated" && submittedId != null) {
+      approvedSubmissionIds.current.add(String(submittedId));
+    }
     replaceInstruments((prev) => {
       const syncedId = String(instrument.id);
       const syncedSourceId = String(instrument.sourceId || instrument.id);
@@ -730,12 +747,39 @@ const useSessionManager = () => {
       .map(record => [String(record.formerPublicationId), record]));
     replaceSessions(previous => previous.map(session => {
       let next = session;
+      let persistLinkedStatus = false;
       for (const [key, role] of [["uuts", "uut"], ["tmdes", "tmde"]]) {
         const rows = session[key] || [];
         let changed = false;
         const updated = rows.map(row => {
           const definition = row.instrument;
           if (!definition || !["local", "pending", "validated"].includes(definition.scope)) return row;
+          const privateRecord = [definition.id, definition.libraryInstrumentId, row.libraryInstrumentId]
+            .filter(id => id != null).map(id => byId.get(String(id))).find(Boolean);
+          if (definition.scope === "pending" && privateRecord?.scope === "local") {
+            // Withdrawal changes the private submission's status, including
+            // instances with independently edited specifications. Its shared
+            // source is still the origin, not the private record's identity.
+            changed = true;
+            persistLinkedStatus = true;
+            return { ...row, libraryInstrumentId: privateRecord.id, instrument: { ...definition,
+              id: privateRecord.id, libraryInstrumentId: privateRecord.id, scope: "local",
+              owner: privateRecord.owner || "", sourceId: privateRecord.sourceId || "",
+              reviewVersion: undefined, validatedSnapshot: privateRecord.validatedSnapshot ?? null,
+              localOverride: true } };
+          }
+          if (definition.scope === "pending" && privateRecord?.scope === "pending") {
+            // A review token belongs to the stored specifications. Refresh an
+            // old/missing token only when this instance still matches them.
+            const reviewed = instrumentForRole(privateRecord, role);
+            if (reviewed.reviewVersion != null && reviewed.reviewVersion !== definition.reviewVersion &&
+              !diffFromSnapshot({ ...definition, validatedSnapshot: buildValidatedSnapshot(reviewed) }).length) {
+              changed = true;
+              persistLinkedStatus = true;
+              return { ...row, instrument: { ...definition, reviewVersion: reviewed.reviewVersion } };
+            }
+            return row;
+          }
           const linkedId = definition.sourceId || definition.libraryInstrumentId || row.libraryInstrumentId;
           const publicId = String(linkedId || definition.id);
           if (definition.scope === "validated" || (definition.scope === "pending" && byId.get(String(definition.id))?.scope !== "pending")) {
@@ -762,9 +806,10 @@ const useSessionManager = () => {
         });
         if (changed) next = { ...next, [key]: updated };
       }
+      if (persistLinkedStatus) persistSessionDebounced(next);
       return next;
     }));
-  }, [sessionsLoaded, instrumentsLoaded, instruments, replaceSessions]);
+  }, [sessionsLoaded, instrumentsLoaded, instruments, replaceSessions, persistSessionDebounced]);
 
   const refreshInstrumentLibrary = useCallback(async () => {
     const watched = instrumentsRef.current.filter(item => ["pending", "validated", "shared"].includes(item.scope));
@@ -785,7 +830,13 @@ const useSessionManager = () => {
           if (next.get(id) !== item) continue; // A local edit or sync finished during the read.
           const publicId = String(item.sourceId || item.id);
           const latest = byId.get(id) || byId.get(publicId) || byFormerPublication.get(publicId);
-          if (latest?.scope === item.scope || (!latest && item.scope === "pending")) continue;
+          if (latest?.scope === item.scope) {
+            if (item.scope === "pending" && String(latest.id) === id && latest.reviewVersion != null &&
+              latest.reviewVersion !== item.reviewVersion) next.set(id, latest);
+            continue;
+          }
+          if (!latest && item.scope === "pending") continue;
+          if (item.scope === "pending" && latest?.scope === "validated") approvedSubmissionIds.current.add(id);
           next.delete(id);
           if (latest) next.set(String(latest.id), latest);
         }

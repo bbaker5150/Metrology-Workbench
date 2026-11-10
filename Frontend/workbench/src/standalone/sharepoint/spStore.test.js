@@ -37,7 +37,7 @@ function fakeFetch() {
 
     for (const [pattern, respond] of handlers) {
       if (pattern.test(url)) {
-        const r = typeof respond === "function" ? respond({ url, method, spMethod, init }) : respond;
+        const r = await (typeof respond === "function" ? respond({ url, method, spMethod, init }) : respond);
         const status = r.status ?? 200;
         const text = r.text ?? (r.json !== undefined ? JSON.stringify(r.json) : "");
         return { ok: status >= 200 && status < 300, status, text: async () => text, json: async () => JSON.parse(text || "{}") };
@@ -71,6 +71,18 @@ beforeEach(() => {
     const item = {Id:100 + draftRows.length, AuthorId:41, owshiddenversion:1, ...JSON.parse(init.body)};
     draftRows.push(item);
     return {status:201,json:item};
+  });
+  http.on(/InstrumentDrafts'\)\/items\((\d+)\)\?/, ({url}) => {
+    const item = draftRows.find(row => row.Id === Number(/items\((\d+)\)/.exec(url)[1]));
+    return item ? {json:item} : {status:404};
+  });
+  http.on(/InstrumentDrafts'\)\/items\((\d+)\)$/, ({url,init}) => {
+    const item = draftRows.find(row => row.Id === Number(/items\((\d+)\)/.exec(url)[1]));
+    if (!item) return {status:404};
+    if (init.headers['IF-MATCH'] !== `"${item.owshiddenversion}"`) return {status:412};
+    Object.assign(item, JSON.parse(init.body));
+    item.owshiddenversion++;
+    return {status:204};
   });
   http.on(/InstrumentDrafts'\)\/items\((\d+)\)\/ValidateUpdateListItem/, ({url,init}) => {
     const item = draftRows.find(row => row.Id === Number(/items\((\d+)\)/.exec(url)[1]));
@@ -863,7 +875,7 @@ describe("user-scoped instrument records", () => {
     let failCleanup = true;
     http.on(/InstrumentDrafts'\)\/items\(42\)\?/, () => ({json:draft}));
     http.on(/InstrumentDrafts'\)\/items\(42\)$/, ({init}) => {
-      if (failCleanup) { failCleanup = false; return {status:503}; }
+      if (failCleanup && JSON.parse(JSON.parse(init.body).PayloadJson)._uncertaintyArchive) { failCleanup = false; return {status:503}; }
       Object.assign(draft, JSON.parse(init.body));
       draft.owshiddenversion++;
       return {status:204};
@@ -908,7 +920,13 @@ describe("user-scoped instrument records", () => {
     await expect(store.validateInstrument('42','2')).rejects.toMatchObject({status:409});
     expect(catalog).toHaveLength(1);
     expect((await store.instrumentReviews()).reviews).toHaveLength(1);
-    expect(http.calls.filter(call => call.method === 'POST' && call.url.includes('/items('))).toHaveLength(0);
+    const draftWrites = http.calls.filter(call => call.method === 'POST' && call.url.includes('/items('));
+    expect(draftWrites).toHaveLength(1);
+    expect(JSON.parse(JSON.parse(draftWrites[0].body).SubmittedJson)._uncertaintyApprovalClaim).toEqual({version:'2'});
+    const pending = (await store.listInstruments()).find(record => record.scope === 'pending');
+    expect(await store.saveInstrument({...pending,scope:'local',action:'withdraw'})).toMatchObject({scope:'local',model:'Contender'});
+    expect((await store.instrumentReviews()).reviews).toEqual([]);
+    expect(JSON.parse(catalog[0].PayloadJson).model).toBe('Already published');
   });
 
   it.each([
@@ -917,6 +935,7 @@ describe("user-scoped instrument records", () => {
   ])("isolates pending definitions and publishes the reviewed version for $reviewerGroup", async ({reviewerGroup, smeExists}) => {
     const record = { id: "copy", sourceId: "shared", scope: "pending", model: "DMM" };
     const item = { Id: 81, AuthorId: 12, RecordId: "12:copy", owshiddenversion: 3, PayloadJson: JSON.stringify(record) };
+    draftRows.push(item);
     http.on(/InstrumentDrafts'\)\/items\?/, { json: { value: [item] } });
     http.on(/InstrumentDrafts'\)\/items\(81\)\?/, { json: item });
     http.on(/Instruments'\)\/items\?/, { json: { value: [{Id: 80, RecordId: "shared", AuthorId: 12,
@@ -938,8 +957,11 @@ describe("user-scoped instrument records", () => {
     const publication = http.calls.find(call => call.spMethod === "MERGE" && call.url.includes("UncertaintyPublishedInstruments')/items(80)"));
     expect(publication.headers["IF-MATCH"]).toBe('"4"');
     expect(JSON.parse(publication.body).PublicationKey).toBe("shared");
-    const cleanup = http.calls.find(call => call.spMethod === "MERGE" && call.url.includes("UncertaintyInstrumentDrafts')/items(81)"));
-    expect(cleanup.headers["IF-MATCH"]).toBe('"3"');
+    const draftWrites = http.calls.filter(call => call.spMethod === "MERGE" && call.url.includes("UncertaintyInstrumentDrafts')/items(81)"));
+    expect(draftWrites[0].headers["IF-MATCH"]).toBe('"3"');
+    expect(JSON.parse(JSON.parse(draftWrites[0].body).SubmittedJson)._uncertaintyApprovalClaim).toEqual({version:'3'});
+    const cleanup = draftWrites[1];
+    expect(cleanup.headers["IF-MATCH"]).toBe('"4"');
     expect(JSON.parse(JSON.parse(cleanup.body).PayloadJson)).toMatchObject({_uncertaintyArchive:{userId:41}});
   });
 
@@ -993,6 +1015,141 @@ describe("user-scoped instrument records", () => {
     expect(item.SubmittedJson).toBeNull();
     expect((await store.listInstruments())[0]).toMatchObject({scope:'local',model:'Withdrawn'});
     expect((await store.instrumentReviews()).reviews).toEqual([]);
+  });
+
+  it('lets a general user withdraw only the current stored submission and rejects a stale SME review', async () => {
+    const submitted = {id:'meter', scope:'pending', model:'Submitted torque meter', functions:[{name:'Torque'}], localOverride:true};
+    const item = {Id:81, AuthorId:41, RecordId:'41:meter', owshiddenversion:3,
+      PayloadJson:JSON.stringify({...submitted, model:'Late form edit'}), SubmittedJson:JSON.stringify(submitted)};
+    draftRows.push(item);
+    http.on(/currentuser\/groups/, {json:{value:[{Title:'Metrology App User'}]}});
+    http.on(/InstrumentDrafts'\)\/items\(81\)\?/, () => ({json:item}));
+    http.on(/InstrumentDrafts'\)\/items\(81\)$/, ({init}) => {
+      if (init.headers['IF-MATCH'] !== `"${item.owshiddenversion}"`) return {status:412};
+      Object.assign(item, JSON.parse(init.body)); item.owshiddenversion++;
+      return {status:204};
+    });
+    const local = await store.saveInstrument({id:'meter', scope:'local', action:'withdraw', reviewVersion:'3', model:'Stale session copy', functions:[]});
+    expect(local).toMatchObject({...submitted, scope:'local', localOverride:true});
+    expect(local).not.toHaveProperty('action');
+    expect(local).not.toHaveProperty('reviewVersion');
+    expect(item.SubmittedJson).toBeNull();
+    expect(http.find(/currentuser\/groups/)).toHaveLength(0);
+    expect((await store.listInstruments())[0]).toMatchObject(local);
+    http.on(/currentuser\/groups/, {json:{value:[{Title:'Uncertalytics SME'}]}});
+    expect((await store.instrumentReviews()).reviews).toEqual([]);
+    await expect(store.validateInstrument('81','3')).rejects.toMatchObject({status:409});
+    expect(http.calls.filter(call => call.method === 'POST' && call.url.includes('PublishedInstruments'))).toHaveLength(0);
+  });
+
+  it.each(['foreign', 'stale', 'local', 'approved'])('rejects an explicit withdrawal of a %s submission without writing', async scenario => {
+    const item = {Id:81, AuthorId:scenario === 'foreign' ? 99 : 41, RecordId:scenario === 'foreign' ? '99:meter' : '41:meter',
+      owshiddenversion:3, PayloadJson:JSON.stringify({id:'meter', scope:scenario === 'local' ? 'local' : 'pending', model:'Stored'})};
+    draftRows.push(item);
+    if (scenario === 'approved') http.on(/PublishedInstruments'\)\/items\?/, {json:{value:[{Id:90,RecordId:'meter',PayloadJson:JSON.stringify({id:'meter',scope:'validated',_uncertaintyApprovals:{81:'3'}})}]}});
+    await expect(store.saveInstrument({id:'meter',scope:'local',action:'withdraw',reviewVersion:scenario === 'stale' ? '2' : '3'}))
+      .rejects.toMatchObject({status:scenario === 'foreign' ? 404 : 409});
+    expect(http.calls.filter(call => call.method === 'POST')).toHaveLength(0);
+  });
+
+  it('keeps a concurrently changed submission when withdrawal loses its revision check', async () => {
+    draftRows.push({Id:81,AuthorId:41,RecordId:'41:meter',owshiddenversion:3,PayloadJson:'{"id":"meter","scope":"pending","model":"Submitted"}'});
+    http.on(/InstrumentDrafts'\)\/items\(81\)$/, {status:412});
+    await expect(store.saveInstrument({id:'meter',scope:'local',action:'withdraw',reviewVersion:'3'})).rejects.toMatchObject({status:409});
+    expect(JSON.parse(draftRows[0].PayloadJson).scope).toBe('pending');
+  });
+
+  it('does not publish when withdrawal wins while an SME approval is paused before its draft claim', async () => {
+    vi.spyOn(store,'canValidateInstruments').mockResolvedValue(true);
+    const submitted = {id:'meter',scope:'pending',model:'Submitted'};
+    draftRows.push({Id:81,AuthorId:41,RecordId:'41:meter',owshiddenversion:3,PayloadJson:JSON.stringify(submitted)});
+    let resumeApproval, reachedCatalog;
+    const paused = new Promise(resolve => { reachedCatalog = resolve; });
+    const resume = new Promise(resolve => { resumeApproval = resolve; });
+    let firstRead = true;
+    http.on(/PublishedInstruments'\)\/items\?/, async () => {
+      if (firstRead) { firstRead = false; reachedCatalog(); await resume; }
+      return {json:{value:[]}};
+    });
+    const approval = store.validateInstrument('81','3');
+    const rejectedApproval = expect(approval).rejects.toMatchObject({status:409});
+    await paused;
+    expect(await store.saveInstrument({id:'meter',scope:'local',action:'withdraw',reviewVersion:'3'})).toMatchObject({scope:'local'});
+    resumeApproval();
+    await rejectedApproval;
+    expect(JSON.parse(draftRows[0].PayloadJson)).toMatchObject({scope:'local',model:'Submitted'});
+    expect(http.calls.filter(call => call.method === 'POST' && call.url.includes('PublishedInstruments'))).toEqual([]);
+  });
+
+  it('blocks withdrawal and edits after approval claims the draft but before publication commits', async () => {
+    vi.spyOn(store,'canValidateInstruments').mockResolvedValue(true);
+    draftRows.push({Id:81,AuthorId:41,RecordId:'41:meter',owshiddenversion:3,PayloadJson:'{"id":"meter","scope":"pending","model":"Reviewed"}'});
+    const catalog = [];
+    let resumePublication, reachedPublication;
+    const paused = new Promise(resolve => { reachedPublication = resolve; });
+    const resume = new Promise(resolve => { resumePublication = resolve; });
+    http.on(/PublishedInstruments'\)\/items\?/, () => ({json:{value:catalog}}));
+    http.on(/PublishedInstruments'\)\/items$/, async ({init}) => {
+      reachedPublication(); await resume;
+      catalog.push({Id:90,owshiddenversion:1,...JSON.parse(init.body)});
+      return {status:201,json:catalog[0]};
+    });
+    const approval = store.validateInstrument('81','3');
+    await paused;
+    const [current] = await store.listInstruments();
+    expect(current.reviewVersion).toBe('3');
+    expect(current).not.toHaveProperty('_uncertaintyApprovalClaim');
+    for (const reviewVersion of ['3', String(draftRows[0].owshiddenversion)]) {
+      await expect(store.saveInstrument({id:'meter',scope:'local',action:'withdraw',reviewVersion})).rejects.toMatchObject({status:409});
+      await expect(store.saveInstrument({...current,scope:'pending',model:'Changed',reviewVersion})).rejects.toMatchObject({status:409});
+    }
+    await expect(store.deleteInstrument('meter')).rejects.toMatchObject({status:409});
+    resumePublication();
+    expect(await approval).toMatchObject({scope:'validated',model:'Reviewed'});
+    expect(JSON.parse(catalog[0].PayloadJson)).not.toHaveProperty('_uncertaintyApprovalClaim');
+    expect((await store.instrumentReviews()).reviews).toEqual([]);
+  });
+
+  it('resumes a persisted approval claim from a reopened inbox after lost claim and failed publication responses', async () => {
+    vi.spyOn(store,'canValidateInstruments').mockResolvedValue(true);
+    const draft = {Id:81,AuthorId:41,RecordId:'41:meter',owshiddenversion:3,PayloadJson:'{"id":"meter","scope":"pending","model":"Reviewed"}'};
+    draftRows.push(draft);
+    const catalog = [];
+    let loseClaimResponse = true, failPublication = true;
+    http.on(/PublishedInstruments'\)\/items\?/, () => ({json:{value:catalog}}));
+    http.on(/InstrumentDrafts'\)\/items\(81\)$/, ({init}) => {
+      if (init.headers['IF-MATCH'] !== `"${draft.owshiddenversion}"`) return {status:412};
+      Object.assign(draft,JSON.parse(init.body)); draft.owshiddenversion++;
+      if (loseClaimResponse) { loseClaimResponse = false; return {status:503}; }
+      return {status:204};
+    });
+    http.on(/PublishedInstruments'\)\/items$/, ({init}) => {
+      if (failPublication) { failPublication = false; return {status:503}; }
+      catalog.push({Id:90,owshiddenversion:1,...JSON.parse(init.body)});
+      return {status:201,json:catalog[0]};
+    });
+    await expect(store.validateInstrument('81','3')).rejects.toMatchObject({status:503});
+    const reopened = new SharePointStore({webUrl:WEB,fetchImpl:http,currentUser:{id:41}});
+    vi.spyOn(reopened,'canValidateInstruments').mockResolvedValue(true);
+    const [review] = (await reopened.instrumentReviews()).reviews;
+    expect(review).toMatchObject({reviewId:'81',reviewVersion:'3',model:'Reviewed'});
+    expect(review).not.toHaveProperty('_uncertaintyApprovalClaim');
+    expect(draft.owshiddenversion).toBe(4);
+    expect(await reopened.validateInstrument(review.reviewId,review.reviewVersion)).toMatchObject({scope:'validated',model:'Reviewed'});
+    expect(catalog).toHaveLength(1);
+    expect(JSON.parse(catalog[0].PayloadJson)).not.toHaveProperty('_uncertaintyApprovalClaim');
+    expect((await reopened.instrumentReviews()).reviews).toEqual([]);
+  });
+
+  it('lets the author withdraw a failed claim once its shared target was durably removed', async () => {
+    const record = {id:'copy',sourceId:'shared',scope:'pending',model:'Reviewed',_uncertaintyApprovalClaim:{version:'3'}};
+    draftRows.push({Id:81,AuthorId:41,RecordId:'41:copy',owshiddenversion:4,PayloadJson:JSON.stringify(record)});
+    http.on(/PublishedInstruments'\)\/items\?/, {json:{value:[{Id:90,RecordId:'shared',owshiddenversion:8,PayloadJson:JSON.stringify({id:'shared',scope:'validated',_uncertaintyArchive:{at:'2026-11-10'}})}]}});
+    const local = await store.saveInstrument({id:'copy',scope:'local',action:'withdraw',reviewVersion:'3'});
+    expect(local).toMatchObject({scope:'local',model:'Reviewed'});
+    expect(local).not.toHaveProperty('_uncertaintyApprovalClaim');
+    expect(draftRows[0].SubmittedJson).toBeNull();
+    expect(http.calls.filter(call => call.method === 'POST' && call.url.includes('PublishedInstruments'))).toEqual([]);
   });
 
   it("does not delete another user's local instrument", async () => {

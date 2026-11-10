@@ -63,7 +63,7 @@ it.each(['session', 'point'])('keeps a 720-spec instrument editable without work
 }, 20000);
 
 it.each(['point', 'session'])('collapses a 720-spec expansion on Escape without rebuilding the specification rows in %s view', viewMode => {
-  const session = { ...largeSession(), id: 'large-escape' }, point = session.testPoints[0];
+  const session = { ...largeSession(), id: 'large-escape', simplifiedInstrumentTables: viewMode !== 'session' }, point = session.testPoints[0];
   const { container } = render(<UncertaintyPanel testPointData={{ ...point, viewMode }} sessionData={session}
     onSessionSave={vi.fn()} tmdeTolerancesData={[]} uutNominal={point.testPointInfo.parameter} />);
   const table = container.querySelector('[data-tour="tmde-table"]');
@@ -95,7 +95,7 @@ it('switches large imported budgets with no hidden spec rows and expands live ed
   const { container, rerender } = render(pointView(first));
   for (const kind of ['uut', 'tmde']) {
     const table = container.querySelector(`[data-tour="${kind}-table"]`);
-    expect([...table.querySelectorAll('thead th')].map(th => th.getAttribute('aria-label'))).toEqual(['Description', 'Sync']);
+    expect([...table.querySelectorAll('thead th')].map(th => th.getAttribute('aria-label'))).toEqual(['Description', 'Status']);
     expect(table.querySelectorAll('[data-range-id]')).toHaveLength(0);
     const resize = within(table).getByRole('button', { name: 'Resize Description column' });
     const initialWidth = table.querySelector('col').style.width;

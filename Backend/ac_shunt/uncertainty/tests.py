@@ -550,6 +550,44 @@ class InstrumentLibraryScopeTests(APITestCase):
         self.assertEqual(reviewer.get(REVIEWS).data["reviews"], [])
         self.assertEqual(regular.get(INSTRUMENTS).data[0]["id"], "val-1")
 
+    def test_general_user_can_withdraw_their_current_submission_without_changing_its_specs(self):
+        author = get_user_model().objects.create_user(username="withdraw-author")
+        author.groups.add(Group.objects.create(name="Metrology App User"))
+        self.client.force_authenticate(user=author)
+        reviewer = sme_client()
+        payload = {"id": "withdraw-meter", "scope": "pending", "model": "Submitted meter", "owner": "bench",
+                   "functions": [{"name": "Torque", "ranges": [{"min": 0, "max": 60, "unit": "lbf·ft"}]}]}
+        submitted = self.client.post(INSTRUMENTS, payload, format="json").data
+        withdrawal = {"id": submitted["id"], "scope": "local", "action": "withdraw", "reviewVersion": submitted["reviewVersion"],
+                      "model": "Stale session specs", "functions": []}
+        foreign = APIClient()
+        foreign.force_authenticate(user=get_user_model().objects.create_user(username="withdraw-other"))
+        self.assertEqual(foreign.post(INSTRUMENTS, withdrawal, format="json").status_code, 404)
+        self.assertEqual(self.client.post(INSTRUMENTS, {**withdrawal, "reviewVersion": "stale"}, format="json").status_code, 409)
+        withdrawn = self.client.post(INSTRUMENTS, withdrawal, format="json")
+        self.assertEqual(withdrawn.status_code, 201)
+        self.assertEqual(withdrawn.data["scope"], "local")
+        self.assertTrue(withdrawn.data["localOverride"])
+        self.assertEqual(withdrawn.data["model"], submitted["model"])
+        self.assertEqual(withdrawn.data["functions"], submitted["functions"])
+        self.assertNotIn("reviewVersion", withdrawn.data)
+        self.assertEqual(reviewer.get(REVIEWS).data["reviews"], [])
+        self.assertEqual(reviewer.post(REVIEWS + submitted["id"] + "/validate/",
+                                      {"reviewVersion": submitted["reviewVersion"]}, format="json").status_code, 404)
+        self.assertEqual(self.client.post(INSTRUMENTS, withdrawal, format="json").status_code, 409)
+        self.assertEqual(self.client.get(INSTRUMENTS).data[0]["scope"], "local")
+
+    def test_withdrawal_cannot_demote_an_already_validated_instrument(self):
+        author = get_user_model().objects.create_user(username="approved-author")
+        self.client.force_authenticate(user=author)
+        submitted = self.client.post(INSTRUMENTS, {"id": "approved-meter", "scope": "pending", "model": "Approved specs"}, format="json").data
+        reviewer = sme_client()
+        approved = reviewer.post(REVIEWS + submitted["id"] + "/validate/", {"reviewVersion": submitted["reviewVersion"]}, format="json")
+        self.assertEqual(approved.status_code, 200)
+        denied = self.client.post(INSTRUMENTS, {"id": submitted["id"], "scope": "local", "action": "withdraw", "reviewVersion": submitted["reviewVersion"]}, format="json")
+        self.assertEqual(denied.status_code, 409)
+        self.assertEqual(models.Instrument.objects.get(pk=submitted["id"]).scope, "validated")
+
     def test_software_owners_can_validate_until_the_sme_group_exists(self):
         user = get_user_model().objects.create_user(username="software-owner")
         user.groups.add(Group.objects.create(name="Metrology Software Owners Backup"))

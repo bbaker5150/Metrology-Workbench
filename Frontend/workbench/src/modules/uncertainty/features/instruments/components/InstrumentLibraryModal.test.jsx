@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { flushSync } from 'react-dom';
 import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import axios from 'axios';
@@ -9,9 +10,11 @@ vi.mock('axios', () => ({default: {get: vi.fn(async () => ({data:{canValidate:fa
 vi.mock('plotly.js-dist', () => ({ default: {} }));
 const definition = (id, scope='local') => ({ id, scope, manufacturer: 'Example', model: id, description: `Meter ${id}`, functions: [{id:'f', name:'Voltage', unit:'V', ranges:[{id:'r', min:0, max:10, unit:'V', resolution:0.01, tolerances:{reading:{value:1,unit:'%'}}}]}] });
 const openInstrument = id => fireEvent.click(document.querySelector(`tr[data-instrument-id="${id}"] .instrument-library-specifications`));
-function Harness({ save=vi.fn(), remove=vi.fn(), close=vi.fn(), confirmDeletes=false, initial=[definition('A'),definition('B','validated'),definition('C')] }) {
+function Harness({ save=vi.fn(), remove=vi.fn(), close=vi.fn(), confirmDeletes=false, initial=[definition('A'),definition('B','validated'),definition('C')], initialDrafts=[] }) {
  const [instruments,setInstruments]=useState(initial);
+ const [drafts,setDrafts]=useState(initialDrafts);
  return <ConfirmRecordDeletesContext.Provider value={confirmDeletes}><InstrumentLibraryModal isOpen instruments={instruments} onClose={close}
+ libraryDraftRows={drafts} onChangeDrafts={(rows,present)=>setDrafts(previous=>[...previous.filter(row=>!rows.some(next=>next.id===row.id)),...(present?rows:[])])}
  onSaveToLibrary={async(value,options)=>{await save(value,options);setInstruments(previous=>[...previous.filter(item=>item.id!==value.id),value]);return value;}}
  onBatchAdd={vi.fn()} onDelete={async (id,options)=>{await (options ? remove(id,options) : remove(id));setInstruments(previous=>previous.filter(item=>item.id!==id));}} /></ConfirmRecordDeletesContext.Provider>;
 }
@@ -33,7 +36,7 @@ it('selects names without expansion and opens details from its row specification
  expect(document.querySelector('.instrument-library-footer')).toBeNull();
  expect(document.querySelector('.cell-tolerance')).toBeNull();
  expect(document.querySelectorAll('.instrument-equipment-table colgroup col')).toHaveLength(2);
- expect(screen.getAllByRole('columnheader').map(node=>node.textContent)).toEqual(['Description','Sync']);
+ expect(screen.getAllByRole('columnheader').map(node=>node.textContent)).toEqual(['Description','Status']);
  openInstrument('A');
  expect(document.querySelector('tr[data-instrument-id="A"] .cell-tolerance')).not.toBeNull();
  expect(document.querySelectorAll('.instrument-library-name')).toHaveLength(2);
@@ -337,12 +340,13 @@ it('toggles specifications per row while preserving multi-selection and other ex
  expect(row('A').querySelector('.cell-tolerance')).not.toBeNull();
  expect(row('C').querySelector('.instrument-library-name')).toHaveAttribute('aria-pressed','true');
 });
-it('creates an instrument through the table and saves it locally',async()=>{
+it('keeps a new instrument session-only through edits until explicitly saved locally',async()=>{
  const save=vi.fn();render(<Harness save={save}/>);
  fireEvent.click(screen.getByRole('button',{name:'Add instrument',exact:true}));
  expect(save).not.toHaveBeenCalled();
  expect(document.querySelectorAll('tr[data-instrument-id]')).toHaveLength(4);
  const row=[...document.querySelectorAll('tr[data-instrument-id]')].find(node=>!['A','B','C'].includes(node.dataset.instrumentId));
+ expect(row.querySelector('.inline-sync-badge')).toHaveClass('inline-sync-badge--red');
  fireEvent.mouseDown(row.querySelector('.inline-desc-combined'),{button:0});
  const make=within(row).getByPlaceholderText('Mfr.');
  fireEvent.focus(make);
@@ -350,6 +354,11 @@ it('creates an instrument through the table and saves it locally',async()=>{
  fireEvent.change(make,{target:{value:'Example'}});
  expect(screen.queryByRole('listbox',{name:'Choose instrument'})).not.toBeInTheDocument();
  make.focus(); fireEvent.keyDown(make,{key:'Escape'});
+ expect(save).not.toHaveBeenCalled();
+ const collapsed=document.querySelector(`tr[data-instrument-id="${row.dataset.instrumentId}"]`);
+ expect(collapsed).toHaveTextContent('Example');
+ expect(collapsed.querySelector('.inline-sync-badge')).toHaveClass('inline-sync-badge--red');
+ fireEvent.click(collapsed.querySelector('.inline-sync-badge'));
  await waitFor(()=>expect(save).toHaveBeenCalledTimes(1));
  expect(save.mock.calls[0][0]).toMatchObject({scope:'local',manufacturer:'Example'});
  expect(save.mock.calls[0][1]).toEqual({requireSaved:true});
@@ -365,6 +374,38 @@ it('discards an untouched new row on Escape without writing a library record',()
  expect(document.querySelector('tr[data-instrument-id="empty"]')).not.toBeNull();
  expect(save).not.toHaveBeenCalled();
  expect(remove).not.toHaveBeenCalled();
+});
+it('keeps copied and cut session drafts editable in the library without saving them locally',async()=>{
+ const save=vi.fn();
+ const draft={id:'draft-row',name:'Temporary meter',nickname:'DRAFT',instrument:{...definition('draft-definition','session'),description:'Temporary meter'}};
+ draft.instrument.functions[0].ranges.push({...draft.instrument.functions[0].ranges[0],id:'second-range',min:10,max:20});
+ render(<Harness save={save} initial={[]} initialDrafts={[draft]}/>);
+ fireEvent.keyDown(window,{key:'Escape'});
+ const source=document.querySelector('tr[data-instrument-id="draft-row"]');
+ fireEvent.click(source.querySelector('.instrument-library-name'));
+ fireEvent.keyDown(window,{key:'c',ctrlKey:true});fireEvent.keyDown(window,{key:'v',ctrlKey:true});
+ expect(document.querySelectorAll('tr[data-instrument-id]')).toHaveLength(2);
+ const copy=[...document.querySelectorAll('tr[data-instrument-id]')].find(row=>row.dataset.instrumentId!=='draft-row');
+ const copyId=copy.dataset.instrumentId;
+ expect(copy).toHaveTextContent('(DRAFT)');
+ expect(copy.querySelector('.inline-sync-badge')).toHaveClass('inline-sync-badge--red');
+ fireEvent.click(copy.querySelector('.instrument-range-menu button'));
+ fireEvent.click(within(screen.getByRole('listbox')).getAllByRole('option')[1]);
+ expect(copy.querySelector('.instrument-range-menu')).toHaveTextContent('10 to 20 V');
+ fireEvent.keyDown(window,{key:'x',ctrlKey:true});
+ expect(document.querySelectorAll('tr[data-instrument-id]')).toHaveLength(1);
+ fireEvent.click(document.querySelector('tr[data-instrument-id="draft-row"] .instrument-library-name'));
+ fireEvent.keyDown(window,{key:'v',ctrlKey:true});
+ expect(document.querySelectorAll('tr[data-instrument-id]')).toHaveLength(2);
+ openInstrument(copyId);
+ fireEvent.mouseDown(document.querySelector(`tr[data-instrument-id="${copyId}"] .inline-desc-combined`),{button:0});
+ const model=screen.getByPlaceholderText('Model',{exact:true});
+ fireEvent.change(model,{target:{value:'Edited copy'}});fireEvent.blur(model);
+ fireEvent.keyDown(window,{key:'Escape'});
+ expect(document.querySelector(`tr[data-instrument-id="${copyId}"]`)).toHaveTextContent('Edited copy');
+ expect(document.querySelector('tr[data-instrument-id="draft-row"]')).not.toHaveTextContent('Edited copy');
+ expect(document.querySelectorAll('.inline-sync-badge--red')).toHaveLength(2);
+ expect(save).not.toHaveBeenCalled();
 });
 it('removes only the selected records using table selection and Delete',async()=>{
  const remove=vi.fn();render(<Harness remove={remove}/>);
@@ -465,8 +506,8 @@ it('browses ranges with specifications and qualifiers beneath the library descri
 it('keeps failed saves available to retry',async()=>{
  const save=vi.fn().mockRejectedValueOnce(new Error('Offline')).mockResolvedValue(undefined);
  render(<Harness save={save}/>);
- fireEvent.click(screen.getByRole('button',{name:'Add instrument',exact:true}));
- fireEvent.mouseDown(document.querySelector('.inline-desc-combined'),{button:0});
+ openInstrument('A');
+ fireEvent.mouseDown(document.querySelector('tr[data-instrument-id="A"] .inline-desc-combined'),{button:0});
  const model=screen.getByPlaceholderText('Model',{exact:true});
  fireEvent.change(model,{target:{value:'Test meter'}});fireEvent.blur(model);
  expect(await screen.findByRole('alert')).toHaveTextContent('Offline');
@@ -742,7 +783,7 @@ it('admits a reviewer from a pending library sync icon and keeps ordinary users 
  const item={...definition('LocalMeter','pending'),owner:'analyst',reviewVersion:'2'};
  const view=render(<InstrumentLibraryModal isOpen instruments={[item]} onClose={()=>{}}/>);
  expect(screen.queryByRole('button',{name:'Validation inbox'})).toBeNull();
- fireEvent.click(screen.getByRole('button',{name:'Awaiting validation. Submitted for SME review.'}));
+ fireEvent.click(screen.getByRole('button',{name:'Awaiting validation. Right-click to withdraw to My library.'}));
  expect(screen.queryByRole('alertdialog')).toBeNull();
  view.unmount();
  axios.get.mockResolvedValue({data:{canValidate:true,reviews:[item]}});
@@ -751,6 +792,27 @@ it('admits a reviewer from a pending library sync icon and keeps ordinary users 
    fireEvent.click(await screen.findByRole('button',{name:'Awaiting validation. Click to review and validate.'}));
    expect(await screen.findByRole('alertdialog')).toHaveTextContent('Validate Example LocalMeter');
  } finally {axios.get.mockResolvedValue({data:{canValidate:false,reviews:[]}});}
+});
+
+it('lets an ordinary user withdraw a pending library submission without a second library save', async () => {
+ const pending={...definition('MySubmission','pending'),reviewVersion:'3'};
+ const saved={...pending,scope:'local',reviewVersion:undefined,localOverride:true};
+ const synced=vi.fn(), save=vi.fn();
+ axios.post.mockReset();
+ axios.post.mockResolvedValueOnce({data:saved});
+ function SyncedLibrary(){
+   const [instruments,setInstruments]=useState([pending]);
+   return <InstrumentLibraryModal isOpen instruments={instruments} onClose={()=>{}} onSaveToLibrary={save}
+     onInstrumentSynced={(record,id)=>{synced(record,id);flushSync(()=>setInstruments([record]));}}/>;
+ }
+ render(<SyncedLibrary/>);
+ expect(screen.queryByRole('button',{name:'Validation inbox'})).toBeNull();
+ fireEvent.contextMenu(screen.getByRole('button',{name:'Awaiting validation. Right-click to withdraw to My library.'}));
+ await waitFor(()=>expect(axios.post).toHaveBeenCalledWith(expect.stringMatching(/\/instruments\/$/),
+   expect.objectContaining({id:pending.id,scope:'local',action:'withdraw',reviewVersion:'3'}),expect.any(Object)));
+ await waitFor(()=>expect(synced).toHaveBeenCalledWith(saved,pending.id));
+ expect(await screen.findByRole('button',{name:'My library. Click to submit for SME validation.'})).toBeInTheDocument();
+ expect(save).not.toHaveBeenCalled();
 });
 
 it('opens the latest submitted specs before approving an older library copy', async () => {

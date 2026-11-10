@@ -94,7 +94,7 @@ it('offers resizable simplified Overview tables and restores their choices indep
     const table = container.querySelector(`[data-tour="${kind}-table"]`);
     expect(table.querySelectorAll('[data-range-id]').length).toBeGreaterThan(0);
     toggleSimplified(kind);
-    expect([...table.querySelectorAll('thead th')].map(th => th.getAttribute('aria-label'))).toEqual(['Description', 'Sync']);
+    expect([...table.querySelectorAll('thead th')].map(th => th.getAttribute('aria-label'))).toEqual(['Description', 'Status']);
     expect(table.querySelectorAll('[data-range-id]')).toHaveLength(0);
     expect(table.querySelector('.instrument-area-section-row td').colSpan).toBe(2);
     const width = table.querySelector('col').style.width;

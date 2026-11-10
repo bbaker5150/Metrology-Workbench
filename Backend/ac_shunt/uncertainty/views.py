@@ -191,6 +191,16 @@ def instruments(request):
         return Response({"detail": "Unknown library scope."}, status=400)
     with transaction.atomic(using=router.db_for_write(models.Instrument)):
         existing = models.Instrument.objects.select_for_update().filter(pk=data["id"]).first()
+        if data.get("action") == "withdraw":
+            if not existing or not reviewer or existing.review_owner != reviewer:
+                return Response(status=404)
+            if existing.scope != "pending" or existing.updated_at.isoformat() != data.get("reviewVersion"):
+                return Response({"detail": "This submission changed or has already been reviewed. Reopen the instrument library before withdrawing it."}, status=409)
+            # Withdraw the stored submission without applying stale session specs.
+            existing.scope = "local"
+            existing.local_override = True
+            existing.save(update_fields=["scope", "local_override", "updated_at"])
+            return Response(serializers.instrument_to_dict(existing), status=status.HTTP_201_CREATED)
         legacy_id = None
         if existing and existing.scope == "local" and not existing.review_owner:
             if not owner or owner != existing.owner:

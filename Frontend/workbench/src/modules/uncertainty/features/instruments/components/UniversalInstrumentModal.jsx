@@ -299,7 +299,7 @@ const UniversalInstrumentModal = ({
         manufacturer: "",
         model: "",
         description: "",
-        scope: "local",
+        scope: "session",
         functions: [],
         typeBComponents: []
     });
@@ -343,7 +343,7 @@ const UniversalInstrumentModal = ({
             if (initialData) {
                 setViewMode("edit");
                 const loadedInst = initialData.instrument || (initialData.functions ? initialData : null) || {
-                    id: uuidv4(), manufacturer: "", model: "", description: "", scope: "local", functions: [], typeBComponents: []
+                    id: uuidv4(), manufacturer: "", model: "", description: "", scope: "session", functions: [], typeBComponents: []
                 };
                 const existingLibraryId =
                     initialData.libraryInstrumentId ||
@@ -389,7 +389,7 @@ const UniversalInstrumentModal = ({
                     quantity: 1,
                     assetId: ""
                 });
-                setInstrumentDef({ id: uuidv4(), manufacturer: "", model: "", description: "", scope: "local", functions: [], typeBComponents: [] });
+                setInstrumentDef({ id: uuidv4(), manufacturer: "", model: "", description: "", scope: "session", functions: [], typeBComponents: [] });
                 setActiveFunctionId(null);
                 setActiveTypeBId(null);
             }
@@ -787,7 +787,7 @@ const UniversalInstrumentModal = ({
             manufacturer: "",
             model: "",
             description: "",
-            scope: "local",
+            scope: "session",
             functions: [],
             typeBComponents: []
         };

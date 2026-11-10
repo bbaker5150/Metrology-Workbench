@@ -178,6 +178,7 @@ import {
   computeSyncState,
   buildValidatedSnapshot,
   diffFromSnapshot,
+  isValidatedLinked,
 } from "../../../utils/instrumentSync";
 import { formatInstrumentSyncError } from "../../../utils/instrumentSyncError";
 import { v4 as uuidv4 } from "uuid";
@@ -327,7 +328,7 @@ const buildPastedInstrumentRow = (src, kind, area, mode) => {
     id: copiedRowId,
     ...areaFields,
     instrument: sourceDefinition
-      ? { ...sourceDefinition, id: copiedDefinitionId, scope: sourceDefinition.scope || "local", ...nestedArea }
+      ? { ...sourceDefinition, id: copiedDefinitionId, scope: sourceDefinition.scope || (isValidatedLinked(sourceDefinition) ? "local" : "session"), ...nestedArea }
       : sourceDefinition,
   };
 
@@ -2008,7 +2009,7 @@ export const SyncBadge = ({ item, onSync, onDemote, onReview, allowSessionDemoti
   const icons = { red: faFileLines, orange: faUser, yellow: faClock, green: faCheckCircle };
   const labels = {
     green: "Validated shared. Right-click to make a local copy.",
-    yellow: onReview ? "Awaiting validation. Click to review and validate." : "Awaiting validation. Submitted for SME review.",
+    yellow: onReview ? "Awaiting validation. Click to review and validate." : onDemote ? "Awaiting validation. Right-click to withdraw to My library." : "Awaiting validation. Submitted for SME review.",
     orange: allowSessionDemotion ? "My library. Click to submit for SME validation. Right-click for Session only." : "My library. Click to submit for SME validation.",
     red: "Session only. Click to save to My library.",
   };
@@ -2019,8 +2020,8 @@ export const SyncBadge = ({ item, onSync, onDemote, onReview, allowSessionDemoti
     click?.(item.instrument || item);
   }} onContextMenu={event => {
     event.preventDefault(); event.stopPropagation();
-    if (state === "green" || (state === "orange" && allowSessionDemotion)) onDemote?.();
-  }} disabled={!onSync && !onDemote && !onReview} aria-disabled={state === "yellow" && !onReview || undefined} title={label} aria-label={label}>
+    if (state === "green" || state === "yellow" || (state === "orange" && allowSessionDemotion)) onDemote?.();
+  }} disabled={!onSync && !onDemote && !onReview} title={label} aria-label={label}>
     <FontAwesomeIcon icon={icons[state]} />
   </button>;
 };
@@ -2721,7 +2722,7 @@ const INSTRUMENT_COLUMN_DEFAULTS = {
     range: 300,
     tolerance: 288,
     resolution: 300,
-    sync: 72,
+    sync: 96,
   },
   tmde: {
     description: 210,
@@ -2729,7 +2730,7 @@ const INSTRUMENT_COLUMN_DEFAULTS = {
     tolerance: 228,
     distribution: 150,
     resolution: 300,
-    sync: 60,
+    sync: 96,
   },
 };
 
@@ -2754,7 +2755,7 @@ const INSTRUMENT_COLUMN_LABELS = {
   tolerance: "Tolerance",
   distribution: "Distribution",
   resolution: "Resolution",
-  sync: "Sync",
+  sync: "Status",
 };
 
 export const getInstrumentColumnOrder = (kind, customColumns = [], qualifierEnabled = false) => {
@@ -2877,7 +2878,7 @@ const useInstrumentColumnWidths = (kind, customColumns = [], qualifierEnabled = 
 
   const minimumWidth = useCallback((key) => {
     if (!Object.hasOwn(INSTRUMENT_COLUMN_LABELS, key)) return 64;
-    if (key === "sync") return 60;
+    if (key === "sync") return 96;
     if (key === "distribution") return 60;
     if (key === "range") return 80;
     if (key === "tolerance" || key === "resolution") return 60;
@@ -2893,7 +2894,7 @@ const useInstrumentColumnWidths = (kind, customColumns = [], qualifierEnabled = 
   const resolvedWidths = useMemo(
     () =>
       Object.fromEntries(
-        keys.map((key) => [key, widths[key] || defaults[key] || 160]),
+        keys.map((key) => [key, key === "sync" ? Math.max(96, widths[key] || defaults[key]) : widths[key] || defaults[key] || 160]),
       ),
     [defaults, keys, widths],
   );
@@ -6479,6 +6480,10 @@ const replaceSessionDefinitionIdentity = (item, definition) => {
 export const localizeSharedInstrumentEdit = (item = {}, library = []) => {
   const definition = item?.instrument || {};
   if (definition.scope === "session") return item;
+  if (!definition.scope && !isValidatedLinked(definition) && !item.libraryInstrumentId && !definition.libraryInstrumentId &&
+    !library.some(candidate => sameId(candidate.id, definition.id))) return {
+    ...item, instrument: { ...definition, id: definition.id || uuidv4(), scope: "session" },
+  };
   if (definition.scope === "pending") {
     const pending = library.find(candidate => candidate.scope === "pending" && sameId(candidate.id, definition.id));
     if (pending) {
@@ -7171,7 +7176,7 @@ const SummaryDashboard = ({
     }),
     [summaryFunctionColorByKey],
   );
-  const { syncToShared, getDiff } = useInstrumentSync(onInstrumentSynced);
+  const { syncToShared, withdrawToLocal, getDiff } = useInstrumentSync(onInstrumentSynced);
   const renderTmdeSyncBadge = item => <SyncBadge item={item} onReview={onReviewSubmission}
     allowSessionDemotion={!libraryMode} onSync={libraryReviewMode ? undefined : () => handleSyncItem("tmde", item)}
     onDemote={libraryReviewMode ? undefined : () => handleDemoteItem("tmde", item)} />;
@@ -7389,6 +7394,7 @@ const SummaryDashboard = ({
       const current = (latestSessionDataRef.current[kind === "uut" ? "uuts" : "tmdes"] || []).find(row => sameId(row.id, item.id));
       if (!current) return;
       const definition = itemInstrumentForLibrary(kind, current);
+      if (item.instrument?.scope === "pending" && definition.scope !== "pending") throw new Error("This instrument is no longer awaiting validation. Refresh the library to see its current Status.");
       // Demotion removes the local library entry before detaching this session.
       // Other sessions retain their embedded specifications.
       let id = scope === "session" || definition.scope === "validated" ? uuidv4() : definition.id;
@@ -7396,9 +7402,16 @@ const SummaryDashboard = ({
         sourceId: definition.sourceId || (definition.scope === "validated" ? definition.id : undefined),
         validatedSnapshot: definition.validatedSnapshot || (definition.scope === "validated" ? buildValidatedSnapshot(definition) : null) };
       if (scope === "local") {
-        if (!onSaveInstrument) throw new Error("Saving to the local instrument library is unavailable in this view.");
-        const saved = await onSaveInstrument(nextDefinition, { requireSaved: true });
-        id = saved?.id || id;
+        if (definition.scope === "pending") {
+          const result = await withdrawToLocal(definition);
+          if (!result.ok) throw new Error(result.message);
+          Object.assign(nextDefinition, { reviewVersion: undefined }, result.instrument);
+          id = result.instrument.id;
+        } else {
+          if (!onSaveInstrument) throw new Error("Saving to the local instrument library is unavailable in this view.");
+          const saved = await onSaveInstrument(nextDefinition, { requireSaved: true });
+          id = saved?.id || id;
+        }
       }
       if (scope === "session" && definition.scope === "local") {
         if (!onDeleteLibraryInstrument) throw new Error("Library removal is unavailable");
@@ -7408,11 +7421,12 @@ const SummaryDashboard = ({
       if (!latest) return;
       persistInlineItem(kind, replaceSessionDefinitionIdentity(latest, { ...latest.instrument,
         id, libraryInstrumentId: id, scope, localOverride: true,
+        ...(definition.scope === "pending" ? { reviewVersion: nextDefinition.reviewVersion } : {}),
         sourceId: nextDefinition.sourceId, validatedSnapshot: nextDefinition.validatedSnapshot }), { skipLibrarySave: true });
       setLocalLibraryChoices(previous => ({ ...previous, [key]: scope }));
     } catch (error) {
       setNotification?.({
-        title: scope === "local" ? "Could not save instrument to Local" : "Could not return instrument to Session",
+        title: item.instrument?.scope === "pending" ? "Could not withdraw instrument" : scope === "local" ? "Could not save instrument to Local" : "Could not return instrument to Session",
         message: formatInstrumentSyncError(error),
         copyable: true,
       });
@@ -7422,7 +7436,7 @@ const SummaryDashboard = ({
   };
   const handleDemoteItem = (kind, item) => {
     const state = computeSyncState(item.instrument || {});
-    if (state !== "red") changeItemSyncScope(kind, item, state === "green" ? "local" : "session");
+    if (state !== "red") changeItemSyncScope(kind, item, state === "green" || state === "yellow" ? "local" : "session");
   };
 
   const handleSyncItem = (kind, item) => {
@@ -7601,7 +7615,8 @@ const SummaryDashboard = ({
       kind === "uut" ? synchronized.uuts : synchronized.tmdes
     ).find((item) => String(item.id) === String(localizedItem.id)) || localizedItem;
     latestSessionDataRef.current = nextSession;
-    onSessionSave(nextSession);
+    if (libraryMode && skipLibrarySave) onSessionSave(nextSession, { skipLibrarySave: true });
+    else onSessionSave(nextSession);
     if (libraryMode) return;
     if (
       !skipLibrarySave && onSaveInstrument && synchronizedItem.instrument?.scope !== "session" &&
@@ -7717,7 +7732,7 @@ const SummaryDashboard = ({
   const instrumentDefFromLibrary = (existing, inst, { track = false, localCopy = false } = {}) => {
     const pickedLocalId = ["local", "pending"].includes(inst.scope) ? inst.id : null;
     const sourceId = inst.sourceId || (inst.scope === "validated" ? inst.id : undefined);
-    const shouldTrack = track || inst.scope === "pending" || Boolean(sourceId);
+    const shouldTrack = inst.scope !== "session" && (track || inst.scope === "pending" || Boolean(sourceId));
     return {
       ...inst,
       id: pickedLocalId || existing?.id || uuidv4(),
@@ -7726,7 +7741,7 @@ const SummaryDashboard = ({
       description: inst.description || "",
       functions: inst.functions || [],
       libraryInstrumentId: shouldTrack ? inst.id : pickedLocalId || undefined,
-      scope: shouldTrack ? (localCopy ? "local" : inst.scope) : "local",
+      scope: shouldTrack ? (localCopy ? "local" : inst.scope) : inst.scope === "session" ? "session" : "local",
       sourceId: shouldTrack ? sourceId : undefined,
       validatedSnapshot:
         shouldTrack && (inst.scope === "validated" || localCopy)
@@ -7943,7 +7958,7 @@ const SummaryDashboard = ({
     const item = {
       id: uuidv4(), name: "", description: "", measurementAreaNames: [fn.name],
       ...(kind === "tmde" ? { quantity: 1, assetId: "", isInstrumentBased: false } : {}),
-      instrument: { id: uuidv4(), ...(libraryMode ? { scope: "local" } : {}), manufacturer: "", model: "", description: "",
+      instrument: { id: uuidv4(), scope: "session", manufacturer: "", model: "", description: "",
         functions: [{ name: "", unit: "", ranges: [{ id: uuidv4(), min: "", max: "", unit: "", resolution: "", tolerances: {} }] }] },
     };
     const key = kind === "uut" ? "uuts" : "tmdes";
@@ -10223,8 +10238,8 @@ const SummaryDashboard = ({
               onInsertAfter={tmdeNamesOnly || libraryReviewMode ? undefined : (columnKey) => requestCustomColumn("tmde", columnKey)}
             /></>}
             {libraryMode && !libraryExpandedIds.length && <>
-              <colgroup><col /><col style={{ "--instrument-live-column-width": "92px" }} /></colgroup>
-              <thead><tr><th data-instrument-column="description">Description</th><th className="cell-sync" data-instrument-column="sync">Sync</th></tr></thead>
+              <colgroup><col /><col style={{ "--instrument-live-column-width": "124px" }} /></colgroup>
+              <thead><tr><th data-instrument-column="description">Description</th><th className="cell-sync" data-instrument-column="sync">Status</th></tr></thead>
             </>}
             <tbody>
               {groupedTmdeRows.length === 0 ? (libraryMode ? (
@@ -11605,7 +11620,7 @@ function DetailedView({
   // add / remove, tolerance term edit / add / delete, resolution, area reassign.
   // ===========================================================================
   const [localLibraryChoices, setLocalLibraryChoices] = useState({});
-  const { syncToShared, getDiff } = useInstrumentSync(onInstrumentSynced);
+  const { syncToShared, withdrawToLocal, getDiff } = useInstrumentSync(onInstrumentSynced);
 
   const rowLabel = (kind, item) =>
     kind === "uut" ? getUutDescription(item) : item?.name || "";
@@ -11671,6 +11686,7 @@ function DetailedView({
       const current = (latestSessionDataRef.current[kind === "uut" ? "uuts" : "tmdes"] || []).find(row => sameId(row.id, item.id));
       if (!current) return;
       const definition = itemInstrumentForLibrary(kind, current);
+      if (item.instrument?.scope === "pending" && definition.scope !== "pending") throw new Error("This instrument is no longer awaiting validation. Refresh the library to see its current Status.");
       // Demotion removes the local library entry before detaching this session.
       // Other sessions retain their embedded specifications.
       let id = scope === "session" || definition.scope === "validated" ? uuidv4() : definition.id;
@@ -11678,9 +11694,16 @@ function DetailedView({
         sourceId: definition.sourceId || (definition.scope === "validated" ? definition.id : undefined),
         validatedSnapshot: definition.validatedSnapshot || (definition.scope === "validated" ? buildValidatedSnapshot(definition) : null) };
       if (scope === "local") {
-        if (!onSaveInstrument) throw new Error("Saving to the local instrument library is unavailable in this view.");
-        const saved = await onSaveInstrument(nextDefinition, { requireSaved: true });
-        id = saved?.id || id;
+        if (definition.scope === "pending") {
+          const result = await withdrawToLocal(definition);
+          if (!result.ok) throw new Error(result.message);
+          Object.assign(nextDefinition, { reviewVersion: undefined }, result.instrument);
+          id = result.instrument.id;
+        } else {
+          if (!onSaveInstrument) throw new Error("Saving to the local instrument library is unavailable in this view.");
+          const saved = await onSaveInstrument(nextDefinition, { requireSaved: true });
+          id = saved?.id || id;
+        }
       }
       if (scope === "session" && definition.scope === "local") {
         if (!onDeleteLibraryInstrument) throw new Error("Library removal is unavailable");
@@ -11690,11 +11713,12 @@ function DetailedView({
       if (!latest) return;
       persistInlineItemDetail(kind, replaceSessionDefinitionIdentity(latest, { ...latest.instrument,
         id, libraryInstrumentId: id, scope, localOverride: true,
+        ...(definition.scope === "pending" ? { reviewVersion: nextDefinition.reviewVersion } : {}),
         sourceId: nextDefinition.sourceId, validatedSnapshot: nextDefinition.validatedSnapshot }), { skipLibrarySave: true });
       setLocalLibraryChoices(previous => ({ ...previous, [key]: scope }));
     } catch (error) {
       setNotification?.({
-        title: scope === "local" ? "Could not save instrument to Local" : "Could not return instrument to Session",
+        title: item.instrument?.scope === "pending" ? "Could not withdraw instrument" : scope === "local" ? "Could not save instrument to Local" : "Could not return instrument to Session",
         message: formatInstrumentSyncError(error),
         copyable: true,
       });
@@ -11704,7 +11728,7 @@ function DetailedView({
   };
   const handleDemoteItem = (kind, item) => {
     const state = computeSyncState(item.instrument || {});
-    if (state !== "red") changeItemSyncScope(kind, item, state === "green" ? "local" : "session");
+    if (state !== "red") changeItemSyncScope(kind, item, state === "green" || state === "yellow" ? "local" : "session");
   };
 
   const handleSyncItem = (kind, item) => {
@@ -12014,7 +12038,7 @@ function DetailedView({
   const instrumentDefFromLibrary = (existing, inst, { track = false, localCopy = false } = {}) => {
     const pickedLocalId = ["local", "pending"].includes(inst.scope) ? inst.id : null;
     const sourceId = inst.sourceId || (inst.scope === "validated" ? inst.id : undefined);
-    const shouldTrack = track || inst.scope === "pending" || Boolean(sourceId);
+    const shouldTrack = inst.scope !== "session" && (track || inst.scope === "pending" || Boolean(sourceId));
     return {
       ...inst,
       id: pickedLocalId || existing?.id || uuidv4(),
@@ -12023,7 +12047,7 @@ function DetailedView({
       description: inst.description || "",
       functions: inst.functions || [],
       libraryInstrumentId: shouldTrack ? inst.id : pickedLocalId || undefined,
-      scope: shouldTrack ? (localCopy ? "local" : inst.scope) : "local",
+      scope: shouldTrack ? (localCopy ? "local" : inst.scope) : inst.scope === "session" ? "session" : "local",
       sourceId: shouldTrack ? sourceId : undefined,
       validatedSnapshot:
         shouldTrack && (inst.scope === "validated" || localCopy)
@@ -13064,7 +13088,7 @@ function DetailedView({
     const item = {
       id: uuidv4(), name: "", description: "", measurementAreaNames: [fn.name],
       ...(kind === "tmde" ? { quantity: 1, assetId: "", isInstrumentBased: false } : {}),
-      instrument: { id: uuidv4(), manufacturer: "", model: "", description: "",
+      instrument: { id: uuidv4(), scope: "session", manufacturer: "", model: "", description: "",
         functions: [{ name: "", unit: "", ranges: [{ id: uuidv4(), min: "", max: "", unit: "", resolution: "", tolerances: {} }] }] },
     };
     const key = kind === "uut" ? "uuts" : "tmdes";

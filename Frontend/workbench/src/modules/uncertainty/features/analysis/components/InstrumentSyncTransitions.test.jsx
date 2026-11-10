@@ -1,17 +1,57 @@
 import React, {useState} from 'react';
-import {render, fireEvent, screen, waitFor} from '@testing-library/react';
+import {render, fireEvent, screen, waitFor, act} from '@testing-library/react';
 import {it, expect, vi} from 'vitest';
 import axios from 'axios';
 import UncertaintyPanel, {localizeSharedInstrumentEdit, synchronizeLocalInstrumentDefinitions} from './UncertaintyPanel';
 import {computeSyncState, buildValidatedSnapshot} from '../../../utils/instrumentSync';
 vi.mock('plotly.js-dist',()=>({default:{}}));
 
-function Harness({viewMode,kind,onSaveInstrument,onDeleteLibraryInstrument=vi.fn().mockResolvedValue(undefined),setNotification}) {
- const definition={id:'shared',scope:'validated',manufacturer:'Example',model:'Meter',description:'Meter',functions:[{id:'f',name:'Current',unit:'A',ranges:[{id:'r',min:0,max:10,unit:'A',tolerances:{reading:{value:1,unit:'%'}}}]}]};
+function Harness({viewMode,kind,onSaveInstrument,onDeleteLibraryInstrument=vi.fn().mockResolvedValue(undefined),setNotification,initialScope='validated',onInstrumentSynced}) {
+ const definition={id:initialScope==='pending'?'private':'shared',scope:initialScope,reviewVersion:initialScope==='pending'?'revision-3':undefined,manufacturer:'Example',model:'Meter',description:'Meter',functions:[{id:'f',name:'Current',unit:'A',ranges:[{id:'r',min:0,max:10,unit:'A',tolerances:{reading:{value:1,unit:'%'}}}]}]};
  definition.validatedSnapshot=buildValidatedSnapshot(definition);
  const [session,save]=useState({id:'s',uuts:kind==='uut'?[{id:'row',description:'Meter',instrument:definition}]:[],tmdes:kind==='tmde'?[{id:'row',name:'Meter',instrument:definition}]:[],testPoints:[],uncReq:{}});
- return <><UncertaintyPanel testPointData={{id:'p',viewMode,testPointInfo:{parameter:{name:'Current',value:5,unit:'A'}},associatedUutIds:kind==='uut'?['row']:[],components:[],tmdeTolerances:[],specifications:{}}} sessionData={session} onSessionSave={save} onSaveInstrument={onSaveInstrument} onDeleteLibraryInstrument={onDeleteLibraryInstrument} setNotification={setNotification} tmdeTolerancesData={[]} /><output data-testid="state">{JSON.stringify(session)}</output></>;
+ return <><UncertaintyPanel testPointData={{id:'p',viewMode,testPointInfo:{parameter:{name:'Current',value:5,unit:'A'}},associatedUutIds:kind==='uut'?['row']:[],components:[],tmdeTolerances:[],specifications:{}}} sessionData={session} onSessionSave={save} onSaveInstrument={onSaveInstrument} onInstrumentSynced={onInstrumentSynced} onDeleteLibraryInstrument={onDeleteLibraryInstrument} setNotification={setNotification} tmdeTolerancesData={[]} /><output data-testid="state">{JSON.stringify(session)}</output></>;
 }
+
+it.each([['session','uut'],['session','tmde'],['point','uut'],['point','tmde']])('withdraws a pending submission to Local without SME access in %s %s', async (viewMode, kind) => {
+ const synced=vi.fn(), save=vi.fn(), remove=vi.fn();
+ let finish;
+ const post=vi.spyOn(axios,'post').mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));
+ try {
+  render(<Harness viewMode={viewMode} kind={kind} initialScope="pending" onSaveInstrument={save} onDeleteLibraryInstrument={remove} onInstrumentSynced={synced} setNotification={vi.fn()}/>);
+  const badge=()=>document.querySelector('.inline-sync-badge');
+  const state=()=>JSON.parse(screen.getByTestId('state').textContent)[kind==='uut'?'uuts':'tmdes'][0].instrument;
+  const original=state();
+  expect(badge()).toHaveAttribute('title','Awaiting validation. Right-click to withdraw to My library.');
+  fireEvent.contextMenu(badge());
+  fireEvent.contextMenu(badge());
+  expect(post).toHaveBeenCalledTimes(1);
+  expect(post.mock.calls[0][1]).toEqual({id:'private',scope:'local',action:'withdraw',reviewVersion:'revision-3',owner:expect.any(String)});
+  expect(state()).toEqual(original);
+  const saved={...original,scope:'local',localOverride:true,reviewVersion:'revision-4'};
+  await act(async()=>{finish({data:saved});});
+  await waitFor(()=>expect(badge()).toHaveClass('inline-sync-badge--orange'));
+  expect(state()).toMatchObject({id:'private',scope:'local',reviewVersion:'revision-4',functions:original.functions});
+  expect(synced).toHaveBeenCalledExactlyOnceWith(saved,'private');
+  expect(save).not.toHaveBeenCalled();
+  expect(remove).not.toHaveBeenCalled();
+ } finally {post.mockRestore();}
+});
+
+it.each([['session','tmde'],['point','uut']])('keeps a failed withdrawal pending with shareable error details in %s %s', async (viewMode, kind) => {
+ let notification;
+ const synced=vi.fn();
+ const post=vi.spyOn(axios,'post').mockRejectedValue({response:{status:409,data:{detail:'This submission has already been approved. Refresh the library.'}}});
+ try {
+  render(<Harness viewMode={viewMode} kind={kind} initialScope="pending" onInstrumentSynced={synced} setNotification={value=>{notification=value;}}/>);
+  fireEvent.contextMenu(document.querySelector('.inline-sync-badge'));
+  await waitFor(()=>expect(notification).toMatchObject({title:'Could not withdraw instrument',copyable:true}));
+  expect(notification.message).toContain('already been approved');
+  expect(notification.message).toContain('409');
+  expect(document.querySelector('.inline-sync-badge')).toHaveClass('inline-sync-badge--yellow');
+  expect(synced).not.toHaveBeenCalled();
+ } finally {post.mockRestore();}
+});
 it.each([['session','uut'],['session','tmde'],['point','uut'],['point','tmde']])('demotes and reports a rejected promotion before a successful retry in %s %s',async(viewMode,kind)=>{
  let notification;
  const save=vi.fn().mockResolvedValue(undefined);

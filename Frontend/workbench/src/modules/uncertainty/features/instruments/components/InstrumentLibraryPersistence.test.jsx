@@ -50,3 +50,35 @@ it('restores the latest unblurred qualifier edit after an interrupted save and a
   render(<App />); await expand();
   expect(screen.getByRole('button', { name: 'Operating frequency', exact: true })).toBeInTheDocument();
 });
+
+it('promotes a session draft explicitly and restores its edited content through undo and redo', async () => {
+  axios.get.mockResolvedValue({data:[]});
+  axios.delete.mockResolvedValue({});
+  function DraftApp() {
+    const manager=useSessionManager();
+    return <><button onClick={manager.undoLastSessionChange}>Undo</button><button onClick={manager.redoLastSessionChange}>Redo</button>
+      <InstrumentLibraryModal isOpen instruments={manager.instruments} onClose={()=>{}}
+        libraryDraftRows={manager.libraryDraftRows} onChangeDrafts={manager.changeLibraryDrafts} onSaveToLibrary={manager.saveInstrument}/></>;
+  }
+  render(<DraftApp/>);
+  fireEvent.click(screen.getByRole('button',{name:'Add instrument',exact:true}));
+  fireEvent.mouseDown(document.querySelector('.inline-desc-combined'),{button:0});
+  const model=screen.getByPlaceholderText('Model',{exact:true});
+  fireEvent.change(model,{target:{value:'Unsaved torque meter'}});fireEvent.blur(model);
+  fireEvent.keyDown(window,{key:'Escape'});
+  expect(axios.post).not.toHaveBeenCalled();
+  const badge=()=>document.querySelector('.inline-sync-badge');
+  expect(badge()).toHaveClass('inline-sync-badge--red');
+  fireEvent.click(badge());
+  await waitFor(()=>expect(badge()).toHaveClass('inline-sync-badge--orange'));
+  expect(axios.post).toHaveBeenCalledTimes(1);
+  expect(axios.post.mock.calls[0][1]).toMatchObject({scope:'local',model:'Unsaved torque meter'});
+  fireEvent.click(screen.getByRole('button',{name:'Undo',exact:true}));
+  await waitFor(()=>expect(badge()).toHaveClass('inline-sync-badge--red'));
+  expect(document.querySelector('.inline-desc-combined')).toHaveTextContent('Unsaved torque meter');
+  await waitFor(()=>expect(axios.delete).toHaveBeenCalledTimes(1));
+  fireEvent.click(screen.getByRole('button',{name:'Redo',exact:true}));
+  await waitFor(()=>expect(badge()).toHaveClass('inline-sync-badge--orange'));
+  await waitFor(()=>expect(axios.post).toHaveBeenCalledTimes(2));
+  expect(axios.post.mock.calls[1][1]).toMatchObject({scope:'local',model:'Unsaved torque meter'});
+});

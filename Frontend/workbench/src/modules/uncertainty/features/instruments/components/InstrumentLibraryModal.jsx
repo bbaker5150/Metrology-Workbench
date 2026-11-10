@@ -67,9 +67,10 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
   const dragSelection = useRef(null);
   const [session, setSession] = useState(() => tableSession("instrument-library", libraryEntries(instruments).map(rowFor)));
   const current = useRef(session);
-  // A blank created by Add is local to this window until its first committed
-  // edit. Existing empty library records and pasted records are ordinary rows.
+  // New definitions stay session-only drafts until the user promotes them.
+  // Escape may discard an untouched blank, but preserves a draft after editing.
   const newRows = useRef(new Set());
+  const untouchedRows = useRef(new Set());
   const libraryBrowse = useLibraryBrowseState();
   const inboxBrowse = useLibraryBrowseState();
   const reviewing = inboxOpen && reviewState.canValidate;
@@ -111,10 +112,10 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
       event.preventDefault(); event.stopImmediatePropagation();
       const active = document.activeElement;
       if (windowRef.current?.contains(active)) active.blur?.();
-      const discardIds = new Set(reviewing ? [] : [...selection, ...expandedIds].filter(id => newRows.current.has(id)));
+      const discardIds = new Set(reviewing ? [] : [...selection, ...expandedIds].filter(id => untouchedRows.current.has(id)));
       if (discardIds.size) {
         onChangeDrafts?.(current.current.tmdes.filter(row => discardIds.has(row.id)), false);
-        discardIds.forEach(id => newRows.current.delete(id));
+        discardIds.forEach(id => { newRows.current.delete(id); untouchedRows.current.delete(id); });
         replace({ ...current.current, tmdes: current.current.tmdes.filter(row => !discardIds.has(row.id)) });
       }
       setExpandedIds([]);
@@ -201,21 +202,48 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
       } finally { setSaving(count => count - 1); }
     });
   };
-  const updateSession = (next, { newLibraryRowId } = {}) => {
+  const updateSession = (next, { newLibraryRowId, skipLibrarySave = false } = {}) => {
     const previous = new Map(current.current.tmdes.map(row => [row.id, row]));
-    replace({ ...next, tmdes: next.tmdes.filter(row => row.instrument?.scope !== "session") });
+    const nextIds = new Set(next.tmdes.map(row => row.id));
+    const removedDrafts = current.current.tmdes.filter(row => newRows.current.has(row.id) && !nextIds.has(row.id));
+    if (removedDrafts.length) {
+      onChangeDrafts?.(removedDrafts, false);
+      removedDrafts.forEach(row => { newRows.current.delete(row.id); untouchedRows.current.delete(row.id); });
+    }
+    // Pasted session instruments are complete drafts, not untouched Add blanks.
+    for (const row of next.tmdes) {
+      if (row.instrument?.scope === "session" && !previous.has(row.id)) newRows.current.add(row.id);
+    }
+    replace({ ...next, tmdes: next.tmdes.filter(row => row.instrument?.scope !== "session" || newRows.current.has(row.id) || row.id === newLibraryRowId) });
     for (const row of next.tmdes) {
       if (row.id === newLibraryRowId) {
         newRows.current.add(row.id);
+        untouchedRows.current.add(row.id);
         onChangeDrafts?.([row], true);
         continue;
       }
-      if (["session", "validated", "shared", "pending"].includes(row.instrument?.scope)) continue;
       const old = previous.get(row.id);
+      if (row.instrument?.scope === "session" && newRows.current.has(row.id)) {
+        if (old !== row && JSON.stringify(old) !== JSON.stringify(row)) {
+          untouchedRows.current.delete(row.id);
+          onChangeDrafts?.([row], true);
+        }
+        continue;
+      }
+      if (["session", "validated", "shared", "pending"].includes(row.instrument?.scope)) continue;
       if (old === row) continue;
+      // Promotion/withdrawal has already saved successfully before changing scope.
+      if (["session", "pending"].includes(old?.instrument?.scope) && row.instrument?.scope === "local") {
+        newRows.current.delete(row.id);
+        untouchedRows.current.delete(row.id);
+        onChangeDrafts?.([row], false);
+        continue;
+      }
+      if (skipLibrarySave) continue;
       const definition = definitionFor(row);
       if (!old || JSON.stringify(definitionFor(old)) !== JSON.stringify(definition)) {
         newRows.current.delete(row.id);
+        untouchedRows.current.delete(row.id);
         enqueue(definition);
       }
     }

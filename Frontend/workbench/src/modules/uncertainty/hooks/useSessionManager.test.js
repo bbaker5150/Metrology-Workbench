@@ -125,6 +125,25 @@ describe("prepareImportedSession", () => {
 });
 
 describe("session undo history", () => {
+  it('restores the previous contents of an edited session-only library draft', async () => {
+    const {result} = renderHook(() => useSessionManager());
+    await waitFor(() => expect(result.current.sessionsLoaded).toBe(true));
+    const draft = {id:'draft-row', instrument:{id:'draft', scope:'session', model:'Original'}};
+    const other = {id:'other-row', instrument:{id:'other', scope:'session', model:'Other'}};
+    const edited = {...draft, instrument:{...draft.instrument, model:'Edited'}};
+    act(() => result.current.changeLibraryDrafts([draft, other], true));
+    act(() => result.current.changeLibraryDrafts([edited], true));
+    expect(result.current.libraryDraftRows).toEqual([other, edited]);
+    act(() => expect(result.current.undoLastSessionChange()).toBe(true));
+    expect(result.current.libraryDraftRows).toEqual([other, draft]);
+    act(() => expect(result.current.redoLastSessionChange()).toBe(true));
+    expect(result.current.libraryDraftRows).toEqual([other, edited]);
+    act(() => result.current.changeLibraryDrafts([edited], false));
+    expect(result.current.libraryDraftRows).toEqual([other]);
+    act(() => expect(result.current.undoLastSessionChange()).toBe(true));
+    expect(result.current.libraryDraftRows).toEqual([other, edited]);
+    expect(axios.post).not.toHaveBeenCalled();
+  });
   it("coalesces typing before cloning while retaining the original undo snapshot", async () => {
     const { result } = renderHook(() => useSessionManager());
     await waitFor(() => expect(result.current.currentSessionData?.name).toBe("Original"));
@@ -365,6 +384,93 @@ describe("saveTestPoint derived equation state", () => {
 });
 
 describe("instrument sync reconciliation", () => {
+  it.each([undefined, 'review-0'])('refreshes a matching pending session’s review token (%s) without replacing specifications', async previousVersion => {
+    const pending = {id:'submission', sourceId:'shared-origin', scope:'pending', model:'Meter', functions:[], reviewVersion:'review-1'};
+    let library = [pending];
+    const embedded = {...pending, reviewVersion:previousVersion};
+    const session = {id:1, uuts:[{id:'uut', instrument:embedded}], tmdes:[
+      {id:'tmde', libraryInstrumentId:pending.id, instrument:{...embedded, id:'instance'}},
+      {id:'edited', instrument:{...embedded, model:'Edited session specs'}},
+      {id:'other', instrument:{...embedded, id:'other-submission', sourceId:pending.id}},
+    ], testPoints:[]};
+    axios.get.mockImplementation(async url => ({data:url.endsWith('/sessions/') ? [session] : url.endsWith('/instruments/') ? library : []}));
+    const {result} = renderHook(() => useSessionManager());
+    await waitFor(() => expect(result.current.sessionsLoaded && result.current.instruments.length).toBe(1));
+    const expectToken = token => {
+      expect(result.current.sessions[0].uuts[0].instrument).toEqual({...embedded, reviewVersion:token});
+      expect(result.current.sessions[0].tmdes[0].instrument).toEqual({...embedded, id:'instance', reviewVersion:token});
+      expect(result.current.sessions[0].tmdes[1].instrument).toEqual({...embedded, model:'Edited session specs'});
+      expect(result.current.sessions[0].tmdes[2].instrument).toEqual({...embedded, id:'other-submission', sourceId:pending.id});
+    };
+    expectToken('review-1');
+    library = [{...pending, reviewVersion:'review-2'}];
+    await act(async () => result.current.refreshInstrumentLibrary());
+    expectToken('review-2');
+    expect(readRecovery().saves['1'].session.uuts[0].instrument.reviewVersion).toBe('review-2');
+    library = [{...pending, model:'Changed submission specs', reviewVersion:'review-3'}];
+    await act(async () => result.current.refreshInstrumentLibrary());
+    expect(result.current.instruments[0].reviewVersion).toBe('review-3');
+    expectToken('review-2');
+  });
+  it.each(['acknowledgement', 'reload'])('withdraws matching pending copies to Local after %s without replacing their specifications', async operation => {
+    const shared = {id:'public-meter', scope:'validated', model:'Published', functions:[]};
+    const pending = {id:'submission', scope:'pending', sourceId:shared.id, model:'Submitted', reviewVersion:'review-1', functions:[]};
+    const local = {...pending, scope:'local', owner:'bench', localOverride:true};
+    delete local.reviewVersion;
+    const sibling = {...pending, id:'other-submission'};
+    const functions = [{name:'Torque', ranges:[{min:0, max:60, unit:'lbf·ft'}]}];
+    const storedSessions = [
+      {id:1, uuts:[{id:'uut', instrument:{...pending, model:'UUT specs', functions}}],
+        tmdes:[{id:'tmde', quantity:3, libraryInstrumentId:pending.id, instrument:{...pending, id:'tmde-instance', model:'TMDE specs', functions}},
+          {id:'public', instrument:shared}, {id:'other', instrument:sibling}], testPoints:[]},
+      {id:2, tmdes:[{id:'second', instrument:{...pending, model:'Second session specs'}}], testPoints:[]},
+    ];
+    let library = [shared, operation === 'reload' ? local : pending, sibling];
+    axios.get.mockImplementation(async url => ({data:url.endsWith('/sessions/') ? storedSessions : url.endsWith('/instruments/') ? library : []}));
+    const {result, unmount} = renderHook(() => useSessionManager());
+    await waitFor(() => expect(result.current.sessionsLoaded && result.current.instruments.length).toBe(3));
+    if (operation === 'acknowledgement') {
+      library = [shared, local, sibling];
+      act(() => result.current.reconcileSyncedInstrument(local, pending.id));
+    }
+    const first = result.current.sessions[0];
+    expect(first.uuts[0].instrument).toMatchObject({id:pending.id, scope:'local', sourceId:shared.id, model:'UUT specs', functions});
+    expect(first.tmdes[0]).toMatchObject({id:'tmde', quantity:3, libraryInstrumentId:pending.id,
+      instrument:{id:pending.id, scope:'local', sourceId:shared.id, model:'TMDE specs', functions}});
+    expect(first.tmdes[0].instrument.reviewVersion).toBeUndefined();
+    expect(first.tmdes[1].instrument).toEqual(shared);
+    expect(first.tmdes[2].instrument).toEqual(sibling);
+    expect(result.current.sessions[1].tmdes[0].instrument).toMatchObject({scope:'local', model:'Second session specs'});
+    if (operation === 'acknowledgement') {
+      expect(readRecovery().saves['1'].session.tmdes[0].instrument.scope).toBe('local');
+      expect(readRecovery().saves['2'].session.tmdes[0].instrument.scope).toBe('local');
+    } else await waitFor(() => expect(axios.put).toHaveBeenCalledWith(expect.stringContaining('/sessions/1/'),
+      expect.objectContaining({uuts:[expect.objectContaining({instrument:expect.objectContaining({scope:'local', model:'UUT specs'})})]})));
+    unmount();
+    const reopened = renderHook(() => useSessionManager());
+    await waitFor(() => expect(reopened.result.current.sessionsLoaded).toBe(true));
+    expect(reopened.result.current.sessions[0].tmdes[0].instrument).toMatchObject({scope:'local', model:'TMDE specs', functions});
+    await waitFor(() => expect(axios.put).toHaveBeenCalledWith(expect.stringContaining('/sessions/2/'),
+      expect.objectContaining({tmdes:[expect.objectContaining({instrument:expect.objectContaining({scope:'local', model:'Second session specs'})})]})));
+  });
+  it.each(['same-id', 'new-id', 'refresh'])('rejects a stale withdrawal after approval (%s)', async operation => {
+    const pending = {id:'submission', sourceId:operation === 'same-id' ? '' : 'public-meter', scope:'pending', model:'Meter', functions:[]};
+    const local = {...pending, scope:'local', localOverride:true};
+    const approved = {...pending, id:operation === 'same-id' ? pending.id : 'public-meter', scope:'validated', localOverride:false};
+    let library = [pending];
+    const session = {id:1, tmdes:[{id:'row', instrument:pending}], testPoints:[]};
+    axios.get.mockImplementation(async url => ({data:url.endsWith('/sessions/') ? [session] : url.endsWith('/instruments/') ? library : []}));
+    const {result} = renderHook(() => useSessionManager());
+    await waitFor(() => expect(result.current.sessionsLoaded && result.current.instruments.length).toBe(1));
+    if (operation === 'refresh') {
+      library = [approved];
+      await act(async () => result.current.refreshInstrumentLibrary());
+    } else act(() => result.current.reconcileSyncedInstrument(approved, pending.id));
+    expect(result.current.sessions[0].tmdes[0].instrument.scope).toBe('validated');
+    act(() => expect(() => result.current.reconcileSyncedInstrument(local, pending.id)).toThrow('already been validated'));
+    expect(result.current.instruments).toEqual([approved]);
+    expect(result.current.sessions[0].tmdes[0].instrument.scope).toBe('validated');
+  });
   it("replaces a linked local instrument with the synced shared instrument", async () => {
     const shared = {
       id: "shared-1",
@@ -447,7 +553,7 @@ describe("local instrument persistence", () => {
       {id:1, name:'Bench', uuts:[{id:'uut-row', libraryInstrumentId:local.id, instrument:{...local, id:'uut-instance', functions}}],
         tmdes:[{id:'tmde-row', quantity:3, instrument:{...local, functions}}, {id:'other-row', instrument:sibling}], testPoints:[]},
       {id:2, name:'Second bench', tmdes:[{id:'legacy-row', instrument:{...local, id:local.legacyLocalId, functions}},
-        {id:'pending-row', instrument:{...local, scope:'pending'}}], testPoints:[]},
+        {id:'pending-row', instrument:{...local, id:'other-pending', scope:'pending'}}], testPoints:[]},
     ];
     axios.get.mockImplementation(async url => ({data:url.endsWith('/sessions/') ? storedSessions : url.endsWith('/instruments/') ? library : []}));
     axios.put.mockImplementation(async (_url, session) => {

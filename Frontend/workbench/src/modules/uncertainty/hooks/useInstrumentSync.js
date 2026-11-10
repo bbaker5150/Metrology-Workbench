@@ -18,7 +18,24 @@ export const useInstrumentSync = (onSynced) => {
     }
   }, [onSynced]);
 
-  return { getSyncState: computeSyncState, getDiff: diffFromSnapshot, syncToShared };
+  const withdrawToLocal = useCallback(async instrument => {
+    try {
+      const { data } = await axios.post(`${UNCERTAINTY_API}/instruments/`, {
+        id: instrument.id,
+        scope: "local",
+        action: "withdraw",
+        reviewVersion: instrument.reviewVersion,
+        owner: getDeviceKey(),
+      }, instrumentRequestConfig());
+      if (!data?.id || data.scope !== "local") return { ok: false, message: "The library did not confirm that the submission was withdrawn. Refresh the library and try again." };
+      onSynced?.(data, instrument.id);
+      return { ok: true, instrument: data };
+    } catch (error) {
+      return { ok: false, message: formatInstrumentSyncError(error) };
+    }
+  }, [onSynced]);
+
+  return { getSyncState: computeSyncState, getDiff: diffFromSnapshot, syncToShared, withdrawToLocal };
 };
 
 export default useInstrumentSync;
