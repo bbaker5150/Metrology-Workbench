@@ -1,5 +1,6 @@
 import vectors from "./risk8/beta7Vectors.json";
 import { describe, expect, it } from "vitest";
+import { formatSidebarUncertainty } from "./sidebarUncertainty";
 import {
   computePointRiskMetrics,
   computeUncertaintyForPoint,
@@ -43,6 +44,22 @@ const sessionData = {
 };
 
 describe("computePointRiskMetrics Layer 3 integration", () => {
+  it('suppresses live sidebar totals for incompatible equation output units and restores them when corrected', () => {
+    const point = makePoint({
+      uutTolerance: { reading: { high: 1, low: -1, unit: '%', symmetric: true, distribution: RECT } },
+      variableNominals: { x: { value: 10, unit: 'V' } },
+    });
+    const valid = computeUncertaintyForPoint(point, sessionData);
+    expect(valid.combined_uncertainty_absolute_base).toBeGreaterThan(0);
+    const incompatible = { ...point, ...valid, testPointInfo: { parameter: { value: 10, unit: 'A' } } };
+    const invalid = computeUncertaintyForPoint(incompatible, sessionData);
+    expect(invalid).toBeNull();
+    expect(formatSidebarUncertainty(incompatible, 'combined', invalid)).toBe('-');
+    expect(formatSidebarUncertainty(incompatible, 'expanded', invalid)).toBe('-');
+    const restored = computeUncertaintyForPoint({ ...incompatible, testPointInfo: point.testPointInfo }, sessionData);
+    expect(restored.expanded_uncertainty_absolute_base).toBeCloseTo(valid.expanded_uncertainty_absolute_base);
+  });
+
   it("keeps absolute uncertainty and risk finite at a zero-valued point", () => {
     const point = makePoint({
       measurementType: "direct",

@@ -212,7 +212,11 @@ export default function ResizableBudgetTable({ scope, columns, children }) {
               if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
                 event.preventDefault();
                 const finish = beginSizeEdit();
-                resizeColumn(key, event.key === "ArrowLeft" ? -12 : 12, snapshot().sizes);
+                const { sizes } = snapshot();
+                // Spare card space can stretch the rendered column. Keyboard
+                // steps edit its authored width so opposite steps cancel out.
+                if (fixed) sizes[key] = widths[key];
+                resizeColumn(key, event.key === "ArrowLeft" ? -12 : 12, sizes);
                 finish();
               }
             }}

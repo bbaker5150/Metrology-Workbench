@@ -93,6 +93,18 @@ describe("budget column resizing", () => {
     expect(widths()).toEqual([]);
   });
 
+  it("reverses keyboard resizing without saving space added by the full-width card", () => {
+    const storageKey = 'uncertalytics:budget-column-widths:v1:final:length';
+    localStorage.setItem(storageKey, JSON.stringify({ source: 200, limit: 120 }));
+    render(fixture()); // The rendered source width is 400px in this fixture.
+    const handle = screen.getByRole('button', { name: 'Resize Source column' });
+    fireEvent.keyDown(handle, { key: 'ArrowRight' });
+    expect(JSON.parse(localStorage.getItem(storageKey))).toEqual({ source: 212, limit: 120 });
+    fireEvent.keyDown(handle, { key: 'ArrowLeft' });
+    expect(JSON.parse(localStorage.getItem(storageKey))).toEqual({ source: 200, limit: 120 });
+    expect(widths()).toEqual(['200px', '120px']);
+  });
+
   it("temporarily fits an expanded editor without saving its width or counting nested table headers", async () => {
     localStorage.setItem('uncertalytics:budget-column-widths:v1:final:length', JSON.stringify({ source: 400, limit: 120 }));
     vi.spyOn(HTMLElement.prototype, "offsetWidth", "get").mockImplementation(function () { return this.dataset.budgetEditor ? 320 : 520; });

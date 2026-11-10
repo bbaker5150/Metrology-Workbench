@@ -174,6 +174,9 @@ export function computeUncertaintyForPoint(point, sessionData) {
         },
         manualComponents,
         {
+          // Match the open-point calculator: an equation's output must have
+          // the selected point unit before any live sidebar total is shown.
+          strictUnitValidation: true,
           allowFiniteDifference:
             point.budgetPropagationMethod === "montecarlo",
         },

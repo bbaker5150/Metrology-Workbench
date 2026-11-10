@@ -341,7 +341,7 @@ export default function useInstrumentTableLayout(containerRef) {
         scheduleFrame();
       }
     });
-    mutation.observe(table, { childList: true, characterData: true, subtree: true, attributes: true, attributeOldValue: true, attributeFilter: ["class", "style", "rowspan", "colspan", "data-selection-key", "data-range-id", "data-range-selected", "data-selection-mode"] });
+    mutation.observe(table, { childList: true, characterData: true, subtree: true, attributes: true, attributeOldValue: true, attributeFilter: ["class", "style", "rowspan", "colspan", "data-fill", "data-selection-key", "data-range-id", "data-range-selected", "data-selection-mode"] });
     const contentChanged = () => { contentWidths = null; schedule(); };
     // Web fonts can finish after the first intrinsic measurement. Refresh the
     // fit once they settle so cached fallback-font widths don't wrap labels.

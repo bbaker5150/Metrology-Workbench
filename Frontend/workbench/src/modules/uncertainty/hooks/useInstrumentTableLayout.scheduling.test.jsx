@@ -105,6 +105,13 @@ it('settles after initial measurement with real mutation observation and positio
   expect(frames.size).toBe(1);
   await act(async () => { const pending = [...frames.values()]; frames.clear(); pending.forEach(callback => callback()); });
   expect(frames.size).toBe(0);
+  // Fitting the trailing column can change only which col absorbs free space.
+  // Its authored width may already match, so no style/resize event will follow.
+  container.querySelector('col').dataset.fill = 'true';
+  await act(async () => { await Promise.resolve(); });
+  expect(frames.size).toBe(1);
+  await act(async () => { const pending = [...frames.values()]; frames.clear(); pending.forEach(callback => callback()); });
+  expect(frames.size).toBe(0);
   unmount();
 });
 

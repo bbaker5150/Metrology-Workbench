@@ -23,9 +23,12 @@ export async function checkIndependentColumns({ frame, page, saved, until, check
   const drag = async (handle, delta) => {
     await handle.scrollIntoViewIfNeeded();
     const box = await handle.boundingBox();
-    await page.mouse.move(box.x + box.width / 2, box.y + box.height * .75);
+    // Instrument handles straddle the border. The adjacent sticky header can
+    // own its outer half until hover; begin inside the handle's own header.
+    const x = box.x + Math.min(2, box.width / 2);
+    await page.mouse.move(x, box.y + box.height * .75);
     await page.mouse.down();
-    await page.mouse.move(box.x + box.width / 2 + delta, box.y + box.height * .75, { steps: 12 });
+    await page.mouse.move(x + delta, box.y + box.height * .75, { steps: 12 });
     await page.mouse.up(); await settle();
   };
   const matchesPanel = table => table.evaluate(node => {
@@ -73,19 +76,25 @@ export async function checkIndependentColumns({ frame, page, saved, until, check
   if (await expand.count()) await expand.first().click();
   await frame.locator('.point-grid-item').first().click();
   const tables = frame.locator('.budget-resizable-table');
+  const authoredBudgetWidths = table => table.locator(':scope > colgroup > col').evaluateAll(nodes => nodes.map(node => ({ width: parseFloat(node.style.width) })));
   check('fixture covers component and equation budget tables', await tables.count() >= 2);
   for (let index = 0; index < await tables.count(); index++) {
     const table = tables.nth(index), handle = table.locator('.budget-column-resize-handle').first();
     const before = await geometry(table);
     await drag(handle, -900);
     const narrow = await geometry(table);
-    check(`budget ${index} extreme shrink preserves every non-filler column`, equalPeers(before, narrow, 0) && narrow[0].width <= 61, JSON.stringify({ before, narrow }));
+    const authored = await authoredBudgetWidths(table);
+    // Budget cards intentionally fill the grid track. When authored widths
+    // sum to less than that track, the browser stretches the visible cells;
+    // that spare space must not rewrite any of the saved column widths.
+    check(`budget ${index} extreme shrink preserves authored peer widths`, equalPeers(before, authored, 0) && authored[0].width === 60 && narrow.every((cell, i) => cell.width >= authored[i].width - 1), JSON.stringify({ before, narrow, authored }));
     check(`budget ${index} has no trailing panel strip`, (await matchesPanel(table)).noStrip);
     for (let step = 0; step < 3; step++) { await handle.press('ArrowRight'); await handle.press('ArrowLeft'); }
     await settle();
-    check(`budget ${index} reversing adjustments restores all widths`, (await geometry(table)).every((cell, i) => Math.abs(cell.width - narrow[i].width) < 1));
+    check(`budget ${index} reversing adjustments restores authored and rendered widths`, (await authoredBudgetWidths(table)).every((cell, i) => Math.abs(cell.width - authored[i].width) < 1) && (await geometry(table)).every((cell, i) => Math.abs(cell.width - narrow[i].width) < 1));
     await drag(handle, 1000);
-    check(`budget ${index} growth preserves peer widths and scrolls`, equalPeers(narrow, await geometry(table), 0) && await table.evaluate(node => node.parentElement.scrollWidth > node.parentElement.clientWidth + 10));
+    const grown = await authoredBudgetWidths(table), rendered = await geometry(table);
+    check(`budget ${index} growth preserves authored peer widths and scrolls`, equalPeers(authored, grown, 0) && rendered.every((cell, i) => Math.abs(cell.width - grown[i].width) < 1) && await table.evaluate(node => node.parentElement.scrollWidth > node.parentElement.clientWidth + 10));
     await drag(handle, -1000);
   }
   // Both kinds expose one independent delete control; a used definition remains

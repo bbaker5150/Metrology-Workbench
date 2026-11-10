@@ -2973,7 +2973,11 @@ const useInstrumentColumnWidths = (kind, customColumns = [], qualifierEnabled = 
     startResize,
     resizeBy: (key, delta, table) => {
       const finish = beginSizeEdit();
-      resizePair(key, delta, table?.getBoundingClientRect().width, renderedInstrumentColumnWidths(table));
+      const rendered = renderedInstrumentColumnWidths(table);
+      // Keyboard increments adjust the saved width, not temporary expansion
+      // from an open editor or viewport fill. Opposite keys must round-trip.
+      const source = widths.__absolute ? { ...(rendered || resolvedWidths), [key]: resolvedWidths[key] } : rendered;
+      resizePair(key, delta, table?.getBoundingClientRect().width, source);
       finish();
     },
     fitColumn: (key, table) => {
