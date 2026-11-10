@@ -18,8 +18,9 @@ import { computePointRiskMetrics } from "./riskCompute";
 // Exact for additive + independent inputs because ∂y/∂a = ∂y/∂a1 = ∂y/∂a2, so
 //   |∂y/∂a|·√(u₁²+u₂²)  ==  √((|∂y/∂a1|·u₁)² + (|∂y/∂a2|·u₂)²).
 //
-// Units are all to_si = 1 (V, A, W, Ohm, Hz…) so the equation math is identity
-// and the first-principles block below can be hand-verified.
+// Equations use compatible dimensions with SI-scale values. The log case's
+// dimensionless gains are expressed as percentages with the same base values;
+// the first-principles block below can still be hand-verified.
 // ===========================================================================
 
 const DIST = "1.7320508075688772"; // rectangular, divisor √3
@@ -65,6 +66,7 @@ const unc = (p) =>
     p.tmdeTolerances,
     p.testPointInfo.parameter,
     p.components,
+    { strictUnitValidation: true },
   );
 
 // ---------------------------------------------------------------------------
@@ -77,6 +79,18 @@ const A2 = tmde("a2", "A", 4, "V", 0.05);
 // Form-Y twins (distinct variableTypes, same numbers/specs).
 const A1y = tmde("a1", "A1", 6, "V", 0.06);
 const A2y = tmde("a2", "A2", 4, "V", 0.05);
+const asLength = source => ({ ...source,
+  measurementPoint: { ...source.measurementPoint, unit: 'm' },
+  reading: { ...source.reading, unit: 'm' },
+});
+// 600% ±1% and 400% ±1.25% of reading preserve gains 6 and 4, and
+// absolute half-widths .06 and .05, before conversion to the dB output.
+const asGain = source => ({ ...source,
+  measurementPoint: { value: source.measurementPoint.value * 100, unit: '%' },
+  reading: { ...source.reading, unit: '%',
+    high: source.reading.high / source.measurementPoint.value * 100,
+    low: source.reading.low / source.measurementPoint.value * 100 },
+});
 
 const cases = [
   {
@@ -91,8 +105,8 @@ const cases = [
   },
   {
     name: "A2 quotient denominator  y = c/a",
-    x: { eq: "y = c/a", map: { c: "C", a: "A" }, tmdes: [tmde("c", "C", 50, "V", 0.1), A1, A2], resultValue: 5, resultUnit: "Ohm" },
-    y: { eq: "y = c/(a1+a2)", map: { c: "C", a1: "A1", a2: "A2" }, tmdes: [tmde("c", "C", 50, "V", 0.1), A1y, A2y], resultValue: 5, resultUnit: "Ohm" },
+    x: { eq: "y = c/a", map: { c: "C", a: "A" }, tmdes: [tmde("c", "C", 50, "W", 0.1), A1, A2], resultValue: 5, resultUnit: "A" },
+    y: { eq: "y = c/(a1+a2)", map: { c: "C", a1: "A1", a2: "A2" }, tmdes: [tmde("c", "C", 50, "W", 0.1), A1y, A2y], resultValue: 5, resultUnit: "A" },
   },
   {
     name: "A3 sum  y = a+b",
@@ -106,13 +120,13 @@ const cases = [
   },
   {
     name: "A5 power  y = a^2",
-    x: { eq: "y = a^2", map: { a: "A" }, tmdes: [A1, A2], resultValue: 100, resultUnit: "W" },
-    y: { eq: "y = (a1+a2)^2", map: { a1: "A1", a2: "A2" }, tmdes: [A1y, A2y], resultValue: 100, resultUnit: "W" },
+    x: { eq: "y = a^2", map: { a: "A" }, tmdes: [A1, A2].map(asLength), resultValue: 100, resultUnit: "m^2" },
+    y: { eq: "y = (a1+a2)^2", map: { a1: "A1", a2: "A2" }, tmdes: [A1y, A2y].map(asLength), resultValue: 100, resultUnit: "m^2" },
   },
   {
     name: "A7 log  y = 20*log10(a)",
-    x: { eq: "y = 20*log10(a)", map: { a: "A" }, tmdes: [A1, A2], resultValue: 20, resultUnit: "Hz" },
-    y: { eq: "y = 20*log10(a1+a2)", map: { a1: "A1", a2: "A2" }, tmdes: [A1y, A2y], resultValue: 20, resultUnit: "Hz" },
+    x: { eq: "y = 20*log10(a)", map: { a: "A" }, tmdes: [A1, A2].map(asGain), resultValue: 20, resultUnit: "dB" },
+    y: { eq: "y = 20*log10(a1+a2)", map: { a1: "A1", a2: "A2" }, tmdes: [A1y, A2y].map(asGain), resultValue: 20, resultUnit: "dB" },
   },
   {
     name: "A12 composite-constant  y = a*b*0.9",
@@ -165,7 +179,7 @@ describe("derived multi-TMDE composition — first-principles absolute", () => {
     map: { m: "Mass", L: "Length" },
     tmdes: [m1, m2, L],
     resultValue: 10,
-    resultUnit: "Hz", // to_si = 1, identity math
+    resultUnit: "N-m",
     uutHigh: 2,
   });
 
@@ -208,7 +222,7 @@ describe("derived multi-TMDE composition — empty source does not blank risk", 
       map: { m: "Mass", L: "Length" },
       tmdes: [valued, empty, L],
       resultValue: 6, // 12 * 0.5 — only the valued mass contributes yet
-      resultUnit: "Hz",
+      resultUnit: "N-m",
     });
     const m = computePointRiskMetrics(p, sessionData);
     expect(m, "risk blanked with an empty sibling source").not.toBeNull();
@@ -220,7 +234,7 @@ describe("derived multi-TMDE composition — empty source does not blank risk", 
       map: { m: "Mass", L: "Length" },
       tmdes: [valued, tmde("m2", "Mass", 8, "N", 0.02), L],
       resultValue: 10, // (12 + 8) * 0.5
-      resultUnit: "Hz",
+      resultUnit: "N-m",
     });
     expect(unc(filled).nominalResult).toBeCloseTo(10, 9);
   });
