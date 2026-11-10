@@ -11846,7 +11846,7 @@ input.inline-desc-subinput:focus-visible {
   padding: 0;
   border: 1px solid transparent;
   border-radius: 6px;
-  background: var(--instrument-status-background);
+  background: transparent;
   color: var(--instrument-status-color);
   cursor: pointer;
   font-size: 16px;
@@ -11891,42 +11891,34 @@ input.inline-desc-subinput:focus-visible {
 
 .inline-sync-badge--green {
   --instrument-status-color: #15803d;
-  --instrument-status-background: #f0fdf4;
 }
 
 .inline-sync-badge--red {
   --instrument-status-color: #475569;
-  --instrument-status-background: #f1f5f9;
 }
 
 .inline-sync-badge--orange {
   --instrument-status-color: #1d4ed8;
-  --instrument-status-background: #eff6ff;
 }
 
 .inline-sync-badge--yellow {
   --instrument-status-color: #a16207;
-  --instrument-status-background: #fffbeb;
 }
 
 body.dark-mode .inline-sync-badge--red {
   --instrument-status-color: #cbd5e1;
-  --instrument-status-background: #1e293b;
 }
 
 body.dark-mode .inline-sync-badge--orange {
   --instrument-status-color: #93c5fd;
-  --instrument-status-background: #172554;
 }
 
 body.dark-mode .inline-sync-badge--yellow {
   --instrument-status-color: #fcd34d;
-  --instrument-status-background: #422006;
 }
 
 body.dark-mode .inline-sync-badge--green {
   --instrument-status-color: #86efac;
-  --instrument-status-background: #052e16;
 }
 
 .inline-sync-badge--none {
