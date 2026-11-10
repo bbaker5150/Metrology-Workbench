@@ -1,4 +1,5 @@
 import SymbolButton from "../../../components/common/SymbolButton";
+import StackedToleranceSummary from "./StackedToleranceSummary";
 import { choosePointRange, isManualPointTolerance, samePointRange } from "../../../utils/pointUutRange";
 import InstrumentSpecificationsButton from "../../instruments/components/InstrumentSpecificationsButton";
 import InstrumentTableViewMenu, { useInstrumentTableView } from "./InstrumentTableViewMenu";
@@ -181,6 +182,7 @@ import {
   isValidatedLinked,
 } from "../../../utils/instrumentSync";
 import { formatInstrumentSyncError } from "../../../utils/instrumentSyncError";
+import { floorMagnitudeText, floorBoundText, floorBoundsAreSymmetric } from "../../../utils/floorToleranceNotation";
 import { v4 as uuidv4 } from "uuid";
 import useInstrumentSync from "../../../hooks/useInstrumentSync";
 import TypeBComponentsEditor from "../../instruments/components/TypeBComponentsEditor";
@@ -2065,7 +2067,7 @@ const INLINE_EDITOR_PORTAL_SELECTOR =
   "[data-theme-toggle], .instrument-library-header, " +
   ".inline-unit-menu, .inline-tolerance-shape-menu, .inline-tolerance-shape-backdrop, .inline-desc-search";
 
-const isInstrumentScrollTarget = target => target?.matches?.(".instrument-panel-table-container, .budget-section-table-wrap, .dynamic-table-scroll");
+const isInstrumentScrollTarget = target => target?.matches?.(".instrument-panel-table-container, .instrument-floating-scrollbar, .budget-section-table-wrap, .dynamic-table-scroll");
 
 const activeInlineEditors = new WeakMap();
 
@@ -2818,7 +2820,7 @@ const useInstrumentColumnWidths = (kind, customColumns = [], qualifierEnabled = 
     .map((column) => `${column.key}:${column.insertAfter || "legacy"}`)
     .join("|");
   const defaults = useMemo(() => {
-    const base = { ...(INSTRUMENT_COLUMN_DEFAULTS[kind] || {}), qualifier: 220 };
+    const base = { ...(INSTRUMENT_COLUMN_DEFAULTS[kind] || {}), qualifier: 140 };
     customColumns.forEach((column) => {
       base[instrumentColumnKey(column)] = 160;
     });
@@ -2877,6 +2879,7 @@ const useInstrumentColumnWidths = (kind, customColumns = [], qualifierEnabled = 
   }, [defaults, storageKey]);
 
   const minimumWidth = useCallback((key) => {
+    if (/^qualifier\d*$/.test(key)) return 48;
     if (!Object.hasOwn(INSTRUMENT_COLUMN_LABELS, key)) return 64;
     if (key === "sync") return 96;
     if (key === "distribution") return 60;
@@ -3420,7 +3423,7 @@ const reorderInstrumentInSession = (
 };
 
 const INLINE_COLUMN_CONTROL_SELECTOR =
-  'input:not([disabled]):not([type="hidden"]), select:not([disabled]), button.inline-unit-combobox:not([disabled]), button.inline-menu-select-trigger:not([disabled])';
+  'input:not([disabled]):not([type="hidden"]), textarea:not([disabled]), select:not([disabled]), button.inline-unit-combobox:not([disabled]), button.inline-menu-select-trigger:not([disabled])';
 
 // Opening a previously unset range creates its first range record
 // asynchronously. Waiting a single animation frame is therefore racy: the
@@ -3600,6 +3603,7 @@ export const ResolutionCellInput = ({
 
   const handleBlur = (event) => {
     const next = event.relatedTarget;
+    if (isInstrumentScrollTarget(next)) return;
     if (next instanceof Element) {
       if (containerRef.current?.contains(next)) return;
       if (next.closest(".inline-unit-menu")) return;
@@ -3731,6 +3735,7 @@ export const InlineDistributionCell = ({ divisor, editable = true, onChange }) =
 
   const handleBlur = (event) => {
     const next = event.relatedTarget;
+    if (isInstrumentScrollTarget(next)) return;
     // InlineMenuSelect renders its option list in a portal attached to
     // document.body. Moving focus from the trigger into that list therefore
     // looks like a blur outside this editor even though the user is still
@@ -3916,7 +3921,7 @@ export const inferToleranceEditorMode = (tolerance = {}) => {
   const hasAsymmetricTerm = DOUBLE_SIDED_TOLERANCE_KEYS.some(
     (key) =>
       toleranceComponentHasNumericValue(key, tolerance[key]) &&
-      toleranceTermMode(tolerance[key]) !== "symmetric",
+      toleranceTermMode(tolerance[key], key) !== "symmetric",
   );
   return {
     shape: hasAsymmetricTerm ? "asymmetric" : "symmetric",
@@ -3966,12 +3971,12 @@ const reshapeDoubleSidedComponent = (typeKey, component, shape) => {
   if (!component || typeof component !== "object") return component;
   const magnitude = componentLimitMagnitude(component, "high", typeKey);
   const parsed = parseFloat(magnitude);
-  const high = Number.isFinite(parsed) ? String(Math.abs(parsed)) : "";
+  const high = typeKey === "floor" ? floorMagnitudeText(magnitude) : Number.isFinite(parsed) ? String(Math.abs(parsed)) : "";
   if (shape === "symmetric") {
     return {
       ...component,
       high,
-      low: high ? String(-Math.abs(parsed)) : "",
+      low: typeKey === "floor" ? floorBoundText(high, true) : high ? String(-Math.abs(parsed)) : "",
       ...(typeKey === "reading" ? { value: high } : {}),
       symmetric: true,
       thresholdSide: undefined,
@@ -3983,7 +3988,7 @@ const reshapeDoubleSidedComponent = (typeKey, component, shape) => {
   return {
     ...component,
     high,
-    low: Number.isFinite(lowParsed) ? String(-Math.abs(lowParsed)) : "",
+    low: typeKey === "floor" ? floorBoundText(lowMagnitude, true) : Number.isFinite(lowParsed) ? String(-Math.abs(lowParsed)) : "",
     ...(typeKey === "reading" ? { value: "" } : {}),
     symmetric: false,
     thresholdSide: undefined,
@@ -4068,6 +4073,11 @@ const defaultToleranceComponent = (typeKey, activeRange = {}, tolerance = {}, us
   };
 };
 const componentLimitMagnitude = (component = {}, side = "high", typeKey = "") => {
+  if (typeKey === "floor") {
+    const value = component[side];
+    if (value != null && value !== "") return floorMagnitudeText(value);
+    return floorMagnitudeText(side === "low" && component.high != null && component.high !== "" ? component.high : component.value);
+  }
   if (
     typeKey === "reading" &&
     toleranceTermMode(component) === "symmetric" &&
@@ -4098,7 +4108,7 @@ const componentLimitMagnitude = (component = {}, side = "high", typeKey = "") =>
 //   "symmetric"  — ±n (one input). Blank, mirrored, or both-zero limits.
 //   "single"     — unilateral: exactly one limit is 0 (e.g. +1/-0 or +0/-1).
 //   "asymmetric" — two non-zero limits with different magnitudes (+a/-b).
-export const toleranceTermMode = (component = {}) => {
+export const toleranceTermMode = (component = {}, typeKey = "") => {
   // Explicit threshold marker (workbook single-sided, Types 3/4): one limit
   // only, the other side unbounded. Distinct from a blank side, which stays
   // symmetric (a bare "+1" mirrors to ±1).
@@ -4108,6 +4118,7 @@ export const toleranceTermMode = (component = {}) => {
   const high = parseFloat(component?.high);
   const low = parseFloat(component?.low);
   if (!Number.isFinite(high) || !Number.isFinite(low)) return "symmetric";
+  if (typeKey === "floor") return floorBoundsAreSymmetric(high, low) ? "symmetric" : "asymmetric";
   const hZero = Math.abs(high) < 1e-12;
   const lZero = Math.abs(low) < 1e-12;
   if (hZero && lZero) return "symmetric";
@@ -4220,21 +4231,21 @@ const ToleranceTermEditor = ({
   // limit pinned to 0), or "asymmetric" (independent + / − inputs). reading is
   // always symmetric. The mode resyncs from the data on a term/range switch (not
   // on every keystroke) so it stays sticky while editing.
-  const [mode, setMode] = useState(() => toleranceTermMode(component));
+  const [mode, setMode] = useState(() => toleranceTermMode(component, typeKey));
   const [shapeMenuRect, setShapeMenuRect] = useState(null);
   const shapeButtonRef = useRef(null);
   // For single-sided: true when the magnitude is on the − side (high pinned 0).
   const [singleNeg, setSingleNeg] = useState(
     () =>
       typeKey !== "reading" &&
-      toleranceTermMode(component) === "single" &&
-      Math.abs(parseFloat(component?.high) || 0) < 1e-12,
+      toleranceTermMode(component, typeKey) === "single" &&
+      component.thresholdSide === "low",
   );
   useEffect(() => {
-    const m = toleranceTermMode(component);
+    const m = toleranceTermMode(component, typeKey);
     setMode(m);
     setSingleNeg(
-      m === "single" && Math.abs(parseFloat(component?.high) || 0) < 1e-12,
+      m === "single" && component.thresholdSide === "low",
     );
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [typeKey, rangeIdOf(activeRange)]);
@@ -4271,10 +4282,10 @@ const ToleranceTermEditor = ({
     // Symmetric (reading, or any term in ± mode): one magnitude mirrored to
     // both limits. reading also mirrors into `value`; %FS keeps its FS reference.
     if (termMode === "symmetric") {
-      const magnitude = trimmed === "" || Number.isNaN(parsed) ? "" : String(Math.abs(parsed));
+      const magnitude = typeKey === "floor" ? floorMagnitudeText(trimmed) : trimmed === "" || Number.isNaN(parsed) ? "" : String(Math.abs(parsed));
       const patch = {
         high: magnitude,
-        low: magnitude === "" ? "" : String(-Math.abs(parsed)),
+        low: typeKey === "floor" ? floorBoundText(magnitude, true) : magnitude === "" ? "" : String(-Math.abs(parsed)),
         symmetric: true,
       };
       if (typeKey === "reading") patch.value = magnitude;
@@ -4290,9 +4301,9 @@ const ToleranceTermEditor = ({
         (lowValue === "" ? "" : String(-Math.abs(parseFloat(lowValue)))),
     };
     if (side === "high") {
-      next.high = trimmed === "" || Number.isNaN(parsed) ? "" : String(Math.abs(parsed));
+      next.high = typeKey === "floor" ? floorMagnitudeText(trimmed) : trimmed === "" || Number.isNaN(parsed) ? "" : String(Math.abs(parsed));
     } else {
-      next.low = trimmed === "" || Number.isNaN(parsed) ? "" : String(-Math.abs(parsed));
+      next.low = typeKey === "floor" ? floorBoundText(trimmed, true) : trimmed === "" || Number.isNaN(parsed) ? "" : String(-Math.abs(parsed));
     }
     // In double-sided asymmetric mode a blank side means zero deviation.
     // Persist both bounds so display/calculation never infer a mirrored limit.
@@ -4309,7 +4320,7 @@ const ToleranceTermEditor = ({
       symmetric:
         !Number.isNaN(high) &&
         !Number.isNaN(low) &&
-        Math.abs(high + low) < 1e-9,
+        (typeKey === "floor" ? floorBoundsAreSymmetric(high, low) : Math.abs(high + low) < 1e-9),
     });
   };
   const commitFullScale = (raw) => {
@@ -4327,12 +4338,12 @@ const ToleranceTermEditor = ({
       commit({ high: "", low: "", symmetric: false, thresholdSide: undefined });
       return;
     }
-    const mag = String(Math.abs(parsed));
+    const mag = typeKey === "floor" ? floorMagnitudeText(trimmed) : String(Math.abs(parsed));
     // Threshold: the magnitude sits on one limit; the other side stays blank
     // (unbounded). neg => a lower limit (≥), else an upper limit (≤).
     commit(
       neg
-        ? { high: "", low: String(-Math.abs(parsed)), symmetric: false, thresholdSide: "low" }
+        ? { high: "", low: typeKey === "floor" ? floorBoundText(trimmed, true) : String(-Math.abs(parsed)), symmetric: false, thresholdSide: "low" }
         : { high: mag, low: "", symmetric: false, thresholdSide: "high" },
     );
   };
@@ -4343,13 +4354,13 @@ const ToleranceTermEditor = ({
     if (nextMode === termMode) return;
     const curMag = termMode === "single" ? singleValue : highValue;
     const parsed = parseFloat(curMag);
-    const mag = curMag === "" || Number.isNaN(parsed) ? "" : String(Math.abs(parsed));
+    const mag = typeKey === "floor" ? floorMagnitudeText(curMag) : curMag === "" || Number.isNaN(parsed) ? "" : String(Math.abs(parsed));
     setMode(nextMode);
     setSingleNeg(false);
     if (nextMode === "symmetric") {
       setHighValue(mag);
       setLowValue(mag);
-      commit({ high: mag, low: mag === "" ? "" : String(-Math.abs(parsed)), symmetric: true });
+      commit({ high: mag, low: typeKey === "floor" ? floorBoundText(mag, true) : mag === "" ? "" : String(-Math.abs(parsed)), symmetric: true });
     } else if (nextMode === "single") {
       // Default a new threshold to the upper side (≤): magnitude on high, the
       // lower side unbounded (blank).
@@ -4361,12 +4372,12 @@ const ToleranceTermEditor = ({
       const seededLow =
         lowValue === "" || lowValue === "0"
           ? mag
-          : String(Math.abs(parseFloat(lowValue)));
+          : typeKey === "floor" ? floorMagnitudeText(lowValue) : String(Math.abs(parseFloat(lowValue)));
       setHighValue(mag);
       setLowValue(seededLow);
       commit({
         high: mag,
-        low: seededLow === "" ? "" : String(-Math.abs(parseFloat(seededLow))),
+        low: typeKey === "floor" ? floorBoundText(seededLow, true) : seededLow === "" ? "" : String(-Math.abs(parseFloat(seededLow))),
         ...(typeKey === "reading" ? { value: "" } : {}),
         symmetric: false,
       });
@@ -4625,11 +4636,6 @@ const ToleranceTermEditor = ({
 // deliberately leaves the nominal blank (Types 5/6).
 const hasBlankRange = (ranges) => ranges.some(range =>
   ![range.min, range.max].some(value => value !== null && value !== undefined && String(value).trim() !== ""));
-
-const StackedToleranceSummary = ({ text }) => <>{String(text || "").replace(/\((\+[-\d.eE]+\/[-\u2212+\d.eE]+)\)/g, "$1").split(/(\+[-\d.eE]+\/[-−+\d.eE]+)/).map((part, index) => {
-  const match = part.match(/^(\+[-\d.eE]+)\/([-−+\d.eE]+)$/);
-  return match ? <span key={index} className="stacked-tolerance-limits"><span>{match[1]}</span><span>{Number(match[2]) === 0 ? "−0" : match[2]}</span></span> : part;
-})}</>;
 
 const SingleSidedToleranceEditor = ({
   tolerance = {},
@@ -5368,7 +5374,7 @@ export const RangeCell = ({
   // (which commits the in-progress value before the editor closes).
   useEffect(() => {
     if (!isEditing || !containerRef.current) return;
-    const firstInput = containerRef.current.querySelector("input");
+    const firstInput = containerRef.current.querySelector("input, textarea");
     firstInput?.focus();
   }, [isEditing]);
 
@@ -5470,6 +5476,7 @@ export const RangeCell = ({
   // the same focus change, so the value is saved before the inputs unmount.
   const handleBlur = (event) => {
     const next = event.relatedTarget;
+    if (isInstrumentScrollTarget(next)) return;
     if (next instanceof Element) {
       if (containerRef.current?.contains(next)) return;
       if (isRelatedRangeAction(next, containerRef.current)) return;
@@ -5521,12 +5528,12 @@ export const RangeCell = ({
       }}
     >
       <div className="inline-range-main">
-        {textMode ? <GrowingNumericInput key={`qualifier-${rangeIdOf(activeRange)}`} type="text" aria-label="Qualifier value" placeholder="Qualifier" defaultValue={formatQualifierValue(activeRange)} className="inline-tolerance-input inline-qualifier-input"
+        {textMode ? <textarea key={`qualifier-${rangeIdOf(activeRange)}`} rows={1} aria-label="Qualifier value" placeholder="Qualifier" defaultValue={formatQualifierValue(activeRange)} className="inline-tolerance-input inline-qualifier-input"
           onBlur={event => {
             const text = event.target.value;
             if (text !== formatQualifierValue(activeRange)) onPatchRange?.({ text, min: "", max: "", value: "", unit: "", isSingleValue: false });
           }}
-          onKeyDown={event => { if (event.key === "Enter" && !event.ctrlKey && !event.metaKey) event.currentTarget.blur(); }} /> : <>
+          onKeyDown={event => { if (event.key === "Enter" && !event.shiftKey && !event.ctrlKey && !event.metaKey) { event.preventDefault(); event.currentTarget.blur(); } }} /> : <>
 
             <GrowingNumericInput
               key={`min-${rangeIdOf(activeRange) || "new"}`}
@@ -5863,7 +5870,7 @@ export const getSpecRows = (tolerance, rangeUnit = tolerance?.unit || "") => {
     { key: "db", tag: "", unit: "dB" },
   ];
 
-  const parseComp = (part, unitOverride) => {
+  const parseComp = (part, unitOverride, preserveNotation = false) => {
     if (!part) return null;
     const hasHL =
       !isNaN(parseFloat(part.high)) || !isNaN(parseFloat(part.low));
@@ -5873,26 +5880,26 @@ export const getSpecRows = (tolerance, rangeUnit = tolerance?.unit || "") => {
     const unit = unitOverride || part.unit || "";
     // Legacy "± value" shape (no high/low).
     if (part.high === undefined && hasVal) {
-      return { mag: Math.abs(parseFloat(part.value)), symmetric: true, unit };
+      return { mag: preserveNotation ? floorMagnitudeText(part.value) : Math.abs(parseFloat(part.value)), symmetric: true, unit };
     }
     // Single-sided threshold: one bounded limit, the other side unbounded.
     // unbounded "low" => bounded above ("≤ +n"); "high" => bounded below ("≥ −n").
-    if (toleranceTermMode(part) === "single") {
+    if (toleranceTermMode(part, preserveNotation ? "floor" : "") === "single") {
       const openSide = thresholdUnbounded(part);
       const upper = openSide === "low";
       const bounded = upper ? part.high : part.low;
       const mag = Math.abs(parseFloat(bounded));
       if (Number.isFinite(mag)) {
-        return { threshold: true, upper, mag, unit };
+        return { threshold: true, upper, mag: preserveNotation ? floorMagnitudeText(bounded) : mag, unit };
       }
     }
     const high = parseFloat(part.high || 0);
-    const low = parseFloat(part.low || -high);
+    const low = parseFloat(part.low != null && part.low !== "" ? part.low : -high);
     return {
-      mag: Math.abs(high),
-      symmetric: Math.abs(high + low) < 1e-9,
-      high,
-      low,
+      mag: preserveNotation ? floorMagnitudeText(part.high ?? part.value ?? high) : Math.abs(high),
+      symmetric: preserveNotation ? floorBoundsAreSymmetric(high, low) : Math.abs(high + low) < 1e-9,
+      high: preserveNotation ? floorBoundText(part.high ?? high, high < 0) : high,
+      low: preserveNotation ? floorBoundText(part.low != null && part.low !== "" ? part.low : part.high ?? low, low < 0) : low,
       unit,
     };
   };
@@ -5921,7 +5928,9 @@ export const getSpecRows = (tolerance, rangeUnit = tolerance?.unit || "") => {
     }
     // Asymmetric term: keep both signs. Parenthesize when sharing a line with
     // other signed terms so the "+high/low" reads cleanly (no stray "+ +").
-    const body = `+${comp.high}/${comp.low}`;
+    const highText = Number(comp.high) < 0 ? String(comp.high) : `+${comp.high}`;
+    const lowText = Number(comp.low) > 0 ? `+${comp.low}` : String(comp.low);
+    const body = `${highText}/${lowText}`;
     return `${withSign ? `(${body})` : body}${suffix}`.trim();
   };
 
@@ -5934,7 +5943,7 @@ export const getSpecRows = (tolerance, rangeUnit = tolerance?.unit || "") => {
       cfg.key === "floor" ? effectiveFloorTerm(tolerance) : tolerance[cfg.key];
     if (cfg.key === "range" && !toleranceComponentHasNumericEntry("range", source)) continue;
     const unit = cfg.key === "floor" ? physicalToleranceUnit(source, rangeUnit) : cfg.unit || source?.unit || cfg.defaultUnit;
-    const comp = parseComp(source, unit);
+    const comp = parseComp(source, unit, cfg.key === "floor");
     if (!comp) continue;
     present.push({ comp, cfg });
     if (!comp.symmetric) anyAsymmetric = true;
@@ -5985,10 +5994,8 @@ export const getCollapsedSpecRows = (tolerance = {}, referencePoint, range = tol
       return String(Number(number.toPrecision(4)));
     };
     const resolved = resolveDynamicComponent({ dynamicOutputId: definition.columns?.[0]?.id }, definition, referencePoint, referencePoint, formatValue);
-    if (definition.kind === "table") return [resolved.dynamicSummary
-      ? `Tabular – ${resolved.dynamicSummary}`
-      : /^No table entry/.test(resolved.pendingReason || "") ? "Tabular – No matching points" : "Not Set"];
-    return [resolved.dynamicSummary || "Not Set"];
+    if (resolved.dynamicSummary) return [`${resolved.dynamicSummary.replace(/^±\s+/, "±")} (${definition.kind === "table" ? "Table" : "Eq."})`];
+    return [definition.kind === "table" && /^No table entry/.test(resolved.pendingReason || "") ? "Tabular – No matching points" : "Not Set"];
   }
   return getSpecRows(spec, range?.unit || spec.unit || "");
 };

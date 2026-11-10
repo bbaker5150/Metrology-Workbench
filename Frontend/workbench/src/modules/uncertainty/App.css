@@ -20424,6 +20424,21 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
      every section below the table (or move a row out from under the pointer). */
   overflow-x: scroll;
 }
+.instrument-floating-scrollbar {
+  position: absolute; z-index: 6; height: 14px; box-sizing: border-box;
+  overflow-x: scroll; overflow-y: hidden; scrollbar-width: auto;
+  background: var(--content-background, #fff);
+  scrollbar-color: var(--scrollbar-thumb, #888) var(--scrollbar-track, #eee);
+  border-top: 1px solid var(--border-color, #aaa);
+}
+.instrument-floating-scrollbar[hidden] { display: none; }
+.instrument-floating-scrollbar:focus-visible { outline: 2px solid var(--primary-color); outline-offset: -2px; }
+.instrument-floating-scrollbar-track { height: 1px; pointer-events: none; }
+.instrument-floating-scrollbar::-webkit-scrollbar { height: 12px; }
+.instrument-floating-scrollbar::-webkit-scrollbar-button { display: none; width: 0; height: 0; }
+.instrument-floating-scrollbar::-webkit-scrollbar-track { background: var(--scrollbar-track, #eee); }
+.instrument-floating-scrollbar::-webkit-scrollbar-thumb,
+.instrument-panel-table-container::-webkit-scrollbar-thumb:not(:hover) { background: var(--scrollbar-thumb, #888); }
 .uncertainty-module .instrument-table-height-resize-handle.is-auto-height::after {
   background: var(--primary-color);
   animation: var(--auto-height-animation, instrument-auto-height-pulse) .65s ease-out;
@@ -22261,6 +22276,24 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
 .range-qualifier-add { border: 0; background: transparent; color: var(--text-muted); font: inherit; font-size: 10px; padding: 2px 5px; white-space: nowrap; cursor: pointer; }
 .range-qualifier-add:hover { color: var(--primary-color); background: var(--primary-color-light); border-radius: 3px; }
 .qualifier-range-cell { position: relative; }
+.uncertainty-module .instrument-equipment-table .qualifier-range-cell .range-row-cell {
+  display: flex; flex-direction: column; align-items: stretch; gap: 2px; min-width: 0;
+}
+.uncertainty-module .instrument-equipment-table .qualifier-range-cell :is(.inline-range-editor, .inline-range-main) {
+  display: block; width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box;
+}
+.uncertainty-module .qualifier-range-cell .inline-tolerance-summary {
+  display: block; width: 100%; white-space: pre-wrap; overflow-wrap: anywhere;
+}
+.uncertainty-module .instrument-equipment-table .qualifier-range-cell .inline-qualifier-input {
+  width: 100%; min-width: 0; max-width: 100%; min-height: 28px; box-sizing: border-box;
+  field-sizing: content; resize: none; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere;
+  font: inherit; line-height: 1.4;
+}
+.uncertainty-module .instrument-equipment-table .qualifier-range-cell .range-row-controls {
+  align-self: flex-end; width: auto; max-width: 100%; flex-wrap: wrap; justify-content: flex-end;
+}
+.qualifier-range-cell:not([data-actions-selected]):not(:has(.is-editing)) .range-row-controls { display: none; }
 .qualifier-row-actions { display: inline-flex; gap: 3px; margin-left: 6px; opacity: 0; }
 .qualifier-range-cell:hover .qualifier-row-actions, .qualifier-row-actions:focus-within { opacity: 1; }
 .qualifier-row-actions button { border: 0; background: transparent; color: var(--text-muted); cursor: pointer; padding: 2px 4px; }

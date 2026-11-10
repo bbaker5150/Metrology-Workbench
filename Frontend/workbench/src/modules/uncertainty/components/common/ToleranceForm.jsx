@@ -3,6 +3,7 @@ import React, { useMemo, useEffect, useState, useRef } from "react";
 import ReactDOM from "react-dom";
 import Select from "react-select";
 import { getAnchoredMenuPlacement } from "../../utils/anchoredMenuPosition";
+import { floorBoundText } from "../../utils/floorToleranceNotation";
 import {
   unitSystem,
   unitCategories,
@@ -312,7 +313,7 @@ const ToleranceForm = ({
       if (newSymmetric) {
         if (field === "high" || (field === "symmetric" && newHigh)) {
           const highVal = parseFloat(newHigh);
-          newLow = !isNaN(highVal) ? String(-highVal) : "";
+          newLow = !isNaN(highVal) ? componentKey === "floor" ? floorBoundText(newHigh, highVal >= 0) : String(-highVal) : "";
         }
       }
 

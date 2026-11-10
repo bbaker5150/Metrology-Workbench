@@ -1,6 +1,7 @@
 import { inputSymbol } from "./budgetScope";
 import { toleranceUnitMismatch } from "./incompleteBudget";
 import { rangeMaximum } from "./instrumentFullScale";
+import { floorBoundText, floorBoundsAreSymmetric } from "./floorToleranceNotation";
 import { prefixedUnitKey, registerUnitPrefixes, SI_PREFIX_OPTIONS } from "./siPrefixes";
 import { getUnitSearchNames } from "./unitNames";
 import * as math from "./equationMath";
@@ -968,15 +969,17 @@ export const getToleranceSummary = (toleranceData) => {
   if (!toleranceData || Object.keys(toleranceData).length === 0)
     return "Not Set";
 
-  const formatPart = (part) => {
+  const formatPart = (part, preserveNotation = false) => {
     if (!part || (isNaN(parseFloat(part.high)) && isNaN(parseFloat(part.low))))
       return null;
     const high = parseFloat(part.high || 0);
-    const low = parseFloat(part.low || -high);
+    const low = parseFloat(part.low != null && part.low !== "" ? part.low : -high);
     const unitLabel = getUnitDisplayLabel(part.unit || "");
-    if (Math.abs(high + low) < 1e-9 && high > 0)
-      return `±${high} ${unitLabel}`;
-    return `+${high}/${low} ${unitLabel}`;
+    const highText = preserveNotation ? floorBoundText(part.high ?? high, high < 0) : high;
+    const lowText = preserveNotation ? floorBoundText(part.low != null && part.low !== "" ? part.low : part.high ?? low, low < 0) : low;
+    if ((preserveNotation ? floorBoundsAreSymmetric(high, low) : Math.abs(high + low) < 1e-9) && high > 0)
+      return `±${highText} ${unitLabel}`;
+    return `${high < 0 ? "" : "+"}${highText}/${low > 0 ? "+" : ""}${lowText} ${unitLabel}`;
   };
 
   const parts = [];
@@ -990,7 +993,7 @@ export const getToleranceSummary = (toleranceData) => {
   // ONE effective floor term (floor + its legacy readings_iv alias), value-aware
   // so a blank floor never hides a real readings_iv.
   const floorPart = effectiveFloorTerm(toleranceData);
-  if (floorPart) parts.push(formatPart(floorPart));
+  if (floorPart) parts.push(formatPart(floorPart, true));
   if (toleranceData.db) parts.push(formatPart(toleranceData.db));
 
   const present = parts.filter(Boolean);

@@ -8,7 +8,7 @@ import { preserveTableTextSelection } from "../utils/tableTextSelection";
 import { createInstrumentSelectionOutline } from "../utils/instrumentSelectionOutline";
 import { syncInstrumentActions, updateInstrumentActionHover } from "../utils/instrumentActionLayout";
 import { measureTableColumnWidths } from "../utils/measureTableColumnWidths";
-import { measureInlineTextWidths } from "../utils/measureInlineTextWidths";
+import { createInstrumentFloatingScrollbar } from "../utils/instrumentFloatingScrollbar";
 
 const EDITORS = ".inline-desc-fields, .inline-range-editor.is-editing, .qualifier-range-cell .inline-range-editor, .inline-tolerance-editor, .inline-resolution-editor, .inline-distribution-editor, .instrument-custom-field-input";
 export const qualifierColumnKey = cell => {
@@ -90,6 +90,7 @@ export default function useInstrumentTableLayout(containerRef) {
     const selectionOutline = createInstrumentSelectionOutline(container, table);
     const viewport = container.closest('.instrument-table-viewport');
     const library = container.closest('.instrument-library-window');
+    const floatingScrollbar = createInstrumentFloatingScrollbar(container);
     let contentWidths = null;
     let actionPointer = null;
     const actionLayer = () => viewport?.querySelector(':scope > .instrument-action-layer');
@@ -136,6 +137,7 @@ export default function useInstrumentTableLayout(containerRef) {
     }
     const tabs = container.closest(".analysis-container")?.querySelector(":scope > .analysis-tabs");
     const syncHeaderOffset = () => {
+      floatingScrollbar.sync();
       if (!container.getClientRects().length) return;
       const zoom = parseFloat(getComputedStyle(table).zoom) || 1;
       // Sticky cells normally stop at their own scroller's top, even when that
@@ -185,7 +187,7 @@ export default function useInstrumentTableLayout(containerRef) {
     const sync = () => {
       // Hidden tables (and non-layout test renderers) have no geometry to
       // synchronize. ResizeObserver will schedule again when they are shown.
-      if (!container.getClientRects().length) return;
+      if (!container.getClientRects().length) { floatingScrollbar.sync(); return; }
       if (library && table.classList.contains('instrument-library-names-only')) {
         // Names are a compact picker, not a hidden seven-column editor. Never
         // reuse column minima or cached expanded widths for this view.
@@ -210,20 +212,17 @@ export default function useInstrumentTableLayout(containerRef) {
       if (library) {
         contentWidths ||= measureTableColumnWidths(table, 'instrumentColumn', { exclude: '.inline-tolerance-editor' });
         [...table.tHead.rows[0].cells].forEach((header, index) => {
-          requirements[index] = contentWidths[header.dataset.instrumentColumn] || 0;
+          const key = header.dataset.instrumentColumn;
+          const measured = contentWidths[key] || 0;
+          // Qualifier prose wraps instead of dictating the whole column width.
+          // Respect a narrower authored width while retaining a usable default.
+          requirements[index] = /^qualifier\d*$/.test(key)
+            ? Math.min(measured, absolute ? parseFloat(cols[index]?.style.width) || 140 : 140)
+            : measured;
         });
       }
-      const textWidths = measureInlineTextWidths([
-        ...table.querySelectorAll('th .instrument-custom-column-label, th .instrument-custom-column-name-input'),
-        ...(!library ? table.querySelectorAll('.qualifier-range-cell .inline-range-editor:not(.is-editing) .inline-tolerance-summary') : []),
-      ]);
-      // Header rename inputs use the same intrinsic text measurement as their
-      // collapsed labels; allocated column widths must not feed back into it.
       [...(table.tHead?.rows[0]?.cells || [])].forEach((header, index) => {
-        if (library || !header.dataset.instrumentColumn?.startsWith('qualifier')) return;
-        const label = header.querySelector('.instrument-custom-column-label, .instrument-custom-column-name-input');
-        if (!label) return;
-        requirements[index] = Math.max(requirements[index] || 0, (textWidths.get(label) || 0) + 32);
+        if (header.dataset.instrumentColumn?.startsWith('qualifier')) requirements[index] = Math.max(48, requirements[index] || 0);
       });
       if (!absolute) {
         // Preserve wrapping in descriptions, but reserve space for their badges.
@@ -239,6 +238,9 @@ export default function useInstrumentTableLayout(containerRef) {
         if (library && editor.matches('.inline-range-editor:not(.is-editing)')) return;
         const cell = editor.closest("td");
         if (!cell || cell.colSpan !== 1) return;
+        // Both the collapsed label and text editor fit the selected qualifier
+        // width. Measuring their unwrapped text would undo a user's resize.
+        if (cell.hasAttribute('data-qualifier-cell')) return;
         const style = getComputedStyle(cell);
         // Include adjacent add/delete controls and the cell's real padding.
         const content = editor.closest(".range-row-cell") || editor;
@@ -250,31 +252,11 @@ export default function useInstrumentTableLayout(containerRef) {
         const lookup = editor.querySelector('.dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table');
         if (lookup) width = measureDynamicTableEditorWidth(editor);
 
-        const qualifier = cell.hasAttribute('data-qualifier-cell');
-        if (qualifier && editor.classList.contains('is-editing')) {
-          // Measure the live input, whose intrinsic size includes its placeholder
-          // and inherited font. A detached editor can inherit a smaller font.
-          const input = editor.querySelector('input');
-          const main = editor.querySelector('.inline-range-main');
-          const paddingWidth = node => {
-            const computed = getComputedStyle(node);
-            return ['paddingLeft', 'paddingRight', 'borderLeftWidth', 'borderRightWidth'].reduce((sum, key) => sum + (parseFloat(computed[key]) || 0), 0);
-          };
-          width = Math.ceil(input.offsetWidth + paddingWidth(main) + paddingWidth(editor)) + 2;
-        }
-        const collapsedQualifier = qualifier && !editor.classList.contains('is-editing');
-        if (collapsedQualifier) {
-          // Summaries must reserve room for their adjacent actions too. Measure
-          // text independently: the editor's assigned width would feed back.
-          const summary = editor.querySelector('.inline-tolerance-summary');
-          const summaryStyle = getComputedStyle(summary);
-          width = (textWidths.get(summary) || 0) + (parseFloat(summaryStyle.paddingLeft) || 0) + (parseFloat(summaryStyle.paddingRight) || 0) + 2;
-        }
         if (content !== editor) {
           // The range wrapper stretches to the cell. Measure intrinsic children,
           // never feed that already-expanded width back into its own requirement.
           const children = [...content.children].filter(node => node.getClientRects().length);
-          width = children.reduce((sum, node) => sum + (node === editor && (qualifier || equation || lookup) ? width : Math.max(node.scrollWidth, node.offsetWidth)), 0)
+          width = children.reduce((sum, node) => sum + (node === editor && (equation || lookup) ? width : Math.max(node.scrollWidth, node.offsetWidth)), 0)
             + Math.max(0, children.length - 1) * (parseFloat(getComputedStyle(content).columnGap) || 0);
         }
         if (editor.matches('.inline-desc-fields')) {
@@ -398,6 +380,7 @@ export default function useInstrumentTableLayout(containerRef) {
       releaseTextSelection();
       releasePointerDrag();
       selectionOutline.destroy();
+      floatingScrollbar.destroy();
       viewport?.removeEventListener('pointermove', moveActions);
       viewport?.removeEventListener('pointerleave', leaveActions);
       viewport?.removeEventListener('focusin', syncActions);

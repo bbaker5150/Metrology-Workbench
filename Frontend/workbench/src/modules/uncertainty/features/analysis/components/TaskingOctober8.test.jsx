@@ -9,11 +9,11 @@ const range = { min: 0, max: 20, unit: 'A', qualifier: { name: 'Frequency', min:
 
 it('shows the matching tabular spec at a point, absence of a match, and a generic overview label', () => {
   expect(getCollapsedSpecRows(range)).toEqual(['Tabular TMDE uncertainty']);
-  expect(getCollapsedSpecRows(range, { value: 20, unit: 'A' })).toEqual(['Tabular – ± 0.005 A']);
-  expect(getCollapsedSpecRows(range, { value: 20000, unit: 'mA' })).toEqual(['Tabular – ± 0.005 A']);
+  expect(getCollapsedSpecRows(range, { value: 20, unit: 'A' })).toEqual(['±0.005 A (Table)']);
+  expect(getCollapsedSpecRows(range, { value: 20000, unit: 'mA' })).toEqual(['±0.005 A (Table)']);
   expect(getCollapsedSpecRows(range, { value: 19, unit: 'A' })).toEqual(['Tabular – No matching points']);
   expect(formatRangeToleranceDetail(range, { value: 20, unit: 'A' })).toContain('Frequency: 60 Hz');
-  expect(formatRangeToleranceDetail(range, { value: 20, unit: 'A' })).toContain('Tabular – ± 0.005 A');
+  expect(formatRangeToleranceDetail(range, { value: 20, unit: 'A' })).toContain('±0.005 A (Table)');
 });
 
 it('renders imported numeric resolutions in decimal form before the first edit', () => {
@@ -27,11 +27,11 @@ it('formats computed point tolerances in their output unit using the active rang
   const tolerance = { tmdeUncertaintyDefinition };
   const point = { value: 1, unit: 'V' };
   const resolutionRange = { unit: 'V', resolution: 10, resolutionUnit: 'mV' };
-  expect(getCollapsedSpecRows(tolerance, point, resolutionRange)).toEqual(['± 0.14 V']);
-  expect(getCollapsedSpecRows(tolerance, point, { resolution: 1, unit: 'A' })).toEqual(['± 0.1429 V']);
-  expect(getCollapsedSpecRows(tolerance, { value: 0.001, unit: 'V' }, resolutionRange)).toEqual(['± 0.0001429 V']);
+  expect(getCollapsedSpecRows(tolerance, point, resolutionRange)).toEqual(['±0.14 V (Eq.)']);
+  expect(getCollapsedSpecRows(tolerance, point, { resolution: 1, unit: 'A' })).toEqual(['±0.1429 V (Eq.)']);
+  expect(getCollapsedSpecRows(tolerance, { value: 0.001, unit: 'V' }, resolutionRange)).toEqual(['±0.0001429 V (Eq.)']);
   const limits = { ...tmdeUncertaintyDefinition, mode: 'limits', lowerEquation: '-x / 7', upperEquation: 'x / 3' };
-  expect(getCollapsedSpecRows({ tmdeUncertaintyDefinition: limits }, point, resolutionRange)).toEqual(['-0.14 to 0.33 V']);
+  expect(getCollapsedSpecRows({ tmdeUncertaintyDefinition: limits }, point, resolutionRange)).toEqual(['-0.14 to 0.33 V (Eq.)']);
 });
 
 it('includes the entire free-text qualifier path with renamed columns in budget menu details', () => {
@@ -39,5 +39,5 @@ it('includes the entire free-text qualifier path with renamed columns in budget 
  const detail = formatRangeToleranceDetail(qualified, {value:20,unit:'A'}, ['Frequency band','Calibration interval']);
  expect(detail).toContain('Frequency band: 100 Hz – 1 kHz');
  expect(detail).toContain('Calibration interval: 90 days');
- expect(detail).toContain('Tabular – ± 0.005 A');
+ expect(detail).toContain('±0.005 A (Table)');
 });

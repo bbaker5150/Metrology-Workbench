@@ -10,6 +10,22 @@ function Harness({viewMode,grouped=false}) {
  return <><UncertaintyPanel testPointData={point} sessionData={session} onSessionSave={save} uutNominal={point.testPointInfo.parameter} tmdeTolerancesData={[]} setNotification={()=>{}} onInstrumentSynced={()=>{}}/><output data-testid="state">{JSON.stringify(session)}</output></>;
 }
 
+it.each(['session', 'point'])('preserves multiline qualifier text through commit and reopening in %s', viewMode => {
+ render(<Harness viewMode={viewMode} grouped/>);
+ const cell=document.querySelector('tr[data-range-group="uut:u1"] [data-qualifier-cell="1"]');
+ fireEvent.click(cell.querySelector('.inline-tolerance-summary'));
+ const editor=within(cell).getByRole('textbox',{name:'Qualifier value'});
+ const text='Ambient temperature 20 to 24 °C\nAfter a 30 minute warm-up';
+ fireEvent.change(editor,{target:{value:text}});
+ fireEvent.keyDown(editor,{key:'Enter',shiftKey:true});
+ expect(editor).toHaveFocus();
+ fireEvent.blur(editor);
+ const stored=JSON.parse(screen.getByTestId('state').textContent).uuts[0].instrument.functions[0].ranges[0].qualifier;
+ expect(stored.text).toBe(text);
+ fireEvent.click(cell.querySelector('.inline-tolerance-summary'));
+ expect(within(cell).getByRole('textbox',{name:'Qualifier value'})).toHaveValue(text);
+});
+
 it.each(['session', 'point'])('keeps the range actions visible when reopening a selected Range editor in %s', viewMode => {
   render(<Harness viewMode={viewMode}/>);
   const row = document.querySelector('tr[data-range-group="uut:u1"]');

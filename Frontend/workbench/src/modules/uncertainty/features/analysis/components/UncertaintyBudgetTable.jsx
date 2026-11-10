@@ -1,4 +1,5 @@
 import SymbolButton from "../../../components/common/SymbolButton";
+import StackedToleranceSummary from "./StackedToleranceSummary";
 import { FLUSH_EDITORS } from "../../../hooks/usePageExitRecovery";
 import { isBudgetEditorScrollTarget } from "../../../utils/budgetEditorViewport";
 import { readEditorDraft, saveEditorDraft, clearEditorDraft } from "../../../utils/editorRecovery";
@@ -594,7 +595,7 @@ export const InlineManualComponentRow = ({
           <ToleranceEditorComponent tolerance={draft.tolerance} referencePoint={referencePoint}
             useRangeFullScale={false}
             activeRange={{ id: component.id, ...manualFullScaleReference(draft, referencePoint) }} editable readOnly /> :
-          fieldSummary("tolerance", ToleranceEditorComponent && !structuredTolerance.whicheverIsGreater ? <ToleranceEditorComponent tolerance={structuredTolerance} editable={false} /> : toleranceText, toleranceText === "Not Set")}</td>
+          fieldSummary("tolerance", ToleranceEditorComponent && !structuredTolerance.whicheverIsGreater ? <ToleranceEditorComponent tolerance={structuredTolerance} editable={false} /> : <StackedToleranceSummary text={toleranceText} />, toleranceText === "Not Set")}</td>
         <td data-budget-field="distribution">{fieldSummary("distribution", component.distribution)}</td>
         <td className="budget-component-type" data-budget-field="type">{fieldSummary("type", component.type || "B")}</td>
         {showDof && <td>{isRepeatabilityComponent(component) && Number.isFinite(Number(component.dof)) ? Math.round(Number(component.dof)) : formatDof(component.dof)}</td>}
@@ -1277,7 +1278,7 @@ const UncertaintyBudgetTable = ({
                     suffix={getUnitDisplayLabel(component.manualUnit || tolLimit.unit)}
                   />
                 ) : component.authoredTolerance ? (
-                  formatToleranceSummary?.(component.authoredTolerance)?.[0] || "Pending measurement value"
+                  <StackedToleranceSummary text={formatToleranceSummary?.(component.authoredTolerance)?.[0] || "Pending measurement value"} />
                 ) : component.isPropagationSummary ? (
                   `± ${formatNumber(std.value, getGroupSigFigs(group))} ${getUnitDisplayLabel(std.unit)}`
                 ) : isStdEntry ? (

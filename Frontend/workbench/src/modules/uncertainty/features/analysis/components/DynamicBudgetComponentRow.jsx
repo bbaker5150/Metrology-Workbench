@@ -1,4 +1,5 @@
 import SymbolButton from "../../../components/common/SymbolButton";
+import StackedToleranceSummary from "./StackedToleranceSummary";
 import UncertaintyTypeMenu from "./UncertaintyTypeMenu";
 import { isBudgetEditorScrollTarget } from "../../../utils/budgetEditorViewport";
 import DynamicUncertaintyFields from "./DynamicUncertaintyFields";
@@ -223,7 +224,7 @@ export default function DynamicBudgetComponentRow({
           }} /> : !editing ? (
           <button ref={triggerRef} type="button" className={`inline-tolerance-summary${preview.dynamicSummary ? "" : " is-empty"}`}
             title={preview.pendingReason || `${readOnly ? "Inspect" : "Edit"} ${kindLabel.toLowerCase()} uncertainty`} onClick={openEditor}>
-            {preview.dynamicSummary || "Not Set"}
+            <StackedToleranceSummary text={preview.dynamicSummary || "Not Set"} />
           </button>
         ) : (
           <>
