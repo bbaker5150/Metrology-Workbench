@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { flushSync } from 'react-dom';
-import { render, screen, fireEvent, waitFor, within } from '@testing-library/react';
+import { act, render, screen, fireEvent, waitFor, within } from '@testing-library/react';
 import { expect, it, vi } from 'vitest';
 import axios from 'axios';
 import InstrumentLibraryModal from './InstrumentLibraryModal';
@@ -759,7 +759,7 @@ it('publishes only the confirmed inbox submission when two authors submit the sa
    fireEvent.click(inbox);
    const queue=await screen.findByRole('region',{name:'Pending instrument validations'});
    const reviewRow=within(queue).getByRole('button',{name:/instrument specifications .*ReviewMeter/i}).closest('tr');
-   fireEvent.click(within(reviewRow).getByRole('button',{name:'Awaiting validation. Click to review and validate.'}));
+   fireEvent.click(within(reviewRow).getByRole('button',{name:'Awaiting validation. Click to review submission.'}));
    const confirm=screen.getByRole('alertdialog');
    expect(confirm).toHaveTextContent('publish these specifications');
    expect(axios.post).not.toHaveBeenCalled();
@@ -772,10 +772,95 @@ it('publishes only the confirmed inbox submission when two authors submit the sa
    expect(axios.post).toHaveBeenCalledTimes(1);
    fireEvent.click(within(screen.getByRole('alertdialog',{name:'Instrument validated'})).getByText('Close',{selector:'button'}));
    axios.post.mockResolvedValueOnce({data:{...other,scope:'validated'}});
-   fireEvent.click(within(remainingRow).getByRole('button',{name:'Awaiting validation. Click to review and validate.'}));
+   fireEvent.click(within(remainingRow).getByRole('button',{name:'Awaiting validation. Click to review submission.'}));
    fireEvent.click(within(screen.getByRole('alertdialog',{name:'Validate instrument'})).getByRole('button',{name:'Validate'}));
    await waitFor(()=>expect(queue).toHaveTextContent('No instruments are awaiting validation.'));
    expect(axios.post).toHaveBeenLastCalledWith(expect.stringMatching(/\/instrument-reviews\/72\/validate\/$/),{reviewVersion:'5'},expect.any(Object));
+ } finally {axios.get.mockResolvedValue({data:{canValidate:false,reviews:[]}});}
+});
+
+it('returns a reviewed submission to its original owner without inserting the foreign local record into the reviewer library', async () => {
+ const review={...definition('ForeignMeter','pending'),owner:'another-user',reviewId:'71',reviewVersion:'3'};
+ const own=definition('MyMeter','validated');
+ const synced=vi.fn(), refresh=vi.fn();
+ let reviews=[review];
+ axios.get.mockImplementation(async()=>({data:{canValidate:true,reviews}}));
+ axios.post.mockReset().mockImplementation(async()=>{
+   reviews=[];
+   return {data:{...review,scope:'local',localOverride:true,reviewVersion:undefined}};
+ });
+ try {
+   render(<InstrumentLibraryModal isOpen instruments={[own]} onClose={vi.fn()} onInstrumentSynced={synced} onRefresh={refresh}/>);
+   const library=screen.getByRole('dialog',{name:'Instrument library'});
+   fireEvent.click(await within(library).findByRole('button',{name:'Validation inbox'}));
+   const inbox=await within(library).findByRole('region',{name:'Pending instrument validations'});
+   fireEvent.click(within(inbox).getByRole('button',{name:'Awaiting validation. Click to review submission.'}));
+   const actions=screen.getByRole('alertdialog');
+   expect(within(actions).getByRole('button',{name:'Validate',exact:true})).toBeInTheDocument();
+   fireEvent.click(within(actions).getByRole('button',{name:'Return to Local'}));
+   const confirm=screen.getByRole('alertdialog',{name:'Return submission to Local'});
+   expect(confirm).toHaveTextContent("original submitter's Local library");
+   expect(axios.post).not.toHaveBeenCalled();
+   fireEvent.click(within(confirm).getByRole('button',{name:'Return to Local'}));
+   await waitFor(()=>expect(axios.post).toHaveBeenCalledWith(expect.stringMatching(/\/instrument-reviews\/71\/return\/$/),{reviewVersion:'3'},expect.any(Object)));
+   await waitFor(()=>expect(refresh).toHaveBeenCalledTimes(1));
+   expect(synced).not.toHaveBeenCalled();
+   expect(inbox).toHaveTextContent('No instruments are awaiting validation.');
+   expect(await screen.findByRole('alertdialog',{name:'Instrument returned'})).toHaveTextContent("original submitter's Local library");
+   fireEvent.click(within(screen.getByRole('alertdialog')).getByText('Close',{selector:'button'}));
+   await act(async()=>{fireEvent.click(within(library).getByRole('button',{name:'Validation inbox'}));});
+   expect(within(library).getByRole('button',{name:/select instrument .*MyMeter/i})).toBeInTheDocument();
+   expect(within(library).queryByRole('button',{name:/select instrument .*ForeignMeter/i})).toBeNull();
+ } finally {axios.get.mockResolvedValue({data:{canValidate:false,reviews:[]}});}
+});
+
+it('retains a changed submission when Return to Local is rejected and provides copyable conflict details', async () => {
+ const review={...definition('ChangedMeter','pending'),owner:'another-user',reviewId:'71',reviewVersion:'3'};
+ const synced=vi.fn(), refresh=vi.fn();
+ axios.get.mockResolvedValue({data:{canValidate:true,reviews:[review]}});
+ axios.post.mockReset().mockRejectedValueOnce({response:{status:409,data:{detail:'This submission changed. Reopen the inbox to review it again.'},headers:{sprequestguid:'conflict-71'}}});
+ try {
+   render(<InstrumentLibraryModal isOpen instruments={[]} onClose={vi.fn()} onInstrumentSynced={synced} onRefresh={refresh}/>);
+   fireEvent.click(await screen.findByRole('button',{name:'Validation inbox'}));
+   const inbox=await screen.findByRole('region',{name:'Pending instrument validations'});
+   fireEvent.click(within(inbox).getByRole('button',{name:'Awaiting validation. Click to review submission.'}));
+   fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button',{name:'Return to Local'}));
+   fireEvent.click(within(screen.getByRole('alertdialog',{name:'Return submission to Local'})).getByRole('button',{name:'Return to Local'}));
+   const error=await screen.findByRole('alertdialog',{name:'Could not return submission to Local'});
+   expect(error).toHaveTextContent('This submission changed. Reopen the inbox to review it again.');
+   expect(error).toHaveTextContent('HTTP 409 Request ID conflict-71');
+   expect(within(error).getByRole('button',{name:'Copy error details'})).toBeInTheDocument();
+   expect(within(inbox).getByRole('button',{name:/select instrument .*ChangedMeter/i})).toBeInTheDocument();
+   expect(synced).not.toHaveBeenCalled();
+   expect(refresh).not.toHaveBeenCalled();
+ } finally {axios.get.mockResolvedValue({data:{canValidate:false,reviews:[]}});}
+});
+
+it('refreshes the reviewer own returned submission as Local through the library listing', async () => {
+ const review={...definition('OwnMeter','pending'),owner:'reviewer',reviewId:'83',reviewVersion:'4'};
+ const local={...review,scope:'local',reviewVersion:undefined,localOverride:true};
+ const synced=vi.fn(), refresh=vi.fn();
+ let reviews=[review];
+ axios.get.mockImplementation(async()=>({data:{canValidate:true,reviews}}));
+ axios.post.mockReset().mockImplementation(async()=>{reviews=[];return {data:local};});
+ function OwnedSubmission() {
+   const [instruments,setInstruments]=useState([review]);
+   return <InstrumentLibraryModal isOpen instruments={instruments} onClose={vi.fn()} onInstrumentSynced={synced}
+     onRefresh={()=>{refresh();setInstruments([local]);}}/>;
+ }
+ try {
+   render(<OwnedSubmission/>);
+   fireEvent.click(await screen.findByRole('button',{name:'Validation inbox'}));
+   const inbox=await screen.findByRole('region',{name:'Pending instrument validations'});
+   fireEvent.click(within(inbox).getByRole('button',{name:'Awaiting validation. Click to review submission.'}));
+   fireEvent.click(within(screen.getByRole('alertdialog')).getByRole('button',{name:'Return to Local'}));
+   fireEvent.click(within(screen.getByRole('alertdialog',{name:'Return submission to Local'})).getByRole('button',{name:'Return to Local'}));
+   const success=await screen.findByRole('alertdialog',{name:'Instrument returned'});
+   expect(refresh).toHaveBeenCalledTimes(1);
+   expect(synced).not.toHaveBeenCalled();
+   fireEvent.click(within(success).getByText('Close',{selector:'button'}));
+   await act(async()=>{fireEvent.click(screen.getByRole('button',{name:'Validation inbox'}));});
+   expect(screen.getByRole('button',{name:'My library. Click to submit for SME validation.'})).toBeInTheDocument();
  } finally {axios.get.mockResolvedValue({data:{canValidate:false,reviews:[]}});}
 });
 
@@ -785,11 +870,12 @@ it('admits a reviewer from a pending library sync icon and keeps ordinary users 
  expect(screen.queryByRole('button',{name:'Validation inbox'})).toBeNull();
  fireEvent.click(screen.getByRole('button',{name:'Awaiting validation. Right-click to withdraw to My library.'}));
  expect(screen.queryByRole('alertdialog')).toBeNull();
+ expect(screen.queryByRole('button',{name:'Return to Local'})).toBeNull();
  view.unmount();
  axios.get.mockResolvedValue({data:{canValidate:true,reviews:[item]}});
  try {
    render(<InstrumentLibraryModal isOpen instruments={[item]} onClose={()=>{}}/>);
-   fireEvent.click(await screen.findByRole('button',{name:'Awaiting validation. Click to review and validate.'}));
+   fireEvent.click(await screen.findByRole('button',{name:'Awaiting validation. Click to review submission.'}));
    expect(await screen.findByRole('alertdialog')).toHaveTextContent('Validate Example LocalMeter');
  } finally {axios.get.mockResolvedValue({data:{canValidate:false,reviews:[]}});}
 });
@@ -821,11 +907,11 @@ it('opens the latest submitted specs before approving an older library copy', as
   axios.get.mockResolvedValue({ data: { canValidate: true, reviews: [latest] } });
   try {
     render(<InstrumentLibraryModal isOpen instruments={[old]} onClose={vi.fn()} />);
-    fireEvent.click(await screen.findByRole('button', { name: 'Awaiting validation. Click to review and validate.' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Awaiting validation. Click to review submission.' }));
     const queue = await screen.findByRole('region', { name: 'Pending instrument validations' });
     expect(within(queue).getByRole('button', { name: /hide instrument specifications .*Revised/i })).toHaveAttribute('aria-expanded', 'true');
     expect(screen.queryByRole('alertdialog')).toBeNull();
-    fireEvent.click(within(queue).getByRole('button', { name: 'Awaiting validation. Click to review and validate.' }));
+    fireEvent.click(within(queue).getByRole('button', { name: 'Awaiting validation. Click to review submission.' }));
     expect(screen.getByRole('alertdialog')).toHaveTextContent('Validate Example Revised');
   } finally { axios.get.mockResolvedValue({ data: { canValidate: false, reviews: [] } }); }
 });

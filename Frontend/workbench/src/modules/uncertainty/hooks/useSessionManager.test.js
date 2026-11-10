@@ -40,6 +40,142 @@ beforeEach(() => {
   );
 });
 
+describe("instrument library refresh", () => {
+  it('reports an initial permissions failure and clears it after a successful retry', async () => {
+    const denied = Object.assign(new Error('Request denied'), {
+      response: { status: 403, data: { detail: 'Cannot read Published Instruments.' }, headers: { sprequestguid: 'request_403' } },
+      config: { method: 'get', url: '/api/uncertainty/instruments/' },
+    });
+    axios.get.mockImplementation(url => url.endsWith('/instruments/') ? Promise.reject(denied) : Promise.resolve({ data: [] }));
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      const { result } = renderHook(() => useSessionManager());
+      await waitFor(() => expect(result.current.instrumentLibraryError).toBe('Cannot read Published Instruments.\nGET /api/uncertainty/instruments/\nHTTP 403\nRequest ID request_403'));
+      expect(result.current.instruments).toEqual([]);
+      const published = { id: 'visible', scope: 'validated' };
+      axios.get.mockResolvedValueOnce({ data: [published] });
+      await act(async () => result.current.refreshInstrumentLibrary());
+      expect(result.current.instruments).toEqual([published]);
+      expect(result.current.instrumentLibraryError).toBe('');
+    } finally { log.mockRestore(); }
+  });
+
+  it.each(['network', 'malformed'])('keeps known library data and exposes a %s refresh failure', async failure => {
+    const original = { id: 'known', scope: 'validated' };
+    axios.get.mockImplementation(async url => ({ data: url.endsWith('/instruments/') ? [original] : [] }));
+    const { result } = renderHook(() => useSessionManager());
+    await waitFor(() => expect(result.current.instruments).toEqual([original]));
+    if (failure === 'network') axios.get.mockRejectedValueOnce(new Error('Connection lost'));
+    else axios.get.mockResolvedValueOnce({ data: { value: [] } });
+    await act(async () => result.current.refreshInstrumentLibrary());
+    expect(result.current.instruments).toEqual([original]);
+    expect(result.current.instrumentLibraryError).toBe(failure === 'network' ? 'Connection lost' : 'The library returned an incomplete instrument listing.');
+  });
+
+  it.each([
+    ["empty", []],
+    ["local only", [{ id: "private", scope: "local", model: "My meter" }]],
+    ["populated", [{ id: "earlier", scope: "validated", model: "Earlier approval" }]],
+  ])("discovers another user's publication in an already-open %s library", async (_name, initial) => {
+    let library = initial;
+    axios.get.mockImplementation(async url => ({ data: url.endsWith('/instruments/') ? library : [] }));
+    const { result } = renderHook(() => useSessionManager());
+    await waitFor(() => expect(result.current.sessionsLoaded).toBe(true));
+    const published = { id: 'owner-publication', scope: 'validated', owner: '', model: 'Approved by owner' };
+    library = [...initial, published];
+    await act(async () => result.current.refreshInstrumentLibrary());
+    expect(result.current.instruments).toEqual(library);
+  });
+
+  it.each(['validated', 'shared'])('loads updated %s specifications while retaining independent session specifications', async scope => {
+    const original = { id: 'public', scope, model: 'Original', functions: [] };
+    const session = { id: 1, tmdes: [{ id: 'row', instrument: { ...original, model: 'Session specifications' } }], testPoints: [] };
+    let library = [original];
+    axios.get.mockImplementation(async url => ({ data: url.endsWith('/instruments/') ? library : url.endsWith('/sessions/') ? [session] : [] }));
+    const { result } = renderHook(() => useSessionManager());
+    await waitFor(() => expect(result.current.sessionsLoaded).toBe(true));
+    library = [{ ...original, model: 'Updated approval', functions: [{ name: 'Voltage', ranges: [{ min: 0, max: 100, unit: 'V' }] }] }];
+    await act(async () => result.current.refreshInstrumentLibrary());
+    expect(result.current.instruments).toEqual(library);
+    expect(result.current.sessions[0].tmdes[0].instrument.model).toBe('Session specifications');
+  });
+
+  it('preserves edits and removals completed while the listing was in flight', async () => {
+    const edited = { id: 'edited', scope: 'validated', model: 'Old definition' };
+    const removed = { id: 'removed', scope: 'validated', model: 'Removed definition' };
+    const published = { id: 'new', scope: 'validated', model: 'New approval' };
+    axios.get.mockImplementation(async url => ({ data: url.endsWith('/instruments/') ? [edited, removed] : [] }));
+    const { result } = renderHook(() => useSessionManager());
+    await waitFor(() => expect(result.current.sessionsLoaded).toBe(true));
+    let finishRead;
+    axios.get.mockImplementationOnce(() => new Promise(resolve => { finishRead = resolve; }));
+    let refresh;
+    act(() => { refresh = result.current.refreshInstrumentLibrary(); });
+    await act(async () => {
+      await result.current.saveInstrument({ ...edited, scope: 'local', model: 'Concurrent edit' });
+      await result.current.deleteInstrument(removed.id, { password: 'calibrate' });
+    });
+    await act(async () => { finishRead({ data: [edited, removed, published] }); await refresh; });
+    expect(result.current.instruments).toEqual([
+      expect.objectContaining({ id: edited.id, scope: 'local', model: 'Concurrent edit' }), published,
+    ]);
+  });
+
+  it('preserves a save already in flight when refresh starts', async () => {
+    const original = { id: 'public', scope: 'validated', model: 'Original' };
+    axios.get.mockImplementation(async url => ({ data: url.endsWith('/instruments/') ? [original] : [] }));
+    const { result } = renderHook(() => useSessionManager());
+    await waitFor(() => expect(result.current.sessionsLoaded).toBe(true));
+    let finishSave;
+    axios.post.mockImplementationOnce(() => new Promise(resolve => { finishSave = resolve; }));
+    const local = { ...original, scope: 'local', model: 'Local save' };
+    let saving;
+    act(() => { saving = result.current.saveInstrument(local, { requireSaved: true }); });
+    await waitFor(() => expect(finishSave).toBeTypeOf('function'));
+    axios.get.mockResolvedValueOnce({ data: [{ ...original, model: 'Remote update' }] });
+    await act(async () => result.current.refreshInstrumentLibrary());
+    expect(result.current.instruments).toEqual([original]);
+    await act(async () => { finishSave({ data: local }); await saving; });
+    expect(result.current.instruments).toEqual([local]);
+  });
+
+  it('preserves recovered local edits while discovering a publication', async () => {
+    const recovered = { id: 'recovered', scope: 'local', model: 'Unsaved recovery' };
+    journalSession('libraryEdits', recovered.id, { instrument: recovered });
+    axios.post.mockImplementation(() => new Promise(() => {}));
+    axios.get.mockImplementation(async () => ({ data: [] }));
+    const { result } = renderHook(() => useSessionManager());
+    await waitFor(() => expect(result.current.sessionsLoaded).toBe(true));
+    const published = { id: 'new', scope: 'validated', model: 'New approval' };
+    axios.get.mockResolvedValueOnce({ data: [{ ...recovered, scope: 'validated', model: 'Old shared copy' }, published] });
+    await act(async () => result.current.refreshInstrumentLibrary());
+    expect(result.current.instruments).toEqual([recovered, published]);
+    expect(readRecovery().libraryEdits[recovered.id].instrument).toEqual(recovered);
+  });
+
+  it.each(['refresh', 'initial load'])('ignores an older %s response after a newer refresh completes', async olderRead => {
+    const original = { id: 'public', scope: 'validated', model: 'Original' };
+    let finishOlder;
+    axios.get.mockImplementation(url => url.endsWith('/instruments/') && olderRead === 'initial load'
+      ? new Promise(resolve => { finishOlder = resolve; })
+      : Promise.resolve({ data: url.endsWith('/instruments/') ? [original] : [] }));
+    const { result } = renderHook(() => useSessionManager());
+    let olderRefresh;
+    if (olderRead === 'refresh') {
+      await waitFor(() => expect(result.current.sessionsLoaded).toBe(true));
+      axios.get.mockImplementationOnce(() => new Promise(resolve => { finishOlder = resolve; }));
+      act(() => { olderRefresh = result.current.refreshInstrumentLibrary(); });
+    }
+    await waitFor(() => expect(finishOlder).toBeTypeOf('function'));
+    const latest = [{ ...original, model: 'Newest approval' }, { id: 'new', scope: 'validated' },
+      { id: 'own-local', scope: 'local' }, { id: 'own-pending', scope: 'pending', reviewVersion: '1' }];
+    axios.get.mockResolvedValueOnce({ data: latest });
+    await act(async () => result.current.refreshInstrumentLibrary());
+    await act(async () => { finishOlder({ data: [original] }); await olderRefresh; });
+    expect(result.current.instruments).toEqual(latest);
+  });
+});
+
 describe("prepareImportedSession", () => {
   it('saves an AC-shunt budget with explicitly reused shared links while keeping the existing budget and library intact', async () => {
     const shared={id:'shared-meter',scope:'validated',model:'REF',description:'Y5020',functions:[]};

@@ -410,6 +410,8 @@ Members of **Metrology Software Owners** can review and approve submissions unti
 
 General users can submit an orange local instrument for review. It stays yellow in their library until a reviewer confirms publication.
 
+In the validation inbox, click a submission's **Status** icon to **Validate** it or **Return to Local**. Returning it keeps the submitted specifications and original author, clears the pending review, and restores it to the submitter's private Local library. It does not add a local copy to the reviewer's library or change an existing published instrument. Both actions require the current review version; reopen the inbox if someone has already changed, withdrawn, returned, or approved the submission.
+
 Run the storage setup as a site owner when deploying this version. Setup restricts the historical **Instruments** list to owner reads and manager writes, adds **Instrument Drafts** and **Published Instruments**, and copies prior shared definitions to the published list. It preserves the historical item authors and IDs. The owner needs Manage Lists on all three lists during the upgrade. The app opens once setup marks the migration complete. An owner can rerun interrupted setup. Existing shared instruments retain their IDs. The app reads older local rows for their creator. Their next edit or removal writes a private copy that supersedes the original row.
 
 If setup previously stopped on the unique-values error for **Uncertalytics - Instrument Drafts**, replace the hosted HTML with the corrected file, reload the app, and run the setup action shown. Setup reuses the partial list and creates its indexed draft ID field with uniqueness enforcement disabled.
@@ -423,6 +425,12 @@ If setup previously stopped on the unique-values error for **Uncertalytics - Ins
 | Instrument Drafts | Contribute | Manage Lists and Contribute | Full Control |
 
 Apply these grants at the list level. A list-scoped Edit permission level normally includes Manage Lists and Contribute. Reserve Manage Lists on the instrument lists for reviewers and administrators. Check inherited grants and any unique item permissions before rollout.
+
+If app users cannot see published instruments, check their group's Read grant on **Published Instruments**. If an owner can see only their own submissions, check the owner's Full Control grant on **Instrument Drafts**, not just the site. The app now verifies the reviewer's Manage Lists permission on Drafts and reports a missing grant instead of presenting an incomplete inbox as an empty queue. The SME-group handoff rule above still applies.
+
+For a check without DevTools, open the instrument library and choose the **Instrument access report** information icon, then **Copy access report**. This is available to ordinary app users as well as reviewers. Compare the build, site URL, list prefix, and actual list IDs from both accounts; the reports also show each account's relevant group membership, effective list permissions, unique list permissions, and SharePoint content approval settings. Failed checks retain their HTTP status and request ID when available. The report does not read instrument definitions, inspect individual-item permissions, or change access. Library and inbox request failures also provide copyable error details and retry controls.
+
+Opening the library reloads newly published instruments and updated shared definitions while preserving local edits and submissions that are still being saved. A failed refresh retains the last known library and shows an error rather than silently treating it as current.
 
 * **Instrument Drafts** uses ReadSecurity 2 and WriteSecurity 2. SharePoint restricts general users to reading and editing their own rows. Manage Lists lets reviewers read submissions from other users. The inbox displays pending rows. An approval copies the reviewed definition to the catalog. [Microsoft SharePoint list security settings](https://learn.microsoft.com/en-us/sharepoint/dev/schema/security-element)
 * **Original Instruments** uses ReadSecurity 2 and WriteSecurity 4. Each ordinary user can read their own historical local rows.

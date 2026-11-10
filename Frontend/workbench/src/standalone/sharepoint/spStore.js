@@ -65,6 +65,19 @@ const instrumentAccess = {
 // Only a list manager can add this field. Its presence certifies a completed
 // migration, including sites whose old mixed list contained no shared rows.
 const migrationMarker = { name: 'LegacyCatalogMigratedV1', title: 'Legacy catalog migration completed', type: FIELD_TYPE.TEXT };
+const diagnosticText = value => String(value ?? 'unknown').replace(/[\x00-\x1f\x7f]/g, ' ').slice(0, 180);
+const permissionFlags = result => {
+  const permissions = result?.EffectiveBasePermissions || result;
+  const low = Number(permissions?.Low);
+  if (permissions?.Low == null || String(permissions.Low).trim() === '' || !Number.isInteger(low) || low < 0) throw new SharePointError('SharePoint returned incomplete list permissions.', 502);
+  return { low, high: permissions.High, viewItems: Boolean(low & 1), manageLists: Boolean(low & 2048) };
+};
+const diagnosticFailure = error => {
+  const status = Number(error?.status ?? error?.httpStatus);
+  const requestId = /^[a-f\d-]{8,80}$/i.test(String(error?.requestId || '')) ? error.requestId : null;
+  // Never copy a response body/message: it can contain payloads or URL tokens.
+  return `Unavailable (${Number.isInteger(status) && status > 0 ? `HTTP ${status}` : 'request failed'}${requestId ? `; Request ID ${requestId}` : ''})`;
+};
 
 export const CONTAINERS = [
   {
@@ -312,6 +325,71 @@ export class SharePointStore {
       const info = await this.get(`${listApi(this.prefix, container.key)}?$select=Id,Title,Description,Hidden,OnQuickLaunch,DefaultViewUrl,ItemCount`);
       return { ...container, ...info, displayTitle: storageDisplayTitle(this.prefix, container.key) };
     }));
+  }
+
+  /** Read-only, content-free diagnostics for comparing two signed-in accounts. */
+  async instrumentAccessReport() {
+    let web = 'unavailable';
+    try {
+      const url = new URL(this.webUrl);
+      if (['https:', 'http:'].includes(url.protocol)) web = `${url.origin}${url.pathname}`;
+    } catch { /* Do not echo an unparseable URL that could contain credentials. */ }
+    const prefix = String(this.prefix || DEFAULT_PREFIX).replace(/[^A-Za-z0-9]/g, '') || DEFAULT_PREFIX;
+    const capture = async read => { try { return { value: await read() }; } catch (error) { return { error }; } };
+    const [identity, membership, smeGroup] = await Promise.all([
+      capture(() => this.currentUser()),
+      capture(() => this.getItems('/_api/web/currentuser/groups?$select=Title', { requireRows: true })),
+      capture(async () => {
+        const result = await this.get("/_api/web/sitegroups?$select=Title&$filter=Title eq 'Uncertalytics SME'&$top=1");
+        if (!Array.isArray(result?.value)) throw new SharePointError('Incomplete group lookup.', 502);
+        return result.value.length ? true
+          : result['odata.nextLink'] || result['@odata.nextLink'] ? null : false;
+      }),
+    ]);
+    const relevant = ['Metrology App Users', 'Metrology App User', 'Metrology Software Owners', 'Uncertalytics SME'];
+    const groups = membership.value?.filter(group => relevant.includes(group.Title)).map(group => group.Title) || [];
+    const eligible = membership.error ? null : groups.includes('Uncertalytics SME') ? true
+      : !groups.includes('Metrology Software Owners') ? false : smeGroup.error || smeGroup.value === null ? null : !smeGroup.value;
+    const lines = [
+      'Uncertalytics instrument access report (read only)',
+      `Site URL: ${diagnosticText(web)}`,
+      `List prefix: ${prefix}`,
+      `Signed-in user: ${identity.error ? diagnosticFailure(identity.error) : `${identity.value.id} — ${diagnosticText(identity.value.title)}`}`,
+      `Relevant groups: ${membership.error ? diagnosticFailure(membership.error) : groups.join(', ') || 'none'}`,
+      `Uncertalytics SME group: ${smeGroup.error ? diagnosticFailure(smeGroup.error) : smeGroup.value === null ? 'Unknown (incomplete lookup)' : smeGroup.value ? 'Exists; interim Owners review access has ended.' : 'Absent; Owners interim review access is available.'}`,
+      `Reviewer group eligibility: ${eligible === null ? 'Unknown; could not verify.' : eligible ? 'Yes (list permissions must also allow review).' : 'No.'}`,
+    ];
+    const checks = await Promise.all(Object.entries(instrumentAccess).map(async ([key, expected]) => {
+      const path = listApi(this.prefix, key);
+      const [metadata, access] = await Promise.all([
+        capture(() => this.get(`${path}?$select=Id,Title,ReadSecurity,WriteSecurity,HasUniqueRoleAssignments,EnableModeration,DraftVersionVisibility`)),
+        capture(async () => permissionFlags(await this.get(`${path}/EffectiveBasePermissions`))),
+      ]);
+      const block = ['', storageDisplayTitle(this.prefix, key)];
+      if (metadata.error) block.push(`  List settings: ${diagnosticFailure(metadata.error)}`);
+      else {
+        const data = metadata.value;
+        block.push(`  Actual list: ${diagnosticText(data.Title)}; ID ${diagnosticText(data.Id)}`,
+          `  ReadSecurity: ${diagnosticText(data.ReadSecurity)}; WriteSecurity: ${diagnosticText(data.WriteSecurity)}`,
+          `  HasUniqueRoleAssignments: ${diagnosticText(data.HasUniqueRoleAssignments)}`,
+          `  EnableModeration: ${diagnosticText(data.EnableModeration)}; DraftVersionVisibility: ${diagnosticText(data.DraftVersionVisibility)}`);
+        if (!this.matchesAccess(data, expected)) block.push(`  Check list settings: expected ReadSecurity ${expected.ReadSecurity}, WriteSecurity ${expected.WriteSecurity}.`);
+        if (data.HasUniqueRoleAssignments === true) block.push('  This list has unique permissions; site-level group access may not apply.');
+        if (data.EnableModeration === true) block.push('  SharePoint content approval is enabled. App validation does not approve SharePoint moderation; pending items may be hidden from readers.');
+      }
+      if (access.error) block.push(`  Effective permissions: ${diagnosticFailure(access.error)}`);
+      else {
+        const flags = access.value;
+        block.push(`  Effective permissions: Low ${flags.low}; High ${diagnosticText(flags.high)}; ViewListItems ${flags.viewItems ? 'Yes' : 'No'}; ManageLists ${flags.manageLists ? 'Yes' : 'No'}`);
+        if (!flags.viewItems) block.push('  Missing ViewListItems: this account cannot read this list. Ask a list owner to check its group grants.');
+        if (key === 'instrumentDrafts' && eligible && !flags.manageLists) block.push('  Review blocked: this eligible reviewer needs Manage Lists on Instrument Drafts to see submissions by other users.');
+      }
+      return block;
+    }));
+    lines.push(...checks.flat(), '',
+      'Compare Site URL, List prefix and actual list IDs in reports from both accounts. Different values mean the accounts are using different storage.',
+      'No instrument contents were read. Individual-item permissions were not checked. No permissions, groups or list settings were changed.');
+    return lines.join('\n');
   }
 
   async organizeStorage() {
@@ -932,6 +1010,7 @@ export class SharePointStore {
 
   async instrumentReviews() {
     if (!(await this.canValidateInstruments())) return { canValidate: false, reviews: [] };
+    await this.assertInstrumentReviewVisibility();
     await this.ensureInstrumentSecurity();
     const rows = await this.instrumentRows('instrumentDrafts');
     const pending = rows.filter(({record}) => record.scope === 'pending' && !isArchived(record));
@@ -939,6 +1018,58 @@ export class SharePointStore {
     const catalog = await this.instrumentRows('publishedInstruments');
     return { canValidate: true, reviews: draftsWithoutApproval(pending, catalog)
       .map(({item, record}) => ({ ...privateDefinition(record), reviewId: String(item.Id), reviewVersion: reviewVersionOf({item, record}) })) };
+  }
+
+  async assertInstrumentReviewVisibility() {
+    const flags = permissionFlags(await this.get(`${listApi(this.prefix, 'instrumentDrafts')}/EffectiveBasePermissions`));
+    if (!flags.manageLists) throw new SharePointError(`Your reviewer group is eligible, but this account needs Manage Lists on ${storageDisplayTitle(this.prefix, 'instrumentDrafts')} to see submissions by other users. Ask a list owner to check that list's permissions, then reopen the validation inbox.`, 403);
+  }
+
+  async returnInstrumentReview(reviewId, version) {
+    if (!(await this.canValidateInstruments())) throw new SharePointError('You do not have instrument validation access.', 403);
+    if (!/^\d+$/.test(reviewId) || !/^\d+$/.test(version)) throw new SharePointError('Invalid submission version.', 400);
+    await this.assertInstrumentReviewVisibility();
+    await this.ensureInstrumentSecurity();
+    const key = 'instrumentDrafts';
+    const path = `${listApi(this.prefix, key)}/items(${reviewId})`;
+    const read = () => this.get(`${path}?$select=Id,AuthorId,PayloadJson,SubmittedJson,RecordId,owshiddenversion`);
+    const item = await read();
+    const record = this.parsePayload(item, key);
+    const changed = () => new SharePointError('This submission changed or has already been reviewed. Reopen the validation inbox before returning it to the submitter.', 409);
+    if (!record?.id || record.scope !== 'pending' || isArchived(record) || record._uncertaintyApprovalClaim ||
+        !Number.isInteger(Number(item.AuthorId)) || Number(item.AuthorId) <= 0 ||
+        !/^\d+$/.test(String(item.owshiddenversion)) || String(item.owshiddenversion) !== version) throw changed();
+    const drafts = await this.instrumentRows(key, item.RecordId, item.AuthorId);
+    const authoritative = drafts.find(({item: candidate}) => Number(candidate.AuthorId) === Number(item.AuthorId) && candidate.RecordId === item.RecordId);
+    if (Number(authoritative?.item.Id) !== Number(item.Id)) {
+      throw new SharePointError('This duplicate submission has been superseded. Reopen the validation inbox.', 409);
+    }
+    const catalog = await this.instrumentRows('publishedInstruments', record.sourceId || record.id);
+    if (!draftsWithoutApproval([{item, record}], catalog).length) throw changed();
+    // The reviewer changes status on the author's original row, using the
+    // submitted snapshot rather than any late autosave or caller-supplied data.
+    const {reviewVersion: _version, reviewId: _reviewId, action, ...definition} = privateDefinition(record);
+    const local = {...definition, scope: 'local', owner: sharePointInstrumentOwnerKey({id:Number(item.AuthorId)}), localOverride: true};
+    const payload = JSON.stringify(local);
+    try {
+      // Approval claims and returns compete for this same native revision.
+      await this.post(path, {
+        headers: {'X-HTTP-Method': 'MERGE', 'IF-MATCH': `"${item.owshiddenversion}"`},
+        body: {PayloadJson: payload, SubmittedJson: null},
+      });
+    } catch (error) {
+      if (error.status === 412) throw changed();
+      // A lost response is success only if the exact write is now persisted.
+      // Never retry a write against a later edit, resubmission or approval.
+      try {
+        const latest = await read();
+        if (Number(latest.AuthorId) === Number(item.AuthorId) && latest.RecordId === item.RecordId &&
+            Number(latest.owshiddenversion) === Number(item.owshiddenversion) + 1 &&
+            latest.SubmittedJson == null && latest.PayloadJson === payload) return local;
+      } catch { /* Preserve the original failed request for error reporting. */ }
+      throw error;
+    }
+    return local;
   }
 
   async claimInstrumentApproval(path, item, record, version) {
@@ -963,6 +1094,7 @@ export class SharePointStore {
   async validateInstrument(reviewId, version) {
     if (!(await this.canValidateInstruments())) throw new SharePointError('You do not have instrument validation access.', 403);
     if (!/^\d+$/.test(reviewId) || !/^\d+$/.test(version)) throw new SharePointError('Invalid submission version.', 400);
+    await this.assertInstrumentReviewVisibility();
     await this.ensureInstrumentSecurity();
     const key = 'instrumentDrafts';
     const path = `${listApi(this.prefix, key)}/items(${reviewId})`;

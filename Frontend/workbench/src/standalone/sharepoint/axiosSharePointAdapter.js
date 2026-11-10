@@ -32,6 +32,7 @@ function buildRoutes(store) {
 
     ['GET', /^\/instrument-reviews\/$/, () => store.instrumentReviews()],
     ['POST', /^\/instrument-reviews\/([^/]+)\/validate\/$/, (m, body) => store.validateInstrument(decodeURIComponent(m[1]), body?.reviewVersion)],
+    ['POST', /^\/instrument-reviews\/([^/]+)\/return\/$/, (m, body) => store.returnInstrumentReview(decodeURIComponent(m[1]), body?.reviewVersion)],
     ['GET', /^\/instruments\/$/, () => store.listInstruments()],
     ['POST', /^\/instruments\/$/, (_m, body) => store.saveInstrument(body)],
     ['DELETE', /^\/instruments\/([^/]+)\/$/, (m, body) => store.deleteInstrument(decodeURIComponent(m[1]), body?.password)],

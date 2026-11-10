@@ -27,6 +27,7 @@ urlpatterns = [
 
     path("instrument-reviews/", views.instrument_reviews, name="instrument-reviews"),
     path("instrument-reviews/<str:instrument_id>/validate/", views.validate_instrument, name="validate-instrument"),
+    path("instrument-reviews/<str:instrument_id>/return/", views.return_instrument_review, name="return-instrument-review"),
     path("instruments/", views.instruments, name="instruments"),
     path("instruments/<str:instrument_id>/", views.instrument_detail, name="instrument-detail"),
 

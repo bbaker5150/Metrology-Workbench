@@ -14,6 +14,7 @@ function fakeStore(overrides = {}) {
     listInstruments: vi.fn().mockResolvedValue([]),
     saveInstrument: vi.fn(async (record) => record),
     deleteInstrument: vi.fn().mockResolvedValue(undefined),
+    returnInstrumentReview: vi.fn().mockResolvedValue({id:'copy',scope:'local',owner:'sharepoint-user:12'}),
     listRecords: vi.fn().mockResolvedValue([]),
     saveRecord: vi.fn(async (_k, r) => r),
     deleteRecord: vi.fn().mockResolvedValue(undefined),
@@ -173,6 +174,21 @@ describe("session writes", () => {
 });
 
 describe("record routes", () => {
+  it('returns a review through the dedicated route without saving it as the reviewer', async () => {
+    const {data} = await call('post', '/instrument-reviews/%38%31/return/', {reviewVersion:'3', owner:'reviewer', model:'Untrusted form'});
+    expect(store.returnInstrumentReview).toHaveBeenCalledWith('81', '3');
+    expect(data).toEqual({id:'copy',scope:'local',owner:'sharepoint-user:12'});
+    expect(store.saveInstrument).not.toHaveBeenCalled();
+    expect(fallback).not.toHaveBeenCalled();
+  });
+
+  it('preserves stale review and access errors for the return action', async () => {
+    store.returnInstrumentReview.mockRejectedValue(new SharePointError('Submission changed', 409));
+    await expect(call('post', '/instrument-reviews/81/return/', {reviewVersion:'2'})).rejects.toMatchObject({
+      isAxiosError:true, response:{status:409,data:{detail:'Submission changed'}},
+    });
+  });
+
   it.each([
     ["equations", "equations"],
     ["bug_reports", "bugReports"],

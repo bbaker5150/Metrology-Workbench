@@ -4,8 +4,9 @@ import ReactDOM from "react-dom";
 import axios from "axios";
 import { UNCERTAINTY_API } from "../../../constants/constants";
 import { instrumentRequestConfig } from "../../../utils/deviceKey";
+import { formatInstrumentSyncError } from "../../../utils/instrumentSyncError";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faSearch, faTools, faPlus, faBookOpen, faInbox } from "@fortawesome/free-solid-svg-icons";
+import { faSearch, faTools, faPlus, faBookOpen, faInbox, faInfoCircle } from "@fortawesome/free-solid-svg-icons";
 import { LIBRARY_INSTRUMENT_MIME } from "../../../utils/libraryInstrumentDrag";
 import UncertaintyPanel from "../../analysis/components/UncertaintyPanel";
 import NotificationModal from "../../../components/modals/NotificationModal";
@@ -42,7 +43,7 @@ function useLibraryBrowseState() {
 
 // The library is an adapter around the actual overview instrument table. Range
 // rendering, editors, selection, clipboard and creation all stay in that table.
-export default function InstrumentLibraryModal({ isOpen, onClose, instruments = emptyInstruments, onSaveToLibrary, onDelete, onInstrumentSynced, flushLibraryRef, libraryDraftRows, onChangeDrafts, zoom = 1 }) {
+export default function InstrumentLibraryModal({ isOpen, onClose, instruments = emptyInstruments, onSaveToLibrary, onDelete, onInstrumentSynced, flushLibraryRef, libraryDraftRows, onChangeDrafts, loadError = "", onRefresh, getAccessReport, zoom = 1 }) {
   const [reviewState, setReviewState] = useState({ canValidate: false, reviews: [] });
   const [inboxOpen, setInboxOpen] = useState(false);
   const [reviewAttempt, setReviewAttempt] = useState(0);
@@ -57,9 +58,9 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
       const canValidate = data?.canValidate === true;
       setReviewState({ canValidate, reviews: canValidate && Array.isArray(data.reviews) ? data.reviews : [] });
       if (!canValidate) setInboxOpen(false);
-    }).catch(() => {
+    }).catch(error => {
       if (controller.signal.aborted) return;
-      setReviewState({ canValidate: false, reviews: [], error: "Could not load validation access." });
+      setReviewState({ canValidate: false, reviews: [], error: formatInstrumentSyncError(error) });
       setInboxOpen(false);
     });
     return () => controller.abort();
@@ -81,6 +82,26 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
   ), [reviewState.reviews]);
   const displayedSession = reviewing ? reviewSession : session;
   const [notification, setNotification] = useState(null);
+  const [reportBusy, setReportBusy] = useState(false);
+  const reportRequest = useRef(0);
+  useEffect(() => {
+    if (!isOpen) setReportBusy(false);
+    return () => { reportRequest.current++; };
+  }, [isOpen]);
+  const showAccessReport = async () => {
+    if (reportBusy) return;
+    const request = ++reportRequest.current;
+    setReportBusy(true);
+    try {
+      const message = await getAccessReport();
+      if (request !== reportRequest.current) return;
+      setNotification({ title: "Instrument access report", message, copyable: true, copySubject: "access report" });
+    } catch (error) {
+      if (request !== reportRequest.current) return;
+      setNotification({ title: "Could not check instrument access", message: formatInstrumentSyncError(error), copyable: true });
+    } finally { if (request === reportRequest.current) setReportBusy(false); }
+  };
+  const showLoadError = (title, message) => setNotification({ title, message, copyable: true });
   const [saving, setSaving] = useState(0);
   const [error, setError] = useState("");
   const queue = useRef(null);
@@ -314,13 +335,38 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
       confirmText: "Remove", ...(requiresPassword ? { inputLabel: "Shared library password", inputType: "password", validateInput: value => value.trim() ? "" : "Enter the shared-library password." } : {}),
       onConfirm: password => { setNotification(null); return perform(password); } });
   };
+  const requestReturnToLocal = review => {
+    const label = formatInstrumentIdentity(review);
+    const id = submissionId(review);
+    setNotification({ title: "Return submission to Local",
+      message: `Return ${label} to the original submitter's Local library? They can edit and submit it again.`,
+      confirmText: "Return to Local", secondaryText: "Cancel", onSecondary: () => setNotification(null),
+      onConfirm: async () => {
+        if (validating.current) return;
+        validating.current = true;
+        try {
+          await axios.post(`${UNCERTAINTY_API}/instrument-reviews/${encodeURIComponent(id)}/return/`,
+            { reviewVersion: review.reviewVersion }, instrumentRequestConfig());
+          reviewRequest.current?.abort();
+          setReviewState(previous => ({ ...previous, reviews: previous.reviews.filter(item => submissionId(item) !== id) }));
+          setReviewAttempt(count => count + 1);
+          // The returned definition belongs to its submitter. The library read
+          // decides whether it is also visible to this reviewer.
+          onRefresh?.();
+          setNotification({ title: "Instrument returned", message: `${label} has been returned to the original submitter's Local library.` });
+        } catch (failure) {
+          setNotification({ title: "Could not return submission to Local", message: formatInstrumentSyncError(failure), copyable: true });
+          setReviewAttempt(count => count + 1);
+        } finally { validating.current = false; }
+      } });
+  };
   const requestValidation = review => {
     const label = formatInstrumentIdentity(review);
     const id = submissionId(review);
     const target = review.sourceId && instruments.find(item => ["shared", "validated"].includes(item.scope) && String(item.id) === String(review.sourceId));
     const message = `Validate ${label} and publish these specifications to the shared library?`;
     setNotification({ title: "Validate instrument", message: target ? `${message} This updates ${formatInstrumentIdentity(target)}.` : message,
-      confirmText: "Validate", secondaryText: "Cancel", onSecondary: () => setNotification(null),
+      confirmText: "Validate", secondaryText: "Return to Local", onSecondary: () => requestReturnToLocal(review),
       onConfirm: async () => {
         if (validating.current) return;
         validating.current = true;
@@ -333,7 +379,7 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
           setReviewState(previous => ({ ...previous, reviews: previous.reviews.filter(item => submissionId(item) !== id) }));
           setNotification({ title: "Instrument validated", message: `${label} is now shared.` });
         } catch (failure) {
-          setNotification({ title: "Validation failed", message: failure.response?.data?.detail || "Could not validate this instrument. Try again." });
+          setNotification({ title: "Validation failed", message: formatInstrumentSyncError(failure), copyable: true });
           setReviewAttempt(count => count + 1);
         } finally { validating.current = false; }
       } });
@@ -359,7 +405,7 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
       inboxBrowse.setExpandedIds([id]);
       setInboxOpen(true);
     } catch (failure) {
-      setNotification({title: "Could not load submission", message: failure.response?.data?.detail || "Reopen the inbox and try again."});
+      setNotification({title: "Could not load submission", message: formatInstrumentSyncError(failure), copyable: true});
     }
   };
   const close = () => {
@@ -395,7 +441,8 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
     style={{ display: isOpen ? undefined : 'none', left: position.x, top: position.y, '--instrument-library-scale': zoom }}>
     <div className="scoped-zoom-content instrument-library-content" role={reviewing ? "region" : undefined}
       aria-label={reviewing ? "Pending instrument validations" : undefined} style={{ zoom }}>
-    {reviewState.error && <div className="instrument-library-save-error"><span role="status">{reviewState.error}</span><button onClick={() => setReviewAttempt(count => count + 1)}>Retry</button></div>}
+    {loadError && <div className="instrument-library-save-error"><span role="alert">Could not refresh the instrument library. Displayed instruments may be incomplete.</span><button onClick={() => showLoadError("Could not load instrument library", loadError)}>Error details</button><button onClick={onRefresh}>Retry library</button></div>}
+    {reviewState.error && <div className="instrument-library-save-error"><span role="alert">Could not load validation inbox.</span><button onClick={() => showLoadError("Could not load validation inbox", reviewState.error)}>Error details</button><button onClick={() => setReviewAttempt(count => count + 1)}>Retry inbox</button></div>}
     {!reviewing && error && <div className="instrument-library-save-error"><span role="alert">{error}</span><button onClick={() => [...failed.current.values()].forEach(enqueue)}>Retry save</button></div>}
     <UncertaintyPanel key={displayedSession.id} libraryMode libraryReviewMode={reviewing}
       libraryEmptyMessage={reviewing ? (reviewState.reviews.length ? "No instruments match your search." : "No instruments are awaiting validation.") : undefined}
@@ -427,6 +474,8 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
       }}>
         <div className="panel-card-title" role="heading" aria-level={3}><FontAwesomeIcon icon={faBookOpen} /><span>Instrument Library</span></div>
         <div className="panel-card-actions">
+        {getAccessReport && <button type="button" className="icon-btn-ghost" title="Instrument access report"
+          aria-label="Instrument access report" disabled={reportBusy} onClick={showAccessReport}><FontAwesomeIcon icon={faInfoCircle} /></button>}
         {reviewState.canValidate && <button type="button" className="icon-btn-ghost" title="Validation inbox"
           aria-label="Validation inbox" aria-pressed={inboxOpen} onClick={() => setInboxOpen(open => !open)}><FontAwesomeIcon icon={faInbox} /></button>}
         <div className="instrument-library-search">

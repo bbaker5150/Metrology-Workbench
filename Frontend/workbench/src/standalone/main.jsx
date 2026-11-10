@@ -71,7 +71,8 @@ ReactDOM.createRoot(document.getElementById('root')).render(
         <StorageGate store={store}>
           <UncertaintyProvider>
             <ConfirmRecordDeletesContext.Provider value={false}>
-              <UncertalyticsApp showThemeToggle headerExtras={<StorageAdministration store={store} />} />
+              <UncertalyticsApp showThemeToggle headerExtras={<StorageAdministration store={store} />}
+                getInstrumentAccessReport={async () => `Build: ${window.__UNCERTAINTY_BUILD__ || 'development'}\n${await store.instrumentAccessReport()}`} />
             </ConfirmRecordDeletesContext.Provider>
           </UncertaintyProvider>
         </StorageGate>

@@ -40,7 +40,7 @@ function fakeFetch() {
         const r = await (typeof respond === "function" ? respond({ url, method, spMethod, init }) : respond);
         const status = r.status ?? 200;
         const text = r.text ?? (r.json !== undefined ? JSON.stringify(r.json) : "");
-        return { ok: status >= 200 && status < 300, status, text: async () => text, json: async () => JSON.parse(text || "{}") };
+        return { ok: status >= 200 && status < 300, status, headers: { get: name => r.headers?.[name] ?? null }, text: async () => text, json: async () => JSON.parse(text || "{}") };
       }
     }
     return { ok: true, status: 200, text: async () => '{"value":[]}', json: async () => ({ value: [] }) };
@@ -1347,5 +1347,257 @@ describe('organized application storage', () => {
     setup(); http.on(/items\(999\)/,{status:404});
     await expect(store.post("/_api/web/lists/getbytitle('UncertaintyInstruments')/items(999)",{body:{Title:'test'}})).rejects.toThrow();
     expect(http.calls.some(c=>c.method==='POST' && c.url.includes('Uncertalytics'))).toBe(false);
+  });
+});
+
+describe('reviewer returns to the original submitter', () => {
+  const submitted = {id:'meter',scope:'pending',owner:'sharepoint-user:12',model:'Submitted meter',functions:[{name:'Torque',ranges:[{min:0,max:100}]}]};
+  const seed = (record = submitted) => {
+    const item = {Id:81,AuthorId:12,RecordId:'12:meter',owshiddenversion:3,
+      PayloadJson:JSON.stringify({...record,model:'Late autosave'}),SubmittedJson:JSON.stringify(record)};
+    draftRows.push(item);
+    http.on(/currentuser\/groups/, {json:{value:[{Title:'Uncertalytics SME'}]}});
+    return item;
+  };
+  const writes = () => http.calls.filter(call => call.method === 'POST' && !call.url.includes('contextinfo'));
+
+  it.each(['Uncertalytics SME','Metrology Software Owners'])('lets %s return another author’s exact submitted definition without publishing or changing ownership', async group => {
+    const item = seed();
+    http.on(/currentuser\/groups/, {json:{value:[{Title:group}]}});
+    http.on(/web\/sitegroups/, {json:{value:[]}});
+    const local = await store.returnInstrumentReview('81','3');
+    expect(local).toEqual({...submitted,scope:'local',localOverride:true});
+    expect(item.AuthorId).toBe(12);
+    expect(item.RecordId).toBe('12:meter');
+    expect(item.SubmittedJson).toBeNull();
+    expect(item.owshiddenversion).toBe(4);
+    expect(writes()).toHaveLength(1);
+    expect(writes()[0]).toMatchObject({spMethod:'MERGE',headers:{'IF-MATCH':'"3"'}});
+    expect(JSON.parse(writes()[0].body)).toEqual({PayloadJson:JSON.stringify(local),SubmittedJson:null});
+    expect((await store.instrumentReviews()).reviews).toEqual([]);
+    expect(await store.listInstruments()).toEqual([]);
+    const author = new SharePointStore({webUrl:WEB,fetchImpl:http,currentUser:{id:12}});
+    expect(await author.listInstruments()).toEqual([local]);
+    await expect(store.returnInstrumentReview('81','3')).rejects.toMatchObject({status:409});
+    expect(writes()).toHaveLength(1);
+  });
+
+  it.each(['ordinary user','SME handoff','missing Manage Lists','permissions unavailable'])('rejects %s before reading or writing a submission', async scenario => {
+    seed();
+    if(scenario==='ordinary user') http.on(/currentuser\/groups/, {json:{value:[{Title:'Metrology App User'}]}});
+    if(scenario==='SME handoff') {
+      http.on(/currentuser\/groups/, {json:{value:[{Title:'Metrology Software Owners'}]}});
+      http.on(/web\/sitegroups/, {json:{value:[{Title:'Uncertalytics SME'}]}});
+    }
+    if(scenario==='missing Manage Lists') http.on(/InstrumentDrafts.*EffectiveBasePermissions/, {json:{Low:'1'}});
+    if(scenario==='permissions unavailable') http.on(/InstrumentDrafts.*EffectiveBasePermissions/, {status:503});
+    await expect(store.returnInstrumentReview('81','3')).rejects.toMatchObject({status:scenario==='permissions unavailable'?503:403});
+    expect(http.find(/\/items/)).toEqual([]);
+    expect(writes()).toEqual([]);
+  });
+
+  it.each(['stale','local','archived','claim','approved','superseded'])('rejects a %s submission without writes', async scenario => {
+    const record = {...submitted};
+    if(scenario==='local') record.scope='local';
+    if(scenario==='archived') record._uncertaintyArchive={at:'2026-11-10'};
+    if(scenario==='claim') record._uncertaintyApprovalClaim={version:'3'};
+    const item = seed(record);
+    if(scenario==='approved') http.on(/PublishedInstruments'\)\/items\?/, {json:{value:[{Id:90,RecordId:'meter',PayloadJson:JSON.stringify({id:'meter',scope:'validated',_uncertaintyApprovals:{81:'3'}})}]}});
+    if(scenario==='superseded') draftRows.push({...item,Id:80});
+    await expect(store.returnInstrumentReview('81',scenario==='stale'?'2':'3')).rejects.toMatchObject({status:409});
+    expect(writes()).toEqual([]);
+  });
+
+  it('does not accept malformed versions or review IDs', async () => {
+    seed();
+    for(const [id,version] of [['81','*'],['81',undefined],['../81','3']]) {
+      await expect(store.returnInstrumentReview(id,version)).rejects.toMatchObject({status:400});
+    }
+    expect(http.find(/\/items/)).toEqual([]);
+    expect(writes()).toEqual([]);
+  });
+
+  it('preserves a later submission when the return loses its native revision comparison', async () => {
+    const item=seed();
+    http.on(/InstrumentDrafts'\)\/items\(81\)$/, () => {
+      item.owshiddenversion++;
+      item.SubmittedJson=JSON.stringify({...submitted,model:'New revision'});
+      return {status:412};
+    });
+    await expect(store.returnInstrumentReview('81','3')).rejects.toMatchObject({status:409});
+    expect(JSON.parse(item.SubmittedJson).model).toBe('New revision');
+    expect(writes()).toHaveLength(1);
+  });
+
+  it('confirms a committed return after a lost response and refuses a later stale retry without writing', async () => {
+    const item=seed();
+    http.on(/InstrumentDrafts'\)\/items\(81\)$/, ({init}) => {
+      Object.assign(item,JSON.parse(init.body)); item.owshiddenversion++;
+      return {status:503};
+    });
+    expect(await store.returnInstrumentReview('81','3')).toEqual({...submitted,scope:'local',localOverride:true});
+    await expect(store.returnInstrumentReview('81','3')).rejects.toMatchObject({status:409});
+    expect(writes()).toHaveLength(1);
+  });
+
+  it('does not report a failed return as successful if a later edit has already replaced the returned payload', async () => {
+    const item=seed();
+    http.on(/InstrumentDrafts'\)\/items\(81\)$/, ({init}) => {
+      Object.assign(item,JSON.parse(init.body)); item.owshiddenversion+=2;
+      item.PayloadJson=JSON.stringify({...submitted,scope:'local',model:'Author edited after return'});
+      return {status:503};
+    });
+    await expect(store.returnInstrumentReview('81','3')).rejects.toMatchObject({status:503});
+    expect(JSON.parse(item.PayloadJson).model).toBe('Author edited after return');
+    expect(writes()).toHaveLength(1);
+  });
+
+  it('prevents delayed approval publication when a reviewer return wins the draft revision', async () => {
+    seed();
+    let reachedCatalog, resumeApproval;
+    const paused=new Promise(resolve=>{reachedCatalog=resolve;});
+    const resume=new Promise(resolve=>{resumeApproval=resolve;});
+    let firstRead=true;
+    http.on(/PublishedInstruments'\)\/items\?/, async () => {
+      if(firstRead) {firstRead=false;reachedCatalog();await resume;}
+      return {json:{value:[]}};
+    });
+    const approval=store.validateInstrument('81','3');
+    const rejected=expect(approval).rejects.toMatchObject({status:409});
+    await paused;
+    expect(await store.returnInstrumentReview('81','3')).toMatchObject({scope:'local',owner:'sharepoint-user:12'});
+    resumeApproval();
+    await rejected;
+    expect(http.calls.filter(call=>call.method==='POST' && call.url.includes('PublishedInstruments'))).toEqual([]);
+  });
+});
+
+describe('instrument access diagnostics and reviewer visibility', () => {
+  const settings = {
+    instruments: { suffix: 'Instruments', title: 'Uncertalytics - Instruments', ReadSecurity: 2, WriteSecurity: 4 },
+    instrumentDrafts: { suffix: 'InstrumentDrafts', title: 'Uncertalytics - Instrument Drafts', ReadSecurity: 2, WriteSecurity: 2 },
+    publishedInstruments: { suffix: 'PublishedInstruments', title: 'Uncertalytics - Published Instruments', ReadSecurity: 1, WriteSecurity: 4 },
+  };
+  const reportSite = () => {
+    for (const [key, data] of Object.entries(settings)) {
+      http.on(new RegExp(`Uncertainty${data.suffix}'\\)\\?\\$select=Id,Title,ReadSecurity`), { json: {
+        Id: `${key}-guid`, Title: data.title, ReadSecurity: data.ReadSecurity, WriteSecurity: data.WriteSecurity,
+        HasUniqueRoleAssignments: false, EnableModeration: false, DraftVersionVisibility: 0,
+      } });
+      http.on(new RegExp(`Uncertainty${data.suffix}'\\)/EffectiveBasePermissions`), { json: { Low: '3', High: '0' } });
+    }
+    http.on(/currentuser\/groups/, { json: { value: [{Title:'Metrology App Users'}, {Title:'Unrelated confidential group'}] } });
+    http.on(/web\/sitegroups/, { json: { value: [] } });
+  };
+  const reviewer = () => {
+    http.on(/currentuser\/groups/, { json: { value: [{Title:'Metrology Software Owners'}] } });
+    http.on(/web\/sitegroups/, { json: { value: [] } });
+  };
+
+  it('lets an ordinary user produce a content-free, read-only report of actual storage and permissions', async () => {
+    reportSite();
+    const report = await store.instrumentAccessReport();
+    expect(report).toContain(`Site URL: ${WEB}`);
+    expect(report).toContain('List prefix: Uncertainty');
+    expect(report).toContain('Signed-in user: 41 — Analyst One');
+    expect(report).toContain('Relevant groups: Metrology App Users');
+    expect(report).toContain('Reviewer group eligibility: No.');
+    expect(report).toContain('Actual list: Uncertalytics - Published Instruments; ID publishedInstruments-guid');
+    expect(report).toContain('ReadSecurity: 1; WriteSecurity: 4');
+    expect(report).toContain('ViewListItems Yes; ManageLists No');
+    expect(report).toContain('HasUniqueRoleAssignments: false');
+    expect(report).toContain('EnableModeration: false; DraftVersionVisibility: 0');
+    expect(report).toContain('Individual-item permissions were not checked');
+    expect(report).toContain('Different values mean the accounts are using different storage');
+    expect(report).not.toContain('Unrelated confidential group');
+    expect(http.calls.every(call => call.method === 'GET')).toBe(true);
+    expect(http.calls.some(call => /\/items|PayloadJson|SubmittedJson|roleassignments/.test(call.url))).toBe(false);
+  });
+
+  it('resolves renamed lists through the existing aliases and identifies effective reviewer access', async () => {
+    reportSite(); reviewer();
+    http.on(/UncertaintyInstrumentDrafts'\)/, { status: 404 });
+    http.on(/Uncertalytics%20-%20Instrument%20Drafts'\)/, ({url}) => ({ json: url.includes('EffectiveBasePermissions')
+      ? { EffectiveBasePermissions: { Low: '2049', High: '0' } }
+      : { Id:'renamed-drafts-guid', Title:settings.instrumentDrafts.title, ReadSecurity:2, WriteSecurity:2,
+          HasUniqueRoleAssignments:true, EnableModeration:true, DraftVersionVisibility:2 } }));
+    const report = await store.instrumentAccessReport();
+    expect(report).toContain('Reviewer group eligibility: Yes');
+    expect(report).toContain('ID renamed-drafts-guid');
+    expect(report).toContain('ViewListItems Yes; ManageLists Yes');
+    expect(report).toContain('This list has unique permissions');
+    expect(report).toContain('App validation does not approve SharePoint moderation');
+    expect(http.calls.every(call => call.method === 'GET')).toBe(true);
+  });
+
+  it('includes the historical singular App User group in diagnostics without granting review access', async () => {
+    reportSite();
+    http.on(/currentuser\/groups/, {json:{value:[{Title:'Metrology App User'}]}});
+    const report = await store.instrumentAccessReport();
+    expect(report).toContain('Relevant groups: Metrology App User\n');
+    expect(report).toContain('Reviewer group eligibility: No.');
+    expect(await store.canValidateInstruments()).toBe(false);
+    expect(http.calls.every(call => call.method === 'GET')).toBe(true);
+  });
+
+  it('captures individual failures and correlation IDs without copying response bodies or URL credentials', async () => {
+    reportSite();
+    store.webUrl = 'https://user:secret@t.example/sites/ISEA?access_token=SECRET#TOKEN';
+    http.on(/currentuser\/groups/, {status:403,text:'PRIVATE_RESPONSE_BODY',headers:{SPRequestGuid:'cd4f4da2-60a5-0000-45c4-47174c14a717'}});
+    http.on(/PublishedInstruments'\)\/EffectiveBasePermissions/, {status:403,text:'PRIVATE_PAYLOAD'});
+    const report = await store.instrumentAccessReport();
+    expect(report).toContain(`Site URL: ${WEB}`);
+    expect(report).toContain('Relevant groups: Unavailable (HTTP 403; Request ID cd4f4da2-60a5-0000-45c4-47174c14a717)');
+    expect(report).toContain('Reviewer group eligibility: Unknown');
+    expect(report).toContain('Effective permissions: Unavailable (HTTP 403)');
+    expect(report).toContain('ID instrumentDrafts-guid');
+    expect(report).not.toMatch(/secret|SECRET|TOKEN|PRIVATE_|access_token|user:secret/);
+    expect(http.calls.every(call => call.method === 'GET')).toBe(true);
+  });
+
+  it('reports SME handoff without treating Owners as eligible after the SME group exists', async () => {
+    reportSite(); reviewer();
+    http.on(/web\/sitegroups/, {json:{value:[{Title:'Uncertalytics SME'}]}});
+    const report = await store.instrumentAccessReport();
+    expect(report).toContain('Exists; interim Owners review access has ended.');
+    expect(report).toContain('Reviewer group eligibility: No.');
+    http.on(/currentuser\/groups/, {json:{value:[{Title:'Uncertalytics SME'}]}});
+    http.on(/web\/sitegroups/, {status:403});
+    expect(await store.instrumentAccessReport()).toContain('Reviewer group eligibility: Yes');
+  });
+
+  it('explains missing catalog read and reviewer list permissions without widening access', async () => {
+    reportSite(); reviewer();
+    http.on(/PublishedInstruments'\)\/EffectiveBasePermissions/, {json:{Low:'0',High:'0'}});
+    const report = await store.instrumentAccessReport();
+    expect(report).toContain('Missing ViewListItems: this account cannot read this list.');
+    expect(report).toContain('Review blocked: this eligible reviewer needs Manage Lists on Instrument Drafts');
+    expect(http.calls.every(call => call.method === 'GET')).toBe(true);
+  });
+
+  it('rejects an eligible reviewer whose deceptively successful draft listing would contain only their own submissions', async () => {
+    reviewer();
+    http.on(/InstrumentDrafts'\)\/EffectiveBasePermissions/, {json:{Low:'3',High:'0'}});
+    draftRows.push({Id:42, AuthorId:41, RecordId:'41:own', owshiddenversion:1, PayloadJson:JSON.stringify({id:'own',scope:'pending'})});
+    await expect(store.instrumentReviews()).rejects.toMatchObject({status:403,message:expect.stringMatching(/Manage Lists.*Instrument Drafts/)});
+    await expect(store.validateInstrument('42','1')).rejects.toMatchObject({status:403,message:expect.stringMatching(/submissions by other users/)});
+    expect(http.calls.some(call => /InstrumentDrafts'\)\/items/.test(call.url))).toBe(false);
+    expect(http.calls.every(call => call.method === 'GET')).toBe(true);
+  });
+
+  it.each([403,500])('fails closed when reviewer list permission lookup fails with HTTP %s', async status => {
+    reviewer();
+    http.on(/InstrumentDrafts'\)\/EffectiveBasePermissions/, {status,text:'Access check failed'});
+    await expect(store.instrumentReviews()).rejects.toMatchObject({status});
+    await expect(store.validateInstrument('42','1')).rejects.toMatchObject({status});
+    expect(http.calls.some(call => /InstrumentDrafts'\)\/items/.test(call.url))).toBe(false);
+    expect(http.calls.every(call => call.method === 'GET')).toBe(true);
+  });
+
+  it('fails closed on incomplete effective permissions and reports the failed check', async () => {
+    reportSite(); reviewer();
+    http.on(/InstrumentDrafts'\)\/EffectiveBasePermissions/, {json:{High:'0'}});
+    await expect(store.instrumentReviews()).rejects.toMatchObject({status:502});
+    expect(await store.instrumentAccessReport()).toContain('Effective permissions: Unavailable (HTTP 502)');
   });
 });

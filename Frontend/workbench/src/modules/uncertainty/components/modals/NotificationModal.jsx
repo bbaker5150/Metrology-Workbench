@@ -15,6 +15,7 @@ const NotificationModal = ({
   title = "Notification", 
   message, 
   copyable = false,
+  copySubject = "error details",
   onConfirm,
   confirmText = "OK",
   isIconConfirm = false,
@@ -33,6 +34,7 @@ const NotificationModal = ({
   const manualCopyField = useRef(null);
   const copyButton = useRef(null);
   const report = copyable ? `${title}\n${message}` : "";
+  const detailsLabel = copySubject.charAt(0).toUpperCase() + copySubject.slice(1);
 
   useLayoutEffect(() => {
     setCopyState("");
@@ -123,7 +125,7 @@ const NotificationModal = ({
   let tone = "info";
   
   const lowerTitle = title.toLowerCase();
-  if (copyable || lowerTitle.includes("delete") || lowerTitle.includes("warning") || lowerTitle.includes("error")) {
+  if ((copyable && copySubject === "error details") || lowerTitle.includes("delete") || lowerTitle.includes("warning") || lowerTitle.includes("error")) {
     icon = faExclamationTriangle;
     tone = "danger";
   } else if (lowerTitle.includes("success") || lowerTitle.includes("saved")) {
@@ -172,7 +174,7 @@ const NotificationModal = ({
           <textarea
             ref={manualCopyField}
             className="notification-error-details"
-            aria-label="Error details"
+            aria-label={detailsLabel}
             value={report}
             rows={5}
             readOnly
@@ -180,7 +182,7 @@ const NotificationModal = ({
         ) : <p className={copyable ? "notification-error-details" : undefined}>{message}</p>}
 
         {copyable && <div className="notification-copy-status" role="status">
-          {copyState === "copied" && "Error details copied."}
+          {copyState === "copied" && `${detailsLabel} copied.`}
           {copyState === "manual" && "Copy the selected details with your keyboard or the context menu."}
         </div>}
 
@@ -222,7 +224,7 @@ const NotificationModal = ({
               className="notification-window-confirm notification-window-confirm--secondary"
               onClick={copyErrorDetails}
             >
-              Copy error details
+              Copy {copySubject}
             </button>
           )}
           {onConfirm && (

@@ -11,6 +11,7 @@ import { getDeviceKey, instrumentRequestConfig } from "../utils/deviceKey";
 import { reconcileImportedInstruments } from "../utils/importedInstrumentLibrary";
 import { instrumentForRole } from "../utils/acShuntInstrumentRole";
 import { buildValidatedSnapshot, diffFromSnapshot } from "../utils/instrumentSync";
+import { formatInstrumentSyncError } from "../utils/instrumentSyncError";
 import { syncInstrumentBudgetComponents } from "../utils/instrumentBudgetComponents";
 
 const MAX_UNDO_STEPS = 50;
@@ -229,6 +230,7 @@ const useSessionManager = () => {
   const [libraryDraftRows, setLibraryDraftRows] = useState([]);
   const libraryDraftRowsRef = useRef([]);
   const [instrumentsLoaded, setInstrumentsLoaded] = useState(false);
+  const [instrumentLibraryError, setInstrumentLibraryError] = useState("");
   const [customEquations, setCustomEquations] = useState([]);
   const [bugReports, setBugReports] = useState([]);
   const [selectedSessionId, setSelectedSessionId] = useState(() => readRecovery().navigation?.sessionId ?? null);
@@ -238,6 +240,7 @@ const useSessionManager = () => {
   const selectedTestPointIdRef = useRef(null);
   const instrumentsRef = useRef([]);
   const lastListedInstrumentIds = useRef(null);
+  const instrumentListRequest = useRef(0);
   const approvedSubmissionIds = useRef(new Set());
   const sharedDataRef = useRef({ equations: [], bug_reports: [] });
   const instrumentSaveQueuesRef = useRef(new Map());
@@ -407,6 +410,7 @@ const useSessionManager = () => {
 
   // --- 1.1 Load Shared Data (Instruments & Bugs) ---
   const loadSharedData = useCallback(async () => {
+    const request = ++instrumentListRequest.current;
     const [instrumentResult, equationResult, bugResult] =
       await Promise.allSettled([
         axios.get(`${UNCERTAINTY_API}/instruments/`, {
@@ -424,14 +428,20 @@ const useSessionManager = () => {
       }
       const instRes = instrumentResult.value;
       if (!Array.isArray(instRes.data)) throw new Error("The library returned an incomplete instrument listing.");
-      lastListedInstrumentIds.current = new Set(instRes.data.map(item => String(item.id)));
-      replaceInstruments(
-        dedupeLibraryInstruments([...instRes.data,
-          ...Object.values(readRecovery().libraryEdits || {}).map(entry => entry.instrument)]),
-      );
+      if (request === instrumentListRequest.current) {
+        setInstrumentLibraryError("");
+        lastListedInstrumentIds.current = new Set(instRes.data.map(item => String(item.id)));
+        replaceInstruments(
+          dedupeLibraryInstruments([...instRes.data,
+            ...Object.values(readRecovery().libraryEdits || {}).map(entry => entry.instrument)]),
+        );
+      }
     } catch (e) {
       console.error("Failed to load instruments from backend", e);
-      replaceInstruments(previous => dedupeLibraryInstruments([...previous, ...Object.values(readRecovery().libraryEdits || {}).map(entry => entry.instrument)]));
+      if (request === instrumentListRequest.current) {
+        setInstrumentLibraryError(formatInstrumentSyncError(e));
+        replaceInstruments(previous => dedupeLibraryInstruments([...previous, ...Object.values(readRecovery().libraryEdits || {}).map(entry => entry.instrument)]));
+      }
     } finally {
       setInstrumentsLoaded(true);
     }
@@ -812,27 +822,34 @@ const useSessionManager = () => {
   }, [sessionsLoaded, instrumentsLoaded, instruments, replaceSessions, persistSessionDebounced]);
 
   const refreshInstrumentLibrary = useCallback(async () => {
-    const watched = instrumentsRef.current.filter(item => ["pending", "validated", "shared"].includes(item.scope));
-    if (!watched.length) return;
+    const request = ++instrumentListRequest.current;
+    const before = new Map(instrumentsRef.current.map(item => [String(item.id), item]));
+    const protectedIds = new Set([...instrumentSaveQueuesRef.current.keys(), ...Object.keys(readRecovery().libraryEdits || {})]);
     try {
       const { data } = await axios.get(`${UNCERTAINTY_API}/instruments/`, {
         ...instrumentRequestConfig(), params: { owner: getDeviceKey() },
       });
-      if (!Array.isArray(data)) return;
+      if (request !== instrumentListRequest.current) return;
+      if (!Array.isArray(data)) throw new Error("The library returned an incomplete instrument listing.");
+      setInstrumentLibraryError("");
+      for (const id of [...instrumentSaveQueuesRef.current.keys(), ...Object.keys(readRecovery().libraryEdits || {})]) protectedIds.add(id);
       const byId = new Map(data.map(entry => [String(entry.id), entry]));
       lastListedInstrumentIds.current = new Set(byId.keys());
       const byFormerPublication = new Map(data.filter(entry => entry.scope === "local" && entry.formerPublicationId != null)
         .map(entry => [String(entry.formerPublicationId), entry]));
       replaceInstruments(current => {
-        const next = new Map(current.map(entry => [String(entry.id), entry]));
-        for (const item of watched) {
+        const currentById = new Map(current.map(entry => [String(entry.id), entry]));
+        const next = new Map(currentById);
+        for (const item of before.values()) {
+          if (!["pending", "validated", "shared"].includes(item.scope)) continue;
           const id = String(item.id);
-          if (next.get(id) !== item) continue; // A local edit or sync finished during the read.
+          if (next.get(id) !== item || protectedIds.has(id)) continue;
           const publicId = String(item.sourceId || item.id);
           const latest = byId.get(id) || byId.get(publicId) || byFormerPublication.get(publicId);
+          if (latest && (protectedIds.has(String(latest.id)) || currentById.get(String(latest.id)) !== before.get(String(latest.id)))) continue;
           if (latest?.scope === item.scope) {
-            if (item.scope === "pending" && String(latest.id) === id && latest.reviewVersion != null &&
-              latest.reviewVersion !== item.reviewVersion) next.set(id, latest);
+            if (item.scope !== "pending" || (String(latest.id) === id && latest.reviewVersion != null &&
+              latest.reviewVersion !== item.reviewVersion)) next.set(id, latest);
             continue;
           }
           if (!latest && item.scope === "pending") continue;
@@ -840,9 +857,17 @@ const useSessionManager = () => {
           next.delete(id);
           if (latest) next.set(String(latest.id), latest);
         }
+        // Include newly discovered records, including other users' approvals.
+        // A record removed or edited during this read must keep that newer state.
+        for (const item of byId.values()) {
+          const id = String(item.id);
+          if (!before.has(id) && !next.has(id) && !protectedIds.has(id)) next.set(id, item);
+        }
         return [...next.values()];
       });
-    } catch { /* Keep the last known status until the next library open. */ }
+    } catch (error) {
+      if (request === instrumentListRequest.current) setInstrumentLibraryError(formatInstrumentSyncError(error));
+    }
   }, [replaceInstruments]);
 
   // --- 2.2 Delete Instrument ---
@@ -1550,6 +1575,7 @@ const useSessionManager = () => {
     sessions,
     sessionsLoaded,
     instruments,
+    instrumentLibraryError,
     customEquations,
     saveCustomEquation,
     deleteCustomEquation,

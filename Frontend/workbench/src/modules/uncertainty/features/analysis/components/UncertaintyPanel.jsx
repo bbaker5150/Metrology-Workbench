@@ -2011,7 +2011,7 @@ export const SyncBadge = ({ item, onSync, onDemote, onReview, allowSessionDemoti
   const icons = { red: faFileLines, orange: faUser, yellow: faClock, green: faCheckCircle };
   const labels = {
     green: "Validated shared. Right-click to make a local copy.",
-    yellow: onReview ? "Awaiting validation. Click to review and validate." : onDemote ? "Awaiting validation. Right-click to withdraw to My library." : "Awaiting validation. Submitted for SME review.",
+    yellow: onReview ? "Awaiting validation. Click to review submission." : onDemote ? "Awaiting validation. Right-click to withdraw to My library." : "Awaiting validation. Submitted for SME review.",
     orange: allowSessionDemotion ? "My library. Click to submit for SME validation. Right-click for Session only." : "My library. Click to submit for SME validation.",
     red: "Session only. Click to save to My library.",
   };

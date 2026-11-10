@@ -2244,7 +2244,7 @@ const SidebarSessionHeader = ({
   );
 };
 
-function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras = null }) {
+function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras = null, getInstrumentAccessReport = null }) {
   useSelectInputText();
   usePointBreakdownCursor();
   const confirmRecordDeletes = useConfirmRecordDeletes();
@@ -2262,6 +2262,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
     changeLibraryDrafts,
     reconcileSyncedInstrument,
     refreshInstrumentLibrary,
+    instrumentLibraryError,
     saveBugReport,
     deleteBugReport,
     deleteInstrument,
@@ -5802,6 +5803,8 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
           isOpen={isInstrumentBuilderOpen}
           onClose={() => setIsInstrumentBuilderOpen(false)}
           instruments={instruments} flushLibraryRef={flushLibraryRef}
+          loadError={instrumentLibraryError} onRefresh={refreshInstrumentLibrary}
+          getAccessReport={getInstrumentAccessReport}
           libraryDraftRows={libraryDraftRows} onChangeDrafts={changeLibraryDrafts}
           onSaveToLibrary={(instrument, options) => saveInstrument(instrument, { ...options, syncSessionId: currentSessionData?.id })}
           onDelete={deleteInstrument} onBatchAdd={handleBatchAddInstruments}

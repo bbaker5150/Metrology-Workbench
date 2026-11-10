@@ -268,6 +268,24 @@ def validate_instrument(request, instrument_id):
         return Response(serializers.instrument_to_dict(obj))
 
 
+@api_view(["POST"])
+@permission_classes([AllowAny])
+def return_instrument_review(request, instrument_id):
+    if not _can_validate(request):
+        return Response({"detail": "You do not have instrument validation access."}, status=403)
+    with transaction.atomic(using=router.db_for_write(models.Instrument)):
+        submitted = get_object_or_404(models.Instrument.objects.select_for_update(), pk=instrument_id)
+        if submitted.scope != "pending" or submitted.updated_at.isoformat() != request.data.get("reviewVersion"):
+            return Response({"detail": "This submission changed or has already been reviewed. Reopen the inbox before returning it."}, status=409)
+        # Return the reviewed server copy to its original submitter. Only the
+        # workflow state changes: never apply client specs, reassign ownership,
+        # or touch a shared instrument referenced by this private amendment.
+        submitted.scope = "local"
+        submitted.local_override = True
+        submitted.save(update_fields=["scope", "local_override", "updated_at"])
+        return Response(serializers.instrument_to_dict(submitted))
+
+
 @api_view(["DELETE"])
 @permission_classes([AllowAny])
 def instrument_detail(request, instrument_id):

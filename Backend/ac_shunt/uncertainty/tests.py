@@ -691,3 +691,138 @@ class InstrumentLibraryScopeTests(APITestCase):
         listing = self.client.get("/api/uncertainty/instruments/", {"owner": "userA"})
         ids = {i["id"] for i in listing.data}
         self.assertEqual(ids, {"v", "a"})  # validated + userA's local, not userB's
+
+
+class InstrumentReviewReturnTests(APITestCase):
+    databases = {"default", "uncertainty"}
+
+    def setUp(self):
+        self.author = get_user_model().objects.create_user(username="return-author")
+        self.client.force_authenticate(user=self.author)
+
+    def submit(self, **changes):
+        payload = {
+            "id": "return-meter", "scope": "pending", "owner": "author-bench",
+            "manufacturer": "Fluke", "model": "Submitted model", "description": "Reviewed specifications",
+            "functions": [{"name": "Flow", "unit": "gpm", "ranges": [{"min": 0, "max": 100}]}],
+            "typeBComponents": [{"id": "cal-cert", "unit": "gpm", "standardUncertainty": .001}],
+            "qualifierColumnNames": ["Mode"], "customColumns": [{"key": "interval", "label": "Interval"}],
+            **changes,
+        }
+        response = self.client.post(INSTRUMENTS, payload, format="json")
+        self.assertEqual(response.status_code, 201)
+        return response.data
+
+    def test_reviewer_returns_stored_specs_to_original_author_without_taking_ownership(self):
+        pending = self.submit()
+        reviewer = sme_client()
+        url = REVIEWS + pending["id"] + "/return/"
+        before = models.Instrument.objects.values().get(pk=pending["id"])
+        returned = reviewer.post(url, {"reviewVersion": pending["reviewVersion"], "owner": "reviewer-bench",
+                                       "model": "Unreviewed client edit", "functions": [], "scope": "validated"}, format="json")
+        self.assertEqual(returned.status_code, 200)
+        self.assertEqual(returned.data["scope"], "local")
+        self.assertTrue(returned.data["localOverride"])
+        self.assertNotIn("reviewVersion", returned.data)
+        after = models.Instrument.objects.values().get(pk=pending["id"])
+        for field, value in before.items():
+            if field not in {"scope", "local_override", "updated_at"}:
+                self.assertEqual(after[field], value, field)
+        self.assertEqual(after["review_owner"], f"user:{self.author.pk}")
+        self.assertEqual(self.client.get(INSTRUMENTS).data, [returned.data])
+        self.assertEqual(reviewer.get(INSTRUMENTS, {"owner": pending["owner"]}).data, [])
+        self.assertEqual(reviewer.get(REVIEWS).data["reviews"], [])
+        self.assertEqual(reviewer.post(REVIEWS + pending["id"] + "/validate/",
+                                       {"reviewVersion": pending["reviewVersion"]}, format="json").status_code, 404)
+        self.assertEqual(reviewer.post(url, {"reviewVersion": pending["reviewVersion"]}, format="json").status_code, 409)
+
+    def test_return_requires_current_submission_version_and_does_not_overwrite_newer_specs(self):
+        first = self.submit()
+        reviewer = sme_client()
+        url = REVIEWS + first["id"] + "/return/"
+        current = self.submit(model="Updated submission")
+        before = models.Instrument.objects.values().get(pk=first["id"])
+        for payload in ({}, {"reviewVersion": "stale"}, {"reviewVersion": first["reviewVersion"]}):
+            self.assertEqual(reviewer.post(url, payload, format="json").status_code, 409)
+            self.assertEqual(models.Instrument.objects.values().get(pk=first["id"]), before)
+        returned = reviewer.post(url, {"reviewVersion": current["reviewVersion"]}, format="json")
+        self.assertEqual(returned.status_code, 200)
+        self.assertEqual(returned.data["model"], "Updated submission")
+
+    def test_return_rejects_approved_local_and_missing_records_without_catalog_changes(self):
+        pending = self.submit()
+        reviewer = sme_client()
+        version = {"reviewVersion": pending["reviewVersion"]}
+        self.assertEqual(reviewer.post(REVIEWS + pending["id"] + "/validate/", version, format="json").status_code, 200)
+        before = models.Instrument.objects.values().get(pk=pending["id"])
+        self.assertEqual(reviewer.post(REVIEWS + pending["id"] + "/return/", version, format="json").status_code, 409)
+        self.assertEqual(models.Instrument.objects.values().get(pk=pending["id"]), before)
+        local = models.Instrument.objects.create(id="never-submitted", scope="local", owner="author-bench",
+                                                 review_owner=f"user:{self.author.pk}", model="Private")
+        self.assertEqual(reviewer.post(REVIEWS + local.id + "/return/",
+                                       {"reviewVersion": local.updated_at.isoformat()}, format="json").status_code, 409)
+        local.refresh_from_db()
+        self.assertEqual((local.scope, local.model), ("local", "Private"))
+        self.assertEqual(reviewer.post(REVIEWS + "missing/return/", version, format="json").status_code, 404)
+
+    def test_returning_an_amendment_leaves_the_shared_instrument_and_linkage_untouched(self):
+        snapshot = {"model": "Published", "functions": [{"name": "Original"}]}
+        published = models.Instrument.objects.create(id="shared-meter", scope="validated", model="Published",
+                                                     functions=snapshot["functions"], validated_snapshot=snapshot)
+        pending = self.submit(sourceId=published.id, validatedSnapshot=snapshot)
+        before = models.Instrument.objects.values().get(pk=published.id)
+        returned = sme_client().post(REVIEWS + pending["id"] + "/return/",
+                                     {"reviewVersion": pending["reviewVersion"]}, format="json")
+        self.assertEqual(returned.status_code, 200)
+        self.assertEqual(returned.data["sourceId"], published.id)
+        self.assertEqual(returned.data["validatedSnapshot"], snapshot)
+        self.assertEqual(models.Instrument.objects.values().get(pk=published.id), before)
+        self.assertEqual(models.Instrument.objects.count(), 2)
+
+    def test_author_ordinary_users_and_anonymous_clients_cannot_use_reviewer_return(self):
+        pending = self.submit()
+        ordinary = APIClient()
+        user = get_user_model().objects.create_user(username="return-ordinary")
+        user.groups.add(Group.objects.create(name="Metrology App User"))
+        ordinary.force_authenticate(user=user)
+        before = models.Instrument.objects.values().get(pk=pending["id"])
+        for client in (self.client, ordinary, APIClient()):
+            response = client.post(REVIEWS + pending["id"] + "/return/",
+                                   {"reviewVersion": pending["reviewVersion"], "owner": pending["owner"], "password": "calibrate"}, format="json")
+            self.assertEqual(response.status_code, 403)
+        self.assertEqual(models.Instrument.objects.values().get(pk=pending["id"]), before)
+
+    def test_interim_software_owner_permission_obeys_the_existing_sme_group_cutover(self):
+        owner = get_user_model().objects.create_user(username="return-software-owner")
+        owner.groups.add(Group.objects.create(name="Metrology Software Owners Backup"))
+        reviewer = APIClient()
+        reviewer.force_authenticate(user=owner)
+        pending = self.submit()
+        url = REVIEWS + pending["id"] + "/return/"
+        version = {"reviewVersion": pending["reviewVersion"]}
+        self.assertEqual(reviewer.post(url, version, format="json").status_code, 403)
+        owner.groups.add(Group.objects.create(name="Metrology Software Owners"))
+        self.assertEqual(reviewer.post(url, version, format="json").status_code, 200)
+        pending = self.submit(id="after-cutover")
+        group = Group.objects.create(name="Uncertalytics SME")
+        url = REVIEWS + pending["id"] + "/return/"
+        version = {"reviewVersion": pending["reviewVersion"]}
+        self.assertEqual(reviewer.post(url, version, format="json").status_code, 403)
+        self.assertEqual(models.Instrument.objects.get(pk=pending["id"]).scope, "pending")
+        owner.groups.add(group)
+        self.assertEqual(reviewer.post(url, version, format="json").status_code, 200)
+
+    def test_return_preserves_an_anonymous_device_submitters_private_access(self):
+        device = APIClient()
+        device.credentials(**DEVICE_AUTH)
+        pending = device.post(INSTRUMENTS, {"id": "device-meter", "scope": "pending", "owner": "device-bench"}, format="json").data
+        owner = models.Instrument.objects.get(pk=pending["id"]).review_owner
+        reviewer = sme_client()
+        returned = reviewer.post(REVIEWS + pending["id"] + "/return/",
+                                 {"reviewVersion": pending["reviewVersion"]}, format="json")
+        self.assertEqual(returned.status_code, 200)
+        self.assertTrue(owner.startswith("device:"))
+        self.assertEqual(models.Instrument.objects.get(pk=pending["id"]).review_owner, owner)
+        self.assertEqual(device.get(INSTRUMENTS, {"owner": "device-bench"}).data, [returned.data])
+        self.assertEqual(reviewer.get(INSTRUMENTS, {"owner": "device-bench"}).data, [])
+        self.assertEqual(APIClient().get(INSTRUMENTS, {"owner": "device-bench"}).data, [])
