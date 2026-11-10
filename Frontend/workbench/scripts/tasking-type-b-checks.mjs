@@ -24,11 +24,13 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
   const add = frame.getByRole("button", { name: "Add component to budget", exact: true });
   await add.first().click();
   const menu = frame.getByRole("dialog", { name: "Add component to budget", exact: true });
-  check("matching instrument tables are offered from the UUT", await menu.getByRole("button", { name: /UUT matching table/ }).count() === 1);
-  check("nonmatching instrument tables are omitted", await menu.getByRole("button", { name: /UUT nonmatching table/ }).count() === 0);
-  check("TMDE equations are available without adding its accuracy first", await menu.getByRole("button", { name: /TMDE point equation/ }).count() === 1);
-  await menu.getByRole("button", { name: /UUT matching table/ }).click();
-  await menu.getByRole("button", { name: /TMDE point equation/ }).click();
+  // Source options start with the component name; their separate Disassociate
+  // action includes that name later in its accessible label.
+  check("matching instrument tables are offered from the UUT", await menu.getByRole("button", { name: /^UUT matching table\b/ }).count() === 1);
+  check("nonmatching instrument tables are omitted", await menu.getByRole("button", { name: /^UUT nonmatching table\b/ }).count() === 0);
+  check("TMDE equations are available without adding its accuracy first", await menu.getByRole("button", { name: /^TMDE point equation\b/ }).count() === 1);
+  await menu.getByRole("button", { name: /^UUT matching table\b/ }).click();
+  await menu.getByRole("button", { name: /^TMDE point equation\b/ }).click();
   await frame.locator(".analysis-tabs").click({ position: { x: 5, y: 5 } });
   check("reusable components attach only to the selected input", await until(() => saved().testPoints[0].components.filter(c => c.associatedTypeBId).length === 2 && saved().testPoints[0].components.filter(c => c.associatedTypeBId).every(c => c.variableSymbol === "a")));
   check("instrument equation evaluates at the destination nominal", await until(async () => (await frame.locator(".budget-dynamic-row").filter({ hasText: "TMDE point equation" }).innerText()).includes("0.05")));

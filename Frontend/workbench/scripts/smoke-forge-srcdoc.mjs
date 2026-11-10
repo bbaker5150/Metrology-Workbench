@@ -471,7 +471,9 @@ if (/not set up yet/i.test(frameText)) {
   const afterHover = await remove.boundingBox();
   check('library delete button stays fixed on hover', Math.abs(beforeHover.y - afterHover.y) < 0.5);
   await specs.hover();
-  check('library specifications use the table accent highlight', await specs.evaluate(node => {
+  // Hover colors transition to the area accent; assert the completed visual
+  // state rather than sampling an interpolated color on the first frame.
+  check('library specifications use the table accent highlight', await until(() => specs.evaluate(node => {
     const style = getComputedStyle(node);
     const reference = document.createElement('span');
     reference.style.color = 'var(--function-input-accent, var(--primary-color))';
@@ -479,7 +481,7 @@ if (/not set up yet/i.test(frameText)) {
     const accent = getComputedStyle(reference).color;
     reference.remove();
     return style.color === accent && style.boxShadow !== 'none';
-  }));
+  })));
   await specs.click();
   check('library row specifications expand independently', await specs.getAttribute('aria-expanded') === 'true' && await second.locator('.instrument-library-name').count() === 1);
   await first.locator('.cell-description').hover();
