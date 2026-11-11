@@ -26,7 +26,7 @@ export default function LibraryInstrumentRow({ instrument, selected, onSelect, o
     setSaving(true); setError("");
     try {
       const normalized = { ...value, scope: value.scope === "shared" ? "validated" : value.scope };
-      const local = localizeSharedInstrumentEdit({ instrument: normalized }, [instrument]).instrument;
+      const local = localizeSharedInstrumentEdit({ instrument: normalized }, [instrument], { libraryMode: true }).instrument;
       await onSave({ ...local, type: "library" }, { requireSaved: true });
       setDraft(null); setEditing(null);
     } catch (failure) { setError(failure.message || "Could not save instrument. Try again."); }

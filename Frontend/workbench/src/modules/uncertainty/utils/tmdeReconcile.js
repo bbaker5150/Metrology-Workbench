@@ -126,9 +126,31 @@ const firstPresent = (...values) =>
   values.find((value) => value !== undefined && value !== null && value !== "");
 
 const findMasterForInstance = (instance, masterTmdes = []) => {
+  // A session row reference takes precedence over an embedded definition that
+  // several sibling rows may share.
+  for (const id of identityCandidates(instance)) {
+    const master = (masterTmdes || []).find(candidate => candidate?.id != null && String(candidate.id) === String(id));
+    if (master) return master;
+  }
   return (masterTmdes || []).find(
     (master) => tmdeInstanceMatchesMaster(instance, master),
   );
+};
+
+/** Retain legacy point links before a session master gets a new definition ID. */
+export const rebindTmdeInstancesToMaster = (
+  instances,
+  previousMaster,
+  updatedMaster,
+  previousMasters = [previousMaster],
+) => {
+  if (!Array.isArray(instances) || previousMaster?.id == null || updatedMaster?.id == null ||
+      previousMaster.instrument?.id === updatedMaster.instrument?.id) return instances;
+  return instances.map(instance => {
+    const master = findMasterForInstance(instance, previousMasters);
+    if (!master || String(master.id) !== String(previousMaster.id) || instance.sourceId === updatedMaster.id) return instance;
+    return { ...instance, sourceId: updatedMaster.id };
+  });
 };
 
 const nestedToleranceOf = (instance = {}) => {

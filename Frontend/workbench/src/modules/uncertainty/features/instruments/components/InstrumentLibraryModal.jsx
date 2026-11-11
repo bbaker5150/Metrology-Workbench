@@ -444,7 +444,7 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
     {loadError && <div className="instrument-library-save-error"><span role="alert">Could not refresh the instrument library. Displayed instruments may be incomplete.</span><button onClick={() => showLoadError("Could not load instrument library", loadError)}>Error details</button><button onClick={onRefresh}>Retry library</button></div>}
     {reviewState.error && <div className="instrument-library-save-error"><span role="alert">Could not load validation inbox.</span><button onClick={() => showLoadError("Could not load validation inbox", reviewState.error)}>Error details</button><button onClick={() => setReviewAttempt(count => count + 1)}>Retry inbox</button></div>}
     {!reviewing && error && <div className="instrument-library-save-error"><span role="alert">{error}</span><button onClick={() => [...failed.current.values()].forEach(enqueue)}>Retry save</button></div>}
-    <UncertaintyPanel key={displayedSession.id} libraryMode libraryReviewMode={reviewing}
+    <UncertaintyPanel key={displayedSession.id} libraryMode libraryReviewMode={reviewing} canDemoteSharedInstruments={reviewState.canValidate}
       libraryEmptyMessage={reviewing ? (reviewState.reviews.length ? "No instruments match your search." : "No instruments are awaiting validation.") : undefined}
       testPointData={libraryPoint} sessionData={displayedSession}
       libraryExpandedIds={expandedIds} libraryActiveId={activeId} onLibraryExpand={id => { setActiveId(id); setExpandedIds(previous => previous.includes(id) ? previous : [...previous, id]); }}

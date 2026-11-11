@@ -1472,6 +1472,80 @@ describe('reviewer returns to the original submitter', () => {
   });
 });
 
+describe('lightweight instrument review access', () => {
+  it.each(['Metrology App User','Metrology Software Owners'])('blocks explicit shared demotion by %s after access has ended without writing', async group => {
+    http.on(/currentuser\/groups/, {json:{value:[{Title:group}]}});
+    if(group==='Metrology Software Owners') {
+      http.on(/web\/sitegroups/, {json:{value:[]}});
+      expect(await store.instrumentReviewAccess()).toEqual({canValidate:true});
+    }
+    http.on(/web\/sitegroups/, {json:{value:[{Title:'Uncertalytics SME'}]}});
+    await expect(store.saveInstrument({id:'local-copy',sourceId:'shared',scope:'local',action:'demote-shared'})).rejects.toMatchObject({status:403});
+    expect(http.calls.every(call=>call.method==='GET')).toBe(true);
+    expect(http.find(/\/items/)).toEqual([]);
+  });
+
+  it('rechecks reviewer list permissions before explicit shared demotion', async () => {
+    http.on(/currentuser\/groups/, {json:{value:[{Title:'Uncertalytics SME'}]}});
+    http.on(/InstrumentDrafts'\)\/EffectiveBasePermissions/, {json:{Low:'1',High:'0'}});
+    await expect(store.saveInstrument({id:'local-copy',sourceId:'shared',scope:'local',action:'demote-shared'})).rejects.toMatchObject({status:403});
+    expect(http.calls.every(call=>call.method==='GET')).toBe(true);
+    expect(http.find(/\/items/)).toEqual([]);
+  });
+
+  it('lets an eligible reviewer demote to a private copy and never persists the action marker', async () => {
+    http.on(/currentuser\/groups/, {json:{value:[{Title:'Uncertalytics SME'}]}});
+    const local=await store.saveInstrument({id:'local-copy',sourceId:'shared',scope:'local',action:'demote-shared',model:'Copied specs'});
+    expect(local).toEqual({id:'local-copy',sourceId:'shared',scope:'local',model:'Copied specs',owner:'sharepoint-user:41'});
+    expect(JSON.parse(draftRows[0].PayloadJson)).toEqual(local);
+    expect(http.calls.some(call=>call.method==='POST' && call.url.includes('PublishedInstruments'))).toBe(false);
+  });
+
+  it('keeps ordinary edited Session-to-Local saves available without reviewer access', async () => {
+    http.on(/currentuser\/groups/, {json:{value:[{Title:'Metrology App User'}]}});
+    const local=await store.saveInstrument({id:'edited-session',sourceId:'shared',scope:'local',model:'Edited specs'});
+    expect(local).toMatchObject({id:'edited-session',scope:'local',model:'Edited specs'});
+    expect(http.find(/currentuser\/groups/)).toEqual([]);
+    expect(http.find(/EffectiveBasePermissions/)).toEqual([]);
+  });
+
+  it.each(['Metrology App User','Metrology App Users'])('returns false for %s without reading instruments or list permissions', async group => {
+    http.on(/currentuser\/groups/, {json:{value:[{Title:group}]}});
+    expect(await store.instrumentReviewAccess()).toEqual({canValidate:false});
+    expect(http.calls.every(call=>call.method==='GET' && call.url.includes('currentuser/groups'))).toBe(true);
+  });
+
+  it.each(['Uncertalytics SME','Metrology Software Owners'])('checks effective Drafts permissions for %s without loading the inbox', async group => {
+    http.on(/currentuser\/groups/, {json:{value:[{Title:group}]}});
+    http.on(/web\/sitegroups/, {json:{value:[]}});
+    expect(await store.instrumentReviewAccess()).toEqual({canValidate:true});
+    expect(http.find(/InstrumentDrafts'\)\/EffectiveBasePermissions/)).toHaveLength(1);
+    expect(http.calls.every(call=>call.method==='GET')).toBe(true);
+    expect(http.calls.some(call=>/\/items|PayloadJson|SubmittedJson|\/fields/.test(call.url))).toBe(false);
+  });
+
+  it('ends interim Owners access when the SME group exists without querying list permissions', async () => {
+    http.on(/currentuser\/groups/, {json:{value:[{Title:'Metrology Software Owners'}]}});
+    http.on(/web\/sitegroups/, {json:{value:[{Title:'Uncertalytics SME'}]}});
+    expect(await store.instrumentReviewAccess()).toEqual({canValidate:false});
+    expect(http.find(/EffectiveBasePermissions/)).toEqual([]);
+  });
+
+  it('surfaces missing Manage Lists instead of incorrectly granting reviewer capability', async () => {
+    http.on(/currentuser\/groups/, {json:{value:[{Title:'Uncertalytics SME'}]}});
+    http.on(/InstrumentDrafts'\)\/EffectiveBasePermissions/, {json:{Low:'1',High:'0'}});
+    await expect(store.instrumentReviewAccess()).rejects.toMatchObject({status:403,message:expect.stringMatching(/Manage Lists.*Instrument Drafts/)});
+    expect(http.find(/\/items/)).toEqual([]);
+  });
+
+  it('preserves failed permission request details and fails closed', async () => {
+    http.on(/currentuser\/groups/, {json:{value:[{Title:'Uncertalytics SME'}]}});
+    http.on(/InstrumentDrafts'\)\/EffectiveBasePermissions/, {status:503,headers:{SPRequestGuid:'cd4f4da2-60a5-0000-45c4-47174c14a717'}});
+    await expect(store.instrumentReviewAccess()).rejects.toMatchObject({status:503,requestId:'cd4f4da2-60a5-0000-45c4-47174c14a717'});
+    expect(http.find(/\/items/)).toEqual([]);
+  });
+});
+
 describe('instrument access diagnostics and reviewer visibility', () => {
   const settings = {
     instruments: { suffix: 'Instruments', title: 'Uncertalytics - Instruments', ReadSecurity: 2, WriteSecurity: 4 },

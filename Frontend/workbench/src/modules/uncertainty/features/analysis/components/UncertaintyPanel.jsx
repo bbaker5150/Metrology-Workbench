@@ -128,6 +128,7 @@ import { getInstrumentRangeRows, isDraftInstrumentRange } from "../../../utils/i
 import { getAnchoredMenuPlacement, getDocumentZoom } from "../../../utils/anchoredMenuPosition";
 import { rankUnitOptions } from "../../../utils/unitSearch";
 import {
+  rebindTmdeInstancesToMaster,
   refreshTmdeInstancesFromMasters,
   tmdeInstanceMatchesMaster,
 } from "../../../utils/tmdeReconcile";
@@ -2006,11 +2007,11 @@ const applyBandDistribution = (tolerance = {}, value) => {
   return next;
 };
 
-export const SyncBadge = ({ item, onSync, onDemote, onReview, allowSessionDemotion = true }) => {
+export const SyncBadge = ({ item, onSync, onDemote, onReview, allowSessionDemotion = true, canDemoteSharedInstruments = false }) => {
   const state = computeSyncState(item?.instrument || item || {});
   const icons = { red: faFileLines, orange: faUser, yellow: faClock, green: faCheckCircle };
   const labels = {
-    green: "Validated shared. Right-click to make a local copy.",
+    green: canDemoteSharedInstruments ? "Validated shared. Right-click to make a local copy." : "Validated shared.",
     yellow: onReview ? "Awaiting validation. Click to review submission." : onDemote ? "Awaiting validation. Right-click to withdraw to My library." : "Awaiting validation. Submitted for SME review.",
     orange: allowSessionDemotion ? "My library. Click to submit for SME validation. Right-click for Session only." : "My library. Click to submit for SME validation.",
     red: "Session only. Click to save to My library.",
@@ -2022,7 +2023,7 @@ export const SyncBadge = ({ item, onSync, onDemote, onReview, allowSessionDemoti
     click?.(item.instrument || item);
   }} onContextMenu={event => {
     event.preventDefault(); event.stopPropagation();
-    if (state === "green" || state === "yellow" || (state === "orange" && allowSessionDemotion)) onDemote?.();
+    if ((state === "green" && canDemoteSharedInstruments) || state === "yellow" || (state === "orange" && allowSessionDemotion)) onDemote?.();
   }} disabled={!onSync && !onDemote && !onReview} title={label} aria-label={label}>
     <FontAwesomeIcon icon={icons[state]} />
   </button>;
@@ -6485,10 +6486,9 @@ const replaceSessionDefinitionIdentity = (item, definition) => {
 };
 
 // Inline table edits must never attempt to mutate the canonical shared record.
-// Fork a validated definition into a linked local copy before the edit enters
-// the session/local-library persistence pipeline. The original shared snapshot
-// remains available for diffing and an explicit future Sync action.
-export const localizeSharedInstrumentEdit = (item = {}, library = []) => {
+// Session edits fork a session-only definition. Editing in the library creates
+// a private Local copy. Both retain the shared origin for a later submission.
+export const localizeSharedInstrumentEdit = (item = {}, library = [], { libraryMode = false } = {}) => {
   const definition = item?.instrument || {};
   if (definition.scope === "session") return item;
   if (!definition.scope && !isValidatedLinked(definition) && !item.libraryInstrumentId && !definition.libraryInstrumentId &&
@@ -6506,7 +6506,7 @@ export const localizeSharedInstrumentEdit = (item = {}, library = []) => {
       if (!fieldsChanged && !metadataChanged) return item;
     }
   }
-  if (definition.scope !== "validated") return definition.id && definition.scope === "local" ? item : {
+  if (!["validated", "shared"].includes(definition.scope)) return definition.id && definition.scope === "local" ? item : {
     ...item, instrument: { ...definition, id: definition.id || item.libraryInstrumentId || item.id || uuidv4(), scope: "local" },
   };
 
@@ -6517,17 +6517,16 @@ export const localizeSharedInstrumentEdit = (item = {}, library = []) => {
     definition.id;
   const sharedDefinition = (library || []).find(
     (candidate) =>
-      candidate?.scope === "validated" && sameId(candidate.id, sourceId),
+      ["validated", "shared"].includes(candidate?.scope) && sameId(candidate.id, sourceId),
   );
-  const localDefinitionId = sameId(definition.id, sourceId)
-    ? uuidv4()
-    : definition.id || uuidv4();
+  const localDefinitionId = uuidv4();
 
   return replaceSessionDefinitionIdentity(item, {
       ...definition,
       id: localDefinitionId,
       libraryInstrumentId: localDefinitionId,
-      scope: "local",
+      scope: libraryMode ? "local" : "session",
+      ...(!libraryMode && { owner: "" }),
       sourceId,
       validatedSnapshot:
         definition.validatedSnapshot ||
@@ -7105,6 +7104,7 @@ const cancelReviewDrag = event => {
 
 // --- UPDATED: SUMMARY DASHBOARD ---
 const SummaryDashboard = ({
+  canDemoteSharedInstruments = false,
   libraryMode = false,
   libraryReviewMode = false,
   libraryEmptyMessage,
@@ -7188,7 +7188,7 @@ const SummaryDashboard = ({
     [summaryFunctionColorByKey],
   );
   const { syncToShared, withdrawToLocal, getDiff } = useInstrumentSync(onInstrumentSynced);
-  const renderTmdeSyncBadge = item => <SyncBadge item={item} onReview={onReviewSubmission}
+  const renderTmdeSyncBadge = item => <SyncBadge canDemoteSharedInstruments={canDemoteSharedInstruments} item={item} onReview={onReviewSubmission}
     allowSessionDemotion={!libraryMode} onSync={libraryReviewMode ? undefined : () => handleSyncItem("tmde", item)}
     onDemote={libraryReviewMode ? undefined : () => handleDemoteItem("tmde", item)} />;
   const libraryColumnItems = libraryMode ? sessionData.tmdes.filter(item => libraryExpandedIds.includes(item.id))
@@ -7405,13 +7405,16 @@ const SummaryDashboard = ({
       const current = (latestSessionDataRef.current[kind === "uut" ? "uuts" : "tmdes"] || []).find(row => sameId(row.id, item.id));
       if (!current) return;
       const definition = itemInstrumentForLibrary(kind, current);
+      if (scope === "local" && ["shared", "validated"].includes(definition.scope) && !canDemoteSharedInstruments) {
+        throw new Error("SME access is required to make a Local copy of a shared instrument.");
+      }
       if (item.instrument?.scope === "pending" && definition.scope !== "pending") throw new Error("This instrument is no longer awaiting validation. Refresh the library to see its current Status.");
       // Demotion removes the local library entry before detaching this session.
       // Other sessions retain their embedded specifications.
-      let id = scope === "session" || definition.scope === "validated" ? uuidv4() : definition.id;
+      let id = scope === "session" || ["shared", "validated"].includes(definition.scope) ? uuidv4() : definition.id;
       const nextDefinition = { ...definition, id, libraryInstrumentId: id, scope, localOverride: true,
-        sourceId: definition.sourceId || (definition.scope === "validated" ? definition.id : undefined),
-        validatedSnapshot: definition.validatedSnapshot || (definition.scope === "validated" ? buildValidatedSnapshot(definition) : null) };
+        sourceId: definition.sourceId || (["shared", "validated"].includes(definition.scope) ? definition.id : undefined),
+        validatedSnapshot: definition.validatedSnapshot || (["shared", "validated"].includes(definition.scope) ? buildValidatedSnapshot(definition) : null) };
       if (scope === "local") {
         if (definition.scope === "pending") {
           const result = await withdrawToLocal(definition);
@@ -7420,7 +7423,9 @@ const SummaryDashboard = ({
           id = result.instrument.id;
         } else {
           if (!onSaveInstrument) throw new Error("Saving to the local instrument library is unavailable in this view.");
-          const saved = await onSaveInstrument(nextDefinition, { requireSaved: true });
+          const payload = ["shared", "validated"].includes(definition.scope)
+            ? { ...nextDefinition, action: "demote-shared" } : nextDefinition;
+          const saved = await onSaveInstrument(payload, { requireSaved: true });
           id = saved?.id || id;
         }
       }
@@ -7550,14 +7555,17 @@ const SummaryDashboard = ({
   // per-point config (range index, quantity, asset id, variable, reading) is
   // preserved; only the spec carried from the master is refreshed.
   const refreshSessionPointsForTmde = (
+    previousItem,
     updatedItem,
     points = sessionData.testPoints || [],
+    previousMasters = sessionData.tmdes || [],
   ) => {
     if (!updatedItem) return points;
     return points.map((point) => {
       const instances = point.tmdeTolerances;
       if (!Array.isArray(instances) || instances.length === 0) return point;
-      const refreshed = refreshTmdeInstancesFromMasters(instances, [updatedItem]);
+      const rebound = rebindTmdeInstancesToMaster(instances, previousItem, updatedItem, previousMasters);
+      const refreshed = refreshTmdeInstancesFromMasters(rebound, [updatedItem]);
       const nextInstances = refreshed.map((instance, index) => {
         const previous = instances[index];
         if (!previous || instance === previous) return instance;
@@ -7577,7 +7585,7 @@ const SummaryDashboard = ({
               : measurementPoint,
         };
       });
-      const touched = instances.some(
+      const touched = rebound.some(
         (instance) => instance && tmdeInstanceMatchesMaster(instance, updatedItem),
       );
       return touched ? { ...point, tmdeTolerances: nextInstances } : point;
@@ -7586,7 +7594,7 @@ const SummaryDashboard = ({
 
   const persistInlineItem = (kind, updatedItem, { maybePromptLocal = false, skipLibrarySave = false } = {}) => {
     const currentSession = latestSessionDataRef.current;
-    const localizedItem = localizeSharedInstrumentEdit(updatedItem, instruments);
+    const localizedItem = localizeSharedInstrumentEdit(updatedItem, instruments, { libraryMode });
     const synchronized = synchronizeLocalInstrumentDefinitions(
       currentSession,
       localizedItem,
@@ -7610,7 +7618,7 @@ const SummaryDashboard = ({
         (item) => String(item.id) === String(nextItem.id),
       );
       if (previousItem && previousItem !== nextItem) {
-        nextTestPoints = refreshSessionPointsForTmde(nextItem, nextTestPoints);
+        nextTestPoints = refreshSessionPointsForTmde(previousItem, nextItem, nextTestPoints, currentSession.tmdes);
       }
     });
     if (kind === "tmde") {
@@ -9648,7 +9656,7 @@ const SummaryDashboard = ({
             {renderSpecificationsButton(kind, item)}
           </div>
         </td>
-        <td className="cell-sync"><SyncBadge item={item} onSync={() => handleSyncItem(kind, item)} onDemote={() => handleDemoteItem(kind, item)} /></td>
+        <td className="cell-sync"><SyncBadge canDemoteSharedInstruments={canDemoteSharedInstruments} item={item} onSync={() => handleSyncItem(kind, item)} onDemote={() => handleDemoteItem(kind, item)} /></td>
       </tr>
     </React.Fragment>;
   };
@@ -9898,7 +9906,7 @@ const SummaryDashboard = ({
                                   style={{ textAlign: "center" }}
                                 >
                                   <div className="instrument-row-tools">
-                                    <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} onDemote={() => handleDemoteItem("uut", uut)} />
+                                    <SyncBadge canDemoteSharedInstruments={canDemoteSharedInstruments} item={uut} onSync={() => handleSyncItem("uut", uut)} onDemote={() => handleDemoteItem("uut", uut)} />
                                   </div>
                                 </td>
                               )}
@@ -10159,7 +10167,7 @@ const SummaryDashboard = ({
                           style={{ textAlign: "center" }}
                         >
                           <div className="instrument-row-tools">
-                            <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} onDemote={() => handleDemoteItem("uut", uut)} />
+                            <SyncBadge canDemoteSharedInstruments={canDemoteSharedInstruments} item={uut} onSync={() => handleSyncItem("uut", uut)} onDemote={() => handleDemoteItem("uut", uut)} />
                           </div>
                         </td>
                       </tr>
@@ -10826,6 +10834,7 @@ const DetailWorkspaceSectionToggle = ({
 );
 
 function DetailedView({
+  canDemoteSharedInstruments = false,
   testPointData,
   sessionData,
   onSessionSave,
@@ -11697,13 +11706,16 @@ function DetailedView({
       const current = (latestSessionDataRef.current[kind === "uut" ? "uuts" : "tmdes"] || []).find(row => sameId(row.id, item.id));
       if (!current) return;
       const definition = itemInstrumentForLibrary(kind, current);
+      if (scope === "local" && ["shared", "validated"].includes(definition.scope) && !canDemoteSharedInstruments) {
+        throw new Error("SME access is required to make a Local copy of a shared instrument.");
+      }
       if (item.instrument?.scope === "pending" && definition.scope !== "pending") throw new Error("This instrument is no longer awaiting validation. Refresh the library to see its current Status.");
       // Demotion removes the local library entry before detaching this session.
       // Other sessions retain their embedded specifications.
-      let id = scope === "session" || definition.scope === "validated" ? uuidv4() : definition.id;
+      let id = scope === "session" || ["shared", "validated"].includes(definition.scope) ? uuidv4() : definition.id;
       const nextDefinition = { ...definition, id, libraryInstrumentId: id, scope, localOverride: true,
-        sourceId: definition.sourceId || (definition.scope === "validated" ? definition.id : undefined),
-        validatedSnapshot: definition.validatedSnapshot || (definition.scope === "validated" ? buildValidatedSnapshot(definition) : null) };
+        sourceId: definition.sourceId || (["shared", "validated"].includes(definition.scope) ? definition.id : undefined),
+        validatedSnapshot: definition.validatedSnapshot || (["shared", "validated"].includes(definition.scope) ? buildValidatedSnapshot(definition) : null) };
       if (scope === "local") {
         if (definition.scope === "pending") {
           const result = await withdrawToLocal(definition);
@@ -11712,7 +11724,9 @@ function DetailedView({
           id = result.instrument.id;
         } else {
           if (!onSaveInstrument) throw new Error("Saving to the local instrument library is unavailable in this view.");
-          const saved = await onSaveInstrument(nextDefinition, { requireSaved: true });
+          const payload = ["shared", "validated"].includes(definition.scope)
+            ? { ...nextDefinition, action: "demote-shared" } : nextDefinition;
+          const saved = await onSaveInstrument(payload, { requireSaved: true });
           id = saved?.id || id;
         }
       }
@@ -11812,7 +11826,7 @@ function DetailedView({
     );
     saveItemInstrumentToLocalLibrary(kind, item);
   };
-  const refreshPointTmdeInstance = (updatedItem, { reselectRange = false } = {}) => {
+  const refreshPointTmdeInstance = (updatedItem, { reselectRange = false, previousItem, previousMasters } = {}) => {
     if (!onUpdateTestPoint || !updatedItem) return;
     // When the underlying instrument is swapped wholesale (library pick), the old
     // instance's range index no longer maps to the new range list — pick a range
@@ -11826,7 +11840,7 @@ function DetailedView({
           isDerived ? null : uutNominal,
         ).activeIndex
       : null;
-    const currentInstances = tmdeTolerancesData || [];
+    const currentInstances = rebindTmdeInstancesToMaster(tmdeTolerancesData || [], previousItem, updatedItem, previousMasters);
     const instancesForRefresh = reselectRange
       ? currentInstances.map((instance) =>
           tmdeInstanceMatchesMaster(instance, updatedItem)
@@ -11896,6 +11910,11 @@ function DetailedView({
     };
     // Refresh every associated point, including points that have not been opened.
     nextSession.testPoints = nextSession.testPoints.map(point => {
+      if (kind === "tmde") {
+        const previous = currentSession.tmdes.find(item => sameId(item.id, synchronizedItem.id));
+        const rebound = rebindTmdeInstancesToMaster(point.tmdeTolerances, previous, synchronizedItem, currentSession.tmdes);
+        if (rebound !== point.tmdeTolerances) return { ...point, tmdeTolerances: refreshTmdeInstancesFromMasters(rebound, [synchronizedItem]) };
+      }
       const updated = synchronized.uuts.find(item => pointUsesUut(point, item.id) &&
         currentSession.uuts?.find(previous => sameId(previous.id, item.id)) !== item);
       if (!updated) return point;
@@ -11920,7 +11939,7 @@ function DetailedView({
         (item) => String(item.id) === String(nextItem.id),
       );
       if (previousItem && previousItem !== nextItem) {
-        refreshPointTmdeInstance(nextItem);
+        refreshPointTmdeInstance(nextItem, { previousItem, previousMasters: currentSession.tmdes });
       }
     });
   };
@@ -13288,7 +13307,7 @@ function DetailedView({
             {renderSpecificationsButton(kind, item)}
           </div>
         </td>
-        <td className="cell-sync"><SyncBadge item={item} onSync={() => handleSyncItem(kind, item)} onDemote={() => handleDemoteItem(kind, item)} /></td>
+        <td className="cell-sync"><SyncBadge canDemoteSharedInstruments={canDemoteSharedInstruments} item={item} onSync={() => handleSyncItem(kind, item)} onDemote={() => handleDemoteItem(kind, item)} /></td>
       </tr>
     </React.Fragment>;
   };
@@ -16124,7 +16143,7 @@ function DetailedView({
                                   style={{ textAlign: "center" }}
                                 >
                                   <div className="instrument-row-tools">
-                                    <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} onDemote={() => handleDemoteItem("uut", uut)} />
+                                    <SyncBadge canDemoteSharedInstruments={canDemoteSharedInstruments} item={uut} onSync={() => handleSyncItem("uut", uut)} onDemote={() => handleDemoteItem("uut", uut)} />
                                   </div>
                                 </td>
                               )}
@@ -16405,7 +16424,7 @@ function DetailedView({
                           style={{ textAlign: "center" }}
                         >
                           <div className="instrument-row-tools">
-                            <SyncBadge item={uut} onSync={() => handleSyncItem("uut", uut)} onDemote={() => handleDemoteItem("uut", uut)} />
+                            <SyncBadge canDemoteSharedInstruments={canDemoteSharedInstruments} item={uut} onSync={() => handleSyncItem("uut", uut)} onDemote={() => handleDemoteItem("uut", uut)} />
                           </div>
                         </td>
                       </tr>
@@ -16922,7 +16941,7 @@ function DetailedView({
                                       style={{ textAlign: "center" }}
                                     >
                                       <div className="instrument-row-tools">
-                                        <SyncBadge
+                                        <SyncBadge canDemoteSharedInstruments={canDemoteSharedInstruments}
                                           item={masterTmde}
                                           onSync={() => handleSyncItem("tmde", masterTmde)} onDemote={() => handleDemoteItem("tmde", masterTmde)}
                                         />
@@ -17338,7 +17357,7 @@ function DetailedView({
                               style={{ textAlign: "center" }}
                             >
                               <div className="instrument-row-tools">
-                                <SyncBadge item={masterTmde} onSync={() => handleSyncItem("tmde", masterTmde)} onDemote={() => handleDemoteItem("tmde", masterTmde)} />
+                                <SyncBadge canDemoteSharedInstruments={canDemoteSharedInstruments} item={masterTmde} onSync={() => handleSyncItem("tmde", masterTmde)} onDemote={() => handleDemoteItem("tmde", masterTmde)} />
                               </div>
                             </td>
                           </tr>
@@ -17527,6 +17546,7 @@ const UncertaintyPanel = (props) => {
   if (viewMode !== "point") {
     return (
       <SummaryDashboard
+        canDemoteSharedInstruments={props.canDemoteSharedInstruments}
         libraryMode={props.libraryMode}
         libraryReviewMode={props.libraryReviewMode}
         libraryEmptyMessage={props.libraryEmptyMessage}

@@ -184,6 +184,10 @@ def instruments(request):
     data = request.data
     if not data.get("id"):
         return Response({"detail": "An instrument ID is required."}, status=400)
+    if data.get("action") == "demote-shared":
+        if not _can_validate(request):
+            return Response({"detail": "You do not have instrument validation access."}, status=403)
+        data = {key: value for key, value in data.items() if key != "action"}
     requested_scope = data.get("scope")
     if requested_scope == "validated":
         return Response({"detail": "Submit a local copy for SME validation."}, status=403)
@@ -225,6 +229,13 @@ def instruments(request):
         if legacy_id:
             result["legacyLocalId"] = legacy_id
         return Response(result, status=status.HTTP_201_CREATED)
+
+
+@api_view(["GET"])
+@permission_classes([AllowAny])
+def instrument_review_access(request):
+    """Expose reviewer eligibility without loading private submissions."""
+    return Response({"canValidate": _can_validate(request)})
 
 
 @api_view(["GET"])

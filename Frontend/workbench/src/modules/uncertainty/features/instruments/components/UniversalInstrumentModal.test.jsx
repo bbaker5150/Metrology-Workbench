@@ -4,6 +4,7 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { beforeAll, beforeEach, describe, expect, test, vi } from "vitest";
 import axios from "axios";
 import UniversalInstrumentModal from "./UniversalInstrumentModal";
+import { buildValidatedSnapshot } from "../../../utils/instrumentSync";
 
 vi.mock("axios", () => ({
   default: {
@@ -733,11 +734,12 @@ describe("UniversalInstrumentModal library synchronization", () => {
     expect(props.onSave).not.toHaveBeenCalled();
   });
 
-  test("submits edited specifications and links the session to the pending record", async () => {
-    const submitted = { ...libraryInstrument, id: "pending-1", scope: "pending", sourceId: libraryInstrument.id };
+  test("submits edited Local specifications when explicitly requested and links the session to the pending record", async () => {
+    const local = { ...libraryInstrument, scope: "local", sourceId: "shared-origin" };
+    const submitted = { ...local, id: "pending-1", scope: "pending" };
     axios.post.mockResolvedValueOnce({ data: submitted });
     const onInstrumentSynced = vi.fn();
-    const props = renderModal({ onInstrumentSynced, instruments: [{ ...libraryInstrument, scope: "validated" }] });
+    const props = renderModal({ onInstrumentSynced, instruments: [local] });
 
     changeResolution("0.01");
     fireEvent.click(screen.getByRole("button", { name: /Save configuration/i }));
@@ -745,14 +747,14 @@ describe("UniversalInstrumentModal library synchronization", () => {
 
     await waitFor(() => expect(axios.post).toHaveBeenCalledWith(
       expect.stringContaining("/instruments/"), expect.objectContaining({
-        id: expect.not.stringMatching(/^library-1$/), scope: "pending", sourceId: libraryInstrument.id,
+        id: libraryInstrument.id, scope: "pending", sourceId: "shared-origin",
         functions: [expect.objectContaining({ ranges: [expect.objectContaining({ resolution: "0.01" })] })],
       }), expect.any(Object)));
     expect(axios.post.mock.calls[0][1]).not.toHaveProperty("password");
     expect(onInstrumentSynced).toHaveBeenCalledWith(submitted);
     expect(props.onSave).toHaveBeenCalledWith(expect.objectContaining({
       libraryInstrumentId: submitted.id,
-      instrument: expect.objectContaining({ libraryInstrumentId: submitted.id, scope: "pending", sourceId: libraryInstrument.id }),
+      instrument: expect.objectContaining({ libraryInstrumentId: submitted.id, scope: "pending", sourceId: "shared-origin" }),
     }));
     expect(props.onSaveToLibrary).not.toHaveBeenCalled();
   });
@@ -790,6 +792,55 @@ describe("UniversalInstrumentModal library synchronization", () => {
         localOverride: true,
       }),
     );
+  });
+
+  test.each([['uut', 'validated'], ['tmde', 'validated'], ['uut', 'shared'], ['tmde', 'shared']])(
+    'defaults edited %s %s specifications to an independent Session definition without a library write', (mode, scope) => {
+      const shared = { ...libraryInstrument, scope };
+      const before = JSON.parse(JSON.stringify(shared));
+      const props = renderModal({ mode, instruments: [shared], initialData: {
+        ...sessionTmde, instrument: shared,
+      } });
+      changeResolution('0.02');
+      expect(screen.getByLabelText('Instrument source: Session')).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: 'Save configuration' }));
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+      expect(props.onSave).toHaveBeenCalledTimes(1);
+      const saved = props.onSave.mock.calls[0][0];
+      expect(saved.id).toBe(sessionTmde.id);
+      expect(saved.instrument).toMatchObject({ scope: 'session', sourceId: shared.id, owner: '', localOverride: true,
+        validatedSnapshot: buildValidatedSnapshot(shared) });
+      expect(saved.instrument.id).not.toBe(shared.id);
+      expect(saved.libraryInstrumentId).toBe(saved.instrument.id);
+      expect(saved.instrument.libraryInstrumentId).toBe(saved.instrument.id);
+      expect(saved.instrument.functions[0].ranges[0].resolution).toBe('0.02');
+      expect(shared).toEqual(before);
+      expect(props.onSaveToLibrary).not.toHaveBeenCalled();
+      expect(axios.post).not.toHaveBeenCalled();
+    },
+  );
+
+  test('a shared instrument name edit defaults to Session even when the catalog is unavailable', () => {
+    const shared = { ...libraryInstrument, scope: 'validated' };
+    const props = renderModal({ instruments: [], initialData: { ...sessionTmde, instrument: shared } });
+    fireEvent.change(document.querySelectorAll('.identity-grid input')[2], { target: { value: 'Session label' } });
+    expect(screen.getByLabelText('Instrument source: Session')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Save configuration' }));
+    const saved = props.onSave.mock.calls[0][0];
+    expect(saved.instrument).toMatchObject({ scope: 'session', description: 'Session label',
+      sourceId: shared.id, validatedSnapshot: buildValidatedSnapshot(shared) });
+    expect(saved.instrument.id).not.toBe(shared.id);
+    expect(props.onSaveToLibrary).not.toHaveBeenCalled();
+    expect(axios.post).not.toHaveBeenCalled();
+  });
+
+  test.each([true, false])('keeps an untouched shared instrument validated when the catalog is available=%s', available => {
+    const shared = { ...libraryInstrument, scope: 'validated' };
+    const props = renderModal({ instruments: available ? [shared] : [], initialData: { ...sessionTmde, instrument: shared } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save configuration' }));
+    expect(props.onSave.mock.calls[0][0].instrument).toMatchObject({ id: shared.id, scope: 'validated' });
+    expect(props.onSaveToLibrary).not.toHaveBeenCalled();
+    expect(axios.post).not.toHaveBeenCalled();
   });
 });
 

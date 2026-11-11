@@ -111,6 +111,7 @@ function Analysis({
   onSaveInstrument,
   onDeleteLibraryInstrument,
   onInstrumentSynced,
+  canDemoteSharedInstruments = false,
   customEquations = [],
   onSaveCustomEquation,
   onDeleteCustomEquation,
@@ -993,6 +994,7 @@ function Analysis({
           >
             {analysisMode === "notes" ? notesWorkspace : (
               <UncertaintyPanel
+                canDemoteSharedInstruments={canDemoteSharedInstruments}
                 showToast={showToast}
             // Data
             testPointData={testPointData}
@@ -1047,6 +1049,7 @@ function Analysis({
 
             {analysisMode === "overview" && (
               <UncertaintyPanel
+                canDemoteSharedInstruments={canDemoteSharedInstruments}
                 showToast={showToast}
                 testPointData={{ viewMode: "session", id: sessionData.id }}
                 sessionData={sessionData}
@@ -1081,6 +1084,7 @@ function Analysis({
                 uut={sessionData.uuts?.find(uut => String(uut.id) === String(testPointData.activeUutId ?? testPointData.associatedUutIds?.[0]))}
                 point={testPointData} onChange={uutTolerance => onDataSave({ uutTolerance })} />}
               <UncertaintyPanel
+                canDemoteSharedInstruments={canDemoteSharedInstruments}
                 showToast={showToast}
                 // Data
                 testPointData={testPointData}

@@ -907,10 +907,13 @@ export class SharePointStore {
   async saveInstrument(record) {
     if (!record?.id) throw new Error('Cannot save an instruments record with no id.');
     if (['validated', 'shared'].includes(record.scope)) throw new SharePointError('Submit a local copy for SME validation.', 403);
+    if (record.action === 'demote-shared' && !(await this.instrumentReviewAccess()).canValidate) {
+      throw new SharePointError('You do not have instrument validation access to demote a shared instrument.', 403);
+    }
     await this.ensureInstrumentSecurity();
     const user = await this.currentUser();
     if (record.action === 'withdraw') return this.withdrawInstrument(user, record.id, record.reviewVersion);
-    const { password, reviewVersion, _uncertaintyArchive, _uncertaintyApprovals, _uncertaintyApprovalClaim, formerPublicationId, ...safe } = record;
+    const { password, reviewVersion, action, _uncertaintyArchive, _uncertaintyApprovals, _uncertaintyApprovalClaim, formerPublicationId, ...safe } = record;
     const canonical = { ...safe, owner: sharePointInstrumentOwnerKey(user), scope: record.scope === 'pending' ? 'pending' : 'local' };
     if (formerPublicationId != null && /^local-from-publication-\d+$/.test(record.id)) canonical.formerPublicationId = formerPublicationId;
     await this.writeOwnInstrument(user, canonical, reviewVersion);
@@ -1008,9 +1011,14 @@ export class SharePointStore {
     return Array.isArray(result?.value) && result.value.length === 0 && !result['odata.nextLink'] && !result['@odata.nextLink'];
   }
 
-  async instrumentReviews() {
-    if (!(await this.canValidateInstruments())) return { canValidate: false, reviews: [] };
+  async instrumentReviewAccess() {
+    if (!(await this.canValidateInstruments())) return { canValidate: false };
     await this.assertInstrumentReviewVisibility();
+    return { canValidate: true };
+  }
+
+  async instrumentReviews() {
+    if (!(await this.instrumentReviewAccess()).canValidate) return { canValidate: false, reviews: [] };
     await this.ensureInstrumentSecurity();
     const rows = await this.instrumentRows('instrumentDrafts');
     const pending = rows.filter(({record}) => record.scope === 'pending' && !isArchived(record));

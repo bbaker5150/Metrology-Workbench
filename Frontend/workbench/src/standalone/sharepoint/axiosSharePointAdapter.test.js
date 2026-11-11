@@ -15,6 +15,7 @@ function fakeStore(overrides = {}) {
     saveInstrument: vi.fn(async (record) => record),
     deleteInstrument: vi.fn().mockResolvedValue(undefined),
     returnInstrumentReview: vi.fn().mockResolvedValue({id:'copy',scope:'local',owner:'sharepoint-user:12'}),
+    instrumentReviewAccess: vi.fn().mockResolvedValue({canValidate:false}),
     listRecords: vi.fn().mockResolvedValue([]),
     saveRecord: vi.fn(async (_k, r) => r),
     deleteRecord: vi.fn().mockResolvedValue(undefined),
@@ -174,6 +175,22 @@ describe("session writes", () => {
 });
 
 describe("record routes", () => {
+  it('loads review capability without requesting instrument definitions', async () => {
+    store.instrumentReviewAccess.mockResolvedValue({canValidate:true});
+    const {data} = await call('get', '/instrument-review-access/');
+    expect(data).toEqual({canValidate:true});
+    expect(store.instrumentReviewAccess).toHaveBeenCalledOnce();
+    expect(store.listInstruments).not.toHaveBeenCalled();
+    expect(fallback).not.toHaveBeenCalled();
+  });
+
+  it('preserves a permission-query error from review capability', async () => {
+    store.instrumentReviewAccess.mockRejectedValue(new SharePointError('Manage Lists required',403));
+    await expect(call('get','/instrument-review-access/')).rejects.toMatchObject({
+      isAxiosError:true,response:{status:403,data:{detail:'Manage Lists required'}},
+    });
+  });
+
   it('returns a review through the dedicated route without saving it as the reviewer', async () => {
     const {data} = await call('post', '/instrument-reviews/%38%31/return/', {reviewVersion:'3', owner:'reviewer', model:'Untrusted form'});
     expect(store.returnInstrumentReview).toHaveBeenCalledWith('81', '3');

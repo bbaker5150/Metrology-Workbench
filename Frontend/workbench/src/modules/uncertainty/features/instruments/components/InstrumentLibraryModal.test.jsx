@@ -302,13 +302,48 @@ it('commits a focused edit before collapsing on outside click or Escape',async()
    await waitFor(()=>expect(save.mock.calls.at(-1)?.[0].model).toBe(dismiss));
  }
 });
+it('saves edited shared specifications as a private Local copy when editing inside the library', async()=>{
+ const save=vi.fn();
+ render(<Harness initial={[definition('Approved','validated')]} save={save}/>);
+ openInstrument('Approved');
+ const row=document.querySelector('tr[data-instrument-id="Approved"]');
+ fireEvent.mouseDown(row.querySelector('.inline-desc-combined'),{button:0});
+ const field=within(row).getByPlaceholderText('Model',{exact:true});
+ fireEvent.change(field,{target:{value:'Library draft'}});
+ fireEvent.blur(field);
+ await waitFor(()=>expect(save).toHaveBeenCalled());
+ const saved=save.mock.calls.at(-1)[0];
+ expect(saved).toMatchObject({scope:'local',sourceId:'Approved',model:'Library draft'});
+ expect(saved.id).not.toBe('Approved');
+ expect(saved.action).toBeUndefined();
+});
+
+it.each([true,false])('allows a shared library Status demotion only with reviewer access (%s)', async canValidate => {
+ const save=vi.fn();
+ axios.get.mockResolvedValue({data:{canValidate,reviews:[]}});
+ try {
+   render(<Harness initial={[definition('Approved','validated')]} save={save}/>);
+   const badge=canValidate
+     ? await screen.findByRole('button',{name:'Validated shared. Right-click to make a local copy.'})
+     : screen.getByRole('button',{name:'Validated shared.'});
+   fireEvent.contextMenu(badge);
+   if(canValidate) {
+     await waitFor(()=>expect(save).toHaveBeenCalledTimes(1));
+     expect(save.mock.calls[0][0]).toMatchObject({scope:'local',sourceId:'Approved',action:'demote-shared'});
+   } else {
+     expect(save).not.toHaveBeenCalled();
+     expect(badge).toHaveClass('inline-sync-badge--green');
+   }
+ } finally {axios.get.mockResolvedValue({data:{canValidate:false,reviews:[]}});}
+});
+
 it('shows local/shared sync actions in simplified rows and uses search without a filter menu',()=>{
  const save=vi.fn();render(<Harness save={save}/>);
  expect(screen.queryByRole('button',{name:'Filter instruments'})).not.toBeInTheDocument();
  const local=document.querySelector('tr[data-instrument-id="A"]');
  const shared=document.querySelector('tr[data-instrument-id="B"]');
  expect(within(local).getByRole('button',{name:'My library. Click to submit for SME validation.'})).toBeInTheDocument();
- expect(within(shared).getByRole('button',{name:'Validated shared. Right-click to make a local copy.'})).toBeInTheDocument();
+ expect(within(shared).getByRole('button',{name:'Validated shared.'})).toBeInTheDocument();
  fireEvent.change(screen.getByLabelText('Search instruments'),{target:{value:'Meter B'}});
  expect(document.querySelector('tr[data-instrument-id="B"]')).toHaveTextContent('Meter B');
  expect(document.querySelector('tr[data-instrument-id="A"]')).toBeNull();
@@ -531,7 +566,9 @@ it('persists inline edits and keeps the shared original when making a local copy
  expect(new Set([...document.querySelectorAll('tr[data-instrument-id]')].map(row=>row.dataset.instrumentId)).size).toBe(4);
  await waitFor(()=>expect(within(document.querySelector('tr[data-instrument-id="B"]')).getByPlaceholderText('Model')).toHaveValue('B'));
 });
-it('keeps local library entries local while allowing shared entries to become local',async()=>{
+it('keeps local library entries local while allowing a reviewer to make shared entries local',async()=>{
+ axios.get.mockResolvedValue({data:{canValidate:true,reviews:[]}});
+ try {
  const remove=vi.fn(), save=vi.fn();render(<Harness remove={remove} save={save}/>);
  openInstrument('A');
  const badge=document.querySelector('tr[data-instrument-id="A"] .inline-sync-badge');
@@ -541,10 +578,12 @@ it('keeps local library entries local while allowing shared entries to become lo
  expect(save).not.toHaveBeenCalled();
  expect(document.querySelector('tr[data-instrument-id="A"] .cell-tolerance')).not.toBeNull();
  openInstrument('B');
+ await screen.findByRole('button',{name:'Validated shared. Right-click to make a local copy.'});
  fireEvent.contextMenu(document.querySelector('tr[data-instrument-id="B"] .inline-sync-badge'));
  await waitFor(()=>expect(save).toHaveBeenCalled());
  expect(save.mock.calls[0][0]).toMatchObject({scope:'local',sourceId:'B'});
  expect(remove).not.toHaveBeenCalled();
+ } finally {axios.get.mockResolvedValue({data:{canValidate:false,reviews:[]}});}
 });
 it('keeps the focused tolerance editor and its draft open when moving the library header',async()=>{
  const save=vi.fn();render(<Harness save={save}/>);openInstrument('A');openInstrument('C');

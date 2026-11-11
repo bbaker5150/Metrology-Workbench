@@ -95,7 +95,7 @@ it.each(["local", "validated"])("forks copied %s instruments on edits while pres
   expect(saved.uuts[0].instrument.functions[0].ranges).toHaveLength(2);
   expect(saved.tmdes[0].instrument.functions[0].ranges).toHaveLength(3);
   expect(saved.tmdes[0].instrument.id).not.toBe(source.instrument.id);
-  expect(saved.tmdes[0].instrument.scope).toBe("local");
+  expect(saved.tmdes[0].instrument.scope).toBe(scope === "validated" ? "session" : "local");
   if (scope === "validated") expect(saved.tmdes[0].instrument.sourceId).toBe(source.instrument.id);
   const again = synchronizeLocalInstrumentDefinitions(saved, addRangeToItem(saved.tmdes[0], "r2").item, "tmde");
   expect(again.tmdes[0].instrument.id).toBe(saved.tmdes[0].instrument.id);

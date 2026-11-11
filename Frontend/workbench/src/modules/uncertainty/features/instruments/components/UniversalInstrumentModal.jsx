@@ -11,7 +11,7 @@ import { readEditorDraft, saveEditorDraft, clearEditorDraft } from "../../../uti
 import { useConfirmRecordDeletes } from "../../../contexts/RecordDeletePolicy";
 import { validateInstrumentSpecifications } from "../../../utils/instrumentValidation";
 import BuilderSpecificationRow from "./BuilderSpecificationRow";
-import { applyToleranceCaseChange as applySharedToleranceCaseChange } from "../../analysis/components/UncertaintyPanel";
+import { applyToleranceCaseChange as applySharedToleranceCaseChange, localizeSharedInstrumentEdit } from "../../analysis/components/UncertaintyPanel";
 import { instrumentMatchesSearch } from "../../../utils/functionGrouping";
 /**
  * src/features/instruments/components/UniversalInstrumentModal.jsx
@@ -284,6 +284,7 @@ const UniversalInstrumentModal = ({
     const submitting = useRef(false);
     const [libraryInstrumentId, setLibraryInstrumentId] = useState(null);
     const [initialInstrumentSignature, setInitialInstrumentSignature] = useState("");
+    const [initialInstrumentName, setInitialInstrumentName] = useState("");
 
     const [metaData, setMetaData] = useState({
         name: "", 
@@ -356,6 +357,7 @@ const UniversalInstrumentModal = ({
                     functions: normalizeBuilderFunctions(loadedInst.functions),
                 };
                 setLibraryInstrumentId(existingLibraryId);
+                setInitialInstrumentName(initialData.description || initialData.name || "");
                 setInitialInstrumentSignature(
                     JSON.stringify(getComparableLibraryInstrument(normalizedLoadedInst))
                 );
@@ -374,6 +376,7 @@ const UniversalInstrumentModal = ({
                 });
             } else {
                 setLibraryInstrumentId(null);
+                setInitialInstrumentName("");
                 setInitialInstrumentSignature(
                     JSON.stringify(getComparableLibraryInstrument({
                         manufacturer: "",
@@ -559,17 +562,20 @@ const UniversalInstrumentModal = ({
         [instruments, libraryInstrumentId, instrumentDef.id]
     );
 
-    const hasLibraryChanges = useMemo(() => {
-        if (!linkedLibraryInstrument) return false;
-        return JSON.stringify(getComparableLibraryInstrument({
+    const hasSpecificationChanges = useMemo(() =>
+        JSON.stringify(getComparableLibraryInstrument({
             ...instrumentDef,
             description: metaData.name,
-        })) !==
-            initialInstrumentSignature;
-    }, [initialInstrumentSignature, instrumentDef, linkedLibraryInstrument, metaData.name]);
+        })) !== initialInstrumentSignature,
+    [initialInstrumentSignature, instrumentDef, metaData.name]);
+    const hasLibraryChanges = Boolean(linkedLibraryInstrument && hasSpecificationChanges);
+    const sharedSessionEdit = ["uut", "tmde"].includes(effectiveMode) &&
+        ["validated", "shared"].includes(instrumentDef.scope || linkedLibraryInstrument?.scope) &&
+        (hasSpecificationChanges || metaData.name !== initialInstrumentName);
 
     const sourceBadgeInstrument = useMemo(() => {
-        if (instrumentDef.scope !== "validated" || !hasLibraryChanges) {
+        if (sharedSessionEdit) return { ...instrumentDef, scope: "session", localOverride: true };
+        if (!["validated", "shared"].includes(instrumentDef.scope) || !hasLibraryChanges) {
             return instrumentDef;
         }
         return {
@@ -581,7 +587,7 @@ const UniversalInstrumentModal = ({
                 buildValidatedSnapshot(linkedLibraryInstrument || instrumentDef),
             localOverride: true,
         };
-    }, [hasLibraryChanges, instrumentDef, linkedLibraryInstrument]);
+    }, [hasLibraryChanges, sharedSessionEdit, instrumentDef, linkedLibraryInstrument]);
 
     // --- Library list multi-select (ctrl = toggle, shift = range) ---
     const handleRowSelect = (e, instId) => {
@@ -751,6 +757,8 @@ const UniversalInstrumentModal = ({
 
     const handleEditLibraryItem = (inst) => {
         const newDef = JSON.parse(JSON.stringify(instrumentForRole(inst, effectiveMode)));
+        const autoName = `${inst.manufacturer || ''} ${inst.model || ''}`.trim();
+        setInitialInstrumentName(effectiveMode !== 'library' && autoName ? autoName : inst.description || "");
         
         // --- FIX: Fully populate MetaData from Library Item ---
         setMetaData({
@@ -764,7 +772,6 @@ const UniversalInstrumentModal = ({
         if (effectiveMode !== 'library') {
             newDef.libraryInstrumentId = inst.id;
             setLibraryInstrumentId(inst.id);
-            const autoName = `${inst.manufacturer || ''} ${inst.model || ''}`.trim();
             if (autoName) {
                 // If creating UUT/TMDE, default name to Manufacturer + Model
                 setMetaData(prev => ({ ...prev, name: autoName }));
@@ -793,6 +800,7 @@ const UniversalInstrumentModal = ({
         };
         setInstrumentDef(newInstrument);
         setLibraryInstrumentId(null);
+        setInitialInstrumentName("");
         setInitialInstrumentSignature(
             JSON.stringify(getComparableLibraryInstrument(newInstrument))
         );
@@ -1030,7 +1038,8 @@ const UniversalInstrumentModal = ({
         let finalData = {};
         if (effectiveMode === 'uut' || effectiveMode === 'tmde') {
             const linked = !hasLibraryChanges && linkedLibraryInstrument;
-            const scope = submitted?.scope || (linked ? linked.scope || "local" : "session");
+            const unchangedShared = !sharedSessionEdit && ["validated", "shared"].includes(instrumentDef.scope);
+            const scope = submitted?.scope || (unchangedShared ? instrumentDef.scope : linked ? linked.scope || "local" : "session");
             const sessionInstrument = {
                 ...withInstrumentEditorDrafts(instrumentDef),
                 ...submitted,
@@ -1054,6 +1063,16 @@ const UniversalInstrumentModal = ({
                 ...(savedLibraryId ? { libraryInstrumentId: savedLibraryId } : {}),
                 type: effectiveMode
             };
+            if (sharedSessionEdit && !submitted) {
+                // Ordinary edits stay in this session. Give the definition its
+                // own identity so future library saves cannot rewrite it.
+                finalData = localizeSharedInstrumentEdit({ ...finalData, instrument: {
+                    ...sessionInstrument, description: metaData.name,
+                    scope: instrumentDef.scope || linkedLibraryInstrument.scope,
+                    validatedSnapshot: instrumentDef.validatedSnapshot || buildValidatedSnapshot(
+                        linkedLibraryInstrument || initialData?.instrument || instrumentDef),
+                } }, instruments);
+            }
         } else {
             // Library-mode editing is always local. Editing a shared definition
             // creates a linked local copy and leaves the canonical shared record
@@ -1138,7 +1157,7 @@ const UniversalInstrumentModal = ({
             (effectiveMode === 'uut' || effectiveMode === 'tmde') &&
             onSaveToLibrary &&
             isInstrumentInLibrary &&
-            hasLibraryChanges
+            hasLibraryChanges && !sharedSessionEdit
         ) {
             setSubmissionError("");
             setPendingInstrumentSave(true);

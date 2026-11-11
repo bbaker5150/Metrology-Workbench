@@ -92,6 +92,7 @@ import { useNotifications } from "../../shared/NotificationContext";
 
 // --- Utils & Hooks ---
 import useSessionManager from "./hooks/useSessionManager";
+import useInstrumentReviewAccess from "./hooks/useInstrumentReviewAccess";
 import usePointerResize from "./hooks/usePointerResize";
 import { TableSizeHistoryContext, TABLE_SIZE_RESET_EVENT } from "./hooks/useTableSizeHistory";
 import { preserveTableTextSelection } from "./utils/tableTextSelection";
@@ -145,6 +146,8 @@ import {
   getInstrumentRangeRows,
   resolveInstrumentSelection,
 } from "./utils/instrumentFunctionSelection";
+import { mergeSessionInstrumentEdit } from "./utils/sessionInstrumentEdit";
+import { rebindTmdeInstancesToMaster } from "./utils/tmdeReconcile";
 import {
   recalculatePointUncertaintyFields,
 } from "./utils/riskCompute";
@@ -2247,6 +2250,7 @@ const SidebarSessionHeader = ({
 function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras = null, getInstrumentAccessReport = null }) {
   useSelectInputText();
   usePointBreakdownCursor();
+  const canDemoteSharedInstruments = useInstrumentReviewAccess();
   const confirmRecordDeletes = useConfirmRecordDeletes();
   const workbenchIssues = useWorkbenchIssues();
   const {
@@ -3958,10 +3962,11 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
   // (#6). Re-flatten every referencing instance from the saved master, mirroring
   // the inline handleSaveTmde logic, while preserving per-point data
   // (measurementPoint, variableType, quantity, selected range index).
-  const refreshTmdeInstances = (testPoints, savedTmde) => {
+  const refreshTmdeInstances = (testPoints, savedTmde, previousTmde, previousTmdes) => {
     return (testPoints || []).map((tp) => {
-      const tols = tp.tmdeTolerances || [];
-      let changed = false;
+      const original = tp.tmdeTolerances || [];
+      const tols = rebindTmdeInstancesToMaster(original, previousTmde, savedTmde, previousTmdes);
+      let changed = tols !== original;
       const next = tols.map((t) => {
         if (t.id !== savedTmde.id && t.sourceId !== savedTmde.id) return t;
         changed = true;
@@ -4088,8 +4093,10 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
       const updatedUuts = [...(currentSessionData.uuts || [])];
 
       if (existingUutIndex >= 0) {
-        updatedUuts[existingUutIndex] = { ...updatedUuts[existingUutIndex], ...newUut,
-          measurementAreaNames: updatedUuts[existingUutIndex].measurementAreaNames };
+        updatedUuts[existingUutIndex] = mergeSessionInstrumentEdit(updatedUuts[existingUutIndex], {
+          ...data, ...newUut,
+          measurementAreaNames: updatedUuts[existingUutIndex].measurementAreaNames,
+        });
       } else {
         updatedUuts.push({ ...newUut, measurementAreaNames: [
           associationPoint?.testPointInfo?.measurementArea || resolvedAreaName || "Measurement",
@@ -4193,8 +4200,8 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
         newTmde = {
           id: data.id || uuidv4(),
           name: data.name,
-          quantity: data.quantity,
-          assetId: data.assetId,
+          quantity: data.quantity ?? existingTmde?.quantity,
+          assetId: data.assetId ?? existingTmde?.assetId,
           instrument: instrumentSnapshot,
           isInstrumentBased: true,
           measurementAreaId: resolvedAreaId,
@@ -4206,8 +4213,10 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
       );
       const updatedTmdes = [...(currentSessionData.tmdes || [])];
       if (existingTmdeIndex >= 0) {
-        updatedTmdes[existingTmdeIndex] = { ...updatedTmdes[existingTmdeIndex], ...newTmde,
-          measurementAreaNames: updatedTmdes[existingTmdeIndex].measurementAreaNames };
+        updatedTmdes[existingTmdeIndex] = mergeSessionInstrumentEdit(updatedTmdes[existingTmdeIndex], {
+          ...data, ...newTmde,
+          measurementAreaNames: updatedTmdes[existingTmdeIndex].measurementAreaNames,
+        });
       } else {
         updatedTmdes.push({ ...newTmde, measurementAreaNames: [
           associationPoint?.testPointInfo?.measurementArea || contextPoint?.testPointInfo?.measurementArea || "Measurement",
@@ -4217,7 +4226,12 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
       // instances so budgets/risk recompute. (No-op for brand new TMDEs.)
       const refreshedTestPoints =
         existingTmdeIndex >= 0
-          ? refreshTmdeInstances(currentSessionData.testPoints, newTmde)
+          ? refreshTmdeInstances(
+              currentSessionData.testPoints,
+              updatedTmdes[existingTmdeIndex],
+              currentSessionData.tmdes[existingTmdeIndex],
+              currentSessionData.tmdes,
+            )
           : currentSessionData.testPoints;
       updateSession({
         ...currentSessionData,
@@ -6423,6 +6437,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
                   testPointData={displayData}
                 >
                   <Analysis
+                    canDemoteSharedInstruments={canDemoteSharedInstruments}
                     showToast={showToast}
                     sessionData={currentSessionData}
                     testPointData={displayData}

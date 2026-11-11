@@ -30,6 +30,7 @@ function buildRoutes(store) {
     ['POST', /^\/sessions\/(\d+)\/images\/$/, (m, body) => saveImage(store, Number(m[1]), body)],
     ['DELETE', /^\/sessions\/(\d+)\/images\/([^/]+)\/$/, (m) => deleteImage(store, Number(m[1]), m[2])],
 
+    ['GET', /^\/instrument-review-access\/$/, () => store.instrumentReviewAccess()],
     ['GET', /^\/instrument-reviews\/$/, () => store.instrumentReviews()],
     ['POST', /^\/instrument-reviews\/([^/]+)\/validate\/$/, (m, body) => store.validateInstrument(decodeURIComponent(m[1]), body?.reviewVersion)],
     ['POST', /^\/instrument-reviews\/([^/]+)\/return\/$/, (m, body) => store.returnInstrumentReview(decodeURIComponent(m[1]), body?.reviewVersion)],

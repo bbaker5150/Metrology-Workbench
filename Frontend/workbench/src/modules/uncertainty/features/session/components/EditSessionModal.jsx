@@ -18,6 +18,8 @@ import {
 import NotificationModal from '../../../components/modals/NotificationModal';
 import UniversalInstrumentModal from "../../instruments/components/UniversalInstrumentModal";
 import { UNCERTAINTY_REQUIREMENT_FIELDS } from "../../../constants/constants";
+import { mergeSessionInstrumentEdit } from "../../../utils/sessionInstrumentEdit";
+import { rebindTmdeInstancesToMaster } from "../../../utils/tmdeReconcile";
 
 // Import the new polished CSS
 import "./EditSessionModal.css";
@@ -423,7 +425,7 @@ const EditSessionModal = ({
 
               if (index !== null) {
                   console.log(`[EditSessionModal] Updating existing UUT at index ${index}`);
-                  newUuts[index] = { ...newUuts[index], ...uutToSave };
+                  newUuts[index] = mergeSessionInstrumentEdit(newUuts[index], uutToSave);
               } else {
                   console.log("[EditSessionModal] Adding new UUT");
                   newUuts.push({ id: uuidv4(), ...uutToSave });
@@ -456,11 +458,20 @@ const EditSessionModal = ({
                   },
               };
               if (index !== null) {
-                  newTmdes[index] = { ...newTmdes[index], ...tmdeToSave };
+                  newTmdes[index] = mergeSessionInstrumentEdit(newTmdes[index], tmdeToSave);
               } else {
                   newTmdes.push({ id: uuidv4(), ...tmdeToSave });
               }
-              return { ...prev, tmdes: newTmdes, measurementAreas: currentAreas };
+              const testPoints = index !== null
+                  ? (prev.testPoints || []).map(point => {
+                      const tmdeTolerances = rebindTmdeInstancesToMaster(
+                          point.tmdeTolerances, prev.tmdes[index], newTmdes[index], prev.tmdes,
+                      );
+                      return tmdeTolerances === point.tmdeTolerances
+                          ? point : { ...point, tmdeTolerances };
+                  })
+                  : prev.testPoints;
+              return { ...prev, tmdes: newTmdes, measurementAreas: currentAreas, testPoints };
           });
       }
       

@@ -693,6 +693,104 @@ class InstrumentLibraryScopeTests(APITestCase):
         self.assertEqual(ids, {"v", "a"})  # validated + userA's local, not userB's
 
 
+class InstrumentReviewAccessTests(APITestCase):
+    databases = {"default", "uncertainty"}
+    url = "/api/uncertainty/instrument-review-access/"
+
+    def assert_access(self, client, expected):
+        with self.assertNumQueries(0, using="uncertainty"):
+            response = client.get(self.url)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data, {"canValidate": expected})
+
+    def test_anonymous_and_general_users_are_not_reviewers(self):
+        self.assert_access(self.client, False)
+        user = get_user_model().objects.create_user(username="access-analyst")
+        user.groups.add(Group.objects.create(name="Metrology App User"))
+        self.client.force_authenticate(user=user)
+        self.assert_access(self.client, False)
+
+    def test_sme_eligibility_does_not_read_instrument_records(self):
+        models.Instrument.objects.create(id="private-submission", scope="pending", model="Private specifications")
+        self.assert_access(sme_client(), True)
+
+    def test_interim_owner_eligibility_is_rechecked_after_sme_group_creation(self):
+        user = get_user_model().objects.create_user(username="access-owner")
+        user.groups.add(Group.objects.create(name="Metrology Software Owners Backup"))
+        self.client.force_authenticate(user=user)
+        self.assert_access(self.client, False)
+        user.groups.add(Group.objects.create(name="Metrology Software Owners"))
+        self.assert_access(self.client, True)
+        group = Group.objects.create(name="Uncertalytics SME")
+        self.assert_access(self.client, False)
+        user.groups.add(group)
+        self.assert_access(self.client, True)
+
+    def test_access_endpoint_is_read_only(self):
+        with self.assertNumQueries(0, using="uncertainty"):
+            response = self.client.post(self.url, {"canValidate": True}, format="json")
+        self.assertEqual(response.status_code, 405)
+
+
+class InstrumentSharedDemotionTests(APITestCase):
+    databases = {"default", "uncertainty"}
+
+    def setUp(self):
+        models.Instrument.objects.create(id="shared-source", scope="validated", model="Shared specifications")
+        self.published = models.Instrument.objects.values().get(pk="shared-source")
+        self.payload = {"id": "private-demotion", "sourceId": "shared-source", "scope": "local",
+                        "model": "Shared specifications", "action": "demote-shared"}
+
+    def assert_catalog_unchanged(self):
+        self.assertEqual(models.Instrument.objects.values().get(pk="shared-source"), self.published)
+
+    def test_anonymous_and_general_users_cannot_explicitly_demote_shared_instruments(self):
+        general = APIClient()
+        user = get_user_model().objects.create_user(username="demote-analyst")
+        user.groups.add(Group.objects.create(name="Metrology App User"))
+        general.force_authenticate(user=user)
+        for client in (self.client, general):
+            with self.assertNumQueries(0, using="uncertainty"):
+                response = client.post(INSTRUMENTS, self.payload, format="json")
+            self.assertEqual(response.status_code, 403)
+        self.assertFalse(models.Instrument.objects.filter(pk=self.payload["id"]).exists())
+        self.assert_catalog_unchanged()
+
+    def test_sme_can_save_the_private_copy_without_saving_the_action_or_changing_publication(self):
+        response = sme_client().post(INSTRUMENTS, self.payload, format="json")
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["scope"], "local")
+        self.assertEqual(response.data["sourceId"], "shared-source")
+        self.assertNotIn("action", response.data)
+        private = models.Instrument.objects.get(pk=response.data["id"])
+        self.assertNotIn("action", private.column_metadata)
+        self.assert_catalog_unchanged()
+
+    def test_owner_eligibility_is_rechecked_at_write_after_the_sme_group_cutover(self):
+        user = get_user_model().objects.create_user(username="demote-owner")
+        user.groups.add(Group.objects.create(name="Metrology Software Owners"))
+        self.client.force_authenticate(user=user)
+        self.assertEqual(self.client.get("/api/uncertainty/instrument-review-access/").data, {"canValidate": True})
+        Group.objects.create(name="Uncertalytics SME")
+        with self.assertNumQueries(0, using="uncertainty"):
+            response = self.client.post(INSTRUMENTS, self.payload, format="json")
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(models.Instrument.objects.filter(pk=self.payload["id"]).exists())
+        self.assert_catalog_unchanged()
+
+    def test_general_user_can_still_save_an_edited_session_copy_to_local(self):
+        user = get_user_model().objects.create_user(username="edited-session-author")
+        self.client.force_authenticate(user=user)
+        payload = {key: value for key, value in self.payload.items() if key != "action"}
+        response = self.client.post(INSTRUMENTS, {**payload, "model": "Session edits"}, format="json")
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(response.data["scope"], "local")
+        self.assertEqual(response.data["model"], "Session edits")
+        self.assertEqual(response.data["sourceId"], "shared-source")
+        self.assertEqual(models.Instrument.objects.get(pk=response.data["id"]).review_owner, f"user:{user.pk}")
+        self.assert_catalog_unchanged()
+
+
 class InstrumentReviewReturnTests(APITestCase):
     databases = {"default", "uncertainty"}
 

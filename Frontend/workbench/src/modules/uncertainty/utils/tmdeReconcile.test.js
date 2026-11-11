@@ -4,6 +4,7 @@ import {
   refreshTmdeInstancesFromMasters,
   tmdeInstancesNeedReconcile,
   masterIdOf,
+  rebindTmdeInstancesToMaster,
 } from "./tmdeReconcile";
 import { getBudgetComponentsFromTolerance } from "../features/analysis/utils/budgetUtils";
 import derivedSession from "../../../../../../Backend/ac_shunt/uncertainty/fixtures/mock/Derived.json";
@@ -101,6 +102,64 @@ describe("reconcileTmdeInstances", () => {
     expect(masterIdOf({ id: "a", sourceId: "b" })).toBe("b");
     expect(masterIdOf({ id: "a" })).toBe("a");
     expect(masterIdOf(null)).toBeUndefined();
+  });
+});
+
+describe("rebindTmdeInstancesToMaster", () => {
+  const definition = (id, limit) => ({ id, scope: "validated", functions: [{ id: "voltage", name: "Voltage", unit: "V",
+    ranges: [{ id: "range", min: 0, max: 10, unit: "V", tolerances: {
+      reading: { high: limit, low: -limit, unit: "V", distribution: "1.960", symmetric: true },
+    } }],
+  }] });
+
+  it("retains optional and unchanged point arrays when no definition detached", () => {
+    const master = { id: "master", instrument: definition("shared", 0.01) };
+    const instances = [{ id: "instance", sourceInstrument: master.instrument }];
+    expect(rebindTmdeInstancesToMaster(instances, undefined, master)).toBe(instances);
+    expect(rebindTmdeInstancesToMaster(instances, master, { ...master, name: "Renamed" })).toBe(instances);
+    expect(rebindTmdeInstancesToMaster(undefined, master, master)).toBeUndefined();
+  });
+
+  it("preserves a legacy definition-only point source and its uncertainty when the master detaches", () => {
+    const previous = { id: "master", instrument: definition("shared", 0.01) };
+    const other = { id: "other-master", instrument: definition("other", 0.03) };
+    const updated = { ...previous, instrument: { ...definition("session-definition", 0.02), scope: "session", sourceId: "shared" } };
+    const legacy = { id: "legacy-instance", sourceInstrument: previous.instrument,
+      measurementPoint: { value: 5, unit: "V" }, variableType: "Voltage", quantity: 2 };
+    const independent = { id: "other-instance", sourceId: other.id, sourceInstrument: other.instrument,
+      measurementPoint: { value: 5, unit: "V" }, variableType: "Voltage" };
+    const rebound = rebindTmdeInstancesToMaster([legacy, independent], previous, updated, [previous, other]);
+    expect(rebound[0]).toEqual({ ...legacy, sourceId: updated.id });
+    expect(rebound[1]).toBe(independent);
+    expect(legacy.sourceId).toBeUndefined();
+    const refreshed = refreshTmdeInstancesFromMasters(rebound, [updated, other]);
+    expect(reconcileTmdeInstances(refreshed, [updated, other])).toHaveLength(2);
+    expect(refreshed[0]).toMatchObject({ sourceId: previous.id, instrument: { id: "session-definition", scope: "session" },
+      quantity: 2, variableType: "Voltage", tolerance: { reading: { high: 0.02 } } });
+    const [accuracy] = getBudgetComponentsFromTolerance(refreshed[0], legacy.measurementPoint);
+    expect(accuracy.value_native).toBeCloseTo(0.02 / 1.96, 10);
+    expect(refreshed[1].instrument.id).toBe(other.instrument.id);
+  });
+
+  it("uses explicit row references before shared definition aliases when siblings share a definition", () => {
+    const shared = definition("shared", 0.01);
+    const sibling = { id: "sibling", instrument: shared };
+    const previous = { id: "edited", instrument: shared };
+    const updated = { ...previous, instrument: { ...definition("session-definition", 0.02), scope: "session" } };
+    const instances = [
+      { id: "edited-instance", sourceId: previous.id, sourceInstrument: shared },
+      { id: "sibling-instance", sourceId: sibling.id, sourceInstrument: shared },
+      { id: "legacy-instance", sourceInstrument: shared },
+    ];
+    const rebound = rebindTmdeInstancesToMaster(instances, previous, updated, [sibling, previous]);
+    expect(rebound[1]).toBe(instances[1]);
+    // A legacy ambiguous reference keeps the existing first-master fallback.
+    expect(rebound[2]).toBe(instances[2]);
+    const refreshed = refreshTmdeInstancesFromMasters(rebound, [sibling, updated]);
+    expect(refreshed[0].instrument.id).toBe(updated.instrument.id);
+    expect(refreshed[0].reading.high).toBe(0.02);
+    expect(refreshed[1].instrument.id).toBe(shared.id);
+    expect(refreshed[2].instrument.id).toBe(shared.id);
   });
 });
 

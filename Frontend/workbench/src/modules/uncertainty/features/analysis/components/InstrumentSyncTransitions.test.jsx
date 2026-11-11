@@ -6,19 +6,31 @@ import UncertaintyPanel, {localizeSharedInstrumentEdit, synchronizeLocalInstrume
 import {computeSyncState, buildValidatedSnapshot} from '../../../utils/instrumentSync';
 vi.mock('plotly.js-dist',()=>({default:{}}));
 
-function Harness({viewMode,kind,onSaveInstrument,onDeleteLibraryInstrument=vi.fn().mockResolvedValue(undefined),setNotification,initialScope='validated',onInstrumentSynced}) {
+function Harness({viewMode,kind,onSaveInstrument,onDeleteLibraryInstrument=vi.fn().mockResolvedValue(undefined),setNotification,initialScope='validated',onInstrumentSynced,canDemoteSharedInstruments=true}) {
  const definition={id:initialScope==='pending'?'private':'shared',scope:initialScope,reviewVersion:initialScope==='pending'?'revision-3':undefined,manufacturer:'Example',model:'Meter',description:'Meter',functions:[{id:'f',name:'Current',unit:'A',ranges:[{id:'r',min:0,max:10,unit:'A',tolerances:{reading:{value:1,unit:'%'}}}]}]};
  definition.validatedSnapshot=buildValidatedSnapshot(definition);
  const [session,save]=useState({id:'s',uuts:kind==='uut'?[{id:'row',description:'Meter',instrument:definition}]:[],tmdes:kind==='tmde'?[{id:'row',name:'Meter',instrument:definition}]:[],testPoints:[],uncReq:{}});
- return <><UncertaintyPanel testPointData={{id:'p',viewMode,testPointInfo:{parameter:{name:'Current',value:5,unit:'A'}},associatedUutIds:kind==='uut'?['row']:[],components:[],tmdeTolerances:[],specifications:{}}} sessionData={session} onSessionSave={save} onSaveInstrument={onSaveInstrument} onInstrumentSynced={onInstrumentSynced} onDeleteLibraryInstrument={onDeleteLibraryInstrument} setNotification={setNotification} tmdeTolerancesData={[]} /><output data-testid="state">{JSON.stringify(session)}</output></>;
+ return <><UncertaintyPanel canDemoteSharedInstruments={canDemoteSharedInstruments} testPointData={{id:'p',viewMode,testPointInfo:{parameter:{name:'Current',value:5,unit:'A'}},associatedUutIds:kind==='uut'?['row']:[],components:[],tmdeTolerances:[],specifications:{}}} sessionData={session} onSessionSave={save} onSaveInstrument={onSaveInstrument} onInstrumentSynced={onInstrumentSynced} onDeleteLibraryInstrument={onDeleteLibraryInstrument} setNotification={setNotification} tmdeTolerancesData={[]} /><output data-testid="state">{JSON.stringify(session)}</output></>;
 }
+
+it.each([['session','uut'],['session','tmde'],['point','uut'],['point','tmde']])('keeps a shared instrument shared when a general user right-clicks its Status in %s %s', (viewMode, kind) => {
+ const save=vi.fn(), remove=vi.fn();
+ render(<Harness viewMode={viewMode} kind={kind} canDemoteSharedInstruments={false} onSaveInstrument={save} onDeleteLibraryInstrument={remove}/>);
+ const badge=document.querySelector('.inline-sync-badge');
+ const before=screen.getByTestId('state').textContent;
+ expect(badge).toHaveAttribute('title','Validated shared.');
+ fireEvent.contextMenu(badge);
+ expect(screen.getByTestId('state').textContent).toBe(before);
+ expect(save).not.toHaveBeenCalled();
+ expect(remove).not.toHaveBeenCalled();
+});
 
 it.each([['session','uut'],['session','tmde'],['point','uut'],['point','tmde']])('withdraws a pending submission to Local without SME access in %s %s', async (viewMode, kind) => {
  const synced=vi.fn(), save=vi.fn(), remove=vi.fn();
  let finish;
  const post=vi.spyOn(axios,'post').mockImplementation(()=>new Promise(resolve=>{finish=resolve;}));
  try {
-  render(<Harness viewMode={viewMode} kind={kind} initialScope="pending" onSaveInstrument={save} onDeleteLibraryInstrument={remove} onInstrumentSynced={synced} setNotification={vi.fn()}/>);
+  render(<Harness viewMode={viewMode} kind={kind} initialScope="pending" canDemoteSharedInstruments={false} onSaveInstrument={save} onDeleteLibraryInstrument={remove} onInstrumentSynced={synced} setNotification={vi.fn()}/>);
   const badge=()=>document.querySelector('.inline-sync-badge');
   const state=()=>JSON.parse(screen.getByTestId('state').textContent)[kind==='uut'?'uuts':'tmdes'][0].instrument;
   const original=state();
@@ -64,8 +76,9 @@ it.each([['session','uut'],['session','tmde'],['point','uut'],['point','tmde']])
  fireEvent.contextMenu(badge());
  await waitFor(()=>expect(badge()).toHaveClass('inline-sync-badge--orange'));
  expect(save).toHaveBeenCalledTimes(1);
- expect(save.mock.calls[0][0]).toMatchObject({scope:'local',sourceId:'shared'});
+ expect(save.mock.calls[0][0]).toMatchObject({scope:'local',sourceId:'shared',action:'demote-shared'});
  expect(state().id).not.toBe('shared');
+ expect(state().action).toBeUndefined();
  const localId=state().id;
  fireEvent.contextMenu(badge());
  await waitFor(()=>expect(badge()).toHaveClass('inline-sync-badge--red'));

@@ -224,7 +224,7 @@ describe("shared instrument inline editing", () => {
     );
   });
 
-  it("forks an edited shared definition to a linked local copy", () => {
+  it("forks an edited shared definition to a session-only copy with shared provenance", () => {
     const sharedDefinition = {
       id: "shared-dmm",
       scope: "validated",
@@ -262,7 +262,7 @@ describe("shared instrument inline editing", () => {
     expect(localized.id).toBe("uut-row");
     expect(localized.instrument).toEqual(
       expect.objectContaining({
-        scope: "local",
+        scope: "session",
         sourceId: "shared-dmm",
         libraryInstrumentId: localized.instrument.id,
         localOverride: true,
@@ -277,7 +277,7 @@ describe("shared instrument inline editing", () => {
       localized,
       "uut",
     );
-    expect(synchronized.uuts[0].instrument.scope).toBe("local");
+    expect(synchronized.uuts[0].instrument.scope).toBe("session");
     expect(synchronized.uuts[0].instrument.functions[0].ranges).toHaveLength(2);
   });
 
@@ -321,7 +321,7 @@ describe("shared instrument inline editing", () => {
       "tmde",
     );
 
-    expect(synchronized.tmdes[0].instrument.scope).toBe("local");
+    expect(synchronized.tmdes[0].instrument.scope).toBe("session");
     expect(synchronized.tmdes[0].instrument.sourceId).toBe("shared-meter");
     expect(synchronized.tmdes[0].instrument.functions[0].ranges).toHaveLength(2);
   });
