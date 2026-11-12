@@ -1,7 +1,7 @@
 import { createDynamicDefinition } from "../../../utils/dynamicBudgetComponents";
 import React, { useState } from "react";
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { expect, it } from "vitest";
+import { expect, it, vi } from "vitest";
 import { InstrumentUncertaintyRow, InlineToleranceCell, applyToleranceCaseChange, getTmdeAccuracyReadiness } from "./UncertaintyPanel";
 
 it("immediately creates a manual independent row and tabs from its name into the editor", () => {
@@ -49,6 +49,68 @@ it("preserves equation variable values while an equation is temporarily incomple
   expect(saved.tmdeUncertaintyDefinition.variables.a.value).toBe(3);
   fireEvent.change(screen.getByRole("textbox", { name: "Uncertainty equation" }), { target: { value: "x*a+1" } });
   expect(screen.getByRole("textbox", { name: "a nominal" })).toHaveValue("3");
+});
+
+it("links an additional uncertainty only after a choice and restores its fixed values when unlinked", () => {
+  let saved;
+  function Harness() {
+    const [source, setSource] = useState({ id: "equation-source", name: "Thermal correction", kind: "equation",
+      dynamicDefinition: createDynamicDefinition("equation", { value: 5, unit: "V" }) });
+    saved = source;
+    return <table><tbody><InstrumentUncertaintyRow source={source} activeRange={{ unit: "V" }}
+      referencePoint={{ value: 5, unit: "V" }} onChange={setSource} /></tbody></table>;
+  }
+  const { container } = render(<Harness />);
+  fireEvent.click(within(container.querySelector(".cell-tolerance")).getByRole("button", { name: "Set tolerance" }));
+  fireEvent.change(screen.getByRole("textbox", { name: "Uncertainty equation" }), { target: { value: "x + a" } });
+  expect(saved.dynamicDefinition.pointVariable).toBe("");
+  expect(screen.getAllByRole("button", { name: /Use measurement point for/ })).toHaveLength(2);
+  for (const [symbol, name, value] of [["x", "Fixed baseline", "0"], ["a", "Correction", "2.5"]]) {
+    fireEvent.change(screen.getByRole("textbox", { name: `${symbol} name` }), { target: { value: name } });
+    fireEvent.change(screen.getByRole("textbox", { name: `${symbol} nominal` }), { target: { value } });
+  }
+  const fixedVariables = structuredClone(saved.dynamicDefinition.variables);
+  fireEvent.click(screen.getByRole("button", { name: "Use measurement point for x" }));
+  expect(saved.dynamicDefinition.pointVariable).toBe("x");
+  expect(screen.getAllByRole("button", { name: /Use measurement point for/ })).toHaveLength(1);
+  const link = screen.getByRole("button", { name: "Use measurement point for x" });
+  expect(link).toHaveAttribute("aria-pressed", "true");
+  expect(within(link.closest("tr")).getByText("5", { exact: true })).toBeInTheDocument();
+  expect(screen.queryByRole("textbox", { name: "x nominal" })).toBeNull();
+  expect(saved.dynamicDefinition.variables).toEqual(fixedVariables);
+  fireEvent.click(link);
+  expect(saved.dynamicDefinition.pointVariable).toBe("");
+  expect(screen.getAllByRole("button", { name: /Use measurement point for/ })).toHaveLength(2);
+  expect(screen.getByRole("textbox", { name: "x nominal" })).toHaveValue("0");
+  expect(screen.getByRole("textbox", { name: "a nominal" })).toHaveValue("2.5");
+  expect(screen.getByRole("textbox", { name: "x name" })).toHaveValue("Fixed baseline");
+  expect(screen.getByRole("textbox", { name: "a name" })).toHaveValue("Correction");
+  expect(saved).toMatchObject({ id: "equation-source", name: "Thermal correction",
+    dynamicDefinition: { equation: "x + a", variables: fixedVariables, pointVariable: "" } });
+});
+
+it("lets a reviewer inspect an additional equation's saved link without changing it", () => {
+  const save = vi.fn();
+  const source = { id: "submitted-equation", name: "Thermal correction", kind: "equation",
+    dynamicDefinition: { ...createDynamicDefinition("equation", { value: 5, unit: "V" }), mode: "standard",
+      equation: "x * a", pointVariable: "x", variables: {
+        x: { name: "Fixed baseline", value: "0" }, a: { name: "Correction", value: "2.5" },
+      } } };
+  render(<table><tbody><InstrumentUncertaintyRow source={source} readOnly activeRange={{ unit: "V" }}
+    referencePoint={{ value: 5, unit: "V" }} onChange={save} /></tbody></table>);
+  fireEvent.click(screen.getByTitle("Inspect tolerance"));
+  const link = screen.getByRole("button", { name: "Use measurement point for x" });
+  expect(link).toBeDisabled();
+  expect(link).toHaveAttribute("aria-pressed", "true");
+  expect(screen.queryByRole("button", { name: "Use measurement point for a" })).toBeNull();
+  expect(within(link.closest("tr")).getByText("5", { exact: true })).toBeInTheDocument();
+  expect(screen.getByRole("textbox", { name: "x name" })).toHaveAttribute("readonly");
+  expect(screen.getByRole("textbox", { name: "a nominal" })).toHaveAttribute("readonly");
+  fireEvent.click(link);
+  fireEvent.change(screen.getByRole("textbox", { name: "a nominal" }), { target: { value: "99" } });
+  expect(save).not.toHaveBeenCalled();
+  expect(source.dynamicDefinition.pointVariable).toBe("x");
+  expect(source.dynamicDefinition.variables.a.value).toBe("2.5");
 });
 
 it("accepts an authored tabular TMDE primary when adding its accuracy", () => {
@@ -154,6 +216,7 @@ it.each(["table", "equation"])("uses budget editor controls and only the adjacen
     const equation = within(container.querySelector('.instrument-tolerance-toolbar')).getByRole("textbox", { name: "Uncertainty equation" });
     fireEvent.change(equation, { target: { value: "x / 25" } });
     expect(editor.querySelector(".dynamic-variable-table")).toBeInTheDocument();
+    fireEvent.click(within(editor).getByRole("button", { name: "Use measurement point for x" }));
   }
   expect(editor).not.toHaveTextContent("This uncertainty column was removed");
   fireEvent.click(within(container.querySelector(".cell-distribution")).getByTitle("Set distribution"));

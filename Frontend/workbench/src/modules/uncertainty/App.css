@@ -20589,6 +20589,10 @@ body.dark-mode .uncertainty-module .measurement-points-table .area-header-sticky
 .dynamic-variable-value { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .dynamic-bound-value { padding: 3px 6px; white-space: nowrap; }
 .dynamic-variable-binding { width: 26px; }
+/* Filled equation variables read like table values until hovered or focused. */
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="equation"] .dynamic-variable-table input[data-has-value="true"]:not(:focus):not(:hover) {
+  border-color: transparent !important; background: transparent !important; box-shadow: none !important; outline: none;
+}
 .dynamic-editor-footer { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-top: 8px; }
 .dynamic-editor-preview { font-size: .72rem; white-space: normal; line-height: 1.4; }
 .dynamic-editor-preview > span { color: var(--text-color-muted); margin-right: 6px; }
@@ -22315,14 +22319,17 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
 .range-qualifier-add:hover { color: var(--primary-color); background: var(--primary-color-light); border-radius: 3px; }
 .qualifier-range-cell { position: relative; }
 .uncertainty-module .instrument-equipment-table td.qualifier-range-cell { padding-inline: 8px; }
+/* Keep the action group beside short names; wrap it only after using the
+   available column width. Very narrow saved columns can wrap the group too. */
 .uncertainty-module .instrument-equipment-table .qualifier-range-cell .range-row-cell {
-  display: flex; flex-direction: column; align-items: stretch; gap: 2px; min-width: 0;
+  display: flex; flex-direction: row; flex-wrap: wrap; align-items: center; gap: 2px 4px; min-width: 0;
 }
 .uncertainty-module .instrument-equipment-table .qualifier-range-cell :is(.inline-range-editor, .inline-range-main) {
-  display: block; width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box;
+  display: block; width: max-content; min-width: 0; max-width: 100%; box-sizing: border-box;
+  flex: 0 1 auto;
 }
 .uncertainty-module .qualifier-range-cell .inline-tolerance-summary {
-  display: block; width: 100%; white-space: pre-wrap; overflow-wrap: anywhere;
+  display: block; width: max-content; max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere;
 }
 .uncertainty-module .instrument-equipment-table .qualifier-range-cell .inline-qualifier-input {
   width: auto; min-width: min(100%, 8ch); max-width: 100%; min-height: 28px; box-sizing: border-box;
@@ -22330,11 +22337,11 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
   font: inherit; line-height: 1.4;
 }
 .uncertainty-module .instrument-equipment-table .qualifier-range-cell .range-row-controls {
-  align-self: flex-end; width: auto; min-width: 0; max-width: 100%; flex-wrap: wrap; justify-content: flex-end;
+  flex: 0 0 auto; width: max-content; min-width: 0; max-width: 100%; flex-wrap: wrap; justify-content: flex-end;
+  margin-left: auto;
 }
 .uncertainty-module .instrument-equipment-table .qualifier-range-cell .range-row-controls .range-qualifier-add {
-  max-width: 100%; min-height: 24px; height: auto; box-sizing: border-box;
-  white-space: normal; overflow-wrap: anywhere;
+  flex: 0 0 auto; min-height: 24px; box-sizing: border-box; white-space: nowrap;
 }
 .qualifier-range-cell:not([data-actions-selected]):not(:has(.is-editing)) .range-row-controls { display: none; }
 .qualifier-row-actions { display: inline-flex; gap: 3px; margin-left: 6px; opacity: 0; }

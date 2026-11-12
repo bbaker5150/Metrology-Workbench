@@ -60,6 +60,7 @@ export async function checkTaskingFeedback({ frame, page, saved, until, check })
   await frame.getByRole('button', { name: 'Edit error source name', exact: true }).last().click();
   await frame.getByLabel('Error source name', { exact: true }).fill('Equation verification');
   await frame.getByLabel('Uncertainty equation', { exact: true }).fill('x/1000');
+  await frame.getByRole('button', { name: 'Use measurement point for x', exact: true }).click();
   await frame.getByRole('button', { name: 'Edit error limit distribution', exact: true }).last().click();
   await frame.getByLabel('Error limit distribution', { exact: true }).selectOption('1.000');
   await frame.locator('.budget-dynamic-row').last().locator('.budget-source-cell').scrollIntoViewIfNeeded();

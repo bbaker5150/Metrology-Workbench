@@ -49,13 +49,21 @@ export async function checkQualifierRanges({frame, page, saved, until, check}) {
       if (await second.getAttribute('data-actions-selected') !== 'true')
         await second.click({position:{x:5,y:5}});
       await second.hover();
-      check(`${view} ${kind} qualifier controls wrap below the field within their cell`,await second.evaluate(cell=>{
+      check(`${view} ${kind} qualifier controls use the field's remaining width before wrapping below`,await second.evaluate(cell=>{
         const editor=cell.querySelector('.inline-range-editor').getBoundingClientRect();
-        const add=cell.querySelector('.range-row-add').getBoundingClientRect();
-        const remove=cell.querySelector('.range-row-delete').getBoundingClientRect();
+        const controls=cell.querySelector('.range-row-controls');
+        const group=controls.getBoundingClientRect();
+        const buttons=[...controls.querySelectorAll('button')].map(button=>button.getBoundingClientRect());
         const box=cell.getBoundingClientRect();
-        return [add,remove].every(button=>button.top>=editor.bottom && button.left>=box.left && button.right<=box.right && button.bottom<=box.bottom)
-          && (remove.left>=add.right || remove.top>=add.bottom);
+        const zoom=box.width/cell.offsetWidth;
+        const padding=(parseFloat(getComputedStyle(cell).paddingLeft)+parseFloat(getComputedStyle(cell).paddingRight))*zoom;
+        const available=box.width-padding-2*zoom;
+        const naturalGroup=buttons.reduce((sum,button)=>sum+button.width,0)+(buttons.length-1)*parseFloat(getComputedStyle(controls).columnGap)*zoom;
+        const gap=parseFloat(getComputedStyle(controls.parentElement).columnGap)*zoom;
+        const fitsBeside=editor.width+naturalGroup+gap<=available+1;
+        return buttons.every(button=>button.left>=box.left && button.right<=box.right+1 && button.bottom<=box.bottom+1)
+          && (fitsBeside ? group.left>=editor.right && group.top<editor.bottom : group.top>=editor.bottom-1)
+          && (naturalGroup>available+1 || buttons.every(button=>Math.abs(button.top-buttons[0].top)<1));
       }));
       check(`${view} ${kind} instrument delete remains visible during scroll`, await table.evaluate(async table=>{
         await new Promise(requestAnimationFrame);

@@ -32,6 +32,8 @@ export async function checkDynamicEquationCopies({ frame, page, saved, until, ch
   await frame.getByRole('button', { name: 'Add component to budget', exact: true }).last().click();
   await frame.getByRole('button', { name: 'Add equation component', exact: true }).click();
   await frame.getByLabel('Uncertainty equation', { exact: true }).fill('x/10');
+  check('new equation waits for an explicit measurement-point link', await frame.getByRole('button', { name: 'Use measurement point for x', exact: true }).getAttribute('aria-pressed') === 'false');
+  await frame.getByRole('button', { name: 'Use measurement point for x', exact: true }).click();
   await frame.getByRole('button', { name: 'Edit error limit distribution', exact: true }).click();
   await frame.getByLabel('Error limit distribution', { exact: true }).selectOption('1.000');
   check('equation editor omits the shared-component footer', await frame.locator('.dynamic-shared-note').count() === 0);

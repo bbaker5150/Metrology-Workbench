@@ -28,6 +28,7 @@ export async function checkSharedEquations({ frame, page, saved, until, check })
   await picker();
   await frame.getByRole('button', { name: 'Add equation component', exact: true }).click();
   await frame.getByLabel('Uncertainty equation', { exact: true }).fill('x/10');
+  await frame.getByRole('button', { name: 'Use measurement point for x', exact: true }).click();
   await frame.getByRole('button', { name: 'Edit error limit distribution', exact: true }).click();
   await frame.getByLabel('Error limit distribution', { exact: true }).selectOption('1.000');
   check('input-budget equation binds its 1 F input nominal', await bound() === '1 °F');

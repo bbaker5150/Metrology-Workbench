@@ -105,8 +105,10 @@ export default function DynamicUncertaintyFields({
   const measurementUnit = draft.kind === "equation"
     ? dynamicMeasurementUnit(draft, referencePoint) || measurementPoint?.unit
     : (draft.measurementUnitExplicit ? draft.measurementUnit : referencePoint?.unit) || draft.measurementUnit;
+  const linkedVariable = draft.pointVariable && Object.prototype.hasOwnProperty.call(draft.variables || {}, draft.pointVariable)
+    ? draft.pointVariable : "";
   let boundValue = "Not Set";
-  if (draft.kind === "equation" && draft.pointVariable) {
+  if (draft.kind === "equation" && linkedVariable) {
     try { boundValue = Number(dynamicMeasurementValue(measurementPoint, measurementUnit).toPrecision(14)); }
     catch { /* The live preview explains incomplete inputs. */ }
   }
@@ -144,8 +146,7 @@ export default function DynamicUncertaintyFields({
     change({
       [key]: equation,
       variables: Object.fromEntries(result.variables.map(symbol => [symbol, variableCache.current[symbol] || { name: "", value: "" }])),
-      pointVariable: result.variables.includes(current.pointVariable) ? current.pointVariable
-        : current.pointVariable || Object.keys(current.variables).length === 0 ? result.variables[0] || "" : "",
+      pointVariable: result.variables.includes(current.pointVariable) ? current.pointVariable : "",
     });
   };
   const changeSymmetry = asymmetric => {
@@ -259,15 +260,17 @@ export default function DynamicUncertaintyFields({
                 <thead><tr><th>Variable</th><th>Description</th><th>Value</th></tr></thead>
                 <tbody>{Object.entries(draft.variables).map(([symbol, variable]) => <tr key={symbol}>
                   <td className="dynamic-variable-symbol">{symbol}</td>
-                  <td><input aria-label={`${symbol} name`} readOnly={readOnly} placeholder="Description" value={variable.name}
+                  <td><input aria-label={`${symbol} name`} readOnly={readOnly} placeholder="Description" value={variable.name ?? ""}
+                    data-has-value={String(variable.name ?? "").trim() !== ""}
                     onChange={event => change({ variables: { ...draft.variables, [symbol]: { ...variable, name: event.target.value } } })} /></td>
                   <td><div className="dynamic-variable-value">
-                    {draft.pointVariable === symbol ? <span className="dynamic-bound-value">{boundValue} {unitField("measurementUnit", "Linked point unit")}</span> :
+                    {linkedVariable === symbol ? <span className="dynamic-bound-value">{boundValue} {unitField("measurementUnit", "Linked point unit")}</span> :
                       <GrowingNumericInput readOnly={readOnly} inputMode="decimal" placeholder="Value" data-dynamic-nominal={symbol} aria-label={`${symbol} nominal`} value={variable.value}
+                        data-has-value={String(variable.value ?? "").trim() !== ""}
                         onChange={event => change({ variables: { ...draft.variables, [symbol]: { ...variable, value: event.target.value } } })} />}
-                    <button type="button" disabled={readOnly} className="dynamic-inline-action dynamic-variable-binding" data-ui-toggle aria-pressed={draft.pointVariable === symbol}
-                      aria-label={`Use measurement point for ${symbol}`} title={draft.pointVariable === symbol ? "Linked to this measurement point · click to enter a fixed value" : "Use this measurement point"}
-                      onClick={() => change({ pointVariable: draft.pointVariable === symbol ? "" : symbol })}><FontAwesomeIcon icon={faLink} /></button>
+                    {(!linkedVariable || linkedVariable === symbol) && <button type="button" disabled={readOnly} className="dynamic-inline-action dynamic-variable-binding" data-ui-toggle aria-pressed={linkedVariable === symbol}
+                      aria-label={`Use measurement point for ${symbol}`} title={linkedVariable === symbol ? "Linked to this measurement point · click to enter a fixed value" : "Use this measurement point"}
+                      onClick={() => change({ pointVariable: linkedVariable === symbol ? "" : symbol })}><FontAwesomeIcon icon={faLink} /></button>}
                   </div></td>
                 </tr>)}</tbody>
               </table></div>}

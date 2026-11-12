@@ -101,6 +101,8 @@ it("pastes measurement and uncertainty columns while keeping one uncertainty per
 it("builds equation variables while typing with one measurement binding",()=>{
   const {onCommit}=setup('equation');
   fireEvent.change(screen.getByLabelText('Uncertainty equation'),{target:{value:'A*B+C'}});
+  expect(screen.getByLabelText('Use measurement point for A')).toHaveAttribute('aria-pressed','false');
+  fireEvent.click(screen.getByLabelText('Use measurement point for A'));
   expect(screen.getByLabelText('Use measurement point for A')).toHaveAttribute('aria-pressed','true');
   fireEvent.change(screen.getByLabelText('B nominal'),{target:{value:'10'}});
   fireEvent.change(screen.getByLabelText('C nominal'),{target:{value:'2.2'}});
@@ -151,6 +153,7 @@ it("preserves variable edits while an equation is incomplete and supports fixed 
   const { onCommit } = setup('equation');
   const equation = screen.getByLabelText('Uncertainty equation');
   fireEvent.change(equation, { target: { value: 'A*B' } });
+  fireEvent.click(screen.getByLabelText('Use measurement point for A'));
   fireEvent.change(screen.getByLabelText('B nominal'), { target: { value: '0.02' } });
   fireEvent.change(screen.getByLabelText('B name'), { target: { value: 'Scale factor' } });
   fireEvent.change(equation, { target: { value: 'A*' } });
@@ -200,6 +203,7 @@ it("displays shared table points in the current point unit without changing thei
 it("supports low and high equations and warns about incompatible output units", () => {
   setup('equation');
   fireEvent.change(screen.getByLabelText('Uncertainty equation'), { target: { value: 'x/100' } });
+  fireEvent.click(screen.getByLabelText('Use measurement point for x'));
   fireEvent.click(screen.getByTitle('Asymmetric tolerance'));
   fireEvent.change(screen.getByLabelText('High error limit equation'), { target: { value: 'x/50' } });
   expect(screen.getByRole('status')).toHaveTextContent('-1 to 2 V');

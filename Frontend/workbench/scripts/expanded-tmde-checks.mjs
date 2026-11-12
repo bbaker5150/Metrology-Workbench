@@ -98,6 +98,8 @@ export async function checkExpandedTmde({ frame, page, saved }) {
       await dynamic.getByRole('textbox', { name: 'Uncertainty row 1', exact: true }).fill('0.2');
     } else {
       await dynamic.getByRole('textbox', { name: 'Uncertainty equation', exact: true }).fill('x / 25');
+      assert.equal(await dynamic.getByRole('button', { name: 'Use measurement point for x', exact: true }).getAttribute('aria-pressed'), 'false', 'new equation waits for the chosen measurement-point variable');
+      await click(dynamic.getByRole('button', { name: 'Use measurement point for x', exact: true }));
     }
     assert.equal(await dynamic.getByRole('button', { name: /distribution|interpretation/i }).count(), 0, 'distribution is edited in its table column only');
     assert.equal(await dynamic.locator('.dynamic-budget-editor').count(), 1, 'instrument uses the shared budget editor');
