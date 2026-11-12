@@ -18804,13 +18804,18 @@ body.theme-cyberpunk .uncertainty-module .point-grid-item.active-point {
   );
   --sidebar-point-surface-hover: color-mix(
     in srgb,
-    var(--sidebar-function-color, var(--primary-color)) 16%,
+    var(--sidebar-function-color, var(--primary-color)) 19%,
     var(--sidebar-sticky-surface)
   );
   --sidebar-point-surface-selected: color-mix(
     in srgb,
     var(--sidebar-function-color, var(--primary-color)) 22%,
     var(--sidebar-sticky-surface)
+  );
+  --sidebar-point-surface-selected-hover: color-mix(
+    in srgb,
+    var(--sidebar-point-surface-selected) 82%,
+    var(--sidebar-function-color, var(--primary-color))
   );
 }
 
@@ -19811,7 +19816,7 @@ body.dark-mode
   );
   --sidebar-point-surface-hover: color-mix(
     in srgb,
-    var(--sidebar-function-color, var(--primary-color)) 27%,
+    var(--sidebar-function-color, var(--primary-color)) 31%,
     var(--sidebar-sticky-surface)
   );
   --sidebar-point-surface-selected: color-mix(
@@ -21333,8 +21338,8 @@ body.dark-mode .uncertainty-module .measurement-group-container .point-grid-item
 }
 .uncertainty-module .measurement-group-container .point-grid-item:is(.active, .active-point) > .is-cell-hovered,
 .uncertainty-module .measurement-group-container .point-grid-item > .point-grouped-cell--highlighted.is-cell-hovered {
-  background: color-mix(in srgb, var(--sidebar-point-surface-selected) 85%, var(--sidebar-function-color)) !important;
-  --sidebar-point-cell-fill: color-mix(in srgb, var(--sidebar-point-surface-selected) 85%, var(--sidebar-function-color));
+  background: var(--sidebar-point-surface-selected-hover) !important;
+  --sidebar-point-cell-fill: var(--sidebar-point-surface-selected-hover);
 }
 /* Recoloring is one session update; color transitions on just the header made
    it lag behind the selection perimeter. Apply area colors in the same paint. */
@@ -21348,7 +21353,7 @@ body.dark-mode .uncertainty-module .measurement-group-container .point-grid-item
   background: linear-gradient(to right, transparent var(--point-hover-left), var(--sidebar-point-surface-hover) var(--point-hover-left), var(--sidebar-point-surface-hover) var(--point-hover-right), transparent var(--point-hover-right)) border-box var(--sidebar-point-surface) !important;
 }
 .uncertainty-module .measurement-group-container .point-grid-item:is(.active, .active-point):has(> .is-cell-hovered) {
-  background: linear-gradient(to right, transparent var(--point-hover-left), color-mix(in srgb, var(--sidebar-point-surface-selected) 85%, var(--sidebar-function-color)) var(--point-hover-left), color-mix(in srgb, var(--sidebar-point-surface-selected) 85%, var(--sidebar-function-color)) var(--point-hover-right), transparent var(--point-hover-right)) border-box var(--sidebar-point-surface-selected) !important;
+  background: linear-gradient(to right, transparent var(--point-hover-left), var(--sidebar-point-surface-selected-hover) var(--point-hover-left), var(--sidebar-point-surface-selected-hover) var(--point-hover-right), transparent var(--point-hover-right)) border-box var(--sidebar-point-surface-selected) !important;
 }
 .uncertainty-module .measurement-group-container .point-grid-item:hover:has(> .is-cell-hovered):not(.active):not(.active-point):not(.table-highlight) {
   background-color: var(--sidebar-point-surface-hover) !important;

@@ -88,6 +88,78 @@ test("column hover reaches the outer row edges and meets at the gap midpoint und
   fireEvent.mouseOver(info);
   expect(list.style.getPropertyValue("--point-hover-left")).toBe("93px");
   expect(list.style.getPropertyValue("--point-hover-right")).toBe("146px");
+  fireEvent.mouseOver(value);
+  const query = vi.spyOn(list, 'querySelectorAll');
+  value.getBoundingClientRect = () => ({ left: 15.5, right: 65.5 });
+  fireEvent.mouseMove(value);
+  expect(list.style.getPropertyValue("--point-hover-right")).toBe("113px");
+  expect(query).not.toHaveBeenCalled();
+  query.mockRestore();
+});
+
+test('hover covers row padding, gaps and every merged UUT member in visual column order', () => {
+  const save = vi.fn();
+  const { container } = render(<div className="sidebar-points-scroll-wrapper">
+    {['a', 'b', 'c'].map((id, index) => <SidebarPointItem key={id}
+      point={{ id, testPointInfo: { parameter: { value: 1, unit: 'V' } } }}
+      uutName="Shared UUT" cellGroups={{ uut: { span: 3, isStart: index === 0, isEnd: index === 2, pointIds: ['a', 'b', 'c'] } }}
+      visibleColumns={{ uut: true, value: true, warningIcons: true }} columnOrder={['value', 'uut', 'warningIcons']}
+      onSelect={vi.fn()} onSave={save} />)}
+  </div>);
+  const list = container.firstChild;
+  const rows = [...list.children];
+  const bounds = (left, right, top, height = 8) => ({ left, right, width: right - left, top, bottom: top + height, height });
+  rows.forEach((row, index) => {
+    row.style.columnGap = '4px';
+    Object.defineProperty(row, 'offsetWidth', { value: 246 });
+    row.getBoundingClientRect = () => bounds(10, 133, 100 + index * 20, 20);
+    const rects = { value: [15.5, 55.5], uut: [57.5, 107.5], warningIcons: [109.5, 127.5] };
+    for (const cell of row.children) {
+      const rect = rects[cell.dataset.sidebarColumn];
+      if (rect) cell.getBoundingClientRect = () => bounds(...rect, 106 + index * 20);
+    }
+  });
+  const expectColumn = key => {
+    expect([...list.querySelectorAll('.is-cell-hovered')].map(cell => cell.dataset.sidebarColumn))
+      .toEqual(key === 'warningIcons' ? [key] : [key, key, key]);
+  };
+  // The event target remains the row while crossing tracks in its top padding.
+  fireEvent.mouseMove(rows[1], { clientX: 11, clientY: 121 });
+  expectColumn('value');
+  fireEvent.mouseMove(rows[1], { clientX: 56, clientY: 121 });
+  expectColumn('value');
+  fireEvent.mouseMove(rows[1], { clientX: 57, clientY: 121 });
+  expectColumn('uut');
+  fireEvent.mouseMove(rows[2], { clientX: 80, clientY: 159 });
+  expectColumn('uut');
+  expect(rows[2].querySelector('[data-sidebar-column="uut"]')).toHaveClass('point-grouped-cell--continuation', 'is-cell-hovered');
+  fireEvent.mouseMove(rows[2], { clientX: 132, clientY: 159 });
+  expectColumn('warningIcons');
+  expect(rows[2].querySelector('[data-sidebar-column="warningIcons"]')).toHaveClass('is-cell-hovered');
+  fireEvent.mouseOut(rows[2], { relatedTarget: document.body });
+  expect(list.querySelector('.is-cell-hovered')).toBeNull();
+  expect(save).not.toHaveBeenCalled();
+});
+
+test('hover prioritizes sticky Value without stealing the exposed part of a scrolled UUT track', () => {
+  const { container } = render(<div className="sidebar-points-scroll-wrapper">
+    <SidebarPointItem point={{ id: 'a' }} visibleColumns={{ uut: true, value: true, warningIcons: true }}
+      columnOrder={['value', 'uut', 'warningIcons']} onSelect={vi.fn()} onSave={vi.fn()} />
+  </div>);
+  const list = container.firstChild, row = list.firstChild;
+  const bounds = (left, right) => ({ left, right, width: right - left, top: 100, bottom: 120, height: 20 });
+  Object.defineProperty(row, 'offsetWidth', { value: 270 });
+  row.getBoundingClientRect = () => bounds(-20, 250);
+  const rects = { uut: [-20, 180], value: [0, 80], warningIcons: [184, 250] };
+  for (const cell of row.children) {
+    const rect = rects[cell.dataset.sidebarColumn];
+    if (rect) cell.getBoundingClientRect = () => bounds(...rect);
+    if (cell.dataset.sidebarColumn === 'value') cell.style.position = 'sticky';
+  }
+  for (const [x, expected] of [[40, 'value'], [110, 'uut'], [150, 'uut'], [181, 'uut'], [183, 'warningIcons']]) {
+    fireEvent.mouseMove(row, { clientX: x, clientY: 101 });
+    expect(list.querySelector('.is-cell-hovered')?.dataset.sidebarColumn).toBe(expected);
+  }
 });
 
 describe("measurement-point value editing", () => {

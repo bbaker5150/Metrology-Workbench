@@ -1338,16 +1338,39 @@ export const SidebarPointItem = ({
   // applied to the run's cells directly. Holding it in React state instead
   // would re-render the whole workspace - analysis panel included - every time
   // the pointer crossed a row.
-  const setRunHover = (row, target) => {
+  const setRunHover = (row, target, clientX) => {
     const list = row?.closest?.(".sidebar-points-scroll-wrapper");
     if (!list) return;
-    const hovered = list.contains(target instanceof Node ? target : null)
+    let hovered = list.contains(target instanceof Node ? target : null)
       ? target?.closest?.("[data-sidebar-column]") : null;
+    const pointerRow = list.contains(target instanceof Node ? target : null)
+      ? target?.closest?.(".point-grid-item") : null;
+    // Grid children can be text-height, and merged continuation cells let
+    // pointers through. Resolve their padding and gaps from the actual tracks,
+    // without expanding the hit targets of the controls inside them.
+    if (!hovered && pointerRow && Number.isFinite(clientX)) {
+      const bounds = pointerRow.getBoundingClientRect();
+      if (clientX >= bounds.left && clientX <= bounds.right) {
+        const cells = [...pointerRow.children].filter(cell => cell.dataset.sidebarColumn)
+          .map(cell => ({ cell, rect: cell.getBoundingClientRect() }))
+          .filter(({ rect }) => rect.width > 0);
+        const sticky = cells.find(({ cell, rect }) => clientX >= rect.left && clientX < rect.right && getComputedStyle(cell).position === "sticky");
+        // Nearest edges split gaps at their midpoint, including row padding.
+        // A sticky Value can overlap a wider scrolled UUT track, so sorting
+        // all rectangles into a single sequence would invent false boundaries.
+        const nearest = cells.reduce((best, entry) => {
+          const distance = Math.max(entry.rect.left - clientX, clientX - entry.rect.right, 0);
+          return !best || distance < best.distance || (distance === best.distance && entry.rect.left > best.rect.left)
+            ? { ...entry, distance } : best;
+        }, null);
+        hovered = (sticky || nearest)?.cell;
+      }
+    }
     const column = hovered?.dataset.sidebarColumn;
     // Match the instrument table's whole-column hover without rerendering
-    // the workspace. Measure only when the pointer enters a different column.
-    if (hovered?.classList.contains("is-cell-hovered")) return;
-    list.querySelectorAll(".is-cell-hovered").forEach(cell => cell.classList.remove("is-cell-hovered"));
+    // the workspace or repainting an already highlighted column.
+    const alreadyHovered = hovered?.classList.contains("is-cell-hovered");
+    if (!alreadyHovered) list.querySelectorAll(".is-cell-hovered").forEach(cell => cell.classList.remove("is-cell-hovered"));
     if (!column) return;
     const hoveredRow = hovered.parentElement;
     const bounds = hoveredRow.getBoundingClientRect();
@@ -1356,8 +1379,11 @@ export const SidebarPointItem = ({
     const halfGap = parseFloat(getComputedStyle(hoveredRow).columnGap) / 2 || 0;
     const left = column === leadingVisibleColumn ? 0 : (cellBounds.left - bounds.left) / scale - halfGap;
     const right = hovered.dataset.sidebarColumnLast === "true" ? bounds.width / scale : (cellBounds.right - bounds.left) / scale + halfGap;
-    list.style.setProperty("--point-hover-left", `${left}px`);
-    list.style.setProperty("--point-hover-right", `${right}px`);
+    // Refresh after resizing or scrolling without rewriting identical styles
+    // (or making the selection outline remeasure on every pointer movement).
+    if (list.style.getPropertyValue("--point-hover-left") !== `${left}px`) list.style.setProperty("--point-hover-left", `${left}px`);
+    if (list.style.getPropertyValue("--point-hover-right") !== `${right}px`) list.style.setProperty("--point-hover-right", `${right}px`);
+    if (alreadyHovered) return;
     list.querySelectorAll(".point-grid-item > [data-sidebar-column]").forEach(cell => {
       if (cell.dataset.sidebarColumn === column && (column !== "warningIcons" || cell === hovered)) cell.classList.add("is-cell-hovered");
     });
@@ -1370,8 +1396,9 @@ export const SidebarPointItem = ({
       data-breakdown-available={Boolean(onShowRiskBreakdown && !boundaryOnly) || undefined}
       tabIndex={0}
       className={`point-grid-item ${isSelected ? "active" : ""} ${isActivePoint ? "active-point" : ""} ${isTableSelected ? "table-highlight" : ""}`}
-      onMouseOver={(e) => setRunHover(e.currentTarget, e.target)}
-      onMouseLeave={(e) => setRunHover(e.currentTarget, e.relatedTarget)}
+      onMouseOver={(e) => setRunHover(e.currentTarget, e.target, e.clientX)}
+      onMouseMove={(e) => setRunHover(e.currentTarget, e.target, e.clientX)}
+      onMouseLeave={(e) => setRunHover(e.currentTarget, e.relatedTarget, e.clientX)}
       style={{
         gridTemplateColumns: getSidebarGridTemplate(
           visibleColumns,
