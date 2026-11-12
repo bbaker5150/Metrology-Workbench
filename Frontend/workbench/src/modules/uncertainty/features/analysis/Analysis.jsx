@@ -249,7 +249,16 @@ function Analysis({
 
   // Extract safe values for calculation hooks based on current view mode
   const uutNominal = useMemo(
-    () => (isPointView ? testPointData?.testPointInfo?.parameter : {}),
+    () => {
+      if (!isPointView) return {};
+      const info = testPointData?.testPointInfo;
+      // The sidebar owns the complete qualifier chain beside the primary
+      // parameter. Older points may omit or retain a stale copy inside it;
+      // range resolution must see the same selection as the sidebar.
+      return info?.parameter && Object.hasOwn(info, "qualifier")
+        ? { ...info.parameter, qualifier: info.qualifier }
+        : info?.parameter;
+    },
     [isPointView, testPointData],
   );
 

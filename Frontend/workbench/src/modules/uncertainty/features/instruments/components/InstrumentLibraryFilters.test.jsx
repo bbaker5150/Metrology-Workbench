@@ -99,17 +99,48 @@ it('keeps specification expansion when Escape closes a filter and dismisses only
   expect(screen.queryByRole('dialog', { name: 'Description filter and sort' })).toBeNull();
 });
 
-it('opens by keyboard into the filter and returns focus from Done and Close', async () => {
+it('opens by keyboard into the filter and closes from Done or its header trigger without an X button', async () => {
   await open();
   const description = screen.getByRole('button', { name: 'Filter and sort Description' });
   description.focus(); fireEvent.keyDown(description, { key: 'ArrowDown' });
   expect(screen.getByRole('searchbox', { name: 'Search Manufacturer values' })).toHaveFocus();
+  expect(screen.queryByRole('button', { name: 'Close Description filter' })).toBeNull();
   fireEvent.click(within(screen.getByRole('dialog', { name: 'Description filter and sort' })).getByRole('button', { name: 'Done' }));
   expect(description).toHaveFocus();
   filter('Status');
   expect(screen.getByRole('button', { name: 'Sort Status ascending' })).toHaveFocus();
-  fireEvent.click(screen.getByRole('button', { name: 'Close Status filter' }));
+  expect(screen.queryByRole('button', { name: 'Close Status filter' })).toBeNull();
+  fireEvent.click(screen.getByRole('button', { name: 'Filter and sort Status' }));
+  expect(screen.queryByRole('dialog', { name: 'Status filter and sort' })).toBeNull();
   expect(screen.getByRole('button', { name: 'Filter and sort Status' })).toHaveFocus();
+});
+
+it('keeps Description sections open independently while combining their filters', async () => {
+  await open();
+  const menu = filter('Description');
+  const manufacturer = menu.getByRole('button', { name: 'Manufacturer', exact: true });
+  const model = menu.getByRole('button', { name: 'Model', exact: true });
+  fireEvent.change(menu.getByRole('searchbox', { name: 'Search Manufacturer values' }), { target: { value: 'acme' } });
+  fireEvent.click(model);
+  expect(manufacturer).toHaveAttribute('aria-expanded', 'true');
+  expect(model).toHaveAttribute('aria-expanded', 'true');
+  expect(menu.getByRole('searchbox', { name: 'Search Manufacturer values' })).toHaveValue('acme');
+  expect(menu.getByRole('searchbox', { name: 'Search Model values' })).toBeInTheDocument();
+  check(menu, 'Acme');
+  check(menu, 'Select all Model values'); check(menu, 'M2');
+  expect(rows()).toEqual(['three']);
+  fireEvent.click(manufacturer);
+  expect(manufacturer).toHaveAttribute('aria-expanded', 'false');
+  expect(model).toHaveAttribute('aria-expanded', 'true');
+  expect(menu.queryByRole('searchbox', { name: 'Search Manufacturer values' })).toBeNull();
+  expect(menu.getByRole('checkbox', { name: 'M2', exact: true })).toBeChecked();
+  expect(rows()).toEqual(['three']);
+  fireEvent.click(model);
+  done(menu);
+  const trigger = screen.getByRole('button', { name: 'Filter and sort Description' });
+  fireEvent.keyDown(trigger, { key: 'ArrowDown' });
+  expect(screen.getByRole('button', { name: 'Manufacturer', exact: true })).toHaveFocus();
+  expect(screen.getByRole('button', { name: 'Model', exact: true })).toHaveAttribute('aria-expanded', 'false');
 });
 
 it('drops hidden selections and resets column filters when creating a new draft', async () => {

@@ -2,7 +2,6 @@ import React, { useEffect, useLayoutEffect, useRef, useState } from "react";
 import ReactDOM from "react-dom";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faArrowDownAZ, faArrowUpAZ, faChevronDown, faChevronRight, faFilter } from "@fortawesome/free-solid-svg-icons";
-import SymbolButton from "../../../components/common/SymbolButton";
 import useExclusiveMenu from "../../../hooks/useExclusiveMenu";
 import { getAnchoredMenuPlacement } from "../../../utils/anchoredMenuPosition";
 
@@ -92,7 +91,7 @@ function FilterValues({ field, instruments, filters, onChange, sort, onSort }) {
 
 export default function InstrumentLibraryColumnFilter({ columnKey, label, instruments, filters, onFiltersChange, sort, onSort }) {
   const [open, setOpen] = useState(false);
-  const [section, setSection] = useState("manufacturer");
+  const [sections, setSections] = useState(() => new Set(["manufacturer"]));
   const [placement, setPlacement] = useState(null);
   const trigger = useRef(null);
   const menu = useRef(null);
@@ -107,7 +106,7 @@ export default function InstrumentLibraryColumnFilter({ columnKey, label, instru
   }, [open]);
   useLayoutEffect(() => {
     if (!open || !placement) return;
-    (menu.current?.querySelector('input[type="search"]') || menu.current?.querySelector('.instrument-library-filter-sort button'))?.focus();
+    (menu.current?.querySelector('input[type="search"]') || menu.current?.querySelector('.instrument-library-filter-sort button') || menu.current?.querySelector('.instrument-library-filter-section'))?.focus();
   }, [open, placement]);
   useEffect(() => {
     if (!open) return;
@@ -143,22 +142,26 @@ export default function InstrumentLibraryColumnFilter({ columnKey, label, instru
       title={filtered ? `${label} filter active` : `Filter and sort ${label}`} onPointerDown={event => event.stopPropagation()}
       onDoubleClick={event => event.stopPropagation()}
       onKeyDown={event => { if (event.key === "ArrowDown") { event.preventDefault(); event.stopPropagation(); setOpen(true); } }}
-      onClick={event => { event.stopPropagation(); setOpen(value => !value); }}>
+      onClick={event => { event.stopPropagation(); if (open) close(); else setOpen(true); }}>
       <FontAwesomeIcon icon={filtered ? faFilter : faChevronDown} />
     </button>
     {open && placement && ReactDOM.createPortal(<div ref={menu} role="dialog" aria-label={`${label} filter and sort`}
       onPointerDown={event => event.stopPropagation()} onMouseDown={event => event.stopPropagation()}
       onClick={event => event.stopPropagation()} onDoubleClick={event => event.stopPropagation()} onKeyDown={event => event.stopPropagation()}
       className="instrument-library-filter-menu" style={{ left: placement.left, top: placement.top, bottom: placement.bottom, width: placement.width, maxHeight: placement.maxHeight }}>
-      <div className="instrument-library-filter-title"><strong>{label}</strong><SymbolButton aria-label={`Close ${label} filter`} onClick={close} /></div>
+      <div className="instrument-library-filter-title"><strong>{label}</strong></div>
       <div className="instrument-library-filter-sections">
         {fields.map(field => <section key={field.key}>
-          {columnKey !== "sync" && <button type="button" className="instrument-library-filter-section" aria-expanded={section === field.key}
-            onClick={() => setSection(value => value === field.key ? null : field.key)}>
-            <FontAwesomeIcon icon={section === field.key ? faChevronDown : faChevronRight} /><span>{field.label}</span>
+          {columnKey !== "sync" && <button type="button" className="instrument-library-filter-section" aria-expanded={sections.has(field.key)}
+            onClick={() => setSections(previous => {
+              const next = new Set(previous);
+              if (next.has(field.key)) next.delete(field.key); else next.add(field.key);
+              return next;
+            })}>
+            <FontAwesomeIcon icon={sections.has(field.key) ? faChevronDown : faChevronRight} /><span>{field.label}</span>
             {filters[field.key] !== undefined && <FontAwesomeIcon className="instrument-library-filter-active" icon={faFilter} />}
           </button>}
-          {(columnKey === "sync" || section === field.key) && <FilterValues key={field.key} field={field} instruments={instruments}
+          {(columnKey === "sync" || sections.has(field.key)) && <FilterValues key={field.key} field={field} instruments={instruments}
             filters={filters} onChange={changeFilter} sort={sort} onSort={onSort} />}
         </section>)}
       </div>

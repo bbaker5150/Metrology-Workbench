@@ -6161,24 +6161,15 @@ export const resolveUutRangeHelper = (
 
   // Priority B: Saved Tolerance (Robust Match)
   if (activeIndex === -1 && savedTolerance) {
-    activeIndex = allRanges.findIndex((r) => {
-      if (r.qualifier && uutNominal && !assessRangeCompatibility(r, uutNominal, "UUT range").compatible) return false;
-      // Stable range/function ids are preferred because function names and row
-      // order can change as multifunction instruments evolve.
-      if (
-        r.rangeId &&
-        savedTolerance.rangeId &&
-        String(r.rangeId) === String(savedTolerance.rangeId)
-      ) {
-        return (
-          !savedTolerance.functionId ||
-          !r.functionId ||
-          String(savedTolerance.functionId) === String(r.functionId)
-        );
-      }
-
-      // Legacy ID Match
-      if (r.id && savedTolerance.id && r.id === savedTolerance.id) return true;
+    const isCompatible = range => !range.qualifier || !uutNominal ||
+      assessRangeCompatibility(range, uutNominal, "UUT range").compatible;
+    // Search all identities before considering descriptive fallbacks. Two
+    // distinct leaves can share bounds and qualifiers but carry different specs.
+    if (savedTolerance.rangeId != null || savedTolerance.id != null) {
+      activeIndex = allRanges.findIndex(range => isCompatible(range) && samePointRange(range, savedTolerance));
+    }
+    if (activeIndex === -1) activeIndex = allRanges.findIndex((r) => {
+      if (!isCompatible(r)) return false;
 
       // Legacy Name Match
       if (savedTolerance.range && r.range && savedTolerance.range === r.range) {

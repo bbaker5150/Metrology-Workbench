@@ -1,6 +1,8 @@
 import { userStorageKey } from "./utils/deviceKey";
 import SymbolButton from "./components/common/SymbolButton";
 import PointRangeSelect from "./components/common/PointRangeSelect";
+import PointQualifierSelect from "./components/common/PointQualifierSelect";
+import { formatPointQualifierSelection, getPointQualifierChoices } from "./utils/pointQualifierSelection";
 import { choosePointRange, getPointUutRanges, resolvePointRange, isManualPointTolerance, samePointRangeInputs } from "./utils/pointUutRange";
 import { createRiskEvaluationCache } from "./utils/riskEvaluationCache";
 import { createIndependentPointCache } from "./utils/independentPointCache";
@@ -299,11 +301,7 @@ const normalizedGroupedCellValue = (value) => {
   return String(value).trim();
 };
 
-export const formatPointQualifier = (qualifier) => {
-  const value = normalizedGroupedCellValue(qualifier?.value);
-  const unit = normalizedGroupedCellValue(qualifier?.unit);
-  return value && unit && !value.endsWith(unit) ? `${value} ${unit}` : value;
-};
+export const formatPointQualifier = formatPointQualifierSelection;
 
 export const getConsecutiveSidebarCellGroup = (
   points = [],
@@ -850,6 +848,10 @@ export const SidebarPointItem = ({
   const valueEditorRef = useRef(null);
   const sharedFieldPressRef = useRef(null);
   const [groupedCellGeometry, setGroupedCellGeometry] = useState({});
+  const hasInstrumentQualifiers = useMemo(() => getPointUutRanges(currentUut).some(range => range.qualifier), [currentUut]);
+  const qualifierChoices = useMemo(() => editingField === "qualifier" && visibleColumns.qualifier && hasInstrumentQualifiers
+    ? getPointQualifierChoices(currentUut, point.testPointInfo) : [],
+  [currentUut, point.testPointInfo, visibleColumns.qualifier, hasInstrumentQualifiers, editingField]);
   const orderedVisibleColumns = getVisibleSidebarColumnOrder(
     visibleColumns,
     columnOrder,
@@ -1651,6 +1653,14 @@ export const SidebarPointItem = ({
                 cellGroups.qualifier,
                 "qualifier",
                 editingField === "qualifier" ? (
+                  hasInstrumentQualifiers ? <PointQualifierSelect choices={qualifierChoices} point={point} autoOpen
+                    onChange={updatedPoint => onSave?.(updatedPoint)} onClose={({ restoreFocus } = {}) => {
+                      cancelEdit();
+                      if (restoreFocus) requestAnimationFrame(() => {
+                        const row = pointRowRef.current;
+                        (row?.querySelector('.point-qualifier [data-point-editor-trigger]') || row)?.focus({ preventScroll: true });
+                      });
+                    }} /> :
                   <span className="point-edit-affordance point-label-editing">
                   <span className="point-grouped-cell-label" aria-hidden="true">{tempValue || "-"}</span>
                   <input
@@ -1670,6 +1680,15 @@ export const SidebarPointItem = ({
                   <span
                       className="point-edit-affordance"
                       data-point-editor-trigger
+                      role={hasInstrumentQualifiers ? "button" : undefined}
+                      tabIndex={hasInstrumentQualifiers ? 0 : undefined}
+                      aria-label={hasInstrumentQualifiers ? "Choose measurement point qualifier" : undefined}
+                      aria-haspopup={hasInstrumentQualifiers ? "tree" : undefined}
+                      onKeyDown={event => {
+                        if (hasInstrumentQualifiers && ["Enter", " ", "ArrowDown"].includes(event.key)) {
+                          handleSharedFieldClick(event, "qualifier", point.testPointInfo?.qualifier?.value, cellGroups.qualifier);
+                        }
+                      }}
                       onMouseDown={(e) => {
                         if (isPointEditorPress(e)) handleSharedFieldClick(e, "qualifier", point.testPointInfo?.qualifier?.value, cellGroups.qualifier);
                       }}
@@ -1687,6 +1706,7 @@ export const SidebarPointItem = ({
                         <span className="point-placeholder">-</span>
                       )}
                     </span>
+                    {hasInstrumentQualifiers && <FontAwesomeIcon icon={faChevronDown} size="xs" aria-hidden="true" style={{ marginLeft: 5, flexShrink: 0 }} />}
                   </span>
                 ),
               )}
@@ -4611,7 +4631,8 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
   const handleInlinePointUpdate = (updatedPoint) => {
     const previous = currentTestPoints.find(point => point.id === updatedPoint.id);
     if (!samePointRangeInputs(previous?.testPointInfo, updatedPoint.testPointInfo) && !isManualPointTolerance(updatedPoint.uutTolerance)) {
-      const uut = currentSessionData.uuts?.find(item => updatedPoint.associatedUutIds?.includes(item.id));
+      const uutId = updatedPoint.activeUutId || updatedPoint.associatedUutIds?.[0];
+      const uut = currentSessionData.uuts?.find(item => String(item.id) === String(uutId));
       if (uut) updatedPoint = { ...updatedPoint, uutTolerance: resolvePointRange(getPointUutRanges(uut), updatedPoint.testPointInfo, updatedPoint.uutTolerance) };
     }
     const refreshed = recalculatePointUncertaintyFields(updatedPoint, currentSessionData);
@@ -5248,7 +5269,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
   const sidebarSelectedPointIds = useMemo(() => new Set(selectedSidebarPointIds), [selectedSidebarPointIds]);
   const tableSelectedPointIds = useMemo(() => new Set(selectedTablePointIds), [selectedTablePointIds]);
   const renderSidebarPointRow = (tp, fnGroup, points = [], index = 0) => {
-    const contextUutId = tp.associatedUutIds?.[0] || null;
+    const contextUutId = tp.activeUutId || tp.associatedUutIds?.[0] || null;
     const currentUut = sidebarUutsById.get(String(contextUutId));
     const cellGroups = sidebarCellGroups.get(fnGroup.id)?.[index] || {};
     return (
