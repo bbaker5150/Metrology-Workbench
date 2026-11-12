@@ -3,7 +3,7 @@ import { selectionPerimeter } from "../../utils/instrumentSelectionOutline";
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const outlineClasses = value => (value || '').split(/\s+/)
-  .filter(name => name && name !== 'is-cell-hovered').sort().join(' ');
+  .filter(name => name && name !== 'is-cell-hovered' && name !== 'is-run-hovered').sort().join(' ');
 const outlineStyles = value => (value || '')
   .replace(/--point-hover-(?:left|right)\s*:[^;]*(?:;|$)/g, '').trim();
 

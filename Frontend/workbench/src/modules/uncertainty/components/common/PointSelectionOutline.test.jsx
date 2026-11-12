@@ -27,7 +27,7 @@ it('skips geometry reads for hover but redraws immediately for selection and col
     expect(overlay.querySelector('path')).toBeNull();
     bounds.mockClear();
     await act(async () => {
-      cell.classList.add('is-cell-hovered');
+      cell.classList.add('is-cell-hovered', 'is-run-hovered');
       row.style.setProperty('--point-hover-left', '100px');
       row.style.setProperty('--point-hover-right', '0px');
     });
@@ -37,7 +37,7 @@ it('skips geometry reads for hover but redraws immediately for selection and col
     expect(overlay.querySelector('path').getAttribute('d')).toBeTruthy();
     bounds.mockClear();
     await act(async () => {
-      cell.classList.remove('is-cell-hovered');
+      cell.classList.remove('is-cell-hovered', 'is-run-hovered');
       row.style.removeProperty('--point-hover-left');
       row.style.removeProperty('--point-hover-right');
     });

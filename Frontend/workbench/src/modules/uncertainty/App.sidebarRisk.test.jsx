@@ -51,19 +51,30 @@ test('retains column hover when crossing rows without rescanning or repainting t
   query.mockRestore();
 });
 
-test('Info hover stays on its own point and moves between rows', () => {
+test('Info hover highlights the whole column while diagnostic content stays with its point', () => {
+  const select = vi.fn();
+  const points = [{ id: 'a' }, { id: 'b' }, { id: 'c' }];
+  const diagnostics = [[{ category: 'input', message: 'Set the measurement value.' }],
+    [{ category: 'warning', message: 'Range mismatch.' }], []];
   const { container } = render(<div className="sidebar-points-scroll-wrapper">
-    {['a', 'b'].map(id => <SidebarPointItem key={id}
-      point={{ id }} visibleColumns={{ warningIcons: true }} onSelect={vi.fn()} onSave={vi.fn()} />)}
+    {points.map((point, index) => <SidebarPointItem key={point.id}
+      point={point} diagnostics={diagnostics[index]} visibleColumns={{ warningIcons: true }} onSelect={select} onSave={vi.fn()} />)}
   </div>);
   const cells = container.querySelectorAll('.point-information');
-  fireEvent.mouseOver(cells[0]);
-  expect(cells[0]).toHaveClass('is-cell-hovered');
-  expect(cells[1]).not.toHaveClass('is-cell-hovered');
-  fireEvent.mouseOut(cells[0], { relatedTarget: cells[1] });
+  const input = within(cells[0]).getByRole('button', { name: 'Missing inputs: Set the measurement value.' });
+  const warning = within(cells[1]).getByRole('button', { name: 'Calculation warning: Range mismatch.' });
+  expect(within(cells[2]).queryByRole('button')).toBeNull();
+  fireEvent.mouseOver(input);
+  cells.forEach(cell => expect(cell).toHaveClass('is-cell-hovered'));
+  fireEvent.mouseOut(input, { relatedTarget: cells[1] });
   fireEvent.mouseOver(cells[1], { relatedTarget: cells[0] });
-  expect(cells[0]).not.toHaveClass('is-cell-hovered');
-  expect(cells[1]).toHaveClass('is-cell-hovered');
+  cells.forEach(cell => expect(cell).toHaveClass('is-cell-hovered'));
+  fireEvent.mouseOver(cells[2]);
+  cells.forEach(cell => expect(cell).toHaveClass('is-cell-hovered'));
+  fireEvent.click(warning);
+  expect(select).toHaveBeenCalledExactlyOnceWith(expect.anything(), points[1]);
+  fireEvent.mouseOut(cells[2], { relatedTarget: document.body });
+  cells.forEach(cell => expect(cell).not.toHaveClass('is-cell-hovered'));
 });
 
 test("column hover reaches the outer row edges and meets at the gap midpoint under zoom", () => {
@@ -121,11 +132,12 @@ test('hover covers row padding, gaps and every merged UUT member in visual colum
   });
   const expectColumn = key => {
     expect([...list.querySelectorAll('.is-cell-hovered')].map(cell => cell.dataset.sidebarColumn))
-      .toEqual(key === 'warningIcons' ? [key] : [key, key, key]);
+      .toEqual([key, key, key]);
   };
   // The event target remains the row while crossing tracks in its top padding.
   fireEvent.mouseMove(rows[1], { clientX: 11, clientY: 121 });
   expectColumn('value');
+  rows.forEach(row => expect(row.querySelector('[data-sidebar-column="uut"]')).toHaveClass('is-run-hovered'));
   fireEvent.mouseMove(rows[1], { clientX: 56, clientY: 121 });
   expectColumn('value');
   fireEvent.mouseMove(rows[1], { clientX: 57, clientY: 121 });
@@ -138,6 +150,7 @@ test('hover covers row padding, gaps and every merged UUT member in visual colum
   expect(rows[2].querySelector('[data-sidebar-column="warningIcons"]')).toHaveClass('is-cell-hovered');
   fireEvent.mouseOut(rows[2], { relatedTarget: document.body });
   expect(list.querySelector('.is-cell-hovered')).toBeNull();
+  expect(list.querySelector('.is-run-hovered')).toBeNull();
   expect(save).not.toHaveBeenCalled();
 });
 

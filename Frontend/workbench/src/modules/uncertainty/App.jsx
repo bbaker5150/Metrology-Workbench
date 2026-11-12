@@ -7,6 +7,7 @@ import { createIndependentPointCache } from "./utils/independentPointCache";
 import { instrumentForRole } from './utils/acShuntInstrumentRole';
 import InstrumentLibraryModal from "./features/instruments/components/InstrumentLibraryModal";
 import { buildSidebarCellGroups } from "./utils/sidebarCellGroups";
+import { updatePointRowHover } from "./utils/pointRowHover";
 import { newMeasurementAreaColor } from "./utils/measurementAreaGrouping";
 import { measurementAreaAccent } from "./utils/measurementAreaColors";
 import MeasurementAreaEmptyHint from "./components/common/MeasurementAreaEmptyHint";
@@ -1338,13 +1339,14 @@ export const SidebarPointItem = ({
   // applied to the run's cells directly. Holding it in React state instead
   // would re-render the whole workspace - analysis panel included - every time
   // the pointer crossed a row.
-  const setRunHover = (row, target, clientX) => {
+  const setRunHover = (row, target, clientX, clientY) => {
     const list = row?.closest?.(".sidebar-points-scroll-wrapper");
     if (!list) return;
     let hovered = list.contains(target instanceof Node ? target : null)
       ? target?.closest?.("[data-sidebar-column]") : null;
     const pointerRow = list.contains(target instanceof Node ? target : null)
       ? target?.closest?.(".point-grid-item") : null;
+    updatePointRowHover(list, pointerRow, clientY, Boolean(target?.closest?.('.point-grouped-cell-content')));
     // Grid children can be text-height, and merged continuation cells let
     // pointers through. Resolve their padding and gaps from the actual tracks,
     // without expanding the hit targets of the controls inside them.
@@ -1385,7 +1387,7 @@ export const SidebarPointItem = ({
     if (list.style.getPropertyValue("--point-hover-right") !== `${right}px`) list.style.setProperty("--point-hover-right", `${right}px`);
     if (alreadyHovered) return;
     list.querySelectorAll(".point-grid-item > [data-sidebar-column]").forEach(cell => {
-      if (cell.dataset.sidebarColumn === column && (column !== "warningIcons" || cell === hovered)) cell.classList.add("is-cell-hovered");
+      if (cell.dataset.sidebarColumn === column) cell.classList.add("is-cell-hovered");
     });
   };
 
@@ -1396,9 +1398,9 @@ export const SidebarPointItem = ({
       data-breakdown-available={Boolean(onShowRiskBreakdown && !boundaryOnly) || undefined}
       tabIndex={0}
       className={`point-grid-item ${isSelected ? "active" : ""} ${isActivePoint ? "active-point" : ""} ${isTableSelected ? "table-highlight" : ""}`}
-      onMouseOver={(e) => setRunHover(e.currentTarget, e.target, e.clientX)}
-      onMouseMove={(e) => setRunHover(e.currentTarget, e.target, e.clientX)}
-      onMouseLeave={(e) => setRunHover(e.currentTarget, e.relatedTarget, e.clientX)}
+      onMouseOver={(e) => setRunHover(e.currentTarget, e.target, e.clientX, e.clientY)}
+      onMouseMove={(e) => setRunHover(e.currentTarget, e.target, e.clientX, e.clientY)}
+      onMouseLeave={(e) => setRunHover(e.currentTarget, e.relatedTarget, e.clientX, e.clientY)}
       style={{
         gridTemplateColumns: getSidebarGridTemplate(
           visibleColumns,
