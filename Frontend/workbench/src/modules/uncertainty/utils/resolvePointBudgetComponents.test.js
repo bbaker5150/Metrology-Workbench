@@ -55,6 +55,8 @@ it("refreshes secondary uncertainties by source id across renames, type changes 
   }))];
   let rows = resolvePointBudgetComponents(point, session);
   expect(rows.map(row => row.value_native)).toEqual([1 / Math.sqrt(3), .2 / Math.sqrt(3), .3 / Math.sqrt(3)]);
+  expect(rows.map(row => row.name)).toEqual(['TMDE - TMDE Error', 'Thermal – TMDE', 'Head – TMDE']);
+  point.components = rows.map(row => ({ ...row, name: `Old TMDE - ${row.tmdeUncertaintySourceName || 'TMDE Error'}`, sourceDisplayName: 'Old saved label' }));
   tolerance.tmdeSecondaryUncertainties[0] = { id: "thermal", name: "Renamed thermal", kind: "equation", dynamicDefinition: {
     id: "eq", kind: "equation", columns: [{ id: "u" }], name: "Renamed thermal", measurementUnit: "V", outputUnit: "V", mode: "standard",
     equation: "x * a", variables: { x: {}, a: { value: .04 } }, pointVariable: "x",
@@ -62,6 +64,8 @@ it("refreshes secondary uncertainties by source id across renames, type changes 
   rows = resolvePointBudgetComponents(point, session);
   expect(rows[1].value_native).toBeCloseTo(.4, 10);
   expect(rows[1].tmdeUncertaintySourceName).toBe("Renamed thermal");
+  expect(rows[1]).toMatchObject({ id: 'thermal', tmdeBudgetSourceId: 'meter', tmdeBudgetRangeId: 'range',
+    name: 'Renamed thermal – TMDE', sourceDisplayName: 'Renamed thermal – TMDE' });
   expect(rows[2].value_native).toBeCloseTo(.3 / Math.sqrt(3), 10);
   point.components[2].tmdeUncertaintyOverride = { distribution: "2", componentKind: "Accuracy" };
   rows = resolvePointBudgetComponents(point, session);

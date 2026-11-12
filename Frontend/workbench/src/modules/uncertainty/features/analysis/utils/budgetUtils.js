@@ -1,6 +1,7 @@
 import { applyTmdeUncertaintyOverrides } from "../../../utils/tmdeUncertaintySources";
 import { hasNominalValue, toleranceNeedsNominal, unresolvedComponent, absoluteBudgetComponent, relativeBudgetUnit, budgetUnitMismatch, budgetToleranceUnitMismatch } from "../../../utils/incompleteBudget";
 import { resolveDynamicComponent } from "../../../utils/dynamicBudgetComponents";
+import { formatTmdeBudgetLabel } from "../../../utils/instrumentIdentity";
 /**
  * * This utility file contains helper functions for breaking down tolerance objects
  * * into individual uncertainty budget components.
@@ -102,7 +103,11 @@ export const getBudgetComponentsFromTolerance = (
     const unit = referenceMeasurementPoint.unit || rawToleranceObject?.unit || "V";
     return getBudgetComponentsFromTolerance(rawToleranceObject, { ...referenceMeasurementPoint, value: 1, unit }, instrumentTypeBComponents, scopeContext)
       .map(component => {
-        if (component.dynamicDefinitionId) return resolveDynamicComponent(component, component.dynamicDefinition, referenceMeasurementPoint);
+        if (component.dynamicDefinitionId) {
+          const resolved = resolveDynamicComponent(component, component.dynamicDefinition, referenceMeasurementPoint);
+          return component.tmdeUncertaintySourceId && component.tmdeUncertaintySourceId !== "primary"
+            ? { ...resolved, name: component.name } : resolved;
+        }
         const parentTolerance = rawToleranceObject?.tolerances || rawToleranceObject?.tolerance || rawToleranceObject || {};
         const tolerance = parentTolerance.tmdeSecondaryUncertainties?.find(source => source.id === component.tmdeUncertaintySourceId)?.tolerance || parentTolerance;
         if (!component.isResolution && !component.isManual) component = { ...component,
@@ -196,7 +201,7 @@ export const getBudgetComponentsFromTolerance = (
     return (components.length ? components : [unresolvedComponent(emptySource, "Define this secondary uncertainty.")]).map(component => ({ ...component, tmdeUncertaintySourceId: source.id, tmdeUncertaintySourceName: source.name,
       tmdeUncertaintyComponentKind: component.name.split(" - ").at(-1),
     }));
-  });
+  }).map(component => ({ ...component, name: formatTmdeBudgetLabel(toleranceObject, component) }));
 
   // A TMDE can author its primary uncertainty as a table or equation. Keep
   // resolution and any separately authored Type B terms, but do not combine

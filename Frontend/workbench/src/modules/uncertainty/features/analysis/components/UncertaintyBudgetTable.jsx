@@ -15,7 +15,7 @@ import { formatQualifierPath } from "../../../utils/qualifierRanges";
 import ResizableBudgetTable from "./ResizableBudgetTable";
 import DecisionRiskCards from "./DecisionRiskCards";
 import DynamicBudgetComponentRow from "./DynamicBudgetComponentRow";
-import { formatErrorSourceDescription, formatErrorSourceKind } from "../../../utils/instrumentIdentity";
+import { formatErrorSourceDescription, formatTmdeBudgetLabel } from "../../../utils/instrumentIdentity";
 import React, {
   Suspense,
   lazy,
@@ -887,6 +887,7 @@ const UncertaintyBudgetTable = ({
   formatToleranceSummary,
   onOpenCorrelation,
   formatRangeDetail,
+  qualifierColumnNames,
   onBudgetSettingsChange,
   uncertaintyDisplayMode = 'auto',
   onUncertaintyDisplayModeChange,
@@ -1109,10 +1110,10 @@ const UncertaintyBudgetTable = ({
       const source = budgetInstruments.find(instrument => [instrument.id, instrument.sourceId].some(id => id != null && ids.includes(String(id))));
       if (!source) return component;
       const kind = component.tmdeUncertaintySourceName || component.tmdeBudgetComponentKind || String(component.name || "Tolerance").split(" - ").at(-1);
-      const name = `${formatErrorSourceDescription(source)} - ${formatErrorSourceKind(kind)}`;
+      const name = formatTmdeBudgetLabel(source, component, kind);
       const ranges = getInstrumentRangeRows(source, { flattenTolerances: true });
       return { ...component, name, sourceDisplayName: name, budgetRangeOptions: ranges,
-        budgetQualifierNames: source.instrument?.qualifierColumnNames || source.qualifierColumnNames || [] };
+        budgetQualifierNames: qualifierColumnNames ?? source.instrument?.qualifierColumnNames ?? source.qualifierColumnNames ?? [] };
     });
     const displayNames = enumerateComponentDisplayNames(labeledComponents);
     return (
@@ -1204,7 +1205,7 @@ const UncertaintyBudgetTable = ({
                   {[...new Set(component.tmdeTransferDetails.map(source=>source.range))].join('; ')}
                 </span>}
                 {component.budgetRangeOptions?.length > 0 && !component.isManual && !component.tmdeTransferSources && (
-                  <InlineMenuSelect className="budget-range-selector" ariaLabel={`Range for ${displayName}`}
+                  <InlineMenuSelect className="budget-range-selector budget-component-range-selector" ariaLabel={`Range for ${displayName}`}
                     width="max-content" menuWidth={440} showOptionMeta={false}
                     value={String(Math.max(0, component.budgetRangeOptions.findIndex(range =>
                       String(range.rangeId ?? range.id) === String(component.tmdeBudgetRangeId ?? component.sourceRangeId) &&
@@ -1634,7 +1635,7 @@ const UncertaintyBudgetTable = ({
   return (
     <div className="budget-stack" style={measurementAreaColor ? { "--primary-color": measurementAreaAccent(measurementAreaColor) } : undefined}>
       {groups.map((group) => (
-        <React.Fragment key={group.id}>
+        <React.Fragment key={group.kind === "input" ? `input:${group.variableSymbol || group.variable || group.id}` : group.id}>
           <section className="budget-section-row">
             <div
               className={`budget-stack-section ${group.kind === "final" ? "final" : ""}`}

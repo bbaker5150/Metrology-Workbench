@@ -46,7 +46,7 @@ import { showFirstInstrumentHint } from "../../../utils/instrumentOnboarding";
 /**
  * src/features/analysis/components/UncertaintyPanel.jsx
  */
-import { formatInstrumentIdentity, formatErrorSourceDescription, formatErrorSourceKind, getUutDescription } from "../../../utils/instrumentIdentity";
+import { formatInstrumentIdentity, formatErrorSourceDescription, formatTmdeBudgetLabel, getUutDescription } from "../../../utils/instrumentIdentity";
 import React, {
   useState,
   useEffect,
@@ -1937,9 +1937,11 @@ export const applyTmdeIdentityToPoints = (points = [], tmde = {}) => {
       const pointSuffix = String(component.sourcePointLabel || "").includes(" · ")
         ? ` · ${String(component.sourcePointLabel).split(" · ").slice(1).join(" · ")}`
         : "";
+      const name = formatTmdeBudgetLabel(tmde, component, suffix);
       return {
         ...component,
-        name: `${formatErrorSourceDescription(tmde)} - ${formatErrorSourceKind(suffix)}`,
+        name,
+        sourceDisplayName: name,
         tmdeIdentity: identity,
         sourcePointLabel: `${identity}${pointSuffix}`,
       };
@@ -10964,7 +10966,7 @@ function DetailedView({
   const [budgetTmdePicker, setBudgetTmdePicker] = useState(null);
   useExclusiveMenu(Boolean(budgetTmdePicker), () => setBudgetTmdePicker(null));
   const budgetTmdeMenuRef = useRef(null);
-  useBudgetPickerPosition(budgetTmdeMenuRef, budgetTmdePicker);
+  const budgetPickerAnchorRect = useBudgetPickerPosition(budgetTmdeMenuRef, budgetTmdePicker);
   useEffect(() => {
     if (!budgetTmdePicker) return;
     const closeOnEscape = event => {
@@ -10977,7 +10979,16 @@ function DetailedView({
       if (!budgetTmdeMenuRef.current?.contains(event.target) && !budgetTmdePicker.anchor?.contains(event.target)) setBudgetTmdePicker(null);
     };
     const closeOnScroll = event => {
-      if (!budgetTmdeMenuRef.current?.contains(event.target)) setBudgetTmdePicker(null);
+      if (budgetTmdeMenuRef.current?.contains(event.target)) return;
+      const anchor = budgetTmdePicker.anchor;
+      const rect = anchor?.isConnected ? anchor.getBoundingClientRect() : null;
+      const prior = budgetPickerAnchorRect.current;
+      // Adding a source can resize earlier budget rows. Browser scroll
+      // anchoring compensates while keeping this header in place; keep the
+      // picker open for the next addition. Actual scrolling moves its anchor.
+      if (rect && prior && rect.bottom > rect.top &&
+        Math.abs(rect.left - prior.left) <= 2 && Math.abs(rect.top - prior.top) <= 2) return;
+      setBudgetTmdePicker(null);
     };
     document.addEventListener("keydown", closeOnEscape);
     document.addEventListener("pointerdown", closeOutside);
@@ -15049,7 +15060,7 @@ function DetailedView({
           ...component,
           id: instanceId,
           componentId: instanceId,
-          name: `${sourceName} - ${formatErrorSourceKind(suffix)}`,
+          name: formatTmdeBudgetLabel(sourceTmde, component, suffix),
           sourceTmdeId: sourceTmde.id ?? sourceTmde.sourceId,
           tmdeBudgetSourceId: tmde.id ?? tmde.sourceId,
           tmdeBudgetRangeId: activeRange.rangeId ?? activeRange.id ?? "",
@@ -17453,7 +17464,8 @@ function DetailedView({
               onDynamicEditorOpened={onDynamicEditorOpened}
               applyToleranceChange={applyToleranceCaseChange}
               formatToleranceSummary={getSpecRows}
-              formatRangeDetail={(range, point, names) => formatRangeToleranceDetail(range, point, sessionData.qualifierColumnNames?.tmde || names)}
+              qualifierColumnNames={sessionData.qualifierColumnNames?.tmde || []}
+              formatRangeDetail={(range, point, names) => formatRangeToleranceDetail(range, point, names)}
               calcResults={calcResults}
               referencePoint={uutNominal}
               uncertaintyConfidence={getPointRequirements(testPointData, sessionData).uncertaintyConfidence}

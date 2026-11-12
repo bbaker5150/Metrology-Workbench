@@ -87,7 +87,7 @@ it('uses the Add menu detail for equal-current ranges with distinct frequency qu
     tolerances: { reading: { high: index ? 35 : 38, low: index ? -35 : -38, unit: 'ppm', symmetric: true, distribution: '1.960' } } }));
   const onUpdate = vi.fn();
   render(<UncertaintyBudgetTable components={[{ ...component, value_native: .0001, unit_native: 'A', tmdeBudgetRangeId: 'r0' }]}
-    budgetInstruments={[master(ranges)]} referencePoint={{ value: 10, unit: 'A' }}
+    budgetInstruments={[master(ranges)]} referencePoint={{ value: 10, unit: 'A' }} qualifierColumnNames={['Frequency']}
     formatRangeDetail={formatRangeToleranceDetail} onComponentUpdate={onUpdate} />);
   fireEvent.click(screen.getByRole('button', { name: /Range for/ }));
   const options = within(screen.getByRole('listbox', { name: /Range for/ })).getAllByRole('option');
@@ -95,4 +95,24 @@ it('uses the Add menu detail for equal-current ranges with distinct frequency qu
   expect(options[1]).toHaveTextContent('10 A | Frequency: 400 Hz | ± 35 ppm IV | Normal (95%)');
   fireEvent.click(options[1]);
   expect(onUpdate.mock.calls[0][1].selectedBudgetRange.qualifier.value).toBe(400);
+});
+
+it.each([
+  [[], 'Qualifier: Test | Qualifier: 90 days'],
+  [['Operating mode', 'Calibration interval'], 'Operating mode: Test | Calibration interval: 90 days'],
+])('matches the actual qualifier headers in both the budget trigger and range options: %j', (names, expected) => {
+  const selectedRange = { ...range('one', 1), qualifier: { name: 'Frequency', text: 'Test', qualifier: { name: 'Legacy name', text: '90 days' } } };
+  const instrument = master([selectedRange]);
+  instrument.instrument.qualifierColumnNames = ['Old instrument heading'];
+  const original = JSON.stringify(instrument);
+  render(<UncertaintyBudgetTable components={[{ ...component, value_native: 1, unit_native: 'V' }]}
+    budgetInstruments={[instrument]} referencePoint={point.testPointInfo.parameter}
+    qualifierColumnNames={names} formatRangeDetail={formatRangeToleranceDetail} />);
+  const trigger = screen.getByRole('button', { name: /Range for/ });
+  expect(trigger).toHaveTextContent(expected);
+  expect(trigger).not.toHaveTextContent('Frequency:');
+  expect(trigger).not.toHaveTextContent('Old instrument heading');
+  fireEvent.click(trigger);
+  expect(within(screen.getByRole('listbox', { name: /Range for/ })).getByRole('option')).toHaveTextContent(expected);
+  expect(JSON.stringify(instrument)).toBe(original);
 });

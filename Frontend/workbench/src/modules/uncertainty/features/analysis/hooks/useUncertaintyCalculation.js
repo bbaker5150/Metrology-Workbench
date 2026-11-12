@@ -1,7 +1,7 @@
 import { belongsToInput, inputSymbol } from "../../../utils/budgetScope";
 import { sessionForPoint } from "../../../utils/pointRequirements";
 import { useMemo } from "react";
-import { formatErrorSourceDescription, formatErrorSourceKind } from "../../../utils/instrumentIdentity";
+import { formatErrorSourceDescription, formatErrorSourceKind, formatTmdeBudgetLabel } from "../../../utils/instrumentIdentity";
 import { hasNominalValue } from "../../../utils/incompleteBudget";
 import { useState, useEffect } from "react";
 import {
@@ -57,7 +57,6 @@ const getTmdeIdentity = (tmde, fallbackIndex = 0) => {
 
 const qualifyTmdeComponent = (component, tmde, fallbackIndex = 0) => {
   const identity = getTmdeIdentity(tmde, fallbackIndex);
-  const displayName = formatErrorSourceDescription(tmde, `TMDE ${fallbackIndex + 1}`);
   const rawName = String(component?.name || "Uncertainty component");
   const separatorIndex = rawName.lastIndexOf(" - ");
   const componentType = component.tmdeUncertaintySourceName ||
@@ -71,11 +70,12 @@ const qualifyTmdeComponent = (component, tmde, fallbackIndex = 0) => {
   ]
     .filter(Boolean)
     .join(" / ");
+  const name = formatTmdeBudgetLabel(tmde, component, componentType, `TMDE ${fallbackIndex + 1}`);
 
   return {
     ...component,
-    name: `${displayName} - ${componentType}`,
-    sourceDisplayName: `${displayName} - ${componentType}`,
+    name,
+    sourceDisplayName: name,
     tmdeIdentity: identity,
     sourceTmdeMasterId: tmde.sourceId || tmde.id,
     sourceRangeId: tmde.rangeId || tmde.tolerance?.rangeId || tmde.tolerance?.id,

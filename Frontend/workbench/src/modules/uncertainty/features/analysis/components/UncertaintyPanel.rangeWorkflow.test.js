@@ -208,6 +208,15 @@ describe("shared instrument inline editing", () => {
               tmdeBudgetComponentKind: "Accuracy",
               sourcePointLabel: "Original Meter · 5 V",
             },
+            {
+              id: "secondary-instance",
+              sourceTmdeId: "tmde-row",
+              tmdeBudgetRangeId: "range-1",
+              tmdeUncertaintySourceId: "gain",
+              tmdeUncertaintySourceName: "Gain uncertainty",
+              name: "Original Meter - Gain uncertainty",
+              sourceDisplayName: "Original Meter - Gain uncertainty",
+            },
           ],
         },
       ],
@@ -218,10 +227,16 @@ describe("shared instrument inline editing", () => {
     expect(point.components[0]).toEqual(
       expect.objectContaining({
         name: "(Bench Meter) DMM-1 Original Meter - TMDE Error",
+        sourceDisplayName: "(Bench Meter) DMM-1 Original Meter - TMDE Error",
         tmdeIdentity: "(Bench Meter) DMM-1 Original Meter",
         sourcePointLabel: "(Bench Meter) DMM-1 Original Meter · 5 V",
       }),
     );
+    expect(point.components[1]).toMatchObject({
+      id: "secondary-instance", sourceTmdeId: "tmde-row", tmdeBudgetRangeId: "range-1", tmdeUncertaintySourceId: "gain",
+      name: "Gain uncertainty – (Bench Meter) DMM-1 Original Meter",
+      sourceDisplayName: "Gain uncertainty – (Bench Meter) DMM-1 Original Meter",
+    });
   });
 
   it("forks an edited shared definition to a session-only copy with shared provenance", () => {

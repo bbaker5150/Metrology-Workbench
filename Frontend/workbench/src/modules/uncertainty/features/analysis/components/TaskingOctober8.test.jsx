@@ -12,7 +12,8 @@ it('shows the matching tabular spec at a point, absence of a match, and a generi
   expect(getCollapsedSpecRows(range, { value: 20, unit: 'A' })).toEqual(['±0.005 A (Table)']);
   expect(getCollapsedSpecRows(range, { value: 20000, unit: 'mA' })).toEqual(['±0.005 A (Table)']);
   expect(getCollapsedSpecRows(range, { value: 19, unit: 'A' })).toEqual(['Tabular – No matching points']);
-  expect(formatRangeToleranceDetail(range, { value: 20, unit: 'A' })).toContain('Frequency: 60 Hz');
+  expect(formatRangeToleranceDetail(range, { value: 20, unit: 'A' }, ['Frequency'])).toContain('Frequency: 60 Hz');
+  expect(formatRangeToleranceDetail(range, { value: 20, unit: 'A' })).toContain('Qualifier: 60 Hz');
   expect(formatRangeToleranceDetail(range, { value: 20, unit: 'A' })).toContain('±0.005 A (Table)');
 });
 

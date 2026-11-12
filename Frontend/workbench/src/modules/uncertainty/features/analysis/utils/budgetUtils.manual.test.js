@@ -567,10 +567,12 @@ test("TMDE secondary uncertainties join the budget without a bias term", () => {
     ],
   }, { value: 10, unit: "V" });
   expect(rows.map(row => row.name)).toEqual([
-    "Reference - Accuracy", "Thermal Expansion - Accuracy", "Lookup",
+    "Reference - Accuracy", "Thermal Expansion – Reference", "Lookup – Reference",
   ]);
   expect(rows[1].value_native).toBeCloseTo(0.2 / Math.sqrt(3), 8);
   expect(rows[2].value_native).toBeCloseTo(0.3, 8);
+  expect(rows[1]).toMatchObject({ tmdeUncertaintySourceId: 'thermal', tmdeUncertaintyComponentKind: 'Accuracy' });
+  expect(rows[2]).toMatchObject({ id: 'tmde_secondary_lookup', tmdeUncertaintySourceId: 'lookup', dynamicDefinitionId: 'lookup-table' });
   expect(rows.some(row => row.name.includes("Bias"))).toBe(false);
 });
 
@@ -586,6 +588,15 @@ test("a blank secondary source remains visible and unresolved", () => {
   const rows = getBudgetComponentsFromTolerance({ unit: "V", tmdeSecondaryUncertainties: [{ id: "blank", name: "Thermal", kind: "parametric", tolerance: {} }] }, { value: 10, unit: "V" });
   expect(rows).toHaveLength(1);
   expect(rows[0].pendingReason).toBeTruthy();
+  expect(rows[0].name).toBe('Thermal – TMDE');
+});
+
+test('pending dynamic secondary sources retain their uncertainty-first label before a nominal is entered', () => {
+  const [row] = getBudgetComponentsFromTolerance({ name: 'Reference', unit: 'V', tmdeSecondaryUncertainties: [{ id: 'lookup', name: 'Loading', kind: 'table',
+    dynamicDefinition: { id: 'lookup-table', kind: 'table', name: 'Loading', measurementUnit: 'V', outputUnit: 'V', mode: 'standard',
+      columns: [{ id: 'u' }], rows: [{ point: 1, values: { u: { value: .2 } } }] } }] }, { value: '', unit: 'V' });
+  expect(row).toMatchObject({ name: 'Loading – Reference', tmdeUncertaintySourceId: 'lookup', dynamicDefinitionId: 'lookup-table' });
+  expect(row.pendingReason).toBeTruthy();
 });
 
 test("missing nominal is checked independently for each parametric source", () => {

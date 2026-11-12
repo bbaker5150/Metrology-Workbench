@@ -38,6 +38,21 @@ export const formatErrorSourceKind = kind => String(kind || "TMDE Error")
   .replace(/^(Accuracy|Tolerance|Error Limit|dB.*)$/i, "TMDE Error")
   .replace(/^Set tolerance$/i, "Set error limit");
 
+// Secondary sources carry an authored uncertainty name independent of their
+// current calculation kind. Keep that name first, including after a saved
+// component is refreshed or switched between manual, table and equation inputs.
+export const formatTmdeBudgetLabel = (source, component = {}, kind, fallback = "TMDE") => {
+  const identity = formatErrorSourceDescription(source, fallback);
+  const sourceId = component.tmdeUncertaintySourceId;
+  const secondary = sourceId != null && String(sourceId) !== ""
+    ? String(sourceId) !== "primary" : Boolean(component.tmdeUncertaintySourceName);
+  if (secondary) {
+    const name = String(component.tmdeUncertaintySourceName || component.dynamicDefinition?.name || "Uncertainty").trim() || "Uncertainty";
+    return `${name} – ${identity}`;
+  }
+  return `${identity} - ${formatErrorSourceKind(kind)}`;
+};
+
 export const instrumentDeleteTarget = (ids, instruments = []) => ids.length > 1
   ? `${ids.length} selected instruments`
   : `“${formatInstrumentIdentity(instruments.find(item => String(item.id) === String(ids[0])) || {})}”`;

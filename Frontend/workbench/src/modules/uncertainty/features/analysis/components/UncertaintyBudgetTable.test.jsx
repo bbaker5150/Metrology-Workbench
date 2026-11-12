@@ -73,6 +73,25 @@ const derivedApproximationGroups = (finalOverrides = {}) => [
 ];
 
 describe("UncertaintyBudgetTable direct budget actions", () => {
+  it('preserves the input budget section and its menu anchor as calculations become pending or empty', () => {
+    const source = { id: 'reader', name: 'Reader uncertainty', type: 'B', value_native: 1, unit_native: 'V', isCore: true };
+    const group = { id: 'input_v_0', kind: 'input', variable: 'v', variableType: 'Voltage',
+      label: 'Voltage Uncertainty Budget', nominalPoint: { value: 10, unit: 'V' }, unit: 'V', components: [source], results: {} };
+    const props = { measurementType: 'derived', referencePoint: { value: 10, unit: 'V' }, onAddTmdeToBudget: vi.fn() };
+    const { rerender } = render(<UncertaintyBudgetTable {...props} calcResults={{ calculatedBudgetGroups: [group] }} />);
+    const anchor = screen.getByRole('button', { name: 'Add component to budget' });
+    const section = anchor.closest('.budget-section-row');
+    anchor.focus();
+    rerender(<UncertaintyBudgetTable {...props} calcResults={{ calculatedBudgetGroups: [{ ...group,
+      id: 'input_v', variableSymbol: 'v', components: [{ ...source, value_native: null, pendingReason: 'Unit mismatch' }] }] }} />);
+    expect(screen.getByRole('button', { name: 'Add component to budget' })).toBe(anchor);
+    expect(anchor).toHaveFocus();
+    rerender(<UncertaintyBudgetTable {...props} calcResults={{ calculatedBudgetGroups: [{ ...group, components: [] }] }} />);
+    expect(screen.getByRole('button', { name: 'Add component to budget' })).toBe(anchor);
+    expect(anchor.closest('.budget-section-row')).toBe(section);
+    expect(anchor).toHaveFocus();
+  });
+
   it.each(['final', 'input'])('renders a saved %s budget with null original inputs and preserves its distribution controls', kind => {
     // The session API serializes absent original_input fields as explicit null.
     const components = JSON.parse(JSON.stringify([

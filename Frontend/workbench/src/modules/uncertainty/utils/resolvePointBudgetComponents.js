@@ -8,7 +8,7 @@ import { getBudgetComponentsFromTolerance, getUutResolutionComponent, refreshLin
 import { normalizeInlineManualComponent, getInlineManualDraft } from "../features/analysis/utils/manualComponentUtils";
 import { reconcileTmdeInstances, refreshTmdeInstancesFromMasters } from "./tmdeReconcile";
 import { resolveTmdeTransferComponent } from './tmdeTransferComponent';
-import { formatErrorSourceDescription, formatErrorSourceKind } from './instrumentIdentity';
+import { formatTmdeBudgetLabel } from './instrumentIdentity';
 import { resolveY5020Resolution } from './y5020Resolution';
 
 // Resolve the same explicit budget sources for the open view, sidebar and exports.
@@ -166,6 +166,7 @@ export function resolvePointBudgetComponents(point, sessionData, instruments = [
           Number.isFinite(Number(replacement.value_native))
             ? Math.abs(Number(replacement.value_native) * numericDivisor)
             : "";
+        const name = formatTmdeBudgetLabel(master, replacement, String(replacement.name).split(" - ").slice(1).join(" - ") || component.tmdeBudgetComponentKind);
         return {
           ...component,
           // Clear stale shared-definition snapshots when the source changes type.
@@ -176,7 +177,8 @@ export function resolvePointBudgetComponents(point, sessionData, instruments = [
           tmdeUncertaintySourceId: replacement.tmdeUncertaintySourceId || component.tmdeUncertaintySourceId,
           tmdeUncertaintyComponentKind: replacement.tmdeUncertaintyComponentKind || component.tmdeUncertaintyComponentKind,
           tmdeUncertaintySourceName: replacement.tmdeUncertaintySourceName,
-          name: `${formatErrorSourceDescription(master)} - ${formatErrorSourceKind(replacement.tmdeUncertaintySourceName || String(replacement.name).split(" - ").slice(1).join(" - ") || component.tmdeBudgetComponentKind)}`,
+          name,
+          sourceDisplayName: name,
           pendingReason: replacement.pendingReason || null,
           authoredTolerance: replacement.authoredTolerance,
           toleranceLimit_native: replacement.toleranceLimit_native,

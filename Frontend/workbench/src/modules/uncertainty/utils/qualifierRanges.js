@@ -15,7 +15,10 @@ export const formatQualifierPath = (range, names = []) => {
   let depth = 0;
   while (qualifier) {
     const value = formatQualifierValue(qualifier);
-    if (value) labels.push(`${names[depth] || qualifier.name || "Qualifier"}: ${value}`);
+    // Match the visible column heading; older ranges may still carry the
+    // original "Frequency" metadata after the heading has been renamed.
+    const name = String(names?.[depth] || "Qualifier").trim() || "Qualifier";
+    if (value) labels.push(`${name}: ${value}`);
     qualifier = qualifier.qualifier;
     depth++;
   }

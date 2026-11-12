@@ -1,5 +1,19 @@
 import { expect, it } from 'vitest';
-import { formatInstrumentIdentity, formatErrorSourceDescription, instrumentDeleteTarget } from './instrumentIdentity';
+import { formatInstrumentIdentity, formatErrorSourceDescription, formatTmdeBudgetLabel, instrumentDeleteTarget } from './instrumentIdentity';
+
+it('puts secondary uncertainty names first without rewriting authored names or primary labels', () => {
+  const source = { name: 'Reference DMM', instrument: { manufacturer: 'Keysight', model: '3458A', nickname: 'STD' } };
+  const identity = '(STD) Keysight 3458A Reference DMM';
+  for (const name of ['Thermal drift', 'Accuracy', 'Temperature - correction']) {
+    const component = { tmdeUncertaintySourceId: 'secondary', tmdeUncertaintySourceName: name };
+    expect(formatTmdeBudgetLabel(source, component, 'Accuracy')).toBe(`${name} – ${identity}`);
+    expect(component.tmdeUncertaintySourceName).toBe(name);
+  }
+  expect(formatTmdeBudgetLabel(source, { tmdeUncertaintySourceName: 'Legacy source' })).toBe(`Legacy source – ${identity}`);
+  expect(formatTmdeBudgetLabel(source, { tmdeUncertaintySourceId: 'primary' }, 'Accuracy')).toBe(`${identity} - TMDE Error`);
+  expect(formatTmdeBudgetLabel(source, { isResolution: true }, 'Resolution')).toBe(`${identity} - Resolution`);
+  expect(formatTmdeBudgetLabel(source, {}, 'Set tolerance')).toBe(`${identity} - Set error limit`);
+});
 it('identifies a single instrument with its displayed identity and a batch by count', () => {
   const instruments=[{id:7,description:'Flowmeter',instrument:{manufacturer:'Cox',model:'CPT',nickname:'T1'}}];
   expect(instrumentDeleteTarget(['7'],instruments)).toBe('“(T1) Cox CPT Flowmeter”');

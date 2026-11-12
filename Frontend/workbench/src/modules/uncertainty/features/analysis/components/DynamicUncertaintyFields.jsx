@@ -20,7 +20,9 @@ function CompactEquationInput({ value, label, onChange, onAdvance, readOnly }) {
   const markup = useMemo(() => {
     const validation = validateBudgetEquation(value);
     if (validation.status !== "ok") return null;
-    try { return katex.renderToString(parse(validation.expression).toTex(equationTexOptions), { displayMode: false, throwOnError: false, strict: false, trust: false }); }
+    // Display-style fractions keep numerator/denominator glyphs full-size even
+    // inside the compact instrument and budget editor toolbars.
+    try { return katex.renderToString(parse(validation.expression).toTex(equationTexOptions), { displayMode: true, throwOnError: false, strict: false, trust: false }); }
     catch { return null; }
   }, [value]);
   return editing || !markup ? <input ref={node => {

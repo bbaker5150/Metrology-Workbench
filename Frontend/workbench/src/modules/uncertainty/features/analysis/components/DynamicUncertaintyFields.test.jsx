@@ -11,13 +11,15 @@ function Harness() {
 it.each(['Enter','blur'])('shows compact KaTeX after %s and reopens the unchanged equation for editing', async method=>{
   render(<Harness/>);
   const input=screen.getByRole('textbox',{name:'Uncertainty equation'});
-  fireEvent.change(input,{target:{value:'a+b'}});
+  fireEvent.change(input,{target:{value:'a/b_t'}});
   if(method==='Enter') fireEvent.keyDown(input,{key:'Enter'}); else fireEvent.blur(input);
   const summary=await screen.findByRole('button',{name:'Edit uncertainty equation'});
   expect(summary.querySelector('.katex')).not.toBeNull();
+  expect(summary.querySelector('.katex-display .mfrac')).not.toBeNull();
+  expect(summary.querySelector('.msupsub')).not.toBeNull();
   expect(screen.queryByRole('textbox',{name:'Uncertainty equation'})).toBeNull();
   fireEvent.click(summary);
-  expect(screen.getByRole('textbox',{name:'Uncertainty equation'})).toHaveValue('a+b');
+  expect(screen.getByRole('textbox',{name:'Uncertainty equation'})).toHaveValue('a/b_t');
 });
 it('leaves incomplete equations editable on blur and Enter',()=>{
   render(<Harness/>);

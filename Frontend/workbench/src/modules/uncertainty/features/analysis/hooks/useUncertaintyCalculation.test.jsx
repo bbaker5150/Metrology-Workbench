@@ -117,6 +117,26 @@ const renderDirectCalculation = (
 };
 
 describe("useUncertaintyCalculation direct budgets", () => {
+  it('labels manual, table and equation secondary uncertainties before their TMDE identity', async () => {
+    const secondary = [
+      { id: 'manual', name: 'Thermal drift', kind: 'parametric', tolerance: { floor: { high: .2, low: -.2, unit: 'V', distribution: '1.732' } } },
+      { id: 'table', name: 'Head correction', kind: 'table', dynamicDefinition: { id: 'lookup', kind: 'table', measurementUnit: 'V', outputUnit: 'V',
+        mode: 'standard', columns: [{ id: 'u' }], rows: [{ point: 10, values: { u: { value: .3 } } }] } },
+      { id: 'equation', name: 'Loading - correction', kind: 'equation', dynamicDefinition: { id: 'formula', kind: 'equation', measurementUnit: 'V', outputUnit: 'V',
+        mode: 'standard', columns: [{ id: 'u' }], equation: 'x*a', variables: { x: {}, a: { value: .04 } }, pointVariable: 'x' } },
+    ];
+    const { result } = renderDirectCalculation({}, { tmdeTolerances: [{ ...tmdeAccuracy, tmdeSecondaryUncertainties: secondary }] });
+    await waitFor(() => expect(result.current.calcResults).not.toBeNull());
+    const rows = result.current.calcResults.calculatedBudgetGroups.find(group => group.kind === 'final').components;
+    for (const source of secondary) {
+      const row = rows.find(component => component.tmdeUncertaintySourceId === source.id);
+      expect(row).toMatchObject({ name: `${source.name} – Reference DMM`, sourceDisplayName: `${source.name} – Reference DMM`, sourceTmdeId: tmdeAccuracy.id });
+      expect(row.value_native).toBeGreaterThan(0);
+    }
+    expect(rows.map(row => row.name)).toContain('Reference DMM - TMDE Error');
+    expect(rows.map(row => row.name)).toContain('UUT Resolution');
+  });
+
   it("keeps the final budget limited to physical source components", async () => {
     const { result } = renderDirectCalculation();
 

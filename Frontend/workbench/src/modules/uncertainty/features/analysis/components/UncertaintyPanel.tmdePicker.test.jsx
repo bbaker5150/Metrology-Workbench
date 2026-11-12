@@ -81,7 +81,7 @@ it.each([["direct", 1], ["direct", 2], ["derived", 1], ["derived", 2]])("groups 
     const rows = update.mock.calls.at(-1)[0].components;
     expect(rows).toHaveLength(1);
     expect(rows[0].tmdeUncertaintySourceId).toBe(source.id);
-    expect(rows[0].name).toBe("Reference meter - " + source.name);
+    expect(rows[0].name).toBe(source.name + " – Reference meter");
     expect(rows[0].value_native).toBeCloseTo(index === 0 ? .3 / Math.sqrt(3) : .2, 8);
     expect(rows[0].tmdeBudgetSourceId).toBe("meter");
     expect(rows[0].tmdeBudgetRangeId).toBe("range");
@@ -93,6 +93,7 @@ it.each([["direct", 1], ["direct", 2], ["derived", 1], ["derived", 2]])("groups 
   fireEvent.click(menu.querySelector(rangeCount === 1 ? ".budget-tmde-picker-single" : ".budget-tmde-picker-range:not(.budget-tmde-picker-source)"));
   const rows = update.mock.calls.at(-1)[0].components;
   expect(rows).toHaveLength(1);
+  expect(rows[0].name).toBe('Reference meter - TMDE Error');
   expect(rows[0].value_native).toBeCloseTo(1 / Math.sqrt(3), 8);
 });
 

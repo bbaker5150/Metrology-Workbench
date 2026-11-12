@@ -21968,6 +21968,8 @@ body.light-mode .uncertainty-module :is(.instrument-equipment-table, .instrument
   display: inline-flex; align-items: center;
 }
 .uncertainty-module .budget-range-selector .inline-menu-select-trigger > svg { align-self: center; }
+.uncertainty-module .budget-component-range-selector .inline-menu-select-trigger { gap: 6px; }
+.uncertainty-module .budget-component-range-selector .inline-menu-select-trigger > svg { flex-shrink: 0; transform: translateY(-1px); }
 
 .uncertainty-type-menu { position: relative; display: inline-flex; }
 .uncertainty-module .uncertainty-type-menu .instrument-source-settings { position: fixed; inset: auto; margin: 0; overflow-y: auto; z-index: 30; }
@@ -22282,7 +22284,9 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
 .dynamic-equation-entry { margin-bottom: 0; }
 .dynamic-equation-inputs { align-items: center; }
 .dynamic-equation-summary { display: inline-flex; flex: 0 0 auto; width: max-content; min-width: 0; border: 0; background: transparent; color: inherit; padding: 0; font-size: .85rem; white-space: nowrap; pointer-events: auto; cursor: text; }
-.dynamic-equation-summary .katex { font-size: 1.3em; }
+/* Keep fractions and subscripts readable independently of compact editor text. */
+.dynamic-equation-summary .katex { font-size: 1.35rem; }
+.dynamic-equation-summary .katex-display { margin: 0; padding-block: 3px; }
 .dynamic-bound-value, .dynamic-equation-result-unit { display: inline-flex; align-items: center; gap: 4px; }
 .dynamic-equation-result-unit { margin-top: 4px; }
 .dynamic-equation-summary * { pointer-events: none; }
