@@ -117,7 +117,7 @@ export default function DynamicUncertaintyFields({
   const displayColumns = draft.columns.filter(column => column.id === (component.dynamicOutputId || draft.columns[0]?.id));
   const cells = [{ label: "Measurement point", key: "point" }, ...displayColumns.flatMap(column =>
     (draft.mode === "limits" ? ["low", "high"] : ["value"]).map(key => ({ column: column.id, key, label: key === "low" ? "Low" : key === "high" ? "High" : "Uncertainty" })))];
-  const columnWidths = cells.map(cell => `calc(${Math.max(1, ...(draft.rows || []).map(row => String(cell.key === "point" ? displayPoint(row.point) : row.values?.[cell.column]?.[cell.key] ?? "").length))}ch + 16px)`);
+  const columnWidths = cells.map(cell => `calc(${Math.max(1, ...(draft.rows || []).map(row => String(cell.key === "point" ? displayPoint(row.point) : row.values?.[cell.column]?.[cell.key] ?? "").length))}ch + 8px)`);
   const setCell = (rows, index, cell, value) => {
     const row = rows[index];
     let point = value;
@@ -208,7 +208,11 @@ export default function DynamicUncertaintyFields({
               <div className="dynamic-table-scroll"><table className="dynamic-input-table dynamic-lookup-table">
                 <thead>
                 <tr><th aria-label={`Point ${getUnitDisplayLabel(measurementUnit)}`.trim()}><span className="dynamic-column-heading">Point {unitField("measurementUnit", "Point unit")}</span></th>
-                  {cells.slice(1).map(cell => <th key={`${cell.column}:${cell.key}`} aria-label={`${cell.key === "value" ? "Uncertainty" : cell.key === "low" ? "Unc. (Low)" : "Unc. (High)"} ${getUnitDisplayLabel(draft.outputUnit)}`.trim()}><span className="dynamic-column-heading">{cell.key === "value" ? "Uncertainty" : cell.key === "low" ? "Unc. (Low)" : "Unc. (High)"}{unitField("outputUnit", "Uncertainty unit")}</span></th>)}<th aria-label="Row actions" /></tr>
+                  {cells.slice(1).map(cell => {
+                    const heading = cell.key === "value" ? "Uncertainty" : cell.key === "low" ? "Uncertainty (Low)" : "Uncertainty (High)";
+                    const label = `${heading} ${getUnitDisplayLabel(draft.outputUnit)}`.trim();
+                    return <th key={`${cell.column}:${cell.key}`} aria-label={label} title={label}><span className="dynamic-column-heading">{cell.key === "value" ? "Unc." : cell.key === "low" ? "Unc. Low" : "Unc. High"}{unitField("outputUnit", "Uncertainty unit")}</span></th>;
+                  })}<th aria-label="Row actions" /></tr>
               </thead><tbody>
                 {draft.rows.map((row, index) => <tr key={row.id}>
                   {cells.map((cell, col) => <td key={`${cell.column || "point"}:${cell.key}`}>

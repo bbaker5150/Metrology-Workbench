@@ -3,6 +3,22 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import { expect, it, vi } from "vitest";
 import UncertaintyPanel from "./UncertaintyPanel";
 
+it('keeps an unnamed Greek symbol lowercase in the budget title and its Add menu', () => {
+  const point = { id: 'p', measurementType: 'derived', equationString: 'rho', variableMappings: { rho: '' },
+    variableNominals: { rho: { value: 1, unit: 'V' } },
+    testPointInfo: { parameter: { value: 1, unit: 'V' } }, components: [] };
+  render(<UncertaintyPanel testPointData={point}
+    sessionData={{ id: 's', uuts: [], tmdes: [], testPoints: [point], measurementAreas: [], uncReq: {} }}
+    uutNominal={point.testPointInfo.parameter} tmdeTolerancesData={[]} onAddManualComponent={vi.fn()}
+    calcResults={{ calculatedBudgetGroups: [{ id: 'input_rho', kind: 'input', variable: 'rho', variableType: '',
+      label: 'rho Uncertainty Budget', unit: 'V', components: [], results: {} }] }} />);
+  expect(screen.getByRole('heading', { name: 'ρ Uncertainty Budget' })).toHaveClass('budget-symbol-heading');
+  fireEvent.click(screen.getByRole('button', { name: 'Add component to budget' }));
+  const heading = screen.getByRole('dialog', { name: 'Add component to budget' }).querySelector('.budget-picker-heading');
+  expect(heading).toHaveTextContent('Add to ρ Uncertainty Budget');
+  expect(within(heading).getByText('ρ')).toHaveStyle({ textTransform: 'none' });
+});
+
 it('anchors Add to the current budget title and trigger at document zoom, including after resize',()=>{
   const point={id:'p',measurementType:'direct',testPointInfo:{parameter:{name:'Current Indication',value:10,unit:'A'}},components:[]};
   document.body.style.zoom='1.5';

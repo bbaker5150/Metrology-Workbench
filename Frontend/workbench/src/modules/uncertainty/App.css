@@ -22028,8 +22028,16 @@ body.light-mode .uncertainty-module :is(.instrument-equipment-table, .instrument
   --instrument-uncertainty-rail-width: 22px;
   position: relative; padding-left: calc(var(--instrument-uncertainty-rail-width) + 8px);
 }
-.uncertainty-module .instrument-uncertainty-name-cell > .range-row-cell {
+.uncertainty-module .instrument-equipment-table .instrument-uncertainty-name-cell > .range-row-cell {
   min-height: 24px;
+  /* Independent sources have only a remove action; do not reserve Add's track. */
+  grid-template-columns: minmax(0, 1fr) 24px;
+}
+.uncertainty-module .instrument-equipment-table .instrument-uncertainty-name-cell > .range-row-cell:not(:has(> .range-row-delete)) {
+  grid-template-columns: minmax(0, 1fr);
+}
+.uncertainty-module .instrument-uncertainty-name-cell > .range-row-cell > .range-row-delete {
+  grid-column: 2;
 }
 .uncertainty-module .instrument-uncertainty-rail {
   position: absolute; top: 0; left: 0; width: var(--instrument-uncertainty-rail-width); height: var(--uncertainty-rail-height, 100%);
@@ -22181,7 +22189,7 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
   --dynamic-grid-color: var(--instrument-editor-divider, var(--table-divider-color, var(--border-color)));
 }
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table > :is(thead, tbody) > tr > :is(th, td) {
-  padding: 3px 4px !important; text-align: center !important; vertical-align: middle;
+  padding: 3px 2px !important; text-align: center !important; vertical-align: middle;
   border: 0 !important;
 }
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table > :is(thead, tbody) > tr > :is(th, td):not(:last-child):not(:nth-last-child(2)) {
@@ -22193,7 +22201,7 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
 /* Reserve a compact action pair inside the editor's available width. */
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table > thead > tr > th { white-space: normal !important; overflow-wrap: anywhere; }
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table input {
-  width: var(--dynamic-column-width) !important; min-width: 0 !important;
+  width: var(--dynamic-column-width) !important; min-width: 0 !important; padding-inline: 3px !important;
 }
 .dynamic-cell-value { display: inline-flex; align-items: center; gap: 2px; white-space: nowrap; }
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table .dynamic-row-action-cell { width: 48px; padding-inline: 0 !important; }
@@ -22224,10 +22232,10 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
 .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-inline-field { display: flex; align-items: center; gap: 6px; }
 .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-inline-field > span { white-space: nowrap; }
 
-/* Center the visible data, balancing the hidden action gutter on both sides. */
+/* Center the compact table without a balancing gutter. */
 .uncertainty-module :is(.instrument-equipment-table, .uncertainty-budget-table) .inline-tolerance-editor:has(.dynamic-budget-editor[data-dynamic-kind="table"]) { width: 100%; box-sizing: border-box; }
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] { width: 100%; max-width: none; min-width: 0; box-sizing: border-box; align-self: stretch; }
-:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] > .dynamic-table-scroll { width: max-content; padding-left: 48px; margin-inline: auto; box-sizing: border-box; }
+:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] > .dynamic-table-scroll { width: max-content; padding-left: 0; margin-inline: auto; box-sizing: border-box; }
 
 /* Budget columns use automatic layout until resized. Give their nested lookup
    editor an intrinsic width, as instrument columns do, rather than resolving
@@ -22252,13 +22260,9 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-budget-header > .dynamic-budget-options { grid-column: 2; grid-row: 1; justify-self: center; margin: 0; }
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table > :is(thead, tbody) > tr > :is(th, td) { border-bottom: 1px solid var(--dynamic-grid-color) !important; }
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table > :is(thead, tbody) > tr > :is(th, td):not(:last-child):not(:nth-last-child(2)) { border-right: 1px solid var(--dynamic-grid-color) !important; }
-/* Carry row separators through the balancing gutter without moving the data. */
+/* Keep row separators and hover within the compact table. */
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table > tbody > tr { transition: none; }
 :is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table > tbody > tr:hover { background-color: var(--table-hover-row-bg, transparent) !important; }
-:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table > tbody > tr > td:first-child::before { content: ""; position: absolute; inset-block: 0; left: -48px; width: 48px; }
-:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table > tbody > tr:hover > td:first-child::before { background-color: var(--table-hover-row-bg, transparent); }
-:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table > :is(thead, tbody) > tr > :is(th, td):first-child { position: relative; }
-:is(.uncertainty-module, .instrument-builder-wrapper) .dynamic-budget-editor[data-dynamic-kind="table"] .dynamic-lookup-table.dynamic-input-table > :is(thead, tbody) > tr > :is(th, td):first-child::after { content: ""; position: absolute; left: -48px; bottom: -1px; width: 48px; border-bottom: 1px solid var(--dynamic-grid-color); pointer-events: none; }
 
 /* Match the measurement-value unit summary until its selector is opened. */
 .dynamic-unit-summary { display: inline-flex; align-items: center; justify-content: center; padding: 3px 5px; border: 1px solid transparent; border-radius: 4px; background: transparent; color: inherit; font: inherit; cursor: pointer; white-space: nowrap; }
@@ -22353,7 +22357,7 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
 .instrument-custom-column-delete { position: absolute; right: 0; top: 50%; transform: translateY(-50%); }
 .uncertainty-module .instrument-source-row-name { min-width: 0; }
 .uncertainty-module .instrument-source-row-name .instrument-source-name-input {
-  min-width: 0; max-width: 100%; box-sizing: border-box; field-sizing: content;
+  flex: 1 1 0; width: 100%; min-width: 0; max-width: 100%; box-sizing: border-box; field-sizing: fixed;
 }
 /* Actions remain outside column layout while their surface joins the table. */
 .instrument-table-viewport { position: relative; min-width: 0; }

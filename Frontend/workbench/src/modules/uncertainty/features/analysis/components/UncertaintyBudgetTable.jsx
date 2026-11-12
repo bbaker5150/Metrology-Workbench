@@ -12,6 +12,7 @@ import InlineMenuSelect from "../../../components/common/InlineMenuSelect";
 import InlineSourceNameEditor from "../../../components/common/InlineSourceNameEditor";
 import { getInstrumentRangeRows } from "../../../utils/instrumentFunctionSelection";
 import { formatQualifierPath } from "../../../utils/qualifierRanges";
+import { formatEquationVariableSymbol } from "../../../utils/equationPresentation";
 import ResizableBudgetTable from "./ResizableBudgetTable";
 import DecisionRiskCards from "./DecisionRiskCards";
 import DynamicBudgetComponentRow from "./DynamicBudgetComponentRow";
@@ -117,6 +118,12 @@ const simplifyBudgetLabel = (label = "") =>
     /^(.+?)\s+\([^)]*\)(\s+Uncertainty Budget)$/i,
     "$1$2",
   );
+
+const budgetGroupLabel = (group) => {
+  if (group.kind !== "input" || group.variableType) return simplifyBudgetLabel(group.label);
+  const symbol = group.variableSymbol || group.variable || String(group.label || "").replace(/\s+uncertainty budget$/i, "");
+  return `${formatEquationVariableSymbol(symbol)} Uncertainty Budget`;
+};
 
 // Blank when there is no finite DOF to report (Type B / ν = ∞), per the drafted
 // layout — an empty cell reads cleaner than "Not used".
@@ -1332,8 +1339,8 @@ const UncertaintyBudgetTable = ({
     kind: group.kind,
     variableType: group.variableType,
     variableSymbol: group.variableSymbol || group.variable,
-    label: group.label.replace(/\s+Uncertainty Budget$/i, ""),
-    tableLabel: simplifyBudgetLabel(group.label),
+    label: budgetGroupLabel(group).replace(/\s+Uncertainty Budget$/i, ""),
+    tableLabel: budgetGroupLabel(group),
     nominalPoint: group.nominalPoint || (group.kind === "final" ? referencePoint : {
       value: group.nominalValue,
       unit: group.unit,
@@ -1642,8 +1649,8 @@ const UncertaintyBudgetTable = ({
             >
               <div className="budget-section-title-row">
                 <h4 className={group.kind === "input" && !group.variableType ? "budget-symbol-heading" : undefined}>{group.kind === "input" && !group.variableType
-                  ? <>{simplifyBudgetLabel(group.label).replace(/\s+uncertainty budget$/i, "")} <span className="budget-heading-suffix">Uncertainty Budget</span></>
-                  : simplifyBudgetLabel(group.label)}</h4>
+                  ? <>{budgetGroupLabel(group).replace(/\s+uncertainty budget$/i, "")} <span className="budget-heading-suffix">Uncertainty Budget</span></>
+                  : budgetGroupLabel(group)}</h4>
                 <div className="budget-section-title-actions">
                   {isDirect && group.kind === 'final' && !singleFileSharePoint && (
                     <label className="budget-uncertainty-display" title={relativeAvailable ? `Relative uncertainty is referenced to |${referencePoint.value} ${getUnitDisplayLabel(referencePoint.unit)}|. Error limits retain their entered units.` : 'Relative display requires a finite, nonzero measurement point with a known unit.'}>

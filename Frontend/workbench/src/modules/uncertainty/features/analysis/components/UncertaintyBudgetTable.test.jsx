@@ -73,6 +73,32 @@ const derivedApproximationGroups = (finalOverrides = {}) => [
 ];
 
 describe("UncertaintyBudgetTable direct budget actions", () => {
+  it.each([['rho', 'ρ'], ['alpha', 'α'], ['omega', 'ω'], ['Theta', 'Θ'], ['rho_water', 'ρ_water'], ['ρ', 'ρ'], ['a', 'a']])(
+    'uses the displayed symbol for unnamed %s budgets without renaming the input binding', (symbol, displayed) => {
+      const add = vi.fn();
+      const group = { id: `input_${symbol}_0`, kind: 'input', variable: symbol, variableType: '',
+        label: ' Uncertainty Budget', unit: 'V', components: [], results: {} };
+      const { rerender } = render(<UncertaintyBudgetTable measurementType="derived" onAddTmdeToBudget={add}
+        calcResults={{ calculatedBudgetGroups: [group] }} />);
+      expect(screen.getByRole('heading', { name: `${displayed} Uncertainty Budget` })).toHaveClass('budget-symbol-heading');
+      fireEvent.click(screen.getByRole('button', { name: 'Add component to budget' }));
+      expect(add).toHaveBeenCalledWith(expect.objectContaining({ variableSymbol: symbol, variableType: '',
+        label: displayed, tableLabel: `${displayed} Uncertainty Budget` }), expect.anything());
+      // Incomplete calculations use the other group producer and retain the
+      // same rendered symbol even when its saved label contains the raw name.
+      rerender(<UncertaintyBudgetTable measurementType="derived" calcResults={{ calculatedBudgetGroups: [{ ...group,
+        id: `input_${symbol}`, variableSymbol: symbol, label: `${symbol} Uncertainty Budget` }] }} />);
+      expect(screen.getByRole('heading', { name: `${displayed} Uncertainty Budget` })).toHaveClass('budget-symbol-heading');
+    });
+
+  it('keeps an explicitly assigned variable name as the budget title', () => {
+    render(<UncertaintyBudgetTable measurementType="derived" calcResults={{ calculatedBudgetGroups: [{
+      id: 'input_rho', kind: 'input', variable: 'rho', variableType: 'Density',
+      label: 'Density Uncertainty Budget', unit: 'kg/m^3', components: [], results: {},
+    }] }} />);
+    expect(screen.getByRole('heading', { name: 'Density Uncertainty Budget' })).not.toHaveClass('budget-symbol-heading');
+  });
+
   it('preserves the input budget section and its menu anchor as calculations become pending or empty', () => {
     const source = { id: 'reader', name: 'Reader uncertainty', type: 'B', value_native: 1, unit_native: 'V', isCore: true };
     const group = { id: 'input_v_0', kind: 'input', variable: 'v', variableType: 'Voltage',

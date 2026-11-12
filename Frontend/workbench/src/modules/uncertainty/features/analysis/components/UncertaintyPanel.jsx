@@ -4876,7 +4876,7 @@ export const InstrumentUncertaintyRow = ({ source, activeRange, referencePoint, 
       {sourceIndex === 0 && <span className="instrument-uncertainty-rail" aria-label="Additional uncertainty"><span>{sourceCount === 1 ? <>ADD’L<br />UNC.</> : "ADD’L UNCERTAINTY"}</span></span>}
       <div className="range-row-cell">
       <div className="instrument-source-row-name">
-        {readOnly ? <span className={`inline-tolerance-summary${source.name ? "" : " is-empty"}`}>{source.name || "Uncertainty"}</span> : editingName ? <input className="instrument-custom-field-input instrument-source-name-input" style={{ width: `calc(${Math.max(5, (name || "Name").length)}ch + 16px)` }} aria-label="Uncertainty name" value={name} autoFocus
+        {readOnly ? <span className={`inline-tolerance-summary${source.name ? "" : " is-empty"}`}>{source.name || "Uncertainty"}</span> : editingName ? <input className="instrument-custom-field-input instrument-source-name-input" aria-label="Uncertainty name" value={name} autoFocus
           placeholder="Name" onChange={event => setName(event.target.value)}
           onBlur={() => { commitName(); setEditingName(false); }}
           onKeyDown={event => {
@@ -15269,6 +15269,7 @@ function DetailedView({
   const renderBudgetTmdePicker = () => {
     if (!budgetTmdePicker) return null;
     const scopeLabel = budgetTmdePicker.scope?.tableLabel || budgetTmdePicker.scope?.label || "Budget";
+    const unnamedInput = budgetTmdePicker.scope?.kind === "input" && !budgetTmdePicker.scope.variableType;
     const itemStyle = {
       display: "flex",
       alignItems: "center",
@@ -15323,7 +15324,9 @@ function DetailedView({
             }}
             className="budget-picker-heading"
           >
-            {budgetTmdePicker.mode === "assign" ? "Assign" : "Add to"} {scopeLabel}
+            {budgetTmdePicker.mode === "assign" ? "Assign" : "Add to"} {unnamedInput
+              ? <><span style={{ textTransform: "none" }}>{formatEquationVariableSymbol(scopeLabel.replace(/\s+Uncertainty Budget$/i, ""))}</span>{scopeLabel.match(/\s+Uncertainty Budget$/i)?.[0]}</>
+              : scopeLabel}
           </div>
           {/* Directly-entered budget terms — the old settings-cog actions, now
               folded into this single "Add component to budget" menu. */}
