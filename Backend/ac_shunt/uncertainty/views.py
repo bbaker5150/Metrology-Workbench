@@ -115,16 +115,6 @@ def session_detail(request, session_id):
 # --------------------------------------------------------------------------- #
 # Instruments (global library)
 # --------------------------------------------------------------------------- #
-def _library_password():
-    """Shared password gating writes to the validated (shared) library.
-
-    Configurable via the ``UNCERTAINTY_LIBRARY_PASSWORD`` env/setting; defaults
-    to a well-known dev value. This is the deliberately-simple "for now" gate —
-    swap for per-user permissions later without touching call sites.
-    """
-    return getattr(settings, "UNCERTAINTY_LIBRARY_PASSWORD", "calibrate")
-
-
 SME_GROUP = "Uncertalytics SME"
 INTERIM_REVIEW_GROUP = "Metrology Software Owners"
 
@@ -300,11 +290,14 @@ def return_instrument_review(request, instrument_id):
 @api_view(["DELETE"])
 @permission_classes([AllowAny])
 def instrument_detail(request, instrument_id):
+    shared_removal = request.data.get("scope") in {"shared", "validated"}
+    if shared_removal and not _can_validate(request):
+        return Response({"detail": "You do not have permission to delete shared instruments."}, status=403)
     with transaction.atomic(using=router.db_for_write(models.Instrument)):
         instrument = models.Instrument.objects.select_for_update().filter(pk=str(instrument_id)).first()
-        if instrument and instrument.scope == "validated":
-            if (request.data.get("password") or "") != _library_password():
-                return Response({"detail": "Invalid shared-library password."}, status=403)
+        if instrument and instrument.scope in {"validated", "shared"}:
+            if not _can_validate(request):
+                return Response({"detail": "You do not have permission to delete shared instruments."}, status=403)
             # Old approvals cleared ownership. Upgraded legacy drafts also
             # have a durable actor-to-successor mapping and can be recovered.
             if not instrument.review_owner:
@@ -326,10 +319,9 @@ def instrument_detail(request, instrument_id):
                     return Response(serializers.instrument_to_dict(instrument))
                 return Response(status=status.HTTP_204_NO_CONTENT)
         if instrument and instrument.scope in {"local", "pending"}:
-            if request.data.get("password"):
+            if shared_removal:
                 # A retry of shared removal must not delete the restored draft.
-                if (instrument.scope == "local" and instrument.review_owner and instrument.review_owner == _review_owner(request)
-                        and request.data["password"] == _library_password()):
+                if instrument.scope == "local" and instrument.review_owner and instrument.review_owner == _review_owner(request):
                     return Response(serializers.instrument_to_dict(instrument))
                 return Response(status=status.HTTP_204_NO_CONTENT)
             if instrument.scope == "local" and not instrument.review_owner:

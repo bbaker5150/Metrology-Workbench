@@ -88,14 +88,21 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
       calcResults: { calculatedBudgetGroups: [{ id: 'saved-budget', kind, label: 'Voltage Uncertainty Budget',
         variable: 'v', variableType: 'Voltage', nominalPoint: { value: 10, unit: 'V' }, unit: 'V', components, results: {} }] },
     });
-    const divisor = within(screen.getByText('Saved divisor source').closest('tr')).getByRole('combobox');
-    const named = within(screen.getByText('Saved named source').closest('tr')).getByRole('combobox');
-    expect(divisor).toHaveValue('2.000');
-    expect(named).toHaveValue('Triangular');
-    fireEvent.change(divisor, { target: { value: '1.732' } });
+    const divisor = screen.getByRole('button', {name:'Error limit distribution for Saved divisor source'});
+    const named = screen.getByRole('button', {name:'Error limit distribution for Saved named source'});
+    expect(divisor).toHaveTextContent('Normal (95.45%');
+    expect(named).toHaveTextContent('Triangular');
+    fireEvent.click(divisor);
+    expect(screen.getByRole('listbox').closest('.inline-menu-select-menu')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('option', {name:'Rectangular', exact:true}));
     expect(onComponentUpdate).toHaveBeenCalledWith('divisor-source', { distribution: '1.732' }, expect.objectContaining({ originalInput: null }));
-    fireEvent.change(named, { target: { value: 'Rectangular' } });
+    fireEvent.keyDown(named, {key:'ArrowDown'});
+    expect(screen.getByRole('option', {name:'Triangular'})).toHaveFocus();
+    fireEvent.keyDown(document.activeElement, {key:'Home'});
+    fireEvent.keyDown(document.activeElement, {key:'ArrowDown'});
+    fireEvent.keyDown(document.activeElement, {key:'Enter'});
     expect(onComponentUpdate).toHaveBeenCalledWith('named-source', { distribution: 'Rectangular' }, expect.objectContaining({ originalInput: null }));
+    expect(named).toHaveFocus();
   });
   it("always shows the final contribution chart even with an old hidden preference", async () => {
     const view = renderDirectBudget({ showContribution: false, calcResults: {
@@ -1016,6 +1023,7 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     expect(screen.getByText("Head Pressure")).toBeInTheDocument();
     expect(screen.getByText("Rectangular (resolution)")).toBeInTheDocument();
     expect(within(screen.getByText("Head Pressure").closest('tr')).queryByRole("combobox")).not.toBeInTheDocument();
+    expect(within(screen.getByText("Head Pressure").closest('tr')).queryByRole("button", {name:/distribution/i})).not.toBeInTheDocument();
     expect(screen.queryByTitle("Edit Component")).not.toBeInTheDocument();
     expect(screen.getByTitle("Remove Component")).toBeInTheDocument();
   });
@@ -1057,6 +1065,7 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     const row = screen.getByText("F-Class Weight - TMDE Error").closest("tr");
     expect(within(row).getAllByText("Not Set")).toHaveLength(2);
     expect(within(row).queryByRole("combobox")).not.toBeInTheDocument();
+    expect(within(row).queryByRole("button", {name:/distribution/i})).not.toBeInTheDocument();
   });
 
   it("authors a new manual component directly in an expanded budget row", async () => {
@@ -1218,9 +1227,16 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: "Edit distribution" }));
-    fireEvent.change(screen.getByLabelText("Error limit distribution"), {
-      target: { value: "1.960" },
-    });
+    const distribution = screen.getByRole("button", {name:"Error limit distribution"});
+    fireEvent.click(distribution);
+    fireEvent.click(screen.getByRole("option", {name:"Normal (95%, k=1.960)", exact:true}));
+    expect(distribution).toHaveTextContent("Normal (95%, k=1.960)");
+    // Closing a portaled selector with Escape must preserve this manual draft.
+    fireEvent.keyDown(distribution, {key:"ArrowDown"});
+    fireEvent.keyDown(document.activeElement, {key:"Escape"});
+    expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
+    expect(distribution).toHaveFocus();
+    expect(onComponentUpdate).not.toHaveBeenCalled();
     fireEvent.click(screen.getByLabelText("Set final IV tolerance"));
     fireEvent.pointerDown(document.body);
 

@@ -86,10 +86,11 @@ it.each([["direct", 1], ["direct", 2], ["derived", 1], ["derived", 2]])("groups 
     expect(rows[0].tmdeBudgetSourceId).toBe("meter");
     expect(rows[0].tmdeBudgetRangeId).toBe("range");
   }
-  expect(menu.querySelectorAll(".budget-tmde-picker-instrument-name")).toHaveLength(1);
+  expect(menu.querySelectorAll(".budget-tmde-picker-instrument-name")).toHaveLength(rangeCount === 1 ? 0 : 1);
+  expect(menu.querySelectorAll(".budget-tmde-picker-single")).toHaveLength(rangeCount === 1 ? 1 : 0);
   expect(menu.querySelectorAll(".budget-tmde-picker-source")).toHaveLength(3);
-  expect(menu.querySelectorAll(".budget-tmde-picker-range:not(.budget-tmde-picker-source)")).toHaveLength(rangeCount);
-  fireEvent.click(menu.querySelector(".budget-tmde-picker-range:not(.budget-tmde-picker-source)"));
+  expect(menu.querySelectorAll(".budget-tmde-picker-range:not(.budget-tmde-picker-source)")).toHaveLength(rangeCount === 1 ? 0 : rangeCount);
+  fireEvent.click(menu.querySelector(rangeCount === 1 ? ".budget-tmde-picker-single" : ".budget-tmde-picker-range:not(.budget-tmde-picker-source)"));
   const rows = update.mock.calls.at(-1)[0].components;
   expect(rows).toHaveLength(1);
   expect(rows[0].value_native).toBeCloseTo(1 / Math.sqrt(3), 8);

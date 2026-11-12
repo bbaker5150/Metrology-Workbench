@@ -45,10 +45,47 @@
 .instrument-library-description .instrument-library-specifications { margin: 0 8px; }
 
 .instrument-library-window .instrument-equipment-table .cell-sync .instrument-row-tools { position: relative; width: 100%; min-height: 26px; padding-right: 28px; box-sizing: border-box; }
-.instrument-library-window .instrument-equipment-table th.cell-sync { padding-right: 34px; }
+.instrument-library-window .instrument-equipment-table th.cell-sync { padding-inline: 6px; }
 /* Center without a transform so the shared button hover reset cannot move it. */
 .instrument-library-window .cell-sync .instrument-row-delete { position: absolute; right: 0; top: 0; bottom: 0; margin-block: auto; transform: none; }
 .instrument-library-window tr:is(:hover, .selected-row, .instrument-selected) > .cell-sync .instrument-row-delete,
 .instrument-library-window .cell-sync:focus-within .instrument-row-delete { opacity: 1; pointer-events: auto; }
 
 .instrument-library-header .icon-btn-ghost[aria-pressed="true"] { color: var(--primary-color); background: var(--input-background); }
+
+.instrument-library-column-heading { display: flex; align-items: center; justify-content: space-between; gap: 4px; width: 100%; min-width: 0; }
+.cell-sync .instrument-library-column-heading { justify-content: center; }
+.instrument-library-filter-trigger { display: inline-flex; flex: 0 0 18px; align-items: center; justify-content: center; width: 18px; height: 20px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: var(--text-color-muted); cursor: pointer; font-size: 10px; }
+.instrument-library-filter-trigger:hover, .instrument-library-filter-trigger[aria-expanded="true"], .instrument-library-filter-trigger.is-filtered { background: var(--primary-color-light); color: var(--primary-color); }
+.instrument-library-filter-trigger:focus-visible, .instrument-library-filter-menu button:focus-visible { outline: 2px solid var(--primary-color); outline-offset: 2px; }
+.instrument-library-filter-menu { position: fixed; z-index: 2600; display: flex; flex-direction: column; overflow: hidden; box-sizing: border-box; border: 1px solid var(--border-color-strong, var(--border-color)); border-radius: 8px; background: var(--content-background-solid, #fff); color: var(--text-color); box-shadow: 0 12px 30px #0003; font: 12px/1.4 var(--main-font, system-ui, sans-serif); text-transform: none; letter-spacing: normal; }
+.instrument-library-filter-menu button { font: inherit; color: inherit; cursor: pointer; }
+.instrument-library-filter-menu button:disabled { opacity: .45; cursor: default; }
+.instrument-library-filter-title { display: flex; flex: 0 0 auto; align-items: center; justify-content: space-between; min-height: 38px; padding: 6px 12px; border-bottom: 1px solid var(--border-color); }
+.instrument-library-filter-title strong { font-size: 12px; font-weight: 650; }
+.instrument-library-filter-title .uncertainty-symbol-button { width: 24px; height: 24px; font-size: 18px; background: transparent; border: 0; color: var(--text-color-muted); }
+.instrument-library-filter-sections { min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
+.instrument-library-filter-sections section + section { border-top: 1px solid var(--border-color); }
+.instrument-library-filter-section { display: flex; align-items: center; gap: 8px; width: 100%; min-height: 36px; padding: 8px 12px; text-align: left; border: 0; background: transparent; }
+.instrument-library-filter-section > svg { width: 10px; color: var(--text-color-muted); }
+.instrument-library-filter-section:hover { background: var(--table-row-hover, var(--input-background)); }
+.instrument-library-filter-section[aria-expanded="true"] { font-weight: 600; }
+.instrument-library-filter-section .instrument-library-filter-active { margin-left: auto; color: var(--primary-color); }
+.instrument-library-filter-values { padding: 8px 12px 12px; }
+.instrument-library-filter-sort { display: flex; gap: 6px; margin-bottom: 10px; }
+.instrument-library-filter-sort button { display: flex; align-items: center; justify-content: center; gap: 6px; flex: 1; min-width: 0; padding: 5px 6px; border: 1px solid var(--border-color); border-radius: 5px; background: transparent; }
+.instrument-library-filter-sort button svg { width: 13px; }
+.instrument-library-filter-sort button[aria-pressed="true"] { border-color: var(--primary-color); background: var(--primary-color-light); color: var(--primary-color); }
+.instrument-library-filter-search { width: 100%; height: 29px; margin-bottom: 6px; padding: 5px 8px; border: 1px solid var(--border-color); border-radius: 5px; outline: 0; background: var(--input-background); color: var(--text-color); font: inherit; }
+.instrument-library-filter-search:focus { border-color: var(--primary-color); }
+.instrument-library-filter-value { display: flex; align-items: center; gap: 8px; min-height: 28px; padding: 4px 2px; cursor: pointer; }
+.instrument-library-filter-value > input { flex: 0 0 auto; width: 14px; height: 14px; margin: 0; accent-color: var(--primary-color); }
+.instrument-library-filter-value > span { min-width: 0; overflow-wrap: anywhere; }
+.instrument-library-filter-value:hover { color: var(--primary-color); }
+.instrument-library-filter-select-all { margin-bottom: 3px; border-bottom: 1px solid var(--border-color); padding-bottom: 7px; }
+.instrument-library-filter-value .instrument-library-filter-count { margin-left: auto; padding-left: 8px; color: var(--text-color-muted); font-variant-numeric: tabular-nums; }
+.instrument-library-filter-options { max-height: 180px; overflow-y: auto; overscroll-behavior: contain; }
+.instrument-library-filter-empty { margin: 8px 0 0; color: var(--text-color-muted); }
+.instrument-library-filter-footer { display: flex; flex: 0 0 auto; justify-content: space-between; gap: 8px; padding: 8px 12px; border-top: 1px solid var(--border-color); }
+.instrument-library-filter-footer button { padding: 5px 9px; border: 0; border-radius: 5px; background: transparent; color: var(--primary-color); }
+.instrument-library-filter-footer button:last-child { background: var(--primary-color); color: #fff; }

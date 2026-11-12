@@ -39,12 +39,18 @@ export function choosePointRange(range, previous) {
 export function resolvePointRange(rows, pointInfo, existing, { keepUnmatched = false } = {}) {
   const saved = rows.find(row => samePointRange(row, existing));
   const candidates = matchingPointRanges(rows, pointInfo);
+  // Adding a qualifier to an already chosen leaf does not erase that point's
+  // budget. Keep its stable range identity when the point inputs are unchanged;
+  // qualifiers the point actually supplies still have to match the edited leaf.
+  const savedQualifierMatches = saved && (!saved.qualifier || assessRangeCompatibility(
+    saved, { ...pointInfo?.parameter, qualifier: pointInfo?.qualifier }, "UUT range", { requirePointQualifier: false },
+  ).compatible);
   if (existing?.rangeSelection === "explicit" && saved &&
-    (candidates.includes(saved) || pointInfo?.parameter?.value === "")) return choosePointRange(saved, existing);
+    (candidates.includes(saved) || (keepUnmatched && savedQualifierMatches) || pointInfo?.parameter?.value === "")) return choosePointRange(saved, existing);
   if (candidates.length > 1) return existing?.includeResolutionInBudget
     ? { ...awaitingChoice, includeResolutionInBudget: true }
     : awaitingChoice;
-  const next = candidates[0] || (keepUnmatched && saved && !saved.qualifier ? saved : null);
+  const next = candidates[0] || (keepUnmatched && savedQualifierMatches ? saved : null);
   return next ? { ...next, includeResolutionInBudget: existing?.includeResolutionInBudget ?? false } : null;
 }
 

@@ -6,7 +6,7 @@ import { UNCERTAINTY_API } from "../../../constants/constants";
 import { instrumentRequestConfig } from "../../../utils/deviceKey";
 import { formatInstrumentSyncError } from "../../../utils/instrumentSyncError";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { faSearch, faTools, faPlus, faBookOpen, faInbox, faInfoCircle } from "@fortawesome/free-solid-svg-icons";
+import { faSearch, faTools, faPlus, faBookOpen, faInbox } from "@fortawesome/free-solid-svg-icons";
 import { LIBRARY_INSTRUMENT_MIME } from "../../../utils/libraryInstrumentDrag";
 import UncertaintyPanel from "../../analysis/components/UncertaintyPanel";
 import NotificationModal from "../../../components/modals/NotificationModal";
@@ -16,6 +16,7 @@ import { formatInstrumentIdentity } from "../../../utils/instrumentIdentity";
 import { journalSession, acknowledgeSession } from "../../../utils/sessionRecovery";
 import "./InstrumentLibraryModal.css";
 import InstrumentSpecificationsButton from "./InstrumentSpecificationsButton";
+import InstrumentLibraryColumnFilter, { compareLibraryRows, matchesLibraryFilters } from "./InstrumentLibraryColumnFilter";
 import { claimWorkspaceSelection, WORKSPACE_SELECTION_EVENT } from "../../../utils/workspaceSelection";
 
 const libraryEntries = instruments => instruments.filter(item => item.scope !== "session");
@@ -29,7 +30,6 @@ const definitionFor = row => ({ ...row.instrument, description: row.name || "", 
 const emptyInstruments = [];
 const tableSession = (id, tmdes) => ({ id, tmdes, uuts: [], testPoints: [], measurementAreas: [], measurementAreaGroups: [] });
 const libraryPoint = { id: "instrument-library", viewMode: "session" };
-const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 const submissionId = review => String(review.reviewId ?? review.id);
 const reviewRowId = review => `review-${submissionId(review)}`;
 
@@ -38,12 +38,14 @@ function useLibraryBrowseState() {
   const [expandedIds, setExpandedIds] = useState([]);
   const [activeId, setActiveId] = useState(null);
   const [query, setQuery] = useState("");
-  return { selection, setSelection, expandedIds, setExpandedIds, activeId, setActiveId, query, setQuery };
+  const [filters, setFilters] = useState({});
+  const [sort, setSort] = useState({ field: "name", direction: "asc" });
+  return { selection, setSelection, expandedIds, setExpandedIds, activeId, setActiveId, query, setQuery, filters, setFilters, sort, setSort };
 }
 
 // The library is an adapter around the actual overview instrument table. Range
 // rendering, editors, selection, clipboard and creation all stay in that table.
-export default function InstrumentLibraryModal({ isOpen, onClose, instruments = emptyInstruments, onSaveToLibrary, onDelete, onInstrumentSynced, flushLibraryRef, libraryDraftRows, onChangeDrafts, loadError = "", onRefresh, getAccessReport, zoom = 1 }) {
+export default function InstrumentLibraryModal({ isOpen, onClose, instruments = emptyInstruments, onSaveToLibrary, onDelete, onInstrumentSynced, flushLibraryRef, libraryDraftRows, onChangeDrafts, loadError = "", onRefresh, zoom = 1 }) {
   const [reviewState, setReviewState] = useState({ canValidate: false, reviews: [] });
   const [inboxOpen, setInboxOpen] = useState(false);
   const [reviewAttempt, setReviewAttempt] = useState(0);
@@ -65,6 +67,9 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
     });
     return () => controller.abort();
   }, [isOpen, inboxOpen, reviewAttempt]);
+  useEffect(() => {
+    if (!reviewState.canValidate || !reviewState.reviews.length) setInboxOpen(false);
+  }, [reviewState.canValidate, reviewState.reviews.length]);
   const dragSelection = useRef(null);
   const [session, setSession] = useState(() => tableSession("instrument-library", libraryEntries(instruments).map(rowFor)));
   const current = useRef(session);
@@ -75,32 +80,13 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
   const libraryBrowse = useLibraryBrowseState();
   const inboxBrowse = useLibraryBrowseState();
   const reviewing = inboxOpen && reviewState.canValidate;
-  const { selection, setSelection, expandedIds, setExpandedIds, activeId, setActiveId, query, setQuery } = reviewing ? inboxBrowse : libraryBrowse;
+  const { selection, setSelection, expandedIds, setExpandedIds, activeId, setActiveId, query, setQuery, filters, setFilters, sort, setSort } = reviewing ? inboxBrowse : libraryBrowse;
   const reviewSession = useMemo(() => tableSession("instrument-review-inbox",
     // A SharePoint submission has its own item ID. Two authors may submit the same instrument ID.
     reviewState.reviews.map(review => ({ ...rowFor(review), id: reviewRowId(review) })),
   ), [reviewState.reviews]);
   const displayedSession = reviewing ? reviewSession : session;
   const [notification, setNotification] = useState(null);
-  const [reportBusy, setReportBusy] = useState(false);
-  const reportRequest = useRef(0);
-  useEffect(() => {
-    if (!isOpen) setReportBusy(false);
-    return () => { reportRequest.current++; };
-  }, [isOpen]);
-  const showAccessReport = async () => {
-    if (reportBusy) return;
-    const request = ++reportRequest.current;
-    setReportBusy(true);
-    try {
-      const message = await getAccessReport();
-      if (request !== reportRequest.current) return;
-      setNotification({ title: "Instrument access report", message, copyable: true, copySubject: "access report" });
-    } catch (error) {
-      if (request !== reportRequest.current) return;
-      setNotification({ title: "Could not check instrument access", message: formatInstrumentSyncError(error), copyable: true });
-    } finally { if (request === reportRequest.current) setReportBusy(false); }
-  };
   const showLoadError = (title, message) => setNotification({ title, message, copyable: true });
   const [saving, setSaving] = useState(0);
   const [error, setError] = useState("");
@@ -128,7 +114,7 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
   useLayoutEffect(() => {
     if (!isOpen) return;
     const collapse = event => {
-      if (event.key !== "Escape" || event.defaultPrevented || document.querySelector('[role="alertdialog"], [role="menu"], [role="listbox"]')) return;
+      if (event.key !== "Escape" || event.defaultPrevented || document.querySelector('[role="alertdialog"], [role="menu"], [role="listbox"], .instrument-library-filter-menu')) return;
       if (!expandedIds.length && (reviewing || !selection.some(id => newRows.current.has(id)))) return;
       event.preventDefault(); event.stopImmediatePropagation();
       const active = document.activeElement;
@@ -270,9 +256,9 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
     }
   };
   const visibleIds = useMemo(() => displayedSession.tmdes.map(row => ({ row, instrument: definitionFor(row) }))
-    .filter(({ instrument }) => !query || instrumentMatchesSearch(instrument, query))
-    .sort((a, b) => collator.compare(a.instrument.description || "", b.instrument.description || ""))
-    .map(({ row }) => row.id), [displayedSession.tmdes, query]);
+    .filter(({ instrument }) => (!query || instrumentMatchesSearch(instrument, query)) && matchesLibraryFilters(instrument, filters))
+    .sort((a, b) => compareLibraryRows(a.instrument, b.instrument, sort))
+    .map(({ row }) => row.id), [displayedSession.tmdes, query, filters, sort]);
   useEffect(() => {
     const visible = new Set(visibleIds);
     setSelection(previous => {
@@ -306,20 +292,31 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
     const rows = current.current.tmdes.filter(row => ids.includes(row.id));
     if (!rows.length || removing.current) return;
     const isShared = row => ["validated", "shared"].includes(row.instrument.scope);
-    const requiresPassword = rows.some(isShared);
-    const perform = async password => {
+    const sharedCount = rows.filter(isShared).length;
+    const privateCount = rows.length - sharedCount;
+    if (sharedCount && !reviewState.canValidate) {
+      setNotification({ title: "Shared instruments require SME access", message: "Only an SME can remove shared instruments. Select only instruments from your library to remove your own entries." });
+      return;
+    }
+    const perform = async () => {
       if (removing.current) return;
       removing.current = true;
       return queueWrite(async () => {
         try {
           // Complete queued edits before removing records so a late save cannot
           // recreate an archived instrument.
-          // Check the password at the shared storage boundary before deleting
-          // local rows from a mixed selection.
+          if (sharedCount) {
+            const { data } = await axios.get(`${UNCERTAINTY_API}/instrument-review-access/`, instrumentRequestConfig());
+            if (data?.canValidate !== true) {
+              setReviewState({ canValidate: false, reviews: [] });
+              throw new Error("SME access is required to remove shared instruments. Your selection has been kept.");
+            }
+          }
+          // Check shared deletion before touching private rows in a mixed batch.
           for (const row of [...rows].sort((a, b) => Number(isShared(b)) - Number(isShared(a)))) {
             let restored;
             if (newRows.current.delete(row.id)) onChangeDrafts?.([row], false);
-            else restored = await onDelete(row.instrument.id, isShared(row) ? { password } : undefined);
+            else restored = await onDelete(row.instrument.id, isShared(row) ? { scope: "shared" } : undefined);
             failed.current.delete(row.instrument.id);
             const remaining = current.current.tmdes.filter(item => item.id !== row.id && (!restored || item.instrument.id !== restored.id));
             replace({ ...current.current, tmdes: restored ? [...remaining, rowFor(restored)] : remaining });
@@ -327,13 +324,14 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
           setSelection(previous => previous.filter(id => !ids.includes(id)));
           if (!failed.current.size) setError("");
           return true;
-        } catch (failure) { setNotification({ title: "Could not remove instrument", message: failure.response?.data?.detail || failure.message || "Please try again." }); return false; }
+        } catch (failure) { setNotification({ title: "Could not remove instrument", message: formatInstrumentSyncError(failure), copyable: true }); return false; }
         finally { removing.current = false; }
       });
     };
-    setNotification({ title: "Remove instruments", message: `Remove ${rows.length} selected instrument${rows.length === 1 ? "" : "s"} from the library?${requiresPassword ? " Enter the shared-library password to remove shared instruments." : ""}`,
-      confirmText: "Remove", ...(requiresPassword ? { inputLabel: "Shared library password", inputType: "password", validateInput: value => value.trim() ? "" : "Enter the shared-library password." } : {}),
-      onConfirm: password => { setNotification(null); return perform(password); } });
+    const sharedMessage = sharedCount ? `${sharedCount} shared instrument${sharedCount === 1 ? "" : "s"} will be removed from the shared library for everyone.` : "";
+    const privateMessage = privateCount ? `${privateCount} instrument${privateCount === 1 ? "" : "s"} will be removed from your library.` : "";
+    setNotification({ title: "Remove instruments", message: [sharedMessage, privateMessage, "Continue?"].filter(Boolean).join(" "),
+      confirmText: "Remove", onConfirm: () => { setNotification(null); return perform(); } });
   };
   const requestReturnToLocal = review => {
     const label = formatInstrumentIdentity(review);
@@ -463,6 +461,8 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
       }}
       onReviewSubmission={reviewing ? requestValidation : reviewState.canValidate ? reviewFromLibrary : undefined}
       libraryVisibleIds={visibleIds} instruments={instruments}
+      libraryRenderColumnHeader={(columnKey, label) => <InstrumentLibraryColumnFilter columnKey={columnKey} label={label}
+        instruments={displayedSession.tmdes.map(definitionFor)} filters={filters} onFiltersChange={setFilters} sort={sort} onSort={setSort} />}
       {...(!reviewing && { onLibraryDragStart: startLibraryDrag, onSessionSave: updateSession, onSaveInstrument: onSaveToLibrary,
         onDeleteLibraryInstrument: onDelete, onInstrumentSynced, onDeleteTmdeDefinition: remove })}
       setNotification={setNotification} currentTmdeSelection={selection} setCurrentTmdeSelection={setSelection}
@@ -474,15 +474,13 @@ export default function InstrumentLibraryModal({ isOpen, onClose, instruments = 
       }}>
         <div className="panel-card-title" role="heading" aria-level={3}><FontAwesomeIcon icon={faBookOpen} /><span>Instrument Library</span></div>
         <div className="panel-card-actions">
-        {getAccessReport && <button type="button" className="icon-btn-ghost" title="Instrument access report"
-          aria-label="Instrument access report" disabled={reportBusy} onClick={showAccessReport}><FontAwesomeIcon icon={faInfoCircle} /></button>}
-        {reviewState.canValidate && <button type="button" className="icon-btn-ghost" title="Validation inbox"
+        {reviewState.canValidate && reviewState.reviews.length > 0 && <button type="button" className="icon-btn-ghost" title="Validation inbox"
           aria-label="Validation inbox" aria-pressed={inboxOpen} onClick={() => setInboxOpen(open => !open)}><FontAwesomeIcon icon={faInbox} /></button>}
         <div className="instrument-library-search">
           <FontAwesomeIcon icon={faSearch} />
           <input aria-label="Search instruments" placeholder="Search instruments" value={query} onChange={event => setQuery(event.target.value)} />
           {query && <SymbolButton aria-label="Clear instrument search" onClick={() => setQuery("")} />}
-          {!inboxOpen && <button type="button" className="btn-add-item btn-add-column function-header-action-btn" aria-label="Add instrument" title="Add instrument" onClick={() => { setQuery(""); add(); }}><FontAwesomeIcon icon={faPlus} /><FontAwesomeIcon icon={faTools} /></button>}
+          {!inboxOpen && <button type="button" className="btn-add-item btn-add-column function-header-action-btn" aria-label="Add instrument" title="Add instrument" onClick={() => { setQuery(""); setFilters({}); add(); }}><FontAwesomeIcon icon={faPlus} /><FontAwesomeIcon icon={faTools} /></button>}
         </div>
         <SymbolButton className="icon-btn-ghost" aria-label="Close instrument library" onClick={close} />
         </div>

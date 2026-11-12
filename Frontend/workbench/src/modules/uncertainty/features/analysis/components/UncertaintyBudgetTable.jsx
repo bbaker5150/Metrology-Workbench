@@ -58,18 +58,6 @@ const DIST_OPTIONS = [
   "Rayleigh",
 ];
 
-const DIST_SELECT_STYLE = {
-  width: "100%",
-  padding: "2px 0",
-  backgroundColor: "transparent",
-  color: "inherit",
-  border: "1px solid transparent",
-  borderRadius: "4px",
-  fontSize: "inherit",
-  cursor: "pointer",
-  textAlign: "left",
-};
-
 const PendingUncertainty = ({ reason }) => <span role="img" aria-label={reason} title={reason} className="budget-pending-uncertainty" style={{ color: "var(--status-warning, #b58100)" }}><FontAwesomeIcon icon={faExclamationTriangle} /></span>;
 
 const formatNumber = (value, sigFigs = 4) => {
@@ -509,7 +497,7 @@ export const InlineManualComponentRow = ({
   useEffect(() => {
     if (!editing) return;
     const frame = window.requestAnimationFrame(() => {
-      rowRef.current?.querySelector(`[data-budget-field="${activeField}"] input, [data-budget-field="${activeField}"] textarea, [data-budget-field="${activeField}"] select`)?.focus({ preventScroll: true });
+      rowRef.current?.querySelector(`[data-budget-field="${activeField}"] input, [data-budget-field="${activeField}"] textarea, [data-budget-field="${activeField}"] select, [data-budget-field="${activeField}"] .inline-menu-select-trigger`)?.focus({ preventScroll: true });
     });
     return () => window.cancelAnimationFrame(frame);
   }, [activeField, editing]);
@@ -541,6 +529,7 @@ export const InlineManualComponentRow = ({
   };
 
   const handleRowKeyDown = (event) => {
+    if (event.defaultPrevented) return;
     if (event.key === "Escape") {
       event.preventDefault();
       updateDraft(getInlineManualDraft(component));
@@ -721,27 +710,26 @@ export const InlineManualComponentRow = ({
       </td>
       <td data-budget-field="distribution">
         {activeField === "distribution" ? (
-          <select
-            className="mini-select budget-inline-distribution"
-            aria-label="Error limit distribution"
+          <InlineMenuSelect
+            className="inline-distribution-select"
+            ariaLabel="Error limit distribution"
+            width="118px"
+            menuWidth={240}
+            showOptionMeta={false}
+            getDisplayLabel={option => option?.label}
             value={toleranceDistribution}
-            onChange={(event) =>
+            options={oldErrorDistributions}
+            onChange={(value) =>
               updateDraft((current) => ({
                 ...current,
-                errorDistributionDivisor: event.target.value,
+                errorDistributionDivisor: value,
                 tolerance: applyManualToleranceDistribution(
                   current.tolerance,
-                  event.target.value,
+                  value,
                 ),
               }))
             }
-          >
-            {oldErrorDistributions.map((distribution) => (
-              <option key={distribution.value} value={distribution.value}>
-                {distribution.label}
-              </option>
-            ))}
-          </select>
+          />
         ) : fieldSummary("distribution", oldErrorDistributions.find(item => item.value === toleranceDistribution)?.label)}
       </td>
       <td className="budget-component-type" data-budget-field="type">
@@ -1015,69 +1003,38 @@ const UncertaintyBudgetTable = ({
       return <span>{component.distribution || "Normal"}</span>;
     }
 
+    const distributionPicker = (value, options) => (
+      <InlineMenuSelect
+        className="inline-distribution-select"
+        ariaLabel={`Error limit distribution for ${component.name || "component"}`}
+        width="118px"
+        menuWidth={240}
+        showOptionMeta={false}
+        getDisplayLabel={option => option?.label}
+        value={value}
+        options={options}
+        onChange={distribution => onComponentUpdate?.(component.id, { distribution }, component)}
+      />
+    );
+
     // Saved sessions can return null for absent original inputs. In that case
     // use the component's own divisor/distribution below, just as when omitted.
     if (component.originalInput != null) {
       if (component.type === "A") {
         return <span>{component.distribution || "Normal"}</span>;
       }
-      return (
-        <select
-          className="mini-select"
-          value={component.originalInput.errorDistributionDivisor || "1.732"}
-          onChange={(e) =>
-            onComponentUpdate?.(component.id, { distribution: e.target.value }, component)
-          }
-          style={DIST_SELECT_STYLE}
-        >
-          {oldErrorDistributions.map((d) => (
-            <option key={d.value} value={d.value}>
-              {d.label}
-            </option>
-          ))}
-        </select>
-      );
+      return distributionPicker(component.originalInput.errorDistributionDivisor || "1.732", oldErrorDistributions);
     }
 
     if (component.distributionDivisor !== undefined) {
-      return (
-        <select
-          className="mini-select"
-          value={component.distributionDivisor}
-          onChange={(e) =>
-            onComponentUpdate?.(component.id, { distribution: e.target.value }, component)
-          }
-          style={DIST_SELECT_STYLE}
-        >
-          {errorDistributions.map((d) => (
-            <option key={d.value} value={d.value}>
-              {d.label}
-            </option>
-          ))}
-        </select>
-      );
+      return distributionPicker(component.distributionDivisor, errorDistributions);
     }
 
     if (component.distribution === "Other (Std. Unc.)") {
       return <span>Other (Std. Unc.)</span>;
     }
 
-    return (
-      <select
-        className="mini-select"
-        value={component.distribution || "Normal"}
-        onChange={(e) =>
-          onComponentUpdate?.(component.id, { distribution: e.target.value }, component)
-        }
-        style={DIST_SELECT_STYLE}
-      >
-        {DIST_OPTIONS.map((d) => (
-          <option key={d} value={d}>
-            {d}
-          </option>
-        ))}
-      </select>
-    );
+    return distributionPicker(component.distribution || "Normal", DIST_OPTIONS.map(value => ({value, label:value})));
   };
 
   const renderActions = (component) => {

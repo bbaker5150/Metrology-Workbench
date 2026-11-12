@@ -10,7 +10,7 @@ const setup = (kind) => {
   render(<><button>Outside</button><table><tbody><DynamicBudgetComponentRow component={createDynamicComponent(definition)} referencePoint={{value:100,unit:"V"}} onCommit={onCommit}/></tbody></table></>);
   fireEvent.click(document.querySelector('.dynamic-tolerance-cell button'));
   fireEvent.click(screen.getByRole('button', { name: 'Edit error limit distribution' }));
-  fireEvent.change(screen.getByLabelText('Error limit distribution'), { target: { value: '1.000' } });
+  fireEvent.click(screen.getByRole('option', {name:'Normal (k=1)', exact:true}));
   return {onCommit,definition};
 };
 it.each(['table','equation'])('inherits numeric and imported distributions from a %s instrument source', kind => {
@@ -24,8 +24,34 @@ it.each(['table','equation'])('inherits numeric and imported distributions from 
   expect(component.value_native).toBeCloseTo(.1/2.58);
   expect(screen.getByRole('button',{name:'Edit error limit distribution'})).toHaveTextContent('Normal (99%)');
   fireEvent.click(screen.getByRole('button',{name:'Edit error limit distribution'}));
-  expect(screen.getByRole('combobox',{name:'Error limit distribution'})).toHaveValue('2.58');
+  expect(screen.getByRole('button',{name:'Error limit distribution'})).toHaveTextContent('Normal (99%)');
+  const imported = screen.getByRole('option', {name:'Normal (99%)', exact:true});
+  expect(imported).toHaveAttribute('aria-selected', 'true');
+  expect(imported).toHaveFocus();
   expect(onCommit).not.toHaveBeenCalled();
+  fireEvent.click(imported);
+  expect(onCommit.mock.calls.at(-1)[0].distribution).toBe('2.58');
+});
+
+it('keeps standard uncertainty explicit and restores keyboard focus after choosing a distribution', async () => {
+  const definition = {...createDynamicDefinition('equation', {unit:'V'}), mode:'standard', distribution:'1', equation:'.2'};
+  const onCommit = vi.fn();
+  render(<table><tbody><DynamicBudgetComponentRow component={createDynamicComponent(definition)}
+    referencePoint={{value:1,unit:'V'}} onCommit={onCommit} /></tbody></table>);
+  fireEvent.click(screen.getByRole('button', {name:'Edit error limit distribution'}));
+  const standard = screen.getByRole('option', {name:'Standard uncertainty (k=1)', exact:true});
+  expect(standard).toHaveFocus();
+  expect(standard).toHaveAttribute('aria-selected', 'true');
+  fireEvent.keyDown(standard, {key:'Escape'});
+  expect(screen.queryByRole('listbox')).toBeNull();
+  const trigger = screen.getByRole('button', {name:'Error limit distribution'});
+  expect(trigger).toHaveFocus();
+  expect(onCommit).not.toHaveBeenCalled();
+  fireEvent.keyDown(trigger, {key:'ArrowDown'});
+  fireEvent.keyDown(document.activeElement, {key:'End'});
+  fireEvent.keyDown(document.activeElement, {key:'Enter'});
+  expect(onCommit.mock.calls.at(-1)[0]).toMatchObject({mode:'tolerance', distribution:'1.000', equation:'.2'});
+  await waitFor(() => expect(screen.getByRole('button', {name:'Edit error limit distribution'})).toHaveFocus());
 });
 it('shows the live instrument identity for a linked table even when its definition has no name', () => {
   const definition = createDynamicDefinition('table', {unit:'V'});
@@ -198,7 +224,7 @@ it.each(["Enter", "collapse"])("saves a symmetric table limit and distribution o
   fireEvent.click(screen.getByTitle('Asymmetric tolerance'));
   fireEvent.click(screen.getByTitle('Symmetric tolerance'));
   fireEvent.click(screen.getByRole('button', { name: 'Edit error limit distribution' }));
-  fireEvent.change(screen.getByLabelText('Error limit distribution'), { target: { value: '1.732' } });
+  fireEvent.click(screen.getByRole('option', {name:'Rectangular', exact:true}));
   if (action === 'Enter') fireEvent.keyDown(screen.getByLabelText('Uncertainty row 1'), { key: 'Enter' });
   else fireEvent.click(screen.getByRole('button', { name: 'Outside' }));
   await waitFor(() => expect(onCommit).toHaveBeenCalledOnce());
@@ -219,7 +245,7 @@ it("keeps the saved error limit visible when distribution is selected after Ente
   expect(document.querySelector('.dynamic-tolerance-cell button')).toHaveAttribute('title', 'Choose an error-limit distribution.');
   expect(document.querySelector('.budget-standard-uncertainty')).not.toBeInTheDocument();
   fireEvent.click(screen.getByRole('button', { name: 'Edit error limit distribution' }));
-  fireEvent.change(screen.getByLabelText('Error limit distribution'), { target: { value: '2.000' } });
+  fireEvent.click(screen.getByRole('option', {name:'Normal (95.45%, k=2)', exact:true}));
   expect(document.querySelector('.dynamic-tolerance-cell button')).toHaveTextContent('± 0.2 V');
   expect(document.querySelector('.budget-standard-uncertainty')).toHaveTextContent('0.1 V');
   expect(commit.mock.calls.at(-1)[0].rows[0]).toMatchObject({ point: 0, values: { [definition.columns[0].id]: { value: '.2' } } });
@@ -237,7 +263,7 @@ it.each(["table", "equation"])("opens collapsed %s rows from cell whitespace and
     fireEvent.click(row.cells[index]);
     expect(row).toHaveClass('is-editing');
     if (index === 0) expect(screen.getByLabelText('Error source name')).toBeInTheDocument();
-    else if (index === 2) expect(screen.getByLabelText('Error limit distribution')).toBeInTheDocument();
+    else if (index === 2) expect(screen.getByRole('listbox', {name:'Error limit distribution'})).toBeInTheDocument();
     else expect(screen.getByRole('group', { name: `${kind === 'table' ? 'Tabular' : 'Equation'} uncertainty editor` })).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Outside' }));
     await waitFor(() => expect(row).not.toHaveClass('is-editing'));

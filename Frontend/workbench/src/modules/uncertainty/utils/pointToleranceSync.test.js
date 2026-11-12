@@ -2,10 +2,47 @@ import { describe, it, expect, vi } from "vitest";
 import { choosePointRange, getPointUutRanges } from "./pointUutRange";
 import { getAbsoluteLimits } from "./uncertaintyMath";
 import { syncPointTolerances } from "./pointToleranceSync";
+import { editQualifierRange } from "./qualifierRanges";
+import { computePointRiskMetrics } from "./riskCompute";
 const range = (id, unit, high) => ({ id, unit, min: 0, max: 10, tolerances: { floor: { high, low: -high, unit } } });
 const uut = ranges => ({ id: "u", instrument: { functions: [{ id: "f", name: "Electrical", ranges }] } });
 const point = (id, unit, source) => ({ id, associatedUutIds: ["u"], testPointInfo: { parameter: { value: 5, unit } }, uutTolerance: source });
 describe("live UUT tolerance snapshots", () => {
+  it.each([false, true])('preserves an imported budget when adding and naming a qualifier (explicit=%s)', explicit => {
+    const instrument = uut([range('v', 'V', 1)]);
+    const saved = getPointUutRanges(instrument)[0];
+    let session = JSON.parse(JSON.stringify({ uuts: [instrument], tmdes: [],
+      uncReq: { reliability: 95, reqPFA: 2, uncertaintyConfidence: 95, neededTUR: 4 },
+      testPoints: [{ ...point('p', 'V', explicit ? choosePointRange(saved) : saved), measurementType: 'direct',
+        tmdeTolerances: [{ id: 'tmde', floor: { high: .1, low: -.1, unit: 'V', distribution: '1.732' } }], components: [] }],
+    }));
+    const originalRisk = computePointRiskMetrics(session.testPoints[0], session);
+    expect(originalRisk?.tur).toBeGreaterThan(0);
+    for (const [action, patch] of [['enable', {}], ['patch', { text: 'Operating mode A' }]]) {
+      const updated = editQualifierRange(session.uuts[0], 'v', action, patch).item;
+      session = syncPointTolerances({ ...session, uuts: [updated] }, session);
+      expect(session.testPoints[0].uutTolerance).toMatchObject({ rangeId: 'v', tolerances: { floor: { high: 1 } } });
+      if (explicit) expect(session.testPoints[0].uutTolerance.rangeSelection).toBe('explicit');
+      const risk = computePointRiskMetrics(session.testPoints[0], session);
+      for (const key of ['tur', 'pfa', 'pfr']) expect(risk?.[key]).toBeCloseTo(originalRisk[key]);
+    }
+    const edited = structuredClone(session);
+    edited.testPoints[0].testPointInfo.qualifier = { value: 'Different mode' };
+    expect(syncPointTolerances(edited, session).testPoints[0].uutTolerance).toBeNull();
+    const outOfRange = structuredClone(session);
+    outOfRange.testPoints[0].testPointInfo.parameter.value = 20;
+    expect(syncPointTolerances(outOfRange, session).testPoints[0].uutTolerance).toBeNull();
+  });
+
+  it('rejects an edited qualifier that conflicts with the value already supplied on the point', () => {
+    const instrument = uut([{ ...range('v', 'V', 1), qualifierGroupId: 'q', qualifier: { text: 'A' } }]);
+    const selected = { ...point('p', 'V', choosePointRange(getPointUutRanges(instrument)[0])),
+      testPointInfo: { parameter: { value: 5, unit: 'V' }, qualifier: { value: 'A' } } };
+    const before = { uuts: [instrument], testPoints: [selected] };
+    const changed = editQualifierRange(instrument, 'v', 'patch', { text: 'B' }).item;
+    expect(syncPointTolerances({ ...before, uuts: [changed] }, before).testPoints[0].uutTolerance).toBeNull();
+  });
+
   it("does not serialize unchanged instrument definitions for point edits or copied collections", () => {
     const before = { uuts: [uut([range("v", "V", 1)])], tmdes: [{ id: "tmde", instrument: { functions: [] } }], testPoints: [point(1, "V", null)] };
     const stringify = vi.spyOn(JSON, "stringify");

@@ -52,12 +52,31 @@ it.each(['session','point'])('shows budget-style range menus below simplified de
     fireEvent.click(trigger);
     const list=screen.getByRole('listbox',{name:trigger.getAttribute('aria-label')});
     expect(within(list).getAllByRole('option').length).toBeGreaterThan(0);
+    expect(trigger.textContent).toContain(within(list).getByRole('option', { selected: true }).textContent);
     expect(list.closest('.inline-menu-select-menu')).not.toBeNull();
     fireEvent.keyDown(within(list).getAllByRole('option')[0],{key:'Escape'});
     expect(screen.queryByRole('listbox')).toBeNull();
     expect(table.querySelectorAll('[data-range-id]')).toHaveLength(0);
   }
   expect(container.querySelector('.instrument-specifications-toggle')).toBeNull();
+});
+
+it.each(['session', 'point'])('keeps a shrunken simplified Status column fixed and gives spare width to Description in %s view', viewMode => {
+  const { container } = setup(viewMode);
+  for (const kind of ['uut', 'tmde']) {
+    const table = container.querySelector(`[data-tour="${kind}-table"]`);
+    const status = within(table).getByRole('button', { name: 'Resize Status column' });
+    const cols = table.querySelectorAll('col');
+    expect(cols[1].style.width).toBe('72px');
+    fireEvent.keyDown(status, { key: 'ArrowLeft' });
+    expect(cols[1].style.width).toBe('64px');
+    expect(cols[0].dataset.fill).toBe('true');
+    expect(cols[1].dataset.fill).toBe('false');
+    fireEvent.keyDown(status, { key: 'ArrowRight' });
+    expect(cols[1].style.width).toBe('76px');
+    fireEvent.keyDown(status, { key: 'ArrowLeft' });
+    expect(cols[1].style.width).toBe('64px');
+  }
 });
 it.each(['session','point'])('browses a different range without expanding tables or rewriting the budget in %s view', viewMode=>{
   const {container,session,save,update,rerender,panel}=setup(viewMode);

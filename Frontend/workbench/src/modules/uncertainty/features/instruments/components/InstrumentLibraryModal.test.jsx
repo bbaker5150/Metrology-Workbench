@@ -337,9 +337,11 @@ it.each([true,false])('allows a shared library Status demotion only with reviewe
  } finally {axios.get.mockResolvedValue({data:{canValidate:false,reviews:[]}});}
 });
 
-it('shows local/shared sync actions in simplified rows and uses search without a filter menu',()=>{
+it('shows local/shared sync actions and combines the compact column controls with search',()=>{
  const save=vi.fn();render(<Harness save={save}/>);
  expect(screen.queryByRole('button',{name:'Filter instruments'})).not.toBeInTheDocument();
+ expect(screen.getByRole('button',{name:'Filter and sort Description'})).toBeInTheDocument();
+ expect(screen.getByRole('button',{name:'Filter and sort Status'})).toBeInTheDocument();
  const local=document.querySelector('tr[data-instrument-id="A"]');
  const shared=document.querySelector('tr[data-instrument-id="B"]');
  expect(within(local).getByRole('button',{name:'My library. Click to submit for SME validation.'})).toBeInTheDocument();
@@ -459,27 +461,79 @@ it('removes only the selected records using table selection and Delete',async()=
  expect(document.querySelector('tr[data-instrument-id="B"]')).toHaveTextContent('Meter B');
 });
 
-it('requires a masked password and explicit confirmation for shared library deletion',async()=>{
- const remove=vi.fn().mockRejectedValueOnce({response:{data:{detail:'Invalid shared-library password.'}}});
+it('confirms reviewer shared deletion without a password and keeps failed records with copyable details',async()=>{
+ const remove=vi.fn().mockRejectedValueOnce({response:{status:403,data:{detail:'Shared instrument deletion requires SME access.'}}});
+ axios.get.mockResolvedValue({data:{canValidate:true,reviews:[]}});
+ try {
  render(<Harness remove={remove}/>);
+ await screen.findByRole('button',{name:'Validated shared. Right-click to make a local copy.'});
  const select=()=>fireEvent.click(document.querySelector('tr[data-instrument-id="B"] .instrument-library-name'));
  select(); fireEvent.keyDown(window,{key:'Delete'});
  let dialog=screen.getByRole('alertdialog',{name:'Remove instruments'});
- const password=within(dialog).getByLabelText('Shared library password');
- expect(password).toHaveAttribute('type','password');
- fireEvent.click(within(dialog).getByRole('button',{name:'Remove',exact:true}));
+ expect(dialog).toHaveTextContent('1 shared instrument will be removed from the shared library for everyone.');
+ expect(within(dialog).queryByLabelText(/password/i)).toBeNull();
  expect(remove).not.toHaveBeenCalled();
- fireEvent.change(password,{target:{value:'wrong'}});
  fireEvent.click(within(dialog).getByRole('button',{name:'Remove',exact:true}));
- await screen.findByText('Invalid shared-library password.');
+ const failure=await screen.findByRole('alertdialog',{name:'Could not remove instrument'});
+ expect(failure).toHaveTextContent('Shared instrument deletion requires SME access.');
+ expect(within(failure).getByRole('button',{name:'Copy error details'})).toBeInTheDocument();
  expect(document.querySelector('tr[data-instrument-id="B"]')).not.toBeNull();
  fireEvent.click(within(screen.getByRole('alertdialog')).getByTitle('Close'));
  fireEvent.keyDown(window,{key:'Delete'});
  dialog=screen.getByRole('alertdialog',{name:'Remove instruments'});
- fireEvent.change(within(dialog).getByLabelText('Shared library password'),{target:{value:'calibrate'}});
  fireEvent.click(within(dialog).getByRole('button',{name:'Remove',exact:true}));
  await waitFor(()=>expect(document.querySelector('tr[data-instrument-id="B"]')).toBeNull());
- expect(remove).toHaveBeenLastCalledWith('B',{password:'calibrate'});
+ expect(remove).toHaveBeenLastCalledWith('B',{scope:'shared'});
+ } finally {axios.get.mockResolvedValue({data:{canValidate:false,reviews:[]}});}
+});
+
+it('keeps ordinary users from deleting shared entries while confirming private deletion clearly',async()=>{
+ const remove=vi.fn();render(<Harness remove={remove}/>);
+ const shared=document.querySelector('tr[data-instrument-id="B"]');
+ expect(shared.querySelector('.instrument-row-delete')).toBeNull();
+ fireEvent.click(shared.querySelector('.instrument-library-name'));
+ fireEvent.keyDown(window,{key:'x',ctrlKey:true});
+ expect(document.querySelector('tr[data-instrument-id="B"]')).not.toBeNull();
+ expect(remove).not.toHaveBeenCalled();
+ fireEvent.keyDown(window,{key:'Delete'});
+ expect(screen.queryByRole('alertdialog',{name:'Remove instruments'})).toBeNull();
+ expect(remove).not.toHaveBeenCalled();
+ const blocked=screen.queryByRole('alertdialog');
+ if(blocked) fireEvent.click(within(blocked).getByTitle('Close'));
+ fireEvent.click(document.querySelector('tr[data-instrument-id="A"] .instrument-library-name'));
+ fireEvent.keyDown(window,{key:'Delete'});
+ const confirm=screen.getByRole('alertdialog',{name:'Remove instruments'});
+ expect(confirm).toHaveTextContent('1 instrument will be removed from your library.');
+ expect(confirm).not.toHaveTextContent('for everyone');
+ fireEvent.click(within(confirm).getByRole('button',{name:'Remove',exact:true}));
+ await waitFor(()=>expect(remove).toHaveBeenCalledWith('A'));
+ expect(document.querySelector('tr[data-instrument-id="B"]')).not.toBeNull();
+});
+
+it.each([true,false])('explains mixed deletion and rechecks reviewer permission before any row is removed (%s)',async allowed=>{
+ const remove=vi.fn();
+ axios.get.mockResolvedValue({data:{canValidate:true,reviews:[]}});
+ try {
+   render(<Harness remove={remove}/>);
+   await screen.findByRole('button',{name:'Validated shared. Right-click to make a local copy.'});
+   fireEvent.click(document.querySelector('tr[data-instrument-id="A"] .instrument-library-name'));
+   fireEvent.click(document.querySelector('tr[data-instrument-id="B"] .instrument-library-name'),{ctrlKey:true});
+   fireEvent.keyDown(window,{key:'Delete'});
+   const confirm=screen.getByRole('alertdialog',{name:'Remove instruments'});
+   expect(confirm).toHaveTextContent('1 shared instrument will be removed from the shared library for everyone. 1 instrument will be removed from your library.');
+   axios.get.mockResolvedValueOnce({data:{canValidate:allowed}});
+   fireEvent.click(within(confirm).getByRole('button',{name:'Remove',exact:true}));
+   await waitFor(()=>expect(axios.get).toHaveBeenCalledWith(expect.stringMatching(/\/instrument-review-access\/$/),expect.any(Object)));
+   if(allowed){
+     await waitFor(()=>expect(remove.mock.calls).toEqual([['B',{scope:'shared'}],['A']]));
+     expect(document.querySelector('tr[data-instrument-id="C"]')).not.toBeNull();
+   }else{
+     expect(await screen.findByRole('alertdialog',{name:'Could not remove instrument'})).toHaveTextContent('Your selection has been kept.');
+     expect(remove).not.toHaveBeenCalled();
+     expect(document.querySelector('tr[data-instrument-id="A"]')).not.toBeNull();
+     expect(document.querySelector('tr[data-instrument-id="B"]')).not.toBeNull();
+   }
+ }finally{axios.get.mockResolvedValue({data:{canValidate:false,reviews:[]}});}
 });
 
 it.each(['session','point'])('deletes a dropped workspace instrument instead of a stale library selection in %s view',viewMode=>{
@@ -810,10 +864,12 @@ it('publishes only the confirmed inbox submission when two authors submit the sa
    const remainingRow=within(queue).getByRole('button',{name:/instrument specifications .*Other meter/i}).closest('tr');
    expect(axios.post).toHaveBeenCalledTimes(1);
    fireEvent.click(within(screen.getByRole('alertdialog',{name:'Instrument validated'})).getByText('Close',{selector:'button'}));
+   axios.get.mockResolvedValue({data:{canValidate:true,reviews:[]}});
    axios.post.mockResolvedValueOnce({data:{...other,scope:'validated'}});
    fireEvent.click(within(remainingRow).getByRole('button',{name:'Awaiting validation. Click to review submission.'}));
    fireEvent.click(within(screen.getByRole('alertdialog',{name:'Validate instrument'})).getByRole('button',{name:'Validate'}));
-   await waitFor(()=>expect(queue).toHaveTextContent('No instruments are awaiting validation.'));
+   await waitFor(()=>expect(screen.queryByRole('region',{name:'Pending instrument validations'})).toBeNull());
+   expect(screen.queryByRole('button',{name:'Validation inbox'})).toBeNull();
    expect(axios.post).toHaveBeenLastCalledWith(expect.stringMatching(/\/instrument-reviews\/72\/validate\/$/),{reviewVersion:'5'},expect.any(Object));
  } finally {axios.get.mockResolvedValue({data:{canValidate:false,reviews:[]}});}
 });
@@ -844,10 +900,10 @@ it('returns a reviewed submission to its original owner without inserting the fo
    await waitFor(()=>expect(axios.post).toHaveBeenCalledWith(expect.stringMatching(/\/instrument-reviews\/71\/return\/$/),{reviewVersion:'3'},expect.any(Object)));
    await waitFor(()=>expect(refresh).toHaveBeenCalledTimes(1));
    expect(synced).not.toHaveBeenCalled();
-   expect(inbox).toHaveTextContent('No instruments are awaiting validation.');
+   await waitFor(()=>expect(screen.queryByRole('region',{name:'Pending instrument validations'})).toBeNull());
    expect(await screen.findByRole('alertdialog',{name:'Instrument returned'})).toHaveTextContent("original submitter's Local library");
    fireEvent.click(within(screen.getByRole('alertdialog')).getByText('Close',{selector:'button'}));
-   await act(async()=>{fireEvent.click(within(library).getByRole('button',{name:'Validation inbox'}));});
+   expect(within(library).queryByRole('button',{name:'Validation inbox'})).toBeNull();
    expect(within(library).getByRole('button',{name:/select instrument .*MyMeter/i})).toBeInTheDocument();
    expect(within(library).queryByRole('button',{name:/select instrument .*ForeignMeter/i})).toBeNull();
  } finally {axios.get.mockResolvedValue({data:{canValidate:false,reviews:[]}});}
@@ -898,7 +954,7 @@ it('refreshes the reviewer own returned submission as Local through the library 
    expect(refresh).toHaveBeenCalledTimes(1);
    expect(synced).not.toHaveBeenCalled();
    fireEvent.click(within(success).getByText('Close',{selector:'button'}));
-   await act(async()=>{fireEvent.click(screen.getByRole('button',{name:'Validation inbox'}));});
+   expect(screen.queryByRole('button',{name:'Validation inbox'})).toBeNull();
    expect(screen.getByRole('button',{name:'My library. Click to submit for SME validation.'})).toBeInTheDocument();
  } finally {axios.get.mockResolvedValue({data:{canValidate:false,reviews:[]}});}
 });

@@ -263,12 +263,9 @@ export function sharePointInstrumentOwnerKey(user) {
  * exists so tests can drive it with a fake fetch.
  */
 export class SharePointStore {
-  constructor({ webUrl, prefix = DEFAULT_PREFIX, fetchImpl = fetch, currentUser, libraryPassword = 'calibrate' } = {}) {
+  constructor({ webUrl, prefix = DEFAULT_PREFIX, fetchImpl = fetch, currentUser } = {}) {
     this.webUrl = String(webUrl || '').replace(/\/+$/, '');
     this.prefix = prefix;
-    // Match the standard library confirmation password. SharePoint's own
-    // permissions remain the access boundary for this browser-only build.
-    this.libraryPassword = libraryPassword;
     this.fetchImpl = fetchImpl;
     this._folderCache = null;
     this._storageTitles = new Map();
@@ -1005,8 +1002,8 @@ export class SharePointStore {
     const groups = await this.getItems('/_api/web/currentuser/groups?$select=Title');
     if (groups.some(group => group.Title === 'Uncertalytics SME')) return true;
     if (!groups.some(group => group.Title === 'Metrology Software Owners')) return false;
-    // Recheck on every approval so creating the SME group ends interim access
-    // even if the owner opened the inbox before it was created.
+    // Recheck on every restricted action so creating the SME group ends
+    // interim access even if the owner already opened the library or inbox.
     const result = await this.get("/_api/web/sitegroups?$select=Title&$filter=Title eq 'Uncertalytics SME'&$top=1");
     return Array.isArray(result?.value) && result.value.length === 0 && !result['odata.nextLink'] && !result['@odata.nextLink'];
   }
@@ -1173,7 +1170,11 @@ export class SharePointStore {
     return canonical;
   }
 
-  async deleteInstrument(recordId, password) {
+  async deleteInstrument(recordId, { scope } = {}) {
+    const explicitShared = ['shared', 'validated'].includes(scope);
+    if (explicitShared && !(await this.canValidateInstruments())) {
+      throw new SharePointError('You do not have permission to delete shared instruments.', 403);
+    }
     await this.ensureInstrumentSecurity();
     const user = await this.currentUser();
     const [drafts, catalog, legacy] = await Promise.all([
@@ -1185,8 +1186,10 @@ export class SharePointStore {
     const shared = publication && !isArchived(publication.record);
     const ownLegacy = legacy.find(({item, record}) => Number(item.AuthorId) === user.id && !isArchived(record));
     const legacyLocal = ownLegacy && !isPublished(ownLegacy.record) ? ownLegacy : null;
-    if (password != null || (shared && !legacyLocal && (!ownDraft || isArchived(ownDraft.record)))) {
-      if (!password || password !== this.libraryPassword) throw new SharePointError('Invalid shared-library password.', 403);
+    if (explicitShared || (shared && !legacyLocal && (!ownDraft || isArchived(ownDraft.record)))) {
+      if (!explicitShared && !(await this.canValidateInstruments())) {
+        throw new SharePointError('You do not have permission to delete shared instruments.', 403);
+      }
       if (!publication) return;
       const restored = localFromPublication(publication, ownDraft, ownLegacy, sharePointInstrumentOwnerKey(user));
       if (!shared) {

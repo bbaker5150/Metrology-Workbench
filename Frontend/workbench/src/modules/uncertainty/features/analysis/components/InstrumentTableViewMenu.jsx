@@ -60,7 +60,7 @@ export default function InstrumentTableViewMenu({ kind, value, onChange, showMea
       title={`${kind.toUpperCase()} table view`} aria-haspopup="true" aria-expanded={open} onClick={() => setOpen(!open)}>
       <FontAwesomeIcon icon={(showMeasurementAreas ? value.showAll : !value.simplified) ? faEye : faEyeSlash} /><FontAwesomeIcon icon={faChevronDown} />
     </button>
-    {open && <div ref={menu} popover="manual" className="instrument-view-menu-options" role="group" aria-label={`${kind.toUpperCase()} table view options`}>
+    {open && <div ref={menu} popover="manual" className="inline-unit-menu instrument-view-menu-options" role="group" aria-label={`${kind.toUpperCase()} table view options`}>
       {showMeasurementAreas && <label><input type="checkbox" checked={value.showAll} onChange={event => onChange({ showAll: event.target.checked })} />Show all measurement areas</label>}
       <label><input type="checkbox" checked={value.simplified} onChange={event => onChange({ simplified: event.target.checked })} />Show simplified view</label>
     </div>}

@@ -616,14 +616,18 @@ class InstrumentLibraryScopeTests(APITestCase):
         self.assertEqual(rejected.status_code, 403)
         self.assertEqual(models.Instrument.objects.get(pk="at-cutover").scope, "pending")
 
-    def test_validated_delete_requires_password(self):
+    def test_validated_delete_requires_current_sme_permission_not_a_password(self):
         models.Instrument.objects.create(id="delete-shared", scope="validated", model="Meter")
         url = "/api/uncertainty/instruments/delete-shared/"
-        for payload in ({}, {"password": "wrong"}):
+        for payload in ({}, {"password": "calibrate"}, {"scope": "local"}):
             response = self.client.delete(url, payload, format="json")
             self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
             self.assertTrue(models.Instrument.objects.filter(id="delete-shared").exists())
-        response = self.client.delete(url, {"password": "calibrate"}, format="json")
+        general = get_user_model().objects.create_user(username="delete-general")
+        general.groups.add(Group.objects.create(name="Metrology App User"))
+        self.client.force_authenticate(user=general)
+        self.assertEqual(self.client.delete(url, {"scope": "shared"}, format="json").status_code, 403)
+        response = sme_client().delete(url, {"scope": "shared"}, format="json")
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
         self.assertFalse(models.Instrument.objects.filter(id="delete-shared").exists())
 
@@ -641,13 +645,16 @@ class InstrumentLibraryScopeTests(APITestCase):
                                      {"reviewVersion": pending.data["reviewVersion"]}, format="json")
             self.assertEqual(approved.status_code, 200)
             self.assertEqual(approved.data["owner"], "")
-        removal = reviewer.delete(INSTRUMENTS + "meter/", {"password": "calibrate"}, format="json")
+        removal = reviewer.delete(INSTRUMENTS + "meter/", {"scope": "shared"}, format="json")
         self.assertEqual(removal.status_code, 204)
         self.assertEqual(other.get(INSTRUMENTS, {"owner": "bench"}).data, [])
         [local] = author.get(INSTRUMENTS, {"owner": "bench"}).data
         self.assertEqual((local["id"], local["scope"], local["model"], local["sourceId"]), ("meter", "local", "Revised", ""))
         self.assertIsNone(local["validatedSnapshot"])
         self.assertTrue(local["localOverride"])
+        # A successful shared-removal retry must not delete the author's Local.
+        self.assertEqual(reviewer.delete(INSTRUMENTS + "meter/", {"scope": "shared"}, format="json").status_code, 204)
+        self.assertEqual(author.get(INSTRUMENTS, {"owner": "bench"}).data, [local])
         self.assertEqual(author.post(INSTRUMENTS, {**local, "scope": "pending"}, format="json").status_code, 201)
 
     def test_shared_removal_recovers_the_recorded_owner_of_an_old_legacy_submission(self):
@@ -658,10 +665,46 @@ class InstrumentLibraryScopeTests(APITestCase):
         response = reviewer.post(REVIEWS + pending["id"] + "/validate/", {"reviewVersion":pending["reviewVersion"]}, format="json")
         self.assertEqual(response.status_code, 200)
         models.Instrument.objects.filter(pk=pending["id"]).update(review_owner="", owner="")
-        removed = reviewer.delete(INSTRUMENTS + pending["id"] + "/", {"password":"calibrate"}, format="json")
+        removed = reviewer.delete(INSTRUMENTS + pending["id"] + "/", {"scope":"shared"}, format="json")
         self.assertEqual(removed.status_code, 204)
         [restored] = self.client.get(INSTRUMENTS, {"owner":"bench"}).data
         self.assertEqual((restored["id"], restored["scope"], restored["owner"]), (pending["id"], "local", "bench"))
+
+    def test_shared_deletion_rechecks_interim_owners_at_sme_cutover(self):
+        owner = get_user_model().objects.create_user(username="delete-owner")
+        owner.groups.add(Group.objects.create(name="Metrology Software Owners Backup"))
+        self.client.force_authenticate(user=owner)
+        models.Instrument.objects.create(id="before-cutover", scope="validated")
+        url = INSTRUMENTS + "before-cutover/"
+        self.assertEqual(self.client.delete(url, {"scope": "shared"}, format="json").status_code, 403)
+        owner.groups.add(Group.objects.create(name="Metrology Software Owners"))
+        self.assertEqual(self.client.delete(url, {"scope": "shared"}, format="json").status_code, 204)
+        models.Instrument.objects.create(id="at-cutover", scope="validated")
+        self.assertTrue(self.client.get("/api/uncertainty/instrument-review-access/").data["canValidate"])
+        sme = Group.objects.create(name="Uncertalytics SME")
+        url = INSTRUMENTS + "at-cutover/"
+        self.assertEqual(self.client.delete(url, {"scope": "shared"}, format="json").status_code, 403)
+        self.assertTrue(models.Instrument.objects.filter(pk="at-cutover").exists())
+        owner.groups.add(sme)
+        self.assertEqual(self.client.delete(url, {"scope": "shared"}, format="json").status_code, 204)
+
+    def test_legacy_shared_scope_is_also_protected_without_client_scope(self):
+        models.Instrument.objects.create(id="legacy-shared", scope="shared")
+        url = INSTRUMENTS + "legacy-shared/"
+        self.assertEqual(self.client.delete(url).status_code, 403)
+        self.assertTrue(models.Instrument.objects.filter(pk="legacy-shared").exists())
+        self.assertEqual(sme_client().delete(url).status_code, 204)
+
+    def test_general_user_can_delete_only_their_private_instrument(self):
+        author = get_user_model().objects.create_user(username="delete-local-author")
+        other = get_user_model().objects.create_user(username="delete-local-other")
+        self.client.force_authenticate(user=author)
+        local = self.client.post(INSTRUMENTS, {"id": "private", "scope": "local", "owner": "bench"}, format="json").data
+        self.client.force_authenticate(user=other)
+        self.assertEqual(self.client.delete(INSTRUMENTS + local["id"] + "/?owner=bench").status_code, 404)
+        self.client.force_authenticate(user=author)
+        self.assertEqual(self.client.delete(INSTRUMENTS + local["id"] + "/").status_code, 204)
+        self.assertFalse(models.Instrument.objects.filter(pk=local["id"]).exists())
 
     def test_legacy_resave_does_not_demote_validated(self):
         models.Instrument.objects.create(id="val-2", scope="validated", model="3458A", description="original")

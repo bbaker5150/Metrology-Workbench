@@ -58,27 +58,30 @@ const parseGreekVariable = (rawName) => {
   return {
     unicode: symbol[0],
     tex: symbol[1],
-    suffix: separator >= 0 ? name.slice(separator + 1).replace(/_/g, "") : "",
+    suffix: separator >= 0 ? name.slice(separator + 1) : "",
   };
 };
 
 const escapeTexText = (value) =>
   String(value || "").replace(/([{}%$#&_])/g, "\\$1");
 
-// An underscore is the explicit join marker: theta_Change becomes θChange,
-// while thetaChange remains an ordinary, literal variable name.
+// Plain-text labels retain the subscript marker; mathematical previews render
+// it below the baseline. Evaluation always retains the original identifier.
 export const formatEquationVariableSymbol = (name) => {
   const parsed = parseGreekVariable(name);
   if (!parsed) return String(name || "");
-  return `${parsed.unicode}${parsed.suffix}`;
+  return `${parsed.unicode}${parsed.suffix ? `_${parsed.suffix}` : ""}`;
 };
 
 export const equationVariableToTex = (name) => {
-  const parsed = parseGreekVariable(name);
-  if (!parsed) return null;
-  return parsed.suffix
-    ? `${parsed.tex}\\mathrm{${escapeTexText(parsed.suffix)}}`
-    : parsed.tex;
+  const raw = String(name || "");
+  const separator = raw.indexOf("_");
+  if (separator <= 0 || separator === raw.length - 1) return GREEK_SYMBOLS[raw] ? `{${GREEK_SYMBOLS[raw][1]}}` : null;
+  const token = value => GREEK_SYMBOLS[value]?.[1] ||
+    (/^(?:[A-Za-z]|\d+)$/.test(value) ? value : `\\mathrm{${escapeTexText(value)}}`);
+  // Group the symbol so mathjs can concatenate an operator such as \cdot
+  // without accidentally producing a new control sequence (\cdota).
+  return `{${token(raw.slice(0, separator))}_{${token(raw.slice(separator + 1))}}}`;
 };
 
 // mathjs exposes a SymbolNode handler specifically for presentation overrides.

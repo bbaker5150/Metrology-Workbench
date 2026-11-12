@@ -726,6 +726,7 @@ describe("user-scoped instrument records", () => {
     expect(http.calls.filter(call => call.method === 'POST' && call.url.includes('PublishedInstruments'))).toEqual([]);
   });
   it.each(['approved draft', 'migrated original'])('restores the removed publication only to its %s author and keeps later edits private', async origin => {
+    http.on(/currentuser\/groups/, {json:{value:[{Title:'Uncertalytics SME'}]}});
     const id = 'meter';
     const publication = {Id:70, RecordId:id, AuthorId:56, owshiddenversion:5, PayloadJson:JSON.stringify({
       id, scope:'validated', model:'Latest specifications', sourceId:id, validatedSnapshot:{model:'Latest specifications'},
@@ -749,9 +750,9 @@ describe("user-scoped instrument records", () => {
     }
     const other = new SharePointStore({webUrl:WEB, fetchImpl:http, currentUser:{id:56}});
     if (origin === 'migrated original') {
-      expect(await other.deleteInstrument(id, 'calibrate')).toBeNull();
+      expect(await other.deleteInstrument(id, {scope:'shared'})).toBeNull();
     } else {
-      expect(await store.deleteInstrument(id, 'calibrate')).toMatchObject({scope:'local', formerPublicationId:id});
+      expect(await store.deleteInstrument(id, {scope:'shared'})).toMatchObject({scope:'local', formerPublicationId:id});
     }
     expect(await other.listInstruments()).toEqual([]);
     const [restored] = await store.listInstruments();
@@ -762,7 +763,7 @@ describe("user-scoped instrument records", () => {
     if (origin === 'approved draft') {
       await store.saveInstrument({...restored, model:'Edited privately'});
       expect((await store.listInstruments()).map(row => row.model)).toEqual(['Edited privately']);
-      expect((await store.deleteInstrument(id, 'calibrate')).model).toBe('Edited privately');
+      expect((await store.deleteInstrument(id, {scope:'shared'})).model).toBe('Edited privately');
     }
     expect(await other.listInstruments()).toEqual([]);
     await store.deleteInstrument(restored.id);
@@ -1180,17 +1181,61 @@ describe("user-scoped instrument records", () => {
     expect(archived).toMatchObject({ id: 'same', scope: 'local', _uncertaintyArchive: { userId: 41 } });
     expect(http.find(/items\(72\)/)).toHaveLength(0);
   });
-  it("requires the shared-library password before archiving a shared instrument", async () => {
+  it("requires current SME eligibility even when a caller supplies the old password or claims Local scope", async () => {
     http.on(/\$filter=RecordId/, { json: { value: [
       { Id: 74, AuthorId: 99, RecordId: "shared", PayloadJson: '{"id":"shared","scope":"validated"}' },
     ] } });
     await expect(store.deleteInstrument("shared")).rejects.toMatchObject({status:403});
-    await expect(store.deleteInstrument("shared", "wrong")).rejects.toMatchObject({status:403});
+    await expect(store.deleteInstrument("shared", {scope:'local', password:'calibrate'})).rejects.toMatchObject({status:403});
     expect(http.find(/ValidateUpdateListItem/)).toHaveLength(0);
-    await store.deleteInstrument("shared", "calibrate");
+    http.on(/currentuser\/groups/, {json:{value:[{Title:'Uncertalytics SME'}]}});
+    await store.deleteInstrument("shared", {scope:'shared'});
     const saved=JSON.parse(formValueObject(http.find(/items\(74\)\/ValidateUpdateListItem/)[0]).PayloadJson);
     expect(saved._uncertaintyArchive).toBeDefined();
     expect(saved).not.toHaveProperty('password');
+  });
+
+  it('rechecks Owners eligibility after the SME group is created and after group membership changes', async () => {
+    http.on(/currentuser\/groups/, {json:{value:[{Title:'Metrology Software Owners'}]}});
+    http.on(/sitegroups\?/, {json:{value:[]}});
+    expect(await store.instrumentReviewAccess()).toEqual({canValidate:true});
+    http.on(/sitegroups\?/, {json:{value:[{Title:'Uncertalytics SME'}]}});
+    await expect(store.deleteInstrument('shared', {scope:'shared'})).rejects.toMatchObject({status:403});
+    expect(http.calls.filter(call => call.method === 'POST')).toEqual([]);
+    http.on(/currentuser\/groups/, {json:{value:[{Title:'Uncertalytics SME'}]}});
+    await store.deleteInstrument('absent', {scope:'shared'});
+    http.on(/currentuser\/groups/, {json:{value:[{Title:'Metrology App User'}]}});
+    await expect(store.deleteInstrument('absent', {scope:'shared'})).rejects.toMatchObject({status:403});
+  });
+
+  it('allows interim Owners to remove shared instruments without a password and respects SharePoint write denial', async () => {
+    http.on(/currentuser\/groups/, {json:{value:[{Title:'Metrology Software Owners'}]}});
+    http.on(/sitegroups\?/, {json:{value:[]}});
+    const publication = {Id:74, RecordId:'shared', AuthorId:99, owshiddenversion:3,
+      PayloadJson:'{"id":"shared","scope":"validated"}'};
+    http.on(/PublishedInstruments'\)\/items\?/, {json:{value:[publication]}});
+    http.on(/PublishedInstruments'\)\/items\(74\)$/, {status:403});
+    await expect(store.deleteInstrument('shared', {scope:'shared'})).rejects.toMatchObject({status:403});
+    expect(JSON.parse(publication.PayloadJson)).not.toHaveProperty('_uncertaintyArchive');
+    http.on(/PublishedInstruments'\)\/items\(74\)$/, ({init}) => {
+      expect(init.headers['IF-MATCH']).toBe('"3"');
+      Object.assign(publication, JSON.parse(init.body));
+      return {status:204};
+    });
+    await store.deleteInstrument('shared', {scope:'shared'});
+    expect(JSON.parse(publication.PayloadJson)._uncertaintyArchive.userId).toBe(41);
+  });
+
+  it('keeps same-ID private drafts intact when an SME explicitly removes the shared definition', async () => {
+    http.on(/currentuser\/groups/, {json:{value:[{Title:'Uncertalytics SME'}]}});
+    draftRows.push({Id:21, AuthorId:41, RecordId:'41:shared', owshiddenversion:1,
+      PayloadJson:'{"id":"shared","scope":"local","model":"Private specs"}'});
+    http.on(/PublishedInstruments'\)\/items\?/, {json:{value:[{Id:74, RecordId:'shared', AuthorId:99,
+      owshiddenversion:3, PayloadJson:'{"id":"shared","scope":"validated","model":"Public specs"}'}]}});
+    await store.deleteInstrument('shared', {scope:'shared'});
+    expect(JSON.parse(draftRows[0].PayloadJson)).toEqual({id:'shared', scope:'local', model:'Private specs'});
+    expect(http.calls.filter(call => call.method === 'POST' && call.url.includes('InstrumentDrafts'))).toEqual([]);
+    expect(http.calls.filter(call => call.method === 'POST' && call.url.includes('PublishedInstruments'))).toHaveLength(1);
   });
 
   it("never requests deletion, recycling, bulk operations, or mutation override headers", async () => {

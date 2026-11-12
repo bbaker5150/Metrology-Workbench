@@ -65,7 +65,7 @@ it("keeps the entered table on collapse while the parent save is still pending",
   const saved = commit.mock.calls[0][0];
   rerender(ui({ ...component, dynamicDefinition: saved }));
   fireEvent.click(screen.getByRole("button", { name: "Edit error limit distribution" }));
-  fireEvent.change(screen.getByLabelText("Error limit distribution"), { target: { value: "1.732" } });
+  fireEvent.click(screen.getByRole("option", {name:"Rectangular", exact:true}));
   expect(commit.mock.calls.at(-1)[0]).toMatchObject({ mode: "tolerance", distribution: "1.732" });
   expect(screen.getByRole("button", { name: "± 3 V" })).toBeInTheDocument();
 });

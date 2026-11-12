@@ -113,7 +113,7 @@ describe("instrument library refresh", () => {
     act(() => { refresh = result.current.refreshInstrumentLibrary(); });
     await act(async () => {
       await result.current.saveInstrument({ ...edited, scope: 'local', model: 'Concurrent edit' });
-      await result.current.deleteInstrument(removed.id, { password: 'calibrate' });
+      await result.current.deleteInstrument(removed.id, { scope: 'shared' });
     });
     await act(async () => { finishRead({ data: [edited, removed, published] }); await refresh; });
     expect(result.current.instruments).toEqual([
@@ -800,7 +800,7 @@ describe("local instrument persistence", () => {
       await act(async () => result.current.refreshInstrumentLibrary());
     } else if (operation === 'removal') {
       axios.delete.mockResolvedValueOnce({data:local});
-      await act(async () => result.current.deleteInstrument('meter', {password:'calibrate'}));
+      await act(async () => result.current.deleteInstrument('meter', {scope:'shared'}));
     }
     expect(result.current.instruments).toEqual([local]);
     expect(result.current.sessions[0].tmdes[0]).toMatchObject({quantity:3, libraryInstrumentId:'restored',
@@ -997,23 +997,24 @@ it('clears a pending library edit when the instrument is deleted so reopening ca
  expect(readRecovery().libraryEdits.removed).toBeUndefined();
 });
 
-it('sends a shared deletion password only in the request body and retains the instrument on rejection', async () => {
+it('sends shared deletion intent without a password and retains the instrument on rejection', async () => {
   const instrument = { id: 'shared-delete', scope: 'validated', description: 'Shared meter', functions: [] };
   axios.get.mockImplementation(url => Promise.resolve({ data: url.endsWith('/instruments/') ? [instrument] : [] }));
   const { result } = renderHook(() => useSessionManager());
   await waitFor(() => expect(result.current.instruments).toHaveLength(1));
   const log = vi.spyOn(console, 'error').mockImplementation(() => {});
   try {
-    axios.delete.mockRejectedValueOnce(new Error('Invalid shared-library password.'));
-    await act(async () => { await expect(result.current.deleteInstrument(instrument.id, { password: 'wrong' })).rejects.toThrow('Invalid shared-library password.'); });
+    axios.delete.mockRejectedValueOnce(new Error('You do not have permission to delete shared instruments.'));
+    await act(async () => { await expect(result.current.deleteInstrument(instrument.id, { scope: 'shared' })).rejects.toThrow('permission to delete shared instruments'); });
     expect(result.current.instruments).toEqual([instrument]);
     expect(axios.delete).toHaveBeenLastCalledWith(expect.stringMatching(/instruments\/shared-delete\/$/), expect.objectContaining({
-      params: { owner: expect.any(String) }, data: { password: 'wrong' },
+      params: { owner: expect.any(String) }, data: { scope: 'shared' },
     }));
-    await act(async () => { await result.current.deleteInstrument(instrument.id, { password: 'calibrate' }); });
+    // Current record scope also protects callers that omit the optional intent.
+    await act(async () => { await result.current.deleteInstrument(instrument.id); });
     expect(result.current.instruments).toEqual([]);
     expect(axios.delete).toHaveBeenLastCalledWith(expect.stringMatching(/instruments\/shared-delete\/$/), expect.objectContaining({
-      params: { owner: expect.any(String) }, data: { password: 'calibrate' },
+      params: { owner: expect.any(String) }, data: { scope: 'shared' },
     }));
     expect(JSON.stringify(readRecovery())).not.toContain('password');
   } finally { log.mockRestore(); }

@@ -21298,7 +21298,7 @@ body.dark-mode .uncertainty-module .measurement-group-container .point-grid-item
 .uncertainty-module .point-value-with-unit .point-value-number,
 .uncertainty-module .point-value-with-unit .point-value-input-slot { justify-self: end; }
 .uncertainty-module .point-value-with-unit .point-value-number { text-align: right; }
-.uncertainty-module .point-information { width: auto; min-width: 0; margin: 0; justify-content: center; }
+.uncertainty-module .point-information { width: auto; min-width: 0; margin: 0; justify-content: center; align-self: stretch; }
 /* Point columns align by content, including inline editors and merged cells. */
 .uncertainty-module .measurement-group-container .point-grid-item > :not(.point-uut-name):not(.point-section):not(.point-information),
 .uncertainty-module .measurement-group-container .point-grid-item :is(.point-metric-content, .point-value-number, .sidebar-inline-input.value) {
@@ -21325,9 +21325,8 @@ body.dark-mode .uncertainty-module .measurement-group-container .point-grid-item
 .uncertainty-module .point-grid-item > [data-sidebar-column]::before,
 .uncertainty-module .point-grid-item > [data-sidebar-column]:not([data-sidebar-column-last="true"])::before { content: none; }
 .point-column-guide { stroke: color-mix(in srgb, #94a3b8 35%, transparent); stroke-width: 1; vector-effect: non-scaling-stroke; }
-/* Cell hover matches instrument tables. Keep the row's base/selected surface
-   stable and tint only the cell beneath the cursor (all tiles of a merged cell). */
-.uncertainty-module .measurement-group-container .point-grid-item:hover:not(.active):not(.active-point):not(.table-highlight) { background-color: var(--sidebar-point-surface) !important; }
+/* Keep column context while the pointed row gets its own subtle highlight. */
+.uncertainty-module .measurement-group-container .point-grid-item:hover:not(.active):not(.active-point):not(.table-highlight) { background-color: var(--sidebar-point-surface-hover) !important; }
 .uncertainty-module .measurement-group-container .point-grid-item > .is-cell-hovered {
   background: var(--sidebar-point-surface-hover) !important;
   --sidebar-point-cell-fill: var(--sidebar-point-surface-hover);
@@ -21350,6 +21349,14 @@ body.dark-mode .uncertainty-module .measurement-group-container .point-grid-item
 }
 .uncertainty-module .measurement-group-container .point-grid-item:is(.active, .active-point):has(> .is-cell-hovered) {
   background: linear-gradient(to right, transparent var(--point-hover-left), color-mix(in srgb, var(--sidebar-point-surface-selected) 85%, var(--sidebar-function-color)) var(--point-hover-left), color-mix(in srgb, var(--sidebar-point-surface-selected) 85%, var(--sidebar-function-color)) var(--point-hover-right), transparent var(--point-hover-right)) border-box var(--sidebar-point-surface-selected) !important;
+}
+.uncertainty-module .measurement-group-container .point-grid-item:hover:has(> .is-cell-hovered):not(.active):not(.active-point):not(.table-highlight) {
+  background-color: var(--sidebar-point-surface-hover) !important;
+}
+/* Paint separators through individual cells; merged-cell fills remain continuous. */
+.uncertainty-module .measurement-group-container .point-grid-item::before {
+  content: ""; position: absolute; inset: auto 0 0; height: 1px;
+  background: color-mix(in srgb, #94a3b8 24%, transparent); pointer-events: none;
 }
 
 /* The row gradient owns the complete hovered column band, including padding.
@@ -22305,7 +22312,7 @@ body.dark-mode .uncertainty-module .instrument-equipment-table > thead > tr > th
   display: block; width: 100%; white-space: pre-wrap; overflow-wrap: anywhere;
 }
 .uncertainty-module .instrument-equipment-table .qualifier-range-cell .inline-qualifier-input {
-  width: 100%; min-width: 0; max-width: 100%; min-height: 28px; box-sizing: border-box;
+  width: auto; min-width: min(100%, 8ch); max-width: 100%; min-height: 28px; box-sizing: border-box;
   field-sizing: content; resize: none; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere;
   font: inherit; line-height: 1.4;
 }

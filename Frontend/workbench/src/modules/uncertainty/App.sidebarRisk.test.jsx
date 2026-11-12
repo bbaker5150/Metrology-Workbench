@@ -51,6 +51,21 @@ test('retains column hover when crossing rows without rescanning or repainting t
   query.mockRestore();
 });
 
+test('Info hover stays on its own point and moves between rows', () => {
+  const { container } = render(<div className="sidebar-points-scroll-wrapper">
+    {['a', 'b'].map(id => <SidebarPointItem key={id}
+      point={{ id }} visibleColumns={{ warningIcons: true }} onSelect={vi.fn()} onSave={vi.fn()} />)}
+  </div>);
+  const cells = container.querySelectorAll('.point-information');
+  fireEvent.mouseOver(cells[0]);
+  expect(cells[0]).toHaveClass('is-cell-hovered');
+  expect(cells[1]).not.toHaveClass('is-cell-hovered');
+  fireEvent.mouseOut(cells[0], { relatedTarget: cells[1] });
+  fireEvent.mouseOver(cells[1], { relatedTarget: cells[0] });
+  expect(cells[0]).not.toHaveClass('is-cell-hovered');
+  expect(cells[1]).toHaveClass('is-cell-hovered');
+});
+
 test("column hover reaches the outer row edges and meets at the gap midpoint under zoom", () => {
   const { container } = render(<div className="sidebar-points-scroll-wrapper">
     <SidebarPointItem point={{ id: "a", testPointInfo: { parameter: { value: 1, unit: "V" } } }}
@@ -409,7 +424,7 @@ describe("measurement-point value editing", () => {
     ).toEqual({ isStart: true, isEnd: true, span: 1, pointIds: ["p3"] });
   });
 
-  test("groups consecutive empty information cells and stops at a populated one", () => {
+  test("supports optional blank merging in the generic consecutive-cell helper", () => {
     const points = [
       { id: "p1", info: "" },
       { id: "p2", info: null },
@@ -427,20 +442,22 @@ describe("measurement-point value editing", () => {
     });
   });
 
-  test("selecting one point highlights every tile of its empty Info run", () => {
+  test("keeps Info cells individual even when an older caller supplies merged groups", () => {
     const points = [{ id: "one" }, { id: "two" }];
     const { container } = render(<>{points.map((point, index) => <SidebarPointItem
       key={point.id} point={point} diagnostics={[]} onSave={vi.fn()} onSelect={vi.fn()}
-      visibleColumns={{ warningIcons: true }} highlightedPointIds={["two"]}
+      visibleColumns={{ warningIcons: true }} highlightedPointIds={["two"]} isSelected={point.id === "two"}
       cellGroups={{ warningIcons: getConsecutiveSidebarCellGroup(points, index, () => "", true) }}
     />)}</>);
     const cells = [...container.querySelectorAll('.point-information')];
     expect(cells).toHaveLength(2);
     cells.forEach(cell => {
-      expect(cell).toHaveAttribute('data-run', 'warningIcons:one');
-      expect(cell).toHaveClass('point-grouped-cell--highlighted');
+      expect(cell).not.toHaveAttribute('data-run');
+      expect(cell).not.toHaveClass('point-grouped-cell');
       expect(cell).toBeEmptyDOMElement();
     });
+    expect(cells[0].parentElement).not.toHaveClass('active');
+    expect(cells[1].parentElement).toHaveClass('active');
   });
 
   const renderGroupedUutRow = (props) =>

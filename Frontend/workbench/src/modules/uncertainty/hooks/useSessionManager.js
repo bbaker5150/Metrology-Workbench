@@ -871,16 +871,17 @@ const useSessionManager = () => {
   }, [replaceInstruments]);
 
   // --- 2.2 Delete Instrument ---
-  const deleteInstrument = useCallback(async (instrumentId, { password } = {}) => {
+  const deleteInstrument = useCallback(async (instrumentId, { scope } = {}) => {
     try {
       const before = instrumentsRef.current.find(item => String(item.id) === String(instrumentId));
+      const deletingShared = ['shared', 'validated'].includes(scope || before?.scope);
       const response = await queueRecordWrite(instrumentSaveQueuesRef.current, String(instrumentId), () => axios.delete(`${UNCERTAINTY_API}/instruments/${encodeURIComponent(instrumentId)}/`, {
         ...instrumentRequestConfig(), params: { owner: getDeviceKey() },
-        ...(password ? { data: { password } } : {}),
+        ...(deletingShared ? { data: { scope: 'shared' } } : {}),
       }));
       const restored = response?.data?.scope === "local" ? response.data : null;
       // Reinstating a publication requires a new SME approval.
-      if (password) lastListedInstrumentIds.current?.delete(String(instrumentId));
+      if (deletingShared) lastListedInstrumentIds.current?.delete(String(instrumentId));
       else if (before) recordLibraryChange(instrumentId, before, undefined);
       const pending = readRecovery().libraryEdits?.[String(instrumentId)];
       if (pending) acknowledgeSession("libraryEdits", String(instrumentId), pending.token);

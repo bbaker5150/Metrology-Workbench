@@ -15,7 +15,10 @@ it.each(['session', 'point'])('preserves multiline qualifier text through commit
  const cell=document.querySelector('tr[data-range-group="uut:u1"] [data-qualifier-cell="1"]');
  fireEvent.click(cell.querySelector('.inline-tolerance-summary'));
  const editor=within(cell).getByRole('textbox',{name:'Qualifier value'});
+ expect(editor.style.width).toBe('8ch');
  const text='Ambient temperature 20 to 24 °C\nAfter a 30 minute warm-up';
+ fireEvent.input(editor,{target:{value:text}});
+ expect(parseFloat(editor.style.width)).toBe(text.split('\n')[0].length + 2);
  fireEvent.change(editor,{target:{value:text}});
  fireEvent.keyDown(editor,{key:'Enter',shiftKey:true});
  expect(editor).toHaveFocus();

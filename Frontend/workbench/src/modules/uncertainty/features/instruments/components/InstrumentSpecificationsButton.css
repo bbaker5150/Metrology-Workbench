@@ -9,6 +9,12 @@
 .instrument-view-menu-options label { display: flex; align-items: center; gap: 10px; min-height: 28px; padding: 5px 8px; border-radius: 4px; box-sizing: border-box; cursor: pointer; white-space: nowrap; }
 .instrument-view-menu-options label:is(:hover, :focus-within) { background: rgba(var(--primary-rgb), .1); }
 .instrument-view-menu-options input { margin: 0; accent-color: var(--primary-color); }
+.uncertainty-module .instrument-view-menu-options,
+.uncertainty-module .instrument-view-menu-options label {
+  font-size: .82rem; font-weight: 400; line-height: 1.4; letter-spacing: normal; text-transform: none;
+}
+.instrument-view-menu-options label:has(input:checked) { background: rgba(var(--primary-rgb), .16); }
+.instrument-view-menu-options label:is(:hover, :focus-within) { background: color-mix(in srgb, var(--primary-color) 14%, var(--input-background)); color: var(--text-color); }
 
 /* Shared by library and budget tables: reveal on row/cell hover or keyboard focus. */
 .instrument-equipment-table tr:hover > .cell-description .instrument-library-specifications,

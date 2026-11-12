@@ -243,9 +243,9 @@ describe("record routes", () => {
     await call("delete", "/instruments/a%2Fb/");
     expect(store.deleteInstrument).toHaveBeenCalledWith("a/b", undefined);
   });
-  it("forwards the shared deletion password in the request body", async () => {
-    await call("delete", "/instruments/shared/", { password: "test-password" });
-    expect(store.deleteInstrument).toHaveBeenCalledWith("shared", "test-password");
+  it("forwards shared deletion intent without using a legacy password", async () => {
+    await call("delete", "/instruments/shared/", { scope: "shared", password: "obsolete" });
+    expect(store.deleteInstrument).toHaveBeenCalledWith("shared", { scope: "shared" });
   });
 });
 

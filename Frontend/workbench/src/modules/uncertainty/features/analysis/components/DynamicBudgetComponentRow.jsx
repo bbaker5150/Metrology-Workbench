@@ -238,12 +238,22 @@ export default function DynamicBudgetComponentRow({
           </>
         )}
       </td>
-      <td>{readOnly ? <span className="inline-tolerance-summary">{draft.mode === "standard" ? "Standard uncertainty (k=1)" : distributionLabel}</span> : distributionEditing ? <select autoFocus className="mini-select budget-inline-distribution" aria-label="Error limit distribution" value={draft.mode === "standard" ? "standard" : distributionValue}
-        onChange={event => { changeDistribution(event.target.value); setDistributionEditing(false); }}>
-        <option value="" disabled>Not Set</option>{draft.mode === "standard" && <option value="standard">Standard uncertainty (k=1)</option>}
-        {!distributionOption && Number(draft.distribution) > 0 && <option value={distributionValue}>{distributionLabel}</option>}
-        {DISTRIBUTIONS.map(option => <option key={option.value} value={option.value}>{option.label}</option>)}
-      </select> : <button type="button" className={`inline-tolerance-summary${draft.distribution ? "" : " is-empty"}`} aria-label="Edit error limit distribution" onClick={() => setDistributionEditing(true)}>{draft.mode === "standard" ? "Standard uncertainty (k=1)" : distributionLabel}</button>}</td>
+      <td>{readOnly ? <span className="inline-tolerance-summary">{draft.mode === "standard" ? "Standard uncertainty (k=1)" : distributionLabel}</span> : distributionEditing ? <InlineMenuSelect
+        autoOpen className="inline-distribution-select" ariaLabel="Error limit distribution"
+        width="118px" menuWidth={240} showOptionMeta={false}
+        getDisplayLabel={option => option?.label || "Not Set"}
+        value={draft.mode === "standard" ? "standard" : distributionValue}
+        options={[
+          ...(draft.mode === "standard" ? [{value:"standard", label:"Standard uncertainty (k=1)"}] : []),
+          ...(!distributionOption && Number(draft.distribution) > 0 ? [{value:distributionValue, label:distributionLabel}] : []),
+          ...DISTRIBUTIONS,
+        ]}
+        onChange={value => {
+          changeDistribution(value);
+          setDistributionEditing(false);
+          requestAnimationFrame(() => rowRef.current?.querySelector('[aria-label="Edit error limit distribution"]')?.focus({preventScroll:true}));
+        }}
+      /> : <button type="button" className={`inline-tolerance-summary${draft.distribution ? "" : " is-empty"}`} aria-label="Edit error limit distribution" onClick={() => setDistributionEditing(true)}>{draft.mode === "standard" ? "Standard uncertainty (k=1)" : distributionLabel}</button>}</td>
       <td className="budget-component-type">B</td>{showDof && <td>∞</td>}
       <td>{/incompatible|No unit is set/i.test(preview.pendingReason || "") ? <span role="img" aria-label={preview.pendingReason} title={preview.pendingReason} className="budget-pending-uncertainty" style={{ color: "var(--status-warning, #b58100)" }}><FontAwesomeIcon icon={faExclamationTriangle} /></span> : <span className={displayedStd.value == null ? "inline-tolerance-summary is-empty budget-inline-not-set" : "budget-standard-uncertainty"} title={preview.pendingReason || undefined}>{displayedStd.value == null ? "Not Set" : `± ${Number(displayedStd.value.toPrecision(6))} ${getUnitDisplayLabel(displayedStd.unit)}`}</span>}</td>
       {!readOnly && <td className="action-cell"><SymbolButton type="button" title="Remove component from this budget" aria-label="Remove dynamic component" onClick={() => onRemove?.(component.id, component)} /></td>}

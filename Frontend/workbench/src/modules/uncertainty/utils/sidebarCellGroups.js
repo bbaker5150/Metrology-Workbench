@@ -18,11 +18,10 @@ export function buildConsecutiveSidebarCellGroups(points, valueForPoint, groupEm
   return groups;
 }
 
-export function buildSidebarCellGroups(points, diagnostics, pendingEdit, formatQualifier) {
+export function buildSidebarCellGroups(points, pendingEdit, formatQualifier) {
   const editedValue = (point, field, value) => pendingEdit?.field === field && String(pendingEdit.pointId) === String(point.id)
     ? `\u0000sidebar-edit-member:${field}:${point.id}` : value;
   const columns = {
-    warningIcons: buildConsecutiveSidebarCellGroups(points, point => diagnostics[point.id]?.length ? `point:${point.id}` : "", true),
     uut: buildConsecutiveSidebarCellGroups(points, point => point.associatedUutIds?.[0] ?? ""),
     section: buildConsecutiveSidebarCellGroups(points, point => editedValue(point, "section", point.section)),
     qualifier: buildConsecutiveSidebarCellGroups(points, point => editedValue(point, "qualifier", formatQualifier(point.testPointInfo?.qualifier))),

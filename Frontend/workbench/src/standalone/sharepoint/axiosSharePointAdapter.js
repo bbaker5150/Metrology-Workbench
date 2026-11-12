@@ -36,7 +36,7 @@ function buildRoutes(store) {
     ['POST', /^\/instrument-reviews\/([^/]+)\/return\/$/, (m, body) => store.returnInstrumentReview(decodeURIComponent(m[1]), body?.reviewVersion)],
     ['GET', /^\/instruments\/$/, () => store.listInstruments()],
     ['POST', /^\/instruments\/$/, (_m, body) => store.saveInstrument(body)],
-    ['DELETE', /^\/instruments\/([^/]+)\/$/, (m, body) => store.deleteInstrument(decodeURIComponent(m[1]), body?.password)],
+    ['DELETE', /^\/instruments\/([^/]+)\/$/, (m, body) => store.deleteInstrument(decodeURIComponent(m[1]), body?.scope ? { scope: body.scope } : undefined)],
 
     ['GET', /^\/equations\/$/, () => store.listRecords('equations')],
     ['POST', /^\/equations\/$/, (_m, body) => store.saveRecord('equations', body)],

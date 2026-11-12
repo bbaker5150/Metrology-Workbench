@@ -1359,7 +1359,7 @@ export const SidebarPointItem = ({
     list.style.setProperty("--point-hover-left", `${left}px`);
     list.style.setProperty("--point-hover-right", `${right}px`);
     list.querySelectorAll(".point-grid-item > [data-sidebar-column]").forEach(cell => {
-      if (cell.dataset.sidebarColumn === column) cell.classList.add("is-cell-hovered");
+      if (cell.dataset.sidebarColumn === column && (column !== "warningIcons" || cell === hovered)) cell.classList.add("is-cell-hovered");
     });
   };
 
@@ -1401,9 +1401,8 @@ export const SidebarPointItem = ({
       onContextMenu={(e) => onContextMenu(e, point)}
     >
             {visibleColumns.warningIcons && (
-              <span className={`point-diagnostics point-information${groupedCellClass(cellGroups.warningIcons, "warningIcons")}`}
-                data-run={groupedCellRunKey(cellGroups.warningIcons, "warningIcons")}>
-                {(!cellGroups.warningIcons?.span || cellGroups.warningIcons.isStart || cellGroups.warningIcons.span === 1) && [
+              <span className="point-diagnostics point-information">
+                {[
                   { category: "input", label: "Missing inputs", icon: faPenToSquare },
                   { category: "warning", label: "Calculation warning", icon: faExclamationTriangle },
                   { category: "refresh", label: "Recalculation needed", icon: faRotate },
@@ -2247,7 +2246,7 @@ const SidebarSessionHeader = ({
   );
 };
 
-function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras = null, getInstrumentAccessReport = null }) {
+function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras = null }) {
   useSelectInputText();
   usePointBreakdownCursor();
   const canDemoteSharedInstruments = useInstrumentReviewAccess();
@@ -4739,10 +4738,6 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
         newCache.set(importedSession.id, images);
         return newCache;
       });
-      setAppNotification({
-        title: "Success",
-        message: `Session "${importedSession.name}" imported as a new saved session.`,
-      });
     } catch (error) {
       console.error("PDF Load Error:", error);
       setAppNotification({ title: "Load Failed", message: error.message });
@@ -5210,8 +5205,8 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
   // bucket). Extracted so the Function -> UUT -> Point tree stays readable.
   const sidebarCellGroups = useMemo(() => new Map(sidebarData.map(group => {
     const points = group.isUnassigned ? group.uutGroups[0]?.points || [] : group.points || [];
-    return [group.id, buildSidebarCellGroups(points, pointDiagnosticsMap, pendingSharedFieldEdit, formatPointQualifier)];
-  })), [sidebarData, pointDiagnosticsMap, pendingSharedFieldEdit]);
+    return [group.id, buildSidebarCellGroups(points, pendingSharedFieldEdit, formatPointQualifier)];
+  })), [sidebarData, pendingSharedFieldEdit]);
   const sidebarInstrumentChoices = useMemo(() => new Map(sidebarData.map(group => [group.id, {
     units: getMeasurementAreaUnits(currentSessionData, group.name),
     uuts: (group.uutGroups || []).filter(uut => !uut.isUnassigned).map(uut => ({ id: uut.id, label: formatInstrumentIdentity(uut) })),
@@ -5818,7 +5813,6 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
           onClose={() => setIsInstrumentBuilderOpen(false)}
           instruments={instruments} flushLibraryRef={flushLibraryRef}
           loadError={instrumentLibraryError} onRefresh={refreshInstrumentLibrary}
-          getAccessReport={getInstrumentAccessReport}
           libraryDraftRows={libraryDraftRows} onChangeDrafts={changeLibraryDrafts}
           onSaveToLibrary={(instrument, options) => saveInstrument(instrument, { ...options, syncSessionId: currentSessionData?.id })}
           onDelete={deleteInstrument} onBatchAdd={handleBatchAddInstruments}

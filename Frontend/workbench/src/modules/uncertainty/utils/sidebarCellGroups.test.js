@@ -12,15 +12,15 @@ it('groups a large shunt session in one pass and shares the run identity list', 
   expect(groups[1500].key).toBe(groups[0].key);
 });
 
-it('preserves blank inputs, merges empty diagnostics, and splits the member being edited', () => {
+it('preserves blank inputs, leaves diagnostics unmerged, and splits the member being edited', () => {
   const points = Array.from({ length: 5 }, (_, id) => ({ id, associatedUutIds: ['uut'], section: id < 3 ? 'A' : '',
     testPointInfo: { qualifier: { value: 60, unit: 'Hz' } } }));
   const format = q => `${q.value} ${q.unit}`;
-  const groups = buildSidebarCellGroups(points, { 2: ['warning'] }, { field: 'qualifier', pointId: 2 }, format);
-  expect(groups.map(group => group.warningIcons.span)).toEqual([2, 2, 1, 2, 2]);
+  const groups = buildSidebarCellGroups(points, { field: 'qualifier', pointId: 2 }, format);
+  expect(groups.every(group => !group.warningIcons)).toBe(true);
   expect(groups.map(group => group.section.span)).toEqual([3, 3, 3, 1, 1]);
   expect(groups.map(group => group.qualifier.span)).toEqual([2, 2, 1, 2, 2]);
   const saved = points.map(point => point.id === 2 ? { ...point, testPointInfo: { qualifier: { value: 400, unit: 'Hz' } } } : point);
-  expect(buildSidebarCellGroups(saved, {}, null, format).map(group => group.qualifier.span)).toEqual([2, 2, 1, 2, 2]);
-  expect(buildSidebarCellGroups(points, {}, null, format)[0].qualifier.span).toBe(5);
+  expect(buildSidebarCellGroups(saved, null, format).map(group => group.qualifier.span)).toEqual([2, 2, 1, 2, 2]);
+  expect(buildSidebarCellGroups(points, null, format)[0].qualifier.span).toBe(5);
 });

@@ -2821,14 +2821,16 @@ const useInstrumentColumnWidths = (kind, customColumns = [], qualifierEnabled = 
     .map((column) => `${column.key}:${column.insertAfter || "legacy"}`)
     .join("|");
   const defaults = useMemo(() => {
-    const base = { ...(INSTRUMENT_COLUMN_DEFAULTS[kind] || {}), qualifier: 140 };
+    const base = scope === "simplified"
+      ? { description: 420, sync: 72, __absolute: true, __fillColumn: "description" }
+      : { ...(INSTRUMENT_COLUMN_DEFAULTS[kind] || {}), ...(scope === "library" && { sync: 80 }), qualifier: 140 };
     customColumns.forEach((column) => {
       base[instrumentColumnKey(column)] = 160;
     });
     return base;
     // customSignature intentionally represents the dynamic column set.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [kind, customSignature]);
+  }, [kind, customSignature, scope]);
   // Keep existing proportional defaults until the user resizes a column.
   // Explicit resizing stores pixels so neighboring columns retain their widths.
   const storageKey = `uncertalytics:${scope === "workspace" ? "" : `${scope}:`}${kind}:instrument-column-widths:v2`;
@@ -2882,7 +2884,7 @@ const useInstrumentColumnWidths = (kind, customColumns = [], qualifierEnabled = 
   const minimumWidth = useCallback((key) => {
     if (/^qualifier\d*$/.test(key)) return 48;
     if (!Object.hasOwn(INSTRUMENT_COLUMN_LABELS, key)) return 64;
-    if (key === "sync") return 96;
+    if (key === "sync") return 64;
     if (key === "distribution") return 60;
     if (key === "range") return 80;
     if (key === "tolerance" || key === "resolution") return 60;
@@ -2898,7 +2900,7 @@ const useInstrumentColumnWidths = (kind, customColumns = [], qualifierEnabled = 
   const resolvedWidths = useMemo(
     () =>
       Object.fromEntries(
-        keys.map((key) => [key, key === "sync" ? Math.max(96, widths[key] || defaults[key]) : widths[key] || defaults[key] || 160]),
+        keys.map((key) => [key, key === "sync" ? Math.max(64, widths[key] || defaults[key]) : widths[key] || defaults[key] || 160]),
       ),
     [defaults, keys, widths],
   );
@@ -2931,6 +2933,9 @@ const useInstrumentColumnWidths = (kind, customColumns = [], qualifierEnabled = 
     const rendered = Object.fromEntries(keys.map(k => [k, (base[k] || defaults[k] || 160) * scale]));
     const next = resizeTableColumn(widths.__absolute ? resolvedWidths : null, rendered, key, deltaPixels, minimumWidth(key));
     next.__absolute = true;
+    // The resized Status column must keep its requested width. Give unused
+    // viewport space to its neighbour instead of expanding Status again.
+    next.__fillColumn = key === keys[keys.length - 1] ? keys[keys.length - 2] : keys[keys.length - 1];
     setWidths(next);
     // Publish outside a React state updater: another mounted table may
     // synchronously receive this event and update its own state.
@@ -3070,6 +3075,7 @@ const InstrumentTableHeader = ({
   qualifierNames = [],
   qualifierEditNames,
   libraryMode = false,
+  libraryRenderColumnHeader,
   onRenameQualifier,
   onInsertAfter,
 }) => {
@@ -3118,7 +3124,9 @@ const InstrumentTableHeader = ({
                   : columnKey.startsWith("qualifier") ? <EditableCustomColumnHeader readOnly={!onRenameQualifier} column={{ key: columnKey, label, editLabel: qualifierEditNames ? qualifierEditNames[Number(columnKey.slice(9) || 1) - 1] || "Qualifier" : label }} editing={editingQualifier === columnKey} onEdit={setEditingQualifier}
                       inputLabel={`Qualifier ${Number(columnKey.slice(9) || 1)} column name`}
                       onDraftChange={name => onRenameQualifier?.(Number(columnKey.slice(9) || 1) - 1, name)}
-                      onCommit={name => { onRenameQualifier?.(Number(columnKey.slice(9) || 1) - 1, name); setEditingQualifier(null); }} /> : label}
+                      onCommit={name => { onRenameQualifier?.(Number(columnKey.slice(9) || 1) - 1, name); setEditingQualifier(null); }} />
+                    : libraryMode && libraryRenderColumnHeader && ["description", "sync"].includes(columnKey)
+                      ? libraryRenderColumnHeader(columnKey, label) : label}
             </ResizableInstrumentHeader>
           );
         })}
@@ -5534,6 +5542,8 @@ export const RangeCell = ({
     >
       <div className="inline-range-main">
         {textMode ? <textarea key={`qualifier-${rangeIdOf(activeRange)}`} rows={1} aria-label="Qualifier value" placeholder="Qualifier" defaultValue={formatQualifierValue(activeRange)} className="inline-tolerance-input inline-qualifier-input"
+          style={{ width: `${Math.max(8, ...formatQualifierValue(activeRange).split("\n").map(line => line.length + 2))}ch` }}
+          onInput={event => { event.currentTarget.style.width = `${Math.max(8, ...event.currentTarget.value.split("\n").map(line => line.length + 2))}ch`; }}
           onBlur={event => {
             const text = event.target.value;
             if (text !== formatQualifierValue(activeRange)) onPatchRange?.({ text, min: "", max: "", value: "", unit: "", isSingleValue: false });
@@ -6241,7 +6251,7 @@ const InstrumentRangeMenu = React.memo(function InstrumentRangeMenu({ item, func
     ariaLabel={`Ranges and specifications for ${formatInstrumentIdentity(item, "Untitled instrument")}`}
     width="max-content" menuWidth={440} showOptionMeta={false} blurOnPointerClose closeOnAncestorScroll={closeOnAncestorScroll}
     value={instrumentRangeMenuKey(ranges[index], index)} options={options}
-    getDisplayLabel={option => `Range: ${option?.rangeLabel || "Not Set"}`}
+    getDisplayLabel={option => `Range: ${option?.label || "Not Set"}`}
     onOpenChange={setOpen} onChange={key => setSelection({ contextKey, key })} />;
 });
 
@@ -7107,6 +7117,7 @@ const SummaryDashboard = ({
   canDemoteSharedInstruments = false,
   libraryMode = false,
   libraryReviewMode = false,
+  libraryRenderColumnHeader,
   libraryEmptyMessage,
   libraryToolbar,
   onReviewSubmission,
@@ -8331,6 +8342,7 @@ const SummaryDashboard = ({
 
   const renderInstrumentDeleteButton = (kind, item, measurementArea, inline = false) => {
     if (!onSessionSave || (libraryMode && !inline)) return null;
+    if (libraryMode && !canDemoteSharedInstruments && ["shared", "validated"].includes(item.instrument?.scope)) return null;
     const label = "Delete Instrument";
     const button = (
       <SymbolButton
@@ -9282,6 +9294,7 @@ const SummaryDashboard = ({
         const ids = selectedRangeIds[itemStateKey(entry.kind, entry.item.id)];
         return ids?.length ? { ...entry, item: instrumentWithSelectedRanges(entry.item, ids), selectedRangeIds: ids } : entry;
       });
+    if (libraryMode && mode === "cut" && !canDemoteSharedInstruments && items.some(entry => ["shared", "validated"].includes(entry.item.instrument?.scope))) return;
     claimWorkspaceClipboard("instrument");
     instrumentClipboard = { mode, items: JSON.parse(JSON.stringify(items)), detached: mode === "cut" };
     showToast?.(`${items.length} Instrument${items.length === 1 ? "" : "s"} ${mode === "cut" ? "cut" : "copied"} to clipboard`);
@@ -9333,6 +9346,7 @@ const SummaryDashboard = ({
   const copyInstrumentArea = (kind, area, mode) => {
     const items = areaInstrumentEntries(kind, area);
     if (!items.length) return;
+    if (libraryMode && mode === "cut" && !canDemoteSharedInstruments && items.some(entry => ["shared", "validated"].includes(entry.item.instrument?.scope))) return;
     rangeClipboard = null;
     claimWorkspaceClipboard("instrument");
     instrumentClipboard = { mode, items: JSON.parse(JSON.stringify(items)), detached: mode === "cut" };
@@ -9382,9 +9396,11 @@ const SummaryDashboard = ({
     }
     setLastSelectionTarget(kind);
     const canPaste = !!currentInstrumentClipboard();
+    const canDelete = !libraryMode || canDemoteSharedInstruments || !(sessionData[kind === "uut" ? "uuts" : "tmdes"] || [])
+      .some(row => targetIds.some(id => sameId(id, row.id)) && ["shared", "validated"].includes(row.instrument?.scope));
     const items = [
       { label: "Copy Instrument", icon: faCopy, action: () => copyInstrument(kind, item, "copy") },
-      { label: "Cut Instrument", icon: faScissors, action: () => copyInstrument(kind, item, "cut") },
+      ...(canDelete ? [{ label: "Cut Instrument", icon: faScissors, action: () => copyInstrument(kind, item, "cut") }] : []),
     ];
     if (associatedTypeBRecords(item, instruments).length) {
       items.push({ label: "Manage associated Type B", icon: faFlask, action: () => setTypeBEditor({ kind, id: item.id }) });
@@ -9396,8 +9412,7 @@ const SummaryDashboard = ({
         action: () => pasteInstrument(kind, pasteAreaFromEvent(e, item), item.id),
       });
     }
-    items.push({ type: "divider" });
-    items.push({
+    if (canDelete) items.push({ type: "divider" }, {
       label: selectedInstrumentDeleteLabel(targetIds.length),
       icon: faTrashAlt,
       className: "destructive",
@@ -10248,6 +10263,7 @@ const SummaryDashboard = ({
             <InstrumentTableHeader
               kind="tmde"
               libraryMode={libraryMode}
+              libraryRenderColumnHeader={libraryRenderColumnHeader}
               qualifierNames={libraryMode ? instrumentQualifierNames(libraryColumnItems) : sessionData.qualifierColumnNames?.tmde || []}
               qualifierEditNames={libraryMode ? Array.from({ length: instrumentQualifierDepth(libraryColumnItems) }, (_, index) => libraryQualifierOwner(index)?.instrument?.qualifierColumnNames?.[index]) : undefined}
               onRenameQualifier={libraryReviewMode ? undefined : (index, name) => { if (libraryMode) { renameLibraryQualifier(index, name); return; } const names = [...(sessionData.qualifierColumnNames?.tmde || [])]; names[index] = name; onSessionSave({ ...sessionData, qualifierColumnNames: { ...sessionData.qualifierColumnNames, tmde: names } }); }}
@@ -10257,8 +10273,8 @@ const SummaryDashboard = ({
               onInsertAfter={tmdeNamesOnly || libraryReviewMode ? undefined : (columnKey) => requestCustomColumn("tmde", columnKey)}
             /></>}
             {libraryMode && !libraryExpandedIds.length && <>
-              <colgroup><col /><col style={{ "--instrument-live-column-width": "124px" }} /></colgroup>
-              <thead><tr><th data-instrument-column="description">Description</th><th className="cell-sync" data-instrument-column="sync">Status</th></tr></thead>
+              <colgroup><col /><col style={{ "--instrument-live-column-width": "80px" }} /></colgroup>
+              <thead><tr><th data-instrument-column="description">{libraryRenderColumnHeader?.("description", "Description") || "Description"}</th><th className="cell-sync" data-instrument-column="sync">{libraryRenderColumnHeader?.("sync", "Status") || "Status"}</th></tr></thead>
             </>}
             <tbody>
               {groupedTmdeRows.length === 0 ? (libraryMode ? (
@@ -15432,7 +15448,7 @@ function DetailedView({
               // A one-choice instrument is one click target, with its range
               // description inside the same tile. Multiple choices retain the
               // instrument heading and indented children so scope stays clear.
-              if (choices.length === 1 && sources.length === 0) {
+              if (choices.length === 1) {
                 const range = choices[0];
                 const detail = getBudgetTmdeDetail(tmde, range);
                 const unitWarning = budgetUnitMismatch(range.unit || range.functionUnit, (isDerived ? scope.nominalPoint : uutNominal)?.unit, unitSystem);
@@ -15444,6 +15460,7 @@ function DetailedView({
                     {unitWarning && <FontAwesomeIcon icon={faExclamationTriangle} role="img" aria-label={unitWarning} />}{detail}
                   </span>
                 </button>
+                {renderSourceChoices()}
                 </div>;
               }
               return (
@@ -17549,6 +17566,7 @@ const UncertaintyPanel = (props) => {
         canDemoteSharedInstruments={props.canDemoteSharedInstruments}
         libraryMode={props.libraryMode}
         libraryReviewMode={props.libraryReviewMode}
+        libraryRenderColumnHeader={props.libraryRenderColumnHeader}
         libraryEmptyMessage={props.libraryEmptyMessage}
         libraryToolbar={props.libraryToolbar}
         onReviewSubmission={props.onReviewSubmission}

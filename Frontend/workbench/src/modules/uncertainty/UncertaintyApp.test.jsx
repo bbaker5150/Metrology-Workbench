@@ -8,6 +8,8 @@ import { MemoryRouter } from "react-router";
 // jsdom smoke test doesn't load it. (Charts only render once a point is
 // selected, which this no-backend test never reaches.)
 vi.mock("plotly.js-dist", () => ({ default: {} }));
+const parsePdf = vi.hoisted(() => vi.fn());
+vi.mock("./utils/fileIo", () => ({ parseSessionPdf: parsePdf }));
 
 const apiMock = vi.hoisted(() => {
   const state = {
@@ -97,6 +99,26 @@ beforeEach(() => {
 });
 
 describe("UncertaintyApp", () => {
+  test('imports a PDF silently and keeps malformed-PDF errors visible', async () => {
+    apiMock.state.sessions = [{ id: 1, name: 'Bench', uuts: [], tmdes: [], testPoints: [], uncReq: {} }];
+    parsePdf.mockResolvedValueOnce({ session: { id: 'pdf-session', name: 'PDF budget', uuts: [], tmdes: [], testPoints: [], uncReq: {} }, images: new Map() });
+    const { container } = render(<ThemeProvider><NotificationProvider><MemoryRouter><UncertaintyApp /></MemoryRouter></NotificationProvider></ThemeProvider>);
+    await screen.findByRole('button', { name: 'Instrument Library' });
+    fireEvent.change(container.querySelector('#uncertainty-load-pdf'), { target: { files: [new File(['pdf'], 'budget.pdf', { type: 'application/pdf' })] } });
+    await waitFor(() => expect(apiMock.put.mock.calls.some(([, data]) => data?.name === 'PDF budget')).toBe(true));
+    await waitFor(() => expect(container.querySelector('#uncertainty-load-pdf').value).toBe(''));
+    expect(screen.queryByText('Success')).not.toBeInTheDocument();
+    expect(screen.queryByText(/imported as a new saved session/)).not.toBeInTheDocument();
+    expect(container.querySelector('.notification-toast')).toBeNull();
+    parsePdf.mockRejectedValueOnce(new Error('The PDF does not contain a saved session.'));
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      fireEvent.change(container.querySelector('#uncertainty-load-pdf'), { target: { files: [new File(['bad'], 'broken.pdf', { type: 'application/pdf' })] } });
+      expect(await screen.findByText('Load Failed')).toBeInTheDocument();
+      expect(screen.getByText('The PDF does not contain a saved session.')).toBeInTheDocument();
+    } finally { log.mockRestore(); }
+  });
+
   test("undoes and redoes Add and edits in the library without promoting a session draft", async () => {
     apiMock.state.sessions = [{id:1, name:'Bench', uuts:[], tmdes:[], testPoints:[], uncReq:{}}];
     render(<ThemeProvider><NotificationProvider><MemoryRouter><UncertaintyApp /></MemoryRouter></NotificationProvider></ThemeProvider>);

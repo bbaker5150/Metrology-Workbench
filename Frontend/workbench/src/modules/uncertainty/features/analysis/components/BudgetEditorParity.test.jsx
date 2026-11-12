@@ -126,9 +126,9 @@ it.each(['name', 'distribution'])('keeps the %s cell open when the shared tolera
     fireEvent.keyDown(input, { key: 'Enter' });
     await waitFor(() => expect(saved.name).toBe('Updated source'));
   } else {
-    const input = screen.getByRole('combobox', { name: 'Error limit distribution' });
-    expect(input).toHaveFocus();
-    fireEvent.change(input, { target: { value: '1.960' } });
+    const menu = screen.getByRole('listbox', { name: 'Error limit distribution' });
+    expect(menu).toContainElement(document.activeElement);
+    fireEvent.click(screen.getByRole('option', {name:'Normal (95%, k=1.960)', exact:true}));
     await waitFor(() => expect(saved.distribution).toBe('1.960'));
   }
 });
