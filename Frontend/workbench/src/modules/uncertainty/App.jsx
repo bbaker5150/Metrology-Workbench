@@ -1706,7 +1706,7 @@ export const SidebarPointItem = ({
                         <span className="point-placeholder">-</span>
                       ))}
                     </span>
-                    {hasInstrumentQualifiers && <FontAwesomeIcon icon={faChevronDown} size="xs" aria-hidden="true" style={{ marginLeft: 5, flexShrink: 0 }} />}
+                    {hasInstrumentQualifiers && <FontAwesomeIcon icon={faChevronDown} aria-hidden="true" />}
                   </span>
                 ),
               )}

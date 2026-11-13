@@ -22460,7 +22460,7 @@ button.uncertainty-symbol-button:is(:hover, :focus-visible):not(:disabled) {
   font: inherit; text-align: left; cursor: pointer;
 }
 .point-qualifier-trigger > span { min-width: 0; overflow-wrap: anywhere; }
-.point-qualifier-trigger > svg { flex: 0 0 auto; width: 9px; opacity: .75; }
+.point-qualifier-trigger > svg { flex: 0 0 auto; width: 10px; height: 10px; color: var(--text-color-muted); }
 .point-qualifier-select .point-qualifier-trigger:is(:hover, :focus-visible) {
   outline: 1px solid var(--function-input-accent, var(--primary-color)); outline-offset: 1px;
   background: color-mix(in srgb, var(--function-input-accent, var(--primary-color)) 10%, transparent);
@@ -22509,3 +22509,19 @@ button.uncertainty-symbol-button:is(:hover, :focus-visible):not(:disabled) {
 }
 .point-qualifier-actions button[type="submit"] { background: color-mix(in srgb, var(--qualifier-accent) 20%, var(--component-bg)); }
 .point-qualifier-actions button:is(:hover, :focus-visible) { outline: 1px solid var(--qualifier-accent); outline-offset: 1px; }
+
+/* Point-list dropdowns share the app's compact accordion cue without adding
+   permanent icons to every cell. Opacity preserves the label and hit area. */
+.uncertainty-module .point-grid-item [aria-haspopup] { cursor: pointer; }
+.uncertainty-module .point-grid-item [aria-haspopup] > svg {
+  flex: 0 0 10px; width: 10px; height: 10px;
+  color: var(--text-color-muted); opacity: 0; pointer-events: none;
+  transition: opacity 140ms ease, color 140ms ease;
+}
+.uncertainty-module .point-grid-item > :hover [aria-haspopup] > svg,
+.uncertainty-module .point-grid-item [aria-haspopup]:is(:hover, :focus-within, [aria-expanded="true"], .is-open) > svg {
+  opacity: 1;
+}
+.uncertainty-module .point-grid-item [aria-haspopup]:is(:hover, :focus-visible, [aria-expanded="true"], .is-open) > svg {
+  color: var(--sidebar-function-color, var(--primary-color));
+}
