@@ -6,4 +6,8 @@ The API validates the request and updates only the chosen cycle in the addressed
 
 Migration 0039 enables automatic IQR/Chauvenet filtering by default for new calibration results. Existing saved choices, including explicit `none`, are retained. The frontend also defaults to auto when no saved preference is available.
 
-Validation: 42 frontend tests covering chart interaction, cycle selection, and analytics preferences; 17 backend tests covering scoped stability edits, recalculation, defaults, and the existing category-settings regressions. Production frontend build checked. Hardware acquisition and the deployment's SQL Server were not exercised. The broader legacy analytics test module could not import because the environment lacks `npsl_tools`; targeted database tests use SQLite.
+Focused tests cover chart interaction, cycle selection, analytics preferences,
+scoped stability edits, recalculation and category-setting defaults. SQLite-based
+backend tests do not establish acquisition-hardware or deployment SQL Server
+behavior. Follow [AGENTS.md](../AGENTS.md) for the hands-on and full-validation
+sequence, and exercise those environments before claiming deployment validation.

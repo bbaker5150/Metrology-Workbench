@@ -3,7 +3,7 @@
 The existing password prompt remains. Verification now runs on the Django
 backend; no password or password hash is bundled into the frontend. Users can
 keep using the same password **after an administrator configures it on each
-backend serving the app**. It is not configured automatically by this PR.
+backend serving the app**. It is not configured automatically.
 
 ## Deploy and configure
 

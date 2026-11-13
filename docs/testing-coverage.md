@@ -1,99 +1,67 @@
-# Test Coverage — state and roadmap
+# Testing and coverage
 
-## Running
+Tests live alongside the implementation in `Frontend/workbench/src`. The source
+of truth for test configuration is [vite.config.mjs](../Frontend/workbench/vite.config.mjs);
+the release workflow is [uncertainty-singlefile.yml](../.github/workflows/uncertainty-singlefile.yml).
+Do not treat an old test count or coverage percentage as the current result.
 
-```bash
-cd Frontend/workbench
-npm test              # 1273 tests, no coverage instrumentation
-npm run test:coverage # same suite + coverage report and threshold check
+## Validation order
+
+[AGENTS.md](../AGENTS.md) defines the repository handoff: complete the requested
+change and relevant focused checks, push to main, then allow hands-on testing.
+Full tests, builds, browser release gates and pipeline verification wait for the
+user's explicit go-ahead. GitHub Actions may start automatically after a qualifying
+push; that does not mean the release has been inspected or verified.
+
+## Focused checks
+
+From `Frontend/workbench`, select the files or directory relevant to the change:
+
+```sh
+npx vitest run src/modules/uncertainty/utils/risk8
 ```
 
-The HTML report lands in `Frontend/workbench/coverage/index.html`.
+For mathematical changes, use independent expected values, published reference
+values, workbook captures and physical invariants. Do not generate expected
+results from the calculator under test. The [final V8.00 audit](../Frontend/workbench/src/modules/uncertainty/utils/risk8/FINAL_V8_AUDIT.md)
+distinguishes saved final-workbook outputs, historical Excel captures and
+source-based checks, and records the focused command used for that audit.
 
-## Where things stand
+## Full validation
 
-| Metric | Before | Now |
-| --- | --- | --- |
-| Tests | 930 | 1273 |
-| Test files | 74 | 91 |
-| Statements | 42.66% | 46.02% |
-| Branches | 32.99% | 34.88% |
-| Functions | 35.57% | 38.18% |
-| Lines | 44.34% | 47.72% |
+Once the release-validation phase is authorized:
 
-`vite.config.mjs` sets `coverage.all = true`, so a module with no tests reports
-as 0% instead of vanishing from the report. Turning that off would inflate every
-number above without a single new assertion — don't.
+```sh
+npm audit --audit-level=high
+npm test
+npm run build:singlefile
+npx playwright install chromium
+node scripts/smoke-forge-srcdoc.mjs
+```
 
-The thresholds in `vite.config.mjs` are a **ratchet, not a target**. They sit
-just below the current numbers so a regression fails the build. Raise them as
-coverage climbs.
+Run relevant feature smoke selections from the workflow as well. Playwright is a
+project development dependency; the browser installation is a separate step.
+Verify the exact pushed commit's workflow and published artifact before reporting
+release validation complete. A passing local build alone does not prove deployment.
 
-## Why the headline number moves slowly
+Backend checks run in the configured Python environment from `Backend/ac_shunt`,
+for example `python manage.py test uncertainty`. Select the relevant app or test
+module and use the environment required by those tests; frontend results do not
+validate acquisition hardware, SQL Server or Django behavior.
 
-Coverage here is dominated by a small number of very large components. 58% of
-all uncovered statements live in ten files:
+## Coverage
 
-| Uncovered stmts | File | Current |
-| --- | --- | --- |
-| ~3,300 | `features/analysis/components/UncertaintyPanel.jsx` (14,986 lines) | 36% |
-| ~1,160 | `ac-shunt/components/calibration/Calibration.jsx` (4,783 lines) | 2% |
-| ~950 | `modules/uncertainty/App.jsx` (5,091 lines) | 40% |
-| ~500 | `modules/uncertainty/utils/uncertaintyMath.js` | 71% |
-| ~470 | `ac-shunt/contexts/InstrumentContext.jsx` | 22% |
-| ~440 | `ac-shunt/components/analysis/UncertaintyAnalysis.jsx` | 0% |
-| ~390 | `ac-shunt/components/calibration/CorrectionsModal.jsx` | 22% |
-| ~375 | `ac-shunt/components/calibration/CalibrationResults.jsx` | 2% |
-| ~320 | `ac-shunt/components/instruments/InstrumentStatusPanel.jsx` | 2% |
-| ~315 | `features/instruments/components/UniversalInstrumentModal.jsx` | 71% |
+```sh
+npm run test:coverage
+```
 
-A 15,000-line component cannot be meaningfully covered by adding tests to it.
-The coverage number is a symptom; the size is the cause.
+The report is written to `Frontend/workbench/coverage/`, including
+`index.html` and `coverage-summary.json`. The configuration includes all source
+files so untested modules remain visible. Thresholds are maintained in
+`vite.config.mjs`; increase them when supported by measured coverage and do not
+lower them to hide a regression.
 
-## What has been prioritized
-
-Pure logic and hooks first — the code where a test failure means a *wrong
-number*, not a moved pixel. In a calibration application that ordering matters
-more than the headline percentage:
-
-- `utils/risk8/*` — the Risk 8.0 engine, 86%
-- `utils/uncertaintyMath.js` — distributions, coverage factors, correlation
-  combination, TAR/TUR, PFA/PFR, guard banding, 71%
-- `features/analysis/utils/*` — budget assembly, 81%
-- Shared infrastructure — config, contexts, the router table, the API client
-- Hooks — `useDbHealth`, `useCycleAnalytics`, `useFloatingWindow`,
-  `useCalibrationETA`
-
-Wherever possible the assertions are published reference values (Student-t
-tables, the exact normal quantile) or *relational* invariants (PFA must rise as
-TUR degrades; guard banding must lower PFA and raise PFR). Those catch a
-numerics regression. Snapshots of whatever the code currently returns would not.
-
-## Recommended path to high coverage
-
-1. **Extract logic from the three mega-components.** `UncertaintyPanel.jsx`,
-   `Calibration.jsx`, and `App.jsx` hold roughly 5,400 uncovered statements
-   between them. Pulling their calculation, formatting, and state-transition
-   helpers into sibling `*.logic.js` modules makes that code testable without
-   mounting the component. This is the single highest-leverage change available
-   and it improves the codebase independently of coverage.
-2. **Cover the remaining contexts and hooks** — `InstrumentContext` (470),
-   `useSessionManager` (263), `useUncertaintyCalculation` (172). These are
-   tractable today with the `renderHook` patterns already used in
-   `useDbHealth.test.js` and `useCycleAnalytics.test.js`.
-3. **Add render-level smoke tests** for the untested modals
-   (`EditSessionModal`, `InstrumentBuilderModal`, `UncertaintyAnalysis`,
-   `CalibrationResults`). Mount, assert the primary affordances, exercise the
-   submit path. Cheap, and they catch import-time and prop-contract breakage.
-4. **Raise the thresholds** in `vite.config.mjs` after each step so the gains
-   are locked in.
-5. **Wire `npm run test:coverage` into CI.** There is no `.github/workflows`
-   directory today, so nothing enforces any of this automatically.
-
-## Known gaps in this environment
-
-- `Frontend/workbench/public/3demblem.glb` is stored in Git LFS. A clone without
-  `git lfs` installed gets a 133-byte pointer, and the launcher's 3D medallion
-  then throws during render. Run `git lfs pull` after cloning.
-- `LauncherEmblem.jsx` is excluded from coverage: it is WebGL-only and jsdom
-  cannot execute it.
+The CI workflow currently runs tests but does not invoke `test:coverage`.
+Coverage is therefore a separately requested check, not an implied property of a
+successful release workflow. WebGL-only presentation wrappers excluded from jsdom
+coverage require suitable browser or Electron verification when changed.

@@ -2,10 +2,9 @@
 
 This document explains how the whole repository fits together: what each part
 does, how data flows between the parts, how to run and build it, and where to
-look when changing something. It reflects the code as of October 2026.
+look when changing something. Use the linked source files as the authority for exact behavior; this guide was refreshed in November 2026.
 
-For deeper detail on individual features, `docs/` holds the narrower design and
-tasking notes. This file links to them where they are relevant.
+For current operating and development guides, use the [documentation index](docs/README.md). Superseded implementation journals remain available in Git history.
 
 ---
 
@@ -53,7 +52,7 @@ several independent lab tools behind one launcher.
 | Tool (launcher card) | Module id | Route | What it does |
 | --- | --- | --- | --- |
 | **Run Calibration** | `ac-shunt` | `#/ac-shunt` | Drives lab instruments over GPIB/VISA to run AC–DC difference calibrations of AC current shunts, with live charts, stability tracking, Type A statistics, corrections management, and multi-viewer observation. |
-| **Uncertainty Budget** ("Uncertalytics") | `uncertainty` | `#/uncertalytics` | A full measurement-uncertainty and decision-risk tool: Type A/B budgets, instrument libraries, derived (equation-based) measurements, GUM Supplement 1 Monte Carlo, and a port of the lab's Excel "Unc Tool v8.00" risk engine (PFA/PFR/TUR, guard bands, calibration intervals). |
+| **Uncertainty Budget** ("Uncertalytics") | `uncertainty` | `#/uncertalytics` | A full measurement-uncertainty and decision-risk tool: Type A/B budgets, instrument libraries, derived (equation-based) measurements, workbook-equivalent equation Monte Carlo, and the lab's final V8.00 risk engine (PFA/PFR/TUR, guard bands, calibration intervals). |
 | **Report of Calibration** | `reports` | `#/report-of-calibration` | Builds ROC documents from manual input, Excel import, or AC-shunt session data, and exports a PDF and an NPSL-format Excel workbook. |
 
 The Uncertainty tool also ships on its own as a single HTML file hosted in
@@ -65,14 +64,14 @@ Django backend. See [§4](#4-two-shipped-products-from-one-source-tree).
 ## 2. Repository layout
 
 ```
-ROCgen/
+Metrology-Workbench/
 ├── AGENTS.md                     Agent/automation workflow rules (push, release gates)
-├── README.md                     Offline Electron + NPSL_Tools install notes (Windows)
+├── README.md                     Setup and documentation entry point
 ├── documentation.md              ← this file
 ├── package.json                  Stray root-level deps (chart libs); not used by the app build
 ├── .github/workflows/
 │   └── uncertainty-singlefile.yml  CI: test + build + smoke + publish single-file release
-├── docs/                         Feature/design notes (see §14 for an index)
+├── docs/                         Current operating and development guides
 ├── Backend/ac_shunt/             Django project (Python)
 │   ├── manage.py
 │   ├── entry_point.py            Production/PyInstaller boot script
@@ -186,10 +185,11 @@ site in the module and fails if the adapter cannot route one.
 - `pip install -r Backend/ac_shunt/requirements.txt`
 - `pip install -e Backend/ac_shunt/api/NPSL_Tools` (the instrument driver package)
 - Instrument PCs only: NI-VISA, plus ODBC Driver 17 or 18 for SQL Server if you use MSSQL
-- `git lfs pull` (otherwise `public/3demblem.glb` is a 133-byte pointer and the launcher's 3D emblem throws)
+- `git lfs pull` (otherwise `public/3demblem-optimized.glb` may contain only a pointer and the runtime 3D emblem cannot load)
 
-The root `README.md` covers offline and proxy-restricted Electron installs
-(`ELECTRON_SKIP_BINARY_DOWNLOAD`, manual `dist` placement).
+The root [README.md](README.md) provides installation commands and guidance for
+Electron downloads in restricted environments. Preserve the committed lockfile
+and TLS verification.
 
 ### npm scripts (`Frontend/workbench/package.json`)
 
@@ -619,7 +619,6 @@ the whole calibration pipeline runs without hardware.
   credentials.
 - Electron writes `userData/diagnostics/electron-lifecycle.jsonl`, and
   `public/memory-diagnostics.cjs` samples renderer memory. See
-  `docs/weekend-renderer-oom-2026-09-21.md` and
   `docs/calibration-disconnect-diagnostics.md`.
 
 ---
@@ -653,7 +652,7 @@ dnd-kit, and animation uses GSAP.
   uncertainty module's `/api/uncertainty/bug_reports/`.
 - **`HomeLauncher.jsx`** shows the card grid and preloads a module's chunk on
   hover or focus, so clicks feel instant. `LauncherEmblem.jsx` renders the 3D
-  NAVAIR medallion (`public/3demblem.glb`).
+  NAVAIR medallion (`public/3demblem-optimized.glb`).
 
 ### 7.2 Shared layer (`src/shared`)
 
@@ -750,22 +749,28 @@ passed as a prop only in the workbench, so the standalone build never bundles it
    - k from Student-t at the confidence level (`getKValueFromTDistribution`),
      or a manual override
    - expanded U
-   - derived points use first-order propagation (`calculateDerivedUncertainty`)
-     or **Monte Carlo** (`utils/monteCarlo.js`, `risk8/monteCarloEngine8.js`;
-     GUM Supplement 1, seeded mulberry32 PRNG, deterministic, shortest coverage
-     interval).
+   - derived points use the final workbook's central finite-difference
+     first-order sensitivities (`calculateDerivedUncertainty`) or equation
+     Monte Carlo (`risk8/monteCarloEngine8.js`). Monte Carlo uses normal inputs,
+     Cholesky correlation, and sample standard deviation with denominator N−1;
+     production draws are random, not a persisted deterministic sequence.
+     Coverage remains `U = k × u_c`, not a shortest empirical coverage interval.
 3. `features/analysis/hooks/useRiskCalculation.js` → `utils/risk8/*` compute
-   decision risk. **`riskEngine8.js` is a function-for-function port of the
-   VBA module `modRiskBackend` in `Unc Tool v8.00-Beta.7.xlsm`**, and the VBA is
-   the authority (see `utils/risk8/MIGRATION_AUDIT.md`).
+   decision risk against the supplied final V8.00 `modRiskBackend` reference.
+   The [mathematical audit](Frontend/workbench/src/modules/uncertainty/utils/risk8/FINAL_V8_AUDIT.md)
+   identifies source procedures, numerical evidence and intentional app differences.
    - `computeOneRow8.js` reproduces the workbook row contract: nominal, limits,
      u_cal, bias, TUR, REOP, targets, decay model, resolution, producing PFA,
      PFR, guard-band multiplier and physical limits, mitigated and
      interval-adjusted risk, and status.
    - `riskBridge8.js` and `riskAdapter8.js` connect app data to that contract.
-   - Golden vectors captured from Excel (`*.json`, `goldenVectors8.js`) keep it
-     honest.
-   - **Do not "improve" this math.** Fidelity to the workbook is the requirement.
+   - Independently extracted final saved values and historical Excel-captured
+     vectors provide separate evidence; neither is generated from the engine
+     under test. Keep those provenance distinctions when adding tests.
+   - Guardband limits are rounded before the reference reliability, risk and
+     interval are recomputed. Inline comments show the governing Excel routines.
+   - Match the approved workbook contract when changing math; document any
+     intentional application extension instead of presenting it as literal parity.
 4. Results feed `UncertaintyBudgetTable`, `ContributionPlot`, the risk
    dashboards and visualizers, the breakdown modals (step-by-step derivations),
    and the PDF report (`utils/pdfGenerator.js`).
@@ -778,7 +783,7 @@ passed as a prop only in the workbench, so the standalone build never bundles it
 - `features/analysis/components/UncertaintyPanel.jsx`: the main analysis
   workspace (~17,000 lines, the largest file in the repo).
 - `SessionNotesWorkspace.jsx`: the DOCX notes editor
-  (`@heyirisai/docx-editor-*` 1.11.0, runs fully offline).
+  (`@heyirisai/docx-editor-*`, pinned in `package.json`, runs locally).
 - Tools: `UnitConverter`, `ReverseTraceabilityTool`, `FloatingNotepad`,
   `FloatingImagesPanel`, `AcShuntImportTool`.
 - `GuidedWalkthrough` + `walkthroughSteps.js`: the in-app tutorial.
@@ -860,18 +865,19 @@ link is *optional*: every module must work fully from manual entry.
    (`AcShuntImportTool`) searches saved runs through
    `/api/uncertainty/ac-shunt/sessions/` and fetches a read-only snapshot. It
    then builds a new saved budget:
-   - Electrical points per current/frequency, as native **derived** points
-     (equation `Iref + I0·mean(ref − UUT terms)`)
-   - A UUT and reference instruments, reusing matching shared-library
-     definitions by model and serial
-   - Type A from pair analytics (u = s/√N, ν = N−1)
-   - Reader specs (34420A, 5790B by range) and UUT acceptance limits (Y5020
-     Navy ±100 ppm; A40B manufacturer limits)
-   - Conservative input correlations
+   - Direct current points in A, each with a frequency qualifier in Hz
+   - TI and reference instruments matched to the shared library by identity
+   - Saved paired Type A standard uncertainty used directly, with ν = N−1
+   - An editable rectangular ±5 ppm reader-variability contribution
+   - Reference uncertainty and TI acceptance limits from the selected library ranges
+   - For Y5020 imports, linked generic 5790B resolution propagated through the
+     saved phase means; A40B imports do not add that reader
 
-   Full rules: `docs/ac-shunt-uncertalytics-import.md`. Logic:
-   `utils/acShuntBudget.js`, `acShuntDerivedPoint.js`, `acShuntReaderSpecs.js`,
-   `acShuntUutSpecs.js`, `acShuntLibrary.js`; backend
+   The signed AC–DC result remains provenance rather than a TI bias or uncertainty
+   contribution. Missing evidence stays incomplete. Full rules:
+   [AC-shunt import](docs/ac-shunt-uncertalytics-import.md) and
+   [library maintenance](Backend/ac_shunt/uncertainty/AC_SHUNT_LIBRARY.md). Logic:
+   `utils/acShuntBudget.js`, `acShuntLibrary.js`, `y5020Resolution.js`; backend
    `uncertainty/ac_shunt_import.py`.
 2. **AC Shunt → ROC.** *AC-Shunt Pull* in Reports calls
    `reports/services.py::pull_ac_shunt_session` and fills a ROC payload. The
@@ -888,8 +894,8 @@ link is *optional*: every module must work fully from manual entry.
 | Workbench web bundle | `npm run build` | `build/` (relative `base: './'`; manual chunks for chart, katex, dnd, gsap) |
 | Backend exe | `npm run build-python` (PyInstaller `ac_shunt_backend.spec`) | `Backend/ac_shunt/dist/ac_shunt_backend/` |
 | Desktop installer | `npm run electron:build` | NSIS installer, appId `com.navair.acshunt`, backend copied into `resources/` |
-| SharePoint multi-file | `npm run build:standalone` | `build-standalone/` (about 91 files; needs a real URL) |
-| SharePoint single file | `npm run build:singlefile` | `build-singlefile/uncertainty-budget.html` (about 6.7 MB) |
+| SharePoint multi-file | `npm run build:standalone` | `build-standalone/` (multiple assets; needs a real URL) |
+| SharePoint single file | `npm run build:singlefile` | `build-singlefile/uncertainty-budget.html` (one self-contained HTML file) |
 
 **The single-file build** (`vite.singlefile.config.mjs`) exists because the
 SharePoint app page injects HTML into an `<iframe srcdoc>`, which has no base
@@ -925,7 +931,7 @@ content approval and checkout off, permissions) is in
 
 - `npm test` runs Vitest with jsdom, CSS disabled, at most 4 workers, and a 30 s
   timeout (some Monte Carlo validation tests run tens of thousands of trials).
-  About 220 test files sit next to the code they test (`*.test.js[x]`).
+  Test files sit next to the code they test (`*.test.js[x]`).
 - `npm run test:coverage` uses V8 coverage with `all: true` and *ratchet*
   thresholds (statements 45, branches 34, functions 37, lines 46). Raise them as
   coverage grows. Never lower them. See `docs/testing-coverage.md`.
@@ -972,8 +978,8 @@ on manual dispatch. Steps, all in `Frontend/workbench`:
    only high and critical advisories block)
 3. `npm test`
 4. `npm run build:singlefile` with `BUILD_STAMP`
-5. Install Playwright Chromium, then run `smoke-forge-srcdoc.mjs` five times
-   (base run plus four flagged suites)
+5. Install Playwright Chromium, then run the base and feature selections of
+   `smoke-forge-srcdoc.mjs` specified by the workflow
 6. Checksum, upload the artifact, `gh release create build-<sha7>`
 
 The backend has no CI. `AGENTS.md` describes the expected order for automated
@@ -1048,16 +1054,18 @@ route in `src/standalone/sharepoint/axiosSharePointAdapter.js` with matching
 the SharePoint deployment. New fields *inside* a session need no changes,
 because sessions are stored whole.
 
-**Change risk math.** Find the governing VBA procedure in
-`Unc Tool v8.00-Beta.7.xlsm`, port it exactly, and add or refresh Excel-captured
-vectors. See `utils/risk8/MIGRATION_AUDIT.md` and
-`scripts/capture-risk-beta7.ps1`.
+**Change risk math.** Start from the approved final-workbook hash and procedure
+crosswalk in the [mathematical audit](Frontend/workbench/src/modules/uncertainty/utils/risk8/FINAL_V8_AUDIT.md).
+Update nearby Excel-equivalent comments and independent expected-value tests.
+The final fixture extractor reads saved cells; the older Beta.7 capture script
+executes a different historical reference. Do not relabel either as evidence of
+fresh final-release Excel execution.
 
 ---
 
 ## 13. Known caveats and gotchas
 
-- **Git LFS:** `public/3demblem.glb` needs `git lfs pull`. Without it, the
+- **Git LFS:** `public/3demblem-optimized.glb` needs `git lfs pull`. Without it, the
   launcher's 3D emblem throws. The single-file build is unaffected.
 - **Development settings in `settings.py`:** `DEBUG = True`, a hard-coded
   `SECRET_KEY`, `ALLOWED_HOSTS` including `'*'`, and `CORS_ALLOW_ALL_ORIGINS =
@@ -1076,10 +1084,6 @@ vectors. See `utils/risk8/MIGRATION_AUDIT.md` and
 - **Process-local state:** supervisors and live buffers are lost on a backend
   restart. A restart is a hard stop for in-flight runs; buffered outbox writes
   survive.
-- **`Frontend/workbench/README.md`** is mostly Create React App boilerplate. The
-  project uses Vite, so ignore the CRA commands there.
-- Test counts quoted in older docs (1,125 / 1,273 / 1,511) are historical.
-  Run `npm test` for the current number.
 
 ---
 
@@ -1107,12 +1111,9 @@ vectors. See `utils/risk8/MIGRATION_AUDIT.md` and
 | **Flank Speed / Forge** | The DoD Microsoft 365 tenant and the SharePoint app-page host the single-file build runs in |
 | **Portal directory** | `Documents/Portal`: per-user folder for credentials, SQLite DBs, and diagnostics |
 
-### `docs/` index
+### Documentation index
 
-- Architecture: `adding-a-module.md`, `build-targets.md`, `testing-coverage.md`
-- SharePoint: `uncertainty-sharepoint-standalone.md`, `Frontend/workbench/SHAREPOINT_DEPLOYMENT.md`, `vendor/forge/README.md`
-- AC Shunt: `8508a-ac-shunt-integration.md`, `ac-shunt-corrections-authorization.md`, `ac-shunt-cycle-stability.md`, `ac-shunt-settings-saves.md`, `ac-shunt-shared-5790-stability.md`, `calibration-disconnect-diagnostics.md`, `weekend-renderer-oom-2026-09-21.md`
-- Pipeline: `ac-shunt-uncertalytics-import.md`
-- Reports: `report-customer-directory.md`
-- Uncertainty features and bias: `uncertainty-bias.md`, `tolerance-bias-comparison-2026-09-18.md`, `bias-coverage-and-tasking-2026-09-18.md`, `input-units-and-bias-verification-2026-09-18.md`, and the dated `uncertainty-*` / `uncertalytics-*` tasking notes (layout, interactions, measurement points, tutorial)
-- Risk engine: `Frontend/workbench/src/modules/uncertainty/utils/risk8/MIGRATION_AUDIT.md`
+Use [docs/README.md](docs/README.md) for current operating and development guides.
+The [final V8.00 mathematical audit](Frontend/workbench/src/modules/uncertainty/utils/risk8/FINAL_V8_AUDIT.md)
+is the single audit overview; detailed calculation explanations remain beside the
+implementation. Historical tasking and completion notes are preserved in Git history.

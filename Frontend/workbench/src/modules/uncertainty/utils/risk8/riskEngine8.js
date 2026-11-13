@@ -36,7 +36,7 @@
  *     E1/W1 aging must still use the original acceptance curve, not that newly
  *     narrowed guardband (see the row driver's final risk evaluation).
  * Existing Excel-captured Beta.7 vectors retain their original provenance;
- * final V8.00 evidence is separate. See MIGRATION_AUDIT.md.
+ * final V8.00 evidence is separate. See FINAL_V8_AUDIT.md.
  */
 
 /* =============================================================================

@@ -1,112 +1,96 @@
-# Bias settings
+# Uncertalytics bias settings
 
-The expanded UUT tolerance editor stores a signed range bias behind its **Bias**
-toggle, styled like DS/SS. **Whichever is greater** sits below the tolerance
-terms. The same arrangement applies to the TMDE error-limit editor. Measurement
-points inherit the selected range's live bias; there is no separate budget bias menu.
-Positive UUT bias shifts the modeled UUT population toward larger values.
+This guide describes bias ownership and editing. Mathematical traceability,
+workbook provenance and test evidence are in the
+[final V8.00 audit](../Frontend/workbench/src/modules/uncertainty/utils/risk8/FINAL_V8_AUDIT.md).
+Implementation comments in
+[measurementBias.js](../Frontend/workbench/src/modules/uncertainty/utils/measurementBias.js)
+explain source aggregation and its distinction from Excel uncertainty propagation.
 
-The expanded TMDE error-limit editor stores a shared source bias. Included
-budget sources inherit that bias, and the app automatically calculates their net
-contribution in the final measurement's units. Positive measurement-system bias makes the
-evaluated result read high. Neither bias changes the assigned point nominal,
-tolerance, or standard uncertainty.
+## UUT and measurement-system bias
 
-Values are signed native-unit offsets or workbook-normalized percentages.
-For BOTH UUT and cal bias, 100% is one final UUT tolerance scale, h:
+A signed UUT range bias shifts the modeled true UUT population. A positive
+measurement-system bias makes the observed result read high. Neither changes the
+assigned nominal, the tolerance, or an uncertainty component.
 
-- Double-sided: h = (upper limit - lower limit) / 2, including asymmetric limits.
-- Known lower-only: h = nominal - lower limit.
-- Known upper-only: h = upper limit - nominal.
+Measurement points inherit the bias on their selected instrument ranges. Included
+TMDE sources inherit their source bias; their contributions combine in the final
+measurement's units. UUT bias remains independent of that system total.
 
-The absolute bias is entered percent / 100 times h. It is not a percentage of
-nominal, and cal percentages do not use the TMDE's own error limit. For nominal
-100 V and limits 90 to 110 V, 50% UUT means +5 V and 20% cal means +2 V.
-The same percentages work at zero and negative nominals with a valid tolerance.
-An incomplete tolerance blocks nonzero percentage bias rather than substituting
-another denominator. Explicit zero remains valid. Existing saved `kind: percent`
-entries adopt this corrected definition; numbers are not silently rescaled.
+Enter residual errors after any corrections already applied. Legacy entries saved
+as corrected remain excluded until explicitly edited; their uncertainties remain.
+Explicit zero is a valid override and is distinct from an absent entry.
 
-For derived equations, an absolute source contributes `sensitivity * residual
-bias * quantity`, using the same signed, unit-aware sensitivities as the budget.
-A source percentage already describes a signed share of the FINAL output UUT
-tolerance, per the workbook cal-bias definition; it is not multiplied by the
-sensitivity again. Source contributions add algebraically. A shared percentage
-is reevaluated against each receiving point's tolerance on copy/paste and edits.
-Absolute temperature errors use interval conversion, without coordinate offsets.
-Resolution rows do not inherit the instrument bias again.
+## Native and percentage values
 
-Measurement Inputs shows native input-equivalent bias, its contribution as a
-percentage of final UUT tolerance, or nominal plus input-equivalent bias. For a
-percentage source the native equivalent is output contribution / signed
-sensitivity. At zero sensitivity a nonzero output bias has no finite input
-equivalent, shown as unavailable; the percentage/output contribution remains
-defined. A manual net replacement is not allocated among the input rows.
+Biases can be signed native-unit offsets or workbook-normalized percentages.
+For both UUT and cal bias, 100% is one final UUT tolerance scale `h`:
 
-Enter residual errors after any corrections already applied. The former
-**Already corrected** checkbox is removed. Previously saved corrected entries
-remain excluded until edited, with a short inline explanation; editing that bias
-makes the entered residual active. Uncertainty components remain unchanged.
+| Tolerance | Scale `h` |
+| --- | --- |
+| Double-sided, including asymmetric | `(upper − lower) / 2` |
+| Known lower-only | `nominal − lower` |
+| Known upper-only | `upper − nominal` |
 
-The **+** at the top right of **Measurement Inputs** adds one **Net Bias** row.
-It starts at the current combined source bias, in output units, so adding it
-alone does not change risk. Its signed value replaces the source total, without
-changing UUT bias, the equation, or any uncertainty component. Removing the row
-restores automatic source propagation. Source overrides are retained underneath
-the manual value for saved-session compatibility. Copying a budget carries this
-net setting using the existing audited manual-net contract.
+The absolute bias is `entered percent / 100 × h`. This is not a percentage of
+nominal or the TMDE's own error limit. With nominal 100 V and limits 90–110 V,
+50% UUT bias is +5 V and 20% cal bias is +2 V. The same definition works at zero
+and negative nominals with valid tolerance geometry. An incomplete tolerance
+blocks nonzero percentage bias instead of substituting another scale.
 
-Sessions saved with the former point menu retain their UUT/source overrides or
-manual net bias with their existing ownership. The corrected percentage basis above applies to these entries too.
-Only these points show a compact notice with the effective UUT/system biases
-and **Use instrument biases**. That action explicitly clears the point overrides
-and resumes live instrument inheritance without changing any instrument or
-uncertainty component. When the Measurement Inputs table is present, manual net
-entries appear there; resetting a separate UUT override preserves that net row.
+For a derived equation, an absolute source contributes
+`signed sensitivity × residual bias × quantity`, with unit conversion before
+multiplication. This app-specific bias aggregation requests symbolic sensitivities,
+with a numerical fallback where symbolic differentiation is unavailable. The
+uncertainty budget independently uses the workbook's central finite differences.
 
-Budget copying includes the system-bias model and source overrides, retaining
-the destination's UUT bias and input values. Full point/session copying retains
-both. Native session persistence and embedded PDF session payloads carry the
-settings as ordinary JSON fields. Existing sessions without authored biases
-retain their previous risk results, including the calculated derived-mean fallback.
+A source percentage already expresses an output contribution relative to the final
+UUT tolerance; it is not multiplied by sensitivity again. Contributions add
+algebraically. Resolution rows do not inherit the instrument bias a second time.
+Temperature errors use interval conversion rather than coordinate offsets.
 
-Known-value risk passes both biases through the Risk 8 adapter and applies them
-to PFA/PFR and mitigation calculations. Unknown-value types 5/6 ignore both UUT
-and cal bias, matching workbook ComputeOneRow. Saved bias entries remain available
-when switching back to known measurement, but do not translate unknown acceptance
-boundaries. The previous app-only boundary translation is no longer applied.
+## Net bias and display
 
-Validation covers signed V/R propagation, point/range overrides, corrected
-sources, native/relative/temperature units, copy and JSON round trips, public
-risk calculations, panel/sidebar agreement, and unknown boundaries. Legacy reset
-coverage verifies unchanged results before reset and instrument inheritance after
-a JSON round trip. The browser check edits UUT/TMDE biases and the corrected flag
-in instrument cells, checks live risk updates, the optional net row, and confirms
-there is no extra bias menu. It also checks uniform starting sizes, growth, and
-focus stability in Session Info/Risk/Mitigation. The
-production HTML integration check runs with `MEASUREMENT_BIAS_SMOKE=1 node
-scripts/smoke-forge-srcdoc.mjs` from `Frontend/workbench` after
-`npm run build:singlefile`; it uses an isolated mock SharePoint site.
+The net measurement-system bias field displays the current source total. Opening
+or focusing its editor does not create an override. An explicit edit creates a
+point-owned net replacement. Clearing the value or removing the override restores
+automatic source propagation, including any retained source overrides.
 
-The [Risk 8 audit](../Frontend/workbench/src/modules/uncertainty/utils/risk8/MIGRATION_AUDIT.md)
-records the workbook hash, capture procedure, numeric tolerance, reproducible
-commands, and the historical unknown-boundary extension, superseded by this parity correction. The additional
-`biasWorkflowParity.test.js` compares native bias ownership/propagation to 48
-outputs captured from Excel itself; it does not manufacture expected risk values
-using the app's calculator.
+The display can show native bias, percent of final UUT tolerance, or nominal plus
+bias without changing the authored value. For a percentage source, native input
+equivalent is `output contribution / signed sensitivity`. A nonzero output bias
+has no finite input equivalent at zero sensitivity; that view is unavailable,
+while the percentage/output contribution remains defined. A manual net value is
+not allocated among individual input rows.
 
-September 17 menu-removal validation: all 2,064 tests across 164 files passed,
-the high-severity dependency audit found zero vulnerabilities, the single-file
-build succeeded, and all 72 baseline/instrument-bias browser checks passed.
+## Copying and saved sessions
 
-September 18 percentage parity correction: `biasToleranceFrame.js` reuses the
-risk adapter normalization and active acceptance limits; `biasPercentageParity.test.js`
-checks signed/zero nominals, geometry, live IV/FS limits, resolution, incomplete
-inputs, native temperature conversion, derived source ownership, copying and
-unknown-value exclusions. `suppliedBiasParity.test.js` now enters the exact
-workbook percentages and compares all populated cached outputs for 12 cases.
-The HTML smoke check proves equivalent native, source-percent, UUT-percent and
-manual-net-percent entries produce identical rendered risk results.
+Budget copying carries the system-bias model and source overrides while retaining
+the destination's UUT bias and input values. Source percentages are reevaluated
+against the destination tolerance. Full point/session copying retains both bias
+models. Session JSON and embedded PDF session payloads preserve the settings.
 
-Final local validation for the percentage correction: 2,104 tests across 168 files;
-zero dependency audit vulnerabilities; production single-file build successful.
+Saved point-level overrides remain effective until explicitly reset to instrument
+inheritance. Resetting a separate UUT override does not remove a manual net row.
+Sessions without authored bias retain their existing no-bias behavior.
+
+## Unknown measurement values
+
+Types 5/6 ignore both UUT and cal bias, matching the workbook's dedicated boundary
+handler. Saved bias entries remain available if the point returns to a known-value
+measurement. They do not translate the unknown-value acceptance boundary. The
+historical low-level translated-boundary tests are identified separately in the
+audit and do not describe the live application flow.
+
+## Verification
+
+Relevant checks include `measurementBias.test.js`, `biasPercentageParity.test.js`,
+`biasWorkflowParity.test.js`, `suppliedBiasParity.test.js`, and selected-point/sidebar
+integration tests. They cover signed propagation, native/percentage/temperature
+units, correction state, zero overrides, copy/persistence, geometry and unknown
+boundaries. Captured Excel expected values remain independent of the app calculator.
+
+Production HTML checks are available through `MEASUREMENT_BIAS_SMOKE=1` with
+`scripts/smoke-forge-srcdoc.mjs`. Follow [AGENTS.md](../AGENTS.md) for when full
+build and browser release gates may run; historical results are not current release
+validation.

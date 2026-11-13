@@ -10,7 +10,7 @@ For the supplied example, the signed result is −0.070 ppm and the repeatabilit
 
 The actual TI and reference are matched automatically to the shared Uncertalytics library by model and serial. The import menu only requires selecting the saved session; it has no TI or standard selectors. The TI table displays the library make, model and serial and retains the library link, just like the TMDE table. If a TI has no unique match, correct its library identity before retrying. The importer does not invent a generic TI. Library TI ranges initially use the lab's ±100 ppm acceptance limits, grouped by current with frequency qualifiers. Subsequent library edits are preserved. Reference current/frequency ranges supply their individual uncertainty. Missing or ambiguous ranges are flagged for review; no frequency interpolation occurs. The TMDE name stores its description separately from make/model, and repeated identity prefixes from earlier imports are displayed only once.
 
-Shunt library names and new imports use `Fluke {A40B or Y5020} {serial} {rated range} {CHECK STD or NIST}`. For example: `Fluke Y5020 3845014 20 A CHECK STD` and `Fluke Y5020 5965004 20 A NIST`. Manufacturer and model stay in their own fields; serial, range and standard designation occupy Description. Both instrument tables display those fields in the same order. Older budgets retain their saved definitions until the library instrument is synced or the session is imported again.
+Shunt library names and new imports use `Fluke {A40B or Y5020} {serial} {rated range} {CHECK STD, MANUAL, or NIST}`. For example: `Fluke Y5020 3845014 20 A CHECK STD` and `Fluke Y5020 5965004 20 A NIST`. Manufacturer and model stay in their own fields; serial, range and standard designation occupy Description. Both instrument tables display those fields in the same order. Older budgets retain their saved definitions until the library instrument is synced or the session is imported again.
 
 The routine snapshot contains session identity, TI/reference identity and configured shunt range, current/frequency, accepted-pair aggregates, source point IDs and stability flags. Model, serial and rated range support automatic matching independently of the display name. It does not fetch certificates or send raw phase readings. Y5020 snapshots also contain the generic 5790B definition and compact resolution sensitivities described below. Add any remaining instrument contributions through the usual budget editors.
 
@@ -24,17 +24,32 @@ All eight phase means contribute to the AC–DC calculation. For each shunt, `Va
 
 Older sessions with no phase means use the nominal Y5020 voltage, `current × 0.01 Ω`, with that assumption recorded in budget notes. AUTO range does not retain an actual selected range, so its resolution uses the supported 2.2 V upper-bound increment and records this in notes. The contribution is converted to ppm and equivalent current uncertainty; volts are never combined directly with amps. Changing the linked instrument's resolution immediately recalculates the contribution, combined/expanded uncertainty and risk metrics. Removing a required resolution leaves the contribution explicitly incomplete.
 
-## Initial instrument setup
+## Instrument setup and maintenance
 
-On the next normal backend startup, bootstrap runs `seed_ac_shunt_references`. This creates missing shared A40B/Y5020 standards, including Check STD catalog entries that have not appeared in a saved session. Each physical serial/range has its own definition and individual ppm uncertainties from its active saved report, grouped by current with frequency qualifiers. Labeled catalog entries without report values are included with their uncertainty unset. Legacy generic `Shunt` catalog models use A40B, matching the AC-shunt corrections UI.
+Backend bootstrap runs `seed_ac_shunt_references`. Eligible shunt definitions
+require a matching active catalog report with at least one valid, nonnegative
+uncertainty at a valid current/frequency point. A session, a label or a generated
+TI acceptance limit alone does not establish calibration evidence. Missing
+uncertainties within an otherwise supported report remain unset.
 
-The same setup creates missing TI definitions from saved AC-shunt sessions and seeds lab ±100 ppm acceptance limits. It gets the physical range from session configuration or a uniquely matching catalog record, never the largest measurement point. Standard designation comes from device remarks, then active report notes/number: explicit CHECK STD/Check Standard and NIST labels are recognized. A device's Check STD designation takes precedence over NIST traceability text on its report. Unlabeled entries remain untagged, and unknown or conflicting ratings remain absent rather than guessed. TI and reference definitions retain their separate acceptance/uncertainty roles.
+One library entry represents a shunt correction set, with reference uncertainty
+in its main functions and TI acceptance specifications in `acShuntIdentity.uutFunctions`.
+Selection and import choose the profile for the requested role. Baseline and
+manual correction sets remain distinct; a selected source report takes precedence
+over the normal manual-first matching default. Existing edited specifications and
+saved budget snapshots are preserved.
 
-Existing matching library entries receive the conventional naming update once, retaining their IDs, functions, uncertainty values, range IDs and custom columns. A naming-version marker prevents subsequent startup from overwriting later user naming edits. Restart the backend after updating to rename the existing entries and add missing standards. For new TIs recorded after startup, restart or run the setup command before importing; edit existing library definitions to add any later measurement ranges.
+Classification uses the catalog uncertainty values: all known valid values equal
+to 100 ppm produce CHECK STD; otherwise manual or temporary/copied corrections
+produce MANUAL, and baseline report values produce NIST. Manual provenance remains
+recorded even when the visible label is CHECK STD. Setup also initializes the
+generic 5790B definition used by Y5020 imports.
 
-The initial distribution is Normal (95%), matching the example. Missing report uncertainties stay unset. The source report, date, serial and physical range are recorded on each range. Setup prefers manual shunt registry entries and the registry's active/pinned report. Stable identities make repeated startup idempotent; existing definitions and later edits are preserved. Certificate updates are managed in Uncertalytics after initial setup.
-
-To run setup separately, from `Backend/ac_shunt` use `python manage.py seed_ac_shunt_references`. This is separate from importing measurement sessions; source calibration records are read-only.
+From `Backend/ac_shunt`, run `python manage.py seed_ac_shunt_references` to invoke
+setup separately. The [library maintenance guide](../Backend/ac_shunt/uncertainty/AC_SHUNT_LIBRARY.md)
+describes evidence requirements, role consolidation, backup-before-removal rules,
+export/import, and serial-alias checks. Consult it before cleaning existing
+library entries; calibration source records and saved budgets remain intact.
 
 ## Focused checks
 
@@ -42,13 +57,19 @@ Use `manage.py test uncertainty.test_ac_shunt_import uncertainty.test_generic_57
 
 After hands-on testing is approved, the feature browser check is `node scripts/smoke-ac-shunt-import.mjs`, with `WORKBENCH_URL` pointing to the full Workbench server (default port 3197). It checks the simplified preview, saved point/qualifier/result fields, manual variability, shared reference links and TI limits.
 
-## October 2026 tasking and Notes compatibility
+## Workspace integration
 
-Instrument-table color pickers apply native input events immediately and update both the named measurement-area group and the legacy ID-based area record, including on the first edit after import. Both instrument tables share the saved color.
+Instrument-table color pickers update both the named measurement-area group and
+the legacy ID-based area record, including the first edit after import. Both
+instrument tables share the saved color.
 
-The customized Notes wrapper and styling remain in place while `@heyirisai/docx-editor-core`, `react`, `agents`, and `i18n` are pinned together at **1.15.0**. The [upstream package](https://www.npmjs.com/package/@heyirisai/docx-editor-react) and [upstream changes](https://github.com/heyirisai/docx-editor/releases) were reviewed on 2026-10-29. Our versioned binary payload, full-save behavior, autosave queue, session isolation, legacy-image migration, dark/light theme, and File menu integration are unchanged. Runtime checks reject mixed editor versions; the same packages and ProseMirror dependencies are deduplicated by Vite.
-
-After pulling, stop Workbench, run `npm install` in `Frontend/workbench`, then restart the backend/app. Focused checks include the real core's repeated DOCX parse/save round-trip with text, a table and embedded image, plus Notes autosave and runtime-version tests. Full `npm ci`, build, browser/Electron gates and remote pipeline verification await the user's release-validation go-ahead.
+The customized Notes wrapper preserves per-session native DOCX payloads, autosave,
+legacy-image migration, themes and File menu integration. Its related editor
+packages are pinned together in the frontend manifest; runtime checks reject mixed
+versions and Vite deduplicates the editor and ProseMirror dependencies. See the
+[frontend guide](../Frontend/workbench/README.md) for setup. Focused Notes checks
+cover real-core DOCX parse/save with text, a table and an embedded image, plus
+runtime-version and autosave behavior.
 
 ## Large instrument performance
 
@@ -56,4 +77,10 @@ The instrument tables ignore their own measured-width and header-position writes
 
 Y5020 resolution calculations normalize only the linked 5790B range IDs, preserving fresh resolution edits and the original range indexes. No specifications, qualifiers, confidence levels or budget contributions are removed or reduced to achieve the speedup.
 
-Focused regressions cover a 720-spec instrument in both session and point views, editing its linked resolution, qualifier-span equivalence, 2,000-row lookup work, cached hover, and real MutationObserver settling after header positioning. Set `REPORT_INSTRUMENT_TIMINGS=1` when running `LargeInstrumentPerformance.test.jsx` to print jsdom timings; these measure the test renderer, not browser frame rates. On the development machine, the prior renderer mounted the fixture in 3.4–3.9 seconds and three hover transitions took 4.6 seconds/three React commits; the optimized renderer mounted in 1.1–1.2 seconds and the same transitions took 0.1–0.2 seconds/zero React commits. Full browser/release validation remains after hands-on approval.
+Focused regressions cover large instruments in session and point views, linked
+resolution edits, qualifier-span equivalence, lookup work, cached hover, and
+MutationObserver settling after header positioning. Set `REPORT_INSTRUMENT_TIMINGS=1`
+when running `LargeInstrumentPerformance.test.jsx` for local jsdom timings; these
+measure the test renderer, not browser frame rates. Use the [performance guide](uncertalytics-performance.md)
+for cache maintenance and validation. Follow [AGENTS.md](../AGENTS.md) before
+running full browser or release checks.

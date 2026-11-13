@@ -11,8 +11,8 @@ permission to upload files to a document library and create lists on one site.
 
 | | `build:standalone` | `build:singlefile` |
 | --- | --- | --- |
-| Output | folder, 91 files | **one 6.7 MB HTML file** |
-| Over the wire | 1.84 MB gzipped, lazy-loaded | 2.5 MB gzipped, all up front |
+| Output | HTML plus separate assets | **one self-contained HTML file** |
+| Loading | Code split into chunks, loaded as needed | Inlined resources loaded up front |
 | Needs a real URL | **yes** | no |
 | Works in an `<iframe srcdoc>` | no | **yes** |
 | 3D header medallion | yes | no (static seal instead) |
@@ -27,7 +27,7 @@ keeps code splitting and loads less up front.
 
 ```bash
 cd Frontend/workbench
-npm install
+npm ci
 npm run build:standalone     # -> build-standalone/            (real URL host)
 npm run build:singlefile     # -> build-singlefile/uncertainty-budget.html  (deployable)
 ```
@@ -54,10 +54,6 @@ To recover a record, a site maintainer can remove the marker from its JSON; for 
 session, also restore its `SessionId` metadata from the JSON's `id`. Deploy this
 updated HTML file to activate the behavior; an older open page must be reloaded.
 
-Validation: 149 focused tests and 19 checks of the built HTML in an embedded
-browser passed, including session removal, multiple builder selections, reload,
-retained content, and absence of native dialogs or destructive requests.
-
 ## Deploy to SharePoint (single file)
 
 Ship `build-singlefile/uncertainty-budget.html`. It is the only thing in
@@ -71,8 +67,8 @@ hosts it: the frame **inherits the parent page's origin**, so same-origin
 readable. That is how the tool finds which SharePoint web it is in, since its
 own `location.pathname` is just `"srcdoc"`.
 
-Forge is no longer in the chain. The build does its ship step itself — see
-`vendor/forge/README.md` — so a file straight out of CI is deployable.
+The build includes the Forge runtime and manifest itself; no separate Forge
+processing step is needed. See the [Forge integration guide](../Frontend/workbench/vendor/forge/README.md).
 
 ### One-time setup
 
@@ -123,27 +119,16 @@ That is what the build stamp is for — `<meta name="x-uncertainty-build">` and
 `window.__UNCERTAINTY_BUILD__` — so "am I looking at the new build?" is a
 question with an answer rather than a guess. Ctrl+F5 clears it.
 
-The 3D header medallion is absent in this build — `useGLTF` fetches the model
-at runtime, which a single file cannot do. The static seal it already renders
-underneath shows instead, and dropping three.js keeps ~1 MB out of the bundle.
+The single-file build replaces the 3D header medallion with the static seal.
+Its configuration stubs the runtime model loader and three.js to keep the
+artifact self-contained and avoid shipping that dependency.
 
 ### Nothing in the file may look like a tag
 
-Forge does not hand the file to the browser untouched; something reads and
-filters it first. The first ship attempt came back a blank page with
-`Uncaught SyntaxError: Unexpected identifier 'testRecorder'` — and
-`testRecorder` appears nowhere in our bundle, so by the time that error was
-raised the script had already been cut somewhere it should not have been and
-Forge's own injected instrumentation had landed in the wound.
-
-The browser's parser was never the problem. Inside a `<script>` element only
-the exact sequence `</script` ends the element, and `vite-plugin-singlefile`
-escapes that. But the bundle is full of markup that is only ever *data*: React
-ships the literal `"<script><\/script>"`, mathjs emits `'<span
-class="math-…">'` several hundred times, and the print path writes a whole
-`<style>` block into a popup window. Anything that scans for `<script` or
-`<style` instead of running the real tokeniser finds those and splits the file
-in the wrong place.
+The hosting page may scan or sanitize the HTML before the browser parses it.
+Markup stored as JavaScript data can therefore be mistaken for actual HTML.
+The bundle includes such data from React, mathjs and the print path; ordinary
+closing-script escaping alone does not cover every sequence a host might scan.
 
 So `scripts/hardenInlineHtml.mjs` leaves nothing to find. It parses the inlined
 bundle and rewrites `<` to `\x3c` — the same character to a JavaScript engine,
@@ -278,8 +263,8 @@ Schema XML says the type in the payload, and collapses three requests into one.
 exactly, so there is no create-under-one-name-then-rename dance and no column
 called `Session_x0020_Id`; `AddFieldToDefaultView` handles view membership.
 
-Both smoke tests now answer 400 to a plain `POST …/fields`, the way the tenant
-did, so the working shape stays the only one that passes.
+The SharePoint smoke doubles reject a plain `POST …/fields`, preserving this
+API contract during browser verification.
 
 ### Auth
 
@@ -308,86 +293,55 @@ asked for.
 
 ## Testing
 
+Follow [AGENTS.md](../AGENTS.md) for validation order. The commands below belong
+to the authorized full-validation phase and run from `Frontend/workbench`:
+
 ```bash
-npm test                              # 1125 tests, includes 195 for this build
-node scripts/smoke-sharepoint.mjs     # multi-file build, served from a real URL
-node scripts/smoke-forge-srcdoc.mjs   # single-file build, inside an iframe srcdoc
+npm test
+npm run build:standalone
+node scripts/smoke-sharepoint.mjs
+npm run build:singlefile
+node scripts/smoke-forge-srcdoc.mjs
 ```
 
-Both smoke tests serve the built bundle from a SharePoint-shaped path, simulate
-the REST API with Playwright route mocking, and drive the whole chain: web URL
-discovery, digest, the storage gate detecting an unprovisioned site,
-provisioning all six containers, the app mounting, and the session list coming
-back through the adapter. They need `npm i --no-save playwright` (deliberately not a
-project dependency) and the matching build to have been run first.
+Playwright is a development dependency installed by `npm ci`. Install its
+Chromium browser when needed with `npx playwright install chromium`. Each smoke
+script requires its corresponding build to exist.
 
-The srcdoc one also checks what a browser is too forgiving to catch: that the
-file contains nothing a sanitiser could mistake for markup, and that every
-image in the mounted app is embedded and actually decoded — an unresolvable
-`src` inside a srcdoc frame fails silently, leaving a blank element rather than
-a failed request.
+The smoke tests serve the bundle from a SharePoint-shaped path, simulate the
+REST API with Playwright route mocking, and exercise web discovery, form digest,
+provisioning, mounting and storage through the adapter. The srcdoc checks also
+inspect sanitizer-sensitive markup and verify embedded images decode. See the
+[current testing guide](testing-coverage.md) and
+[release workflow](../.github/workflows/uncertainty-singlefile.yml) for the
+additional feature checks required for a release. Test counts and artifact sizes
+vary with the checked-out revision; use that revision's results.
 
-## Status
+## Deployment verification
 
-**Verified here**
+For each deployment, verify the build stamp and checksum match the intended
+release. A successful mocked smoke test does not establish live tenant access.
+Confirm these behaviors in the deployed app:
 
-- **Shipped through Forge onto Flank Speed and it runs.** Forge passes the
-  inlined bundle through byte-for-byte — its own 60 KB preamble (manifest
-  comment, `devconsole.js`, `testRecorder.js`) is prepended and nothing of ours
-  is rewritten. The page loads, finds its web, and reaches the REST API.
-- Both builds compile; 219 unit tests over the SharePoint layer, the adapter,
-  and the sanitiser hardening
-- 9/9 smoke checks for the multi-file build served from a real URL
-- 10/10 smoke checks for the single-file build inside an `about:srcdoc` frame:
-  holds no sequence a sanitiser could read as markup, boots with zero failed
-  subresource requests, discovers the web from the parent frame, provisions all
-  six containers, mounts, and renders its images from embedded bytes
-- The workbench's own tests still pass — 1492 in total, nothing regressed
+- Storage setup completes, including a retry after any interrupted provisioning.
+- A session can be saved, reopened after a reload, edited and archived.
+- The ordinary-user and reviewer flows satisfy the instrument permissions below.
+- The host frame retains a same-origin context so SharePoint requests can use the
+  signed-in user's cookies. A sandbox without `allow-same-origin` prevents this.
 
-**Not verified**
+The development, Electron and multi-file targets use `public/3demblem-optimized.glb`, which
+is stored in Git LFS. Run `git lfs pull` when a clone contains only the pointer
+file. The single-file build uses the static seal instead.
 
-- **The first save/load round trip.** Provisioning has now run against a real
-  tenant, but no session has been written and read back. The remaining REST
-  shapes are asserted against a double, which is not the same as a live site
-  accepting them — column creation is the proof of that (see below).
-- Whether every container provisions cleanly end to end on a site that already
-  has some of them, which is the state a partly-failed first run leaves behind.
-- Whether Forge's iframe carries a `sandbox` attribute. Without
-  `allow-same-origin` the frame gets an opaque origin, cookies are not sent,
-  and SharePoint persistence becomes impossible from inside — the tool would
-  need a different storage story. The smoke test assumes no sandbox, matching
-  the observed `about:srcdoc` behaviour.
+## Shared module requirements
 
-**Known limitation**
+`modules/uncertainty/**` remains shared with the Workbench. Keep asset references
+compatible with a library subfolder, embed assets required by the single-file
+build, and preserve the no-native-form rules described above. New uncertainty
+API routes must also be handled by the SharePoint adapter; the route-coverage
+test checks that contract.
 
-`public/3demblem.glb` is stored in Git LFS. A clone without `git lfs` gets a
-133-byte pointer and the 3D emblem fails to parse; run `git lfs pull`. This
-affects the dev server, Electron, and the multi-file build; the single-file
-build stubs the 3D emblem out entirely.
-
-## Module changes
-
-Three, all of them fixes rather than SharePoint-specific forks —
-`modules/uncertainty/**` is otherwise the same code the Electron/Django product
-runs.
-
-`HeaderEmblem.jsx` addressed both of its assets by absolute path, which only
-resolves when the app is served from the server root: true for the dev server
-and Electron's `file://` load, false for a bundle in a library subfolder. The
-`.glb` now goes through `import.meta.env.BASE_URL` — the identical URL wherever
-the app already worked. The still seal is *imported* rather than addressed,
-because a srcdoc frame has no URL to resolve against at all; as a module asset
-it is hashed in the normal builds and inlined as a data URI in the single-file
-one. It moved from `public/` to `src/assets/` to make that possible, and
-`index.html` lost its now-pointless preload of the old path.
-
-`BugReportModal.jsx` and `EquationLibraryMenu.jsx` were forms with submit
-buttons. Neither is a form now: the buttons call their handler from `onClick`,
-and `utils/submitOnEnter.js` keeps Enter working from a single-line field —
-including the cases the browser also declined, so a textarea still takes
-newlines. Nothing depends on the form machinery Firepit blocks.
-
-## Visible storage names (October 2026)
+## Visible storage names
 
 Use the same `App - Content` display-name convention as Modernization Tracker:
 
@@ -400,7 +354,7 @@ Use the same `App - Content` display-name convention as Modernization Tracker:
 | Uncertalytics - Equations | List | UncertaintyEquations |
 | Uncertalytics - Bug Reports | List | UncertaintyBugReports |
 
-New containers are visible in Site contents. Existing deployments need one explicit organization pass: deploy the new single-file HTML, open the app as an owner, click the **Storage administration** database icon in the app header, then choose **Organize storage**. The button appears automatically for users with Manage Lists permission; no keyboard shortcut is needed. Check all six entries show Visible. Close/reload other app tabs after renaming.
+New containers are visible in Site contents. Existing deployments need one explicit organization pass: deploy the new single-file HTML, open the app as an owner, click the **Storage administration** database icon in the app header, then choose **Organize storage**. The button appears automatically for users with Manage Lists permission; no keyboard shortcut is needed. Check every listed container shows Visible. Close/reload other app tabs after renaming.
 
 Organization updates titles, descriptions, Hidden=false, and OnQuickLaunch=false using existing list IDs. Sidebar links are not added. It preserves records, attachments, permissions, internal URLs, and library contents. Original internal titles and previous `Uncertalytics — ...` display names remain readable; no data migration or replacement containers are needed. Destination collisions stop before metadata changes, interrupted updates can be retried, already-correct metadata is skipped, and the result is read back before success is reported. Visibility is not an access restriction.
 

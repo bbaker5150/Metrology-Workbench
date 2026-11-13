@@ -1,11 +1,32 @@
-# Final V8.00 mathematical audit
+# Uncertalytics mathematical audit — Excel V8.00
 
-Audit date: 2026-11-13. Baseline: repository commit `1732ef8`.
-This is the current release-reference audit. [MIGRATION_AUDIT.md](MIGRATION_AUDIT.md)
-remains the historical Beta.7 record; its Excel execution counts and release
-checks are not new final-release executions.
+| Audit record | Value |
+| --- | --- |
+| Reference | Final Excel V8.00 release |
+| Audit date | 13 November 2026 |
+| Audited implementation | [`212f6a2`](https://github.com/bbaker5150/Metrology-Workbench/commit/212f6a296a27234c3d9e98a182ca3c777025862b) |
+| Comparison baseline | `1732ef8` |
 
-## Reference and strength of evidence
+## Review summary
+
+Uncertalytics matches every saved risk result in the supplied final-release
+workbook within the stated numerical tolerances. The resolution-aware guardband
+and calibration-interval calculation was already present in the baseline.
+The audit corrected surrounding tolerance, uncertainty, correlation, input-mapping,
+and presentation differences. The focused verification passed 738 tests in 42 files.
+
+This is the consolidated audit reference. Detailed Excel-equivalent equations,
+procedure names, and implementation rationale remain in the source comments.
+Use the crosswalk below to move from a workbook procedure to the corresponding
+code and tests. The historical capture provenance retained here explains existing
+fixtures; it does not designate an older workbook as the current authority.
+
+The evidence supports the reviewed numerical paths and saved cases. It is not a
+claim of bitwise identity for all possible inputs, fresh desktop-Excel execution
+of every case, auditor sign-off, or completed release validation. Explicit app
+extensions and verification limits are recorded below.
+
+## Reference and evidence
 
 The supplied workbook identifies itself as V8.00 in `MAIN!A1`. Its SHA-256 is:
 
@@ -19,7 +40,7 @@ project. Procedure names below refer to the supplied workbook's extracted source
 
 Evidence is deliberately separated:
 
-1. **Final saved outputs:** `finalRelease8Vectors.json` contains six populated
+1. **Final saved outputs:** [finalRelease8Vectors.json](finalRelease8Vectors.json) contains six populated
    Type 1 / E1 rows (`MAIN` rows 5–9 and 11), five distinct inputs and one duplicate.
    All 120 numeric outputs are compared, together with the corresponding bridge
    fields. The extractor also verifies the hidden `RISK_DATA` values; saved
@@ -38,7 +59,40 @@ numerical difference was approximately `7.845e-13`. The flowmeter guardband chan
 was already incorporated during the Beta.7 migration. This audit preserves it,
 adds final-release evidence, and corrects surrounding gaps described below.
 
-## The Cal Int regression to preserve
+## Calculation contract
+
+Probability inputs and outputs in the pure row engine range from 0 to 1; the
+application formats them as percentages. At the application adapter boundary,
+nominal values, limits, population means, calibration bias, uncertainty and
+resolution must share a measurement unit. The adapter then normalizes the UUT
+mean offset and calibration bias by the tolerance half-span to produce the row
+engine's dimensionless `mu` and `xcal` inputs. An interval retains the units of
+the original interval input; the engine does not assume months.
+
+| Concept | Meaning in this model |
+| --- | --- |
+| True REOP | Probability that the underlying UUT value is within its tolerance. |
+| Observed REOP | Probability that the measured result falls inside the applicable acceptance limits. |
+| Assumed / target REOP | Reference-TUR input used to infer the modeled UUT spread. |
+| PFA / PFR | Joint false-accept / false-reject probabilities, not conditional probabilities among accepted or rejected units. |
+| GB multiplier | Fraction of the original tolerance span retained by the acceptance window. |
+
+The adapter mirrors `MAIN → RISK_CALC_SCRATCH → modRiskBackend → MAIN/RISK_DATA`.
+For GB-plus-interval results, the mapping is:
+
+| Result | Scratch row 7 | MAIN row 5 | Engine field |
+| --- | --- | --- | --- |
+| Multiplier | AL7 | AT5 | `gbMult` |
+| Physical lower / upper limits | AM7 / AN7 | AU5 / AV5 | `physGbLower` / `physGbUpper` |
+| PFA / PFR | AO7 / AP7 | AW5 / AX5 | `mitPfa` / `mitPfr` |
+| Calibration interval | AQ7 | AY5 | `gbInterval` |
+| Reference REOP target | AR7 | AZ5 | `mitReop` |
+| Observed REOP at final limits | BA7 | BA5 | `mitObs` |
+
+The complete input/output map is embedded in [finalRelease8Vectors.json](finalRelease8Vectors.json).
+Blank or invalid results remain distinct from numerical zero.
+
+## Guardband and calibration interval: reference case
 
 For the saved 160-point case:
 
@@ -69,27 +123,27 @@ reliabilities are `R0 = 0.7945059868655642` and `R1 = 0.9450633330825517`:
 Do not substitute the reference target `0.994429...` or the guardbanded acceptance
 `0.85` into this ratio. In the older Beta.4 result, applying its modeled distribution
 to the displayed rounded limits gives about 73.2535% acceptance rather than 85%.
-`finalReleaseCore8.test.js` exercises that counterexample explicitly.
+[finalReleaseCore8.test.js](finalReleaseCore8.test.js) exercises that counterexample explicitly.
 
-## Procedure crosswalk
+## Workbook-to-code crosswalk
 
 | Final workbook procedure / location | Application location | Audit conclusion |
 | --- | --- | --- |
-| `NormalPDF`, `NormalCDF`, `NormalInvCDF`; sigma solvers; adaptive Simpson/PCA integration | `riskEngine8.js` | Existing numerical approximations/constants retained; replacing them with another library could change parity. |
-| `EvaluateCase_DS/SS` | `riskEngine8.js` | Existing deconvolution, true/observed probabilities, joint PFA/PFR, feasibility bounds match. |
-| `RecommendMitigation_DS/SS`, explicit-limit candidates | `riskEngine8.js` | Existing continuous search and fixed-boundary re-solve match. |
-| `ApplyResolutionToMitigation_DS/SS` | `resolutionMitigation8.js`, `computeOneRow8.js` | Already updates multiplier, reference reliability, observed reliability and both risks before interval calculation. |
-| `PFAHundredthsOfPercent`, `PFAPassesAtDisplayedPrecision` | `riskEngine8.js`; risk breakdowns | Half-up comparison at 0.01 percentage points retained. Display derivations now use this predicate consistently. |
-| `RecommendREOPOnly_DS/SS` | `riskEngine8.js` | Existing two-stage search and 32 iterations retained. |
-| `GetRPairForInterval`, `WriteIntervalFromFinalRisk` | `riskEngine8.js`, `computeOneRow8.js` | E1/W1 observed; E2/W2 true; Type 3/4 floor `q=2R−1`; D uses UUT variance ratio. Original acceptance curve retained. |
-| `UpdateToleranceOutputs`, physical GB and rounding helpers | `toleranceTypes8.js`; `uncertaintyMath.js` | Shared application rounding now uses the final inward-grid helpers, including negative values and valid zero boundaries. |
-| `RB_CopyMainInputsToScratch`, result copy routines | `riskAdapter8.js`, `riskBridge8.js`, known/unknown wrappers | Resolution, native-unit biases, observed REOP and interval mappings checked. Scratch columns distinguished from MAIN columns in comments. |
+| `NormalPDF`, `NormalCDF`, `NormalInvCDF`; sigma solvers; adaptive Simpson/PCA integration | [riskEngine8.js](riskEngine8.js) | Existing numerical approximations/constants retained; replacing them with another library could change parity. |
+| `EvaluateCase_DS/SS` | [riskEngine8.js](riskEngine8.js) | Existing deconvolution, true/observed probabilities, joint PFA/PFR, feasibility bounds match. |
+| `RecommendMitigation_DS/SS`, explicit-limit candidates | [riskEngine8.js](riskEngine8.js) | Existing continuous search and fixed-boundary re-solve match. |
+| `ApplyResolutionToMitigation_DS/SS` | [resolutionMitigation8.js](resolutionMitigation8.js), [computeOneRow8.js](computeOneRow8.js) | Already updates multiplier, reference reliability, observed reliability and both risks before interval calculation. |
+| `PFAHundredthsOfPercent`, `PFAPassesAtDisplayedPrecision` | [riskEngine8.js](riskEngine8.js); risk breakdowns | Half-up comparison at 0.01 percentage points retained. Display derivations now use this predicate consistently. |
+| `RecommendREOPOnly_DS/SS` | [riskEngine8.js](riskEngine8.js) | Existing two-stage search and 32 iterations retained. |
+| `GetRPairForInterval`, `WriteIntervalFromFinalRisk` | [riskEngine8.js](riskEngine8.js), [computeOneRow8.js](computeOneRow8.js) | E1/W1 observed; E2/W2 true; Type 3/4 floor `q=2R−1`; D uses UUT variance ratio. Original acceptance curve retained. |
+| `UpdateToleranceOutputs`, physical GB and rounding helpers | [toleranceTypes8.js](toleranceTypes8.js); [uncertaintyMath.js](../uncertaintyMath.js) | Shared application rounding now uses the final inward-grid helpers, including negative values and valid zero boundaries. |
+| `RB_CopyMainInputsToScratch`, result copy routines | [riskAdapter8.js](riskAdapter8.js), [riskBridge8.js](riskBridge8.js), known/unknown wrappers | Resolution, native-unit biases, observed REOP and interval mappings checked. Scratch columns distinguished from MAIN columns in comments. |
 | `frmUncertaintyBudget.CoverageFactor`; equation form equivalent | `getKValueFromTDistribution` | Coverage calculation now truncates finite DOF as Excel TINV does; reported effective DOF remains unrounded. |
 | `CalculateFirstOrderVarianceAndSensitivity`, `TaylorDerivativeStepSize` | `calculateDerivedUncertainty` | Numerical coefficient now uses the workbook central difference; symbolic derivative is audit information only. |
-| `CholeskyDecompose` | `correlationMath8.js` | Shared by Taylor and Monte Carlo; invalid matrices rejected before a total is published. |
-| `RunMonteCarlo`, `ReadTrials`, `UpdateMonteCarloInfluenceFromSamples` | `monteCarloEngine8.js` | Normal inputs, Cholesky, N−1 sample variance and influence method retained; integer conversion and undefined influence reporting aligned. |
+| `CholeskyDecompose` | [correlationMath8.js](correlationMath8.js) | Shared by Taylor and Monte Carlo; invalid matrices rejected before a total is published. |
+| `RunMonteCarlo`, `ReadTrials`, `UpdateMonteCarloInfluenceFromSamples` | [monteCarloEngine8.js](monteCarloEngine8.js) | Normal inputs, Cholesky, N−1 sample variance and influence method retained; integer conversion and undefined influence reporting aligned. |
 
-## Corrections made outside the already-aligned risk core
+## Release alignment decisions
 
 - **Inward tolerance rounding:** a negative lower limit such as −10.54 at resolution
   0.1 must round upward to −10.5, not downward to −10.6. Zero is a valid rounded
@@ -128,7 +182,46 @@ to the displayed rounded limits gives about 73.2535% acceptance rather than 85%.
   predicate from a strict unrounded ceiling. N−1 makes sample variance unbiased;
   its square root is the sample standard deviation.
 
-## Boundaries reviewers should retain
+## Equation uncertainty and Monte Carlo
+
+The current Monte Carlo authority is final V8.00
+`frmCalEquationUncertainty.RunMonteCarlo`. Its statistical algorithm is unchanged
+from the earlier source port; final input conversion and undefined-influence
+handling are covered by the current tests.
+
+For input means `x`, standard uncertainties `u`, and correlation matrix `R`:
+
+1. Factor `R = L Lᵀ`, rejecting nonphysical matrices.
+2. Draw independent standard-normal values `z` using Box–Muller and evaluate
+   `f(x + diag(u)Lz)` for each trial.
+3. Report `uc = sqrt(sum((y − mean(y))²)/(N − 1))`. This is sample standard
+   deviation; N−1 makes the corresponding sample variance unbiased.
+4. Keep the nominal result at `f(x)`, independently of the simulated output mean.
+5. Use `veff = uc⁴ / sum((ci ui)⁴/vi)` with the workbook numerical first-order
+   sensitivities. A zero denominator gives infinite DOF. Apply the Excel-compatible
+   coverage factor described above and report `U = k uc`.
+
+All equation inputs are normal at this stage, even if lower-level components used
+rectangular or triangular limits to obtain their standard uncertainties. The
+method does not substitute empirical shortest intervals or simulated PFA/PFR for
+the separate risk engine.
+
+The default is 10,000 trials. `ReadTrials` semantics round to a VBA Long with
+ties to even before enforcing a minimum of 100. Influence uses the workbook's
+equal-count conditional-mean bins; an undefined total influence is blank.
+
+Monte Carlo is a derived-equation budget option. Direct budgets use their physical
+source components; a legacy direct Monte Carlo selection is cleared by the live
+hook. The low-level identity-equation statistical test is not evidence of a direct
+Monte Carlo authoring mode. Cached runs are reusable only while the equation,
+input means, input uncertainties, correlations and normalized trial count match.
+
+See [monteCarloEngine8.test.js](monteCarloEngine8.test.js) for seeded analytical
+checks and input-error cases. Deterministic test generators make checks repeatable;
+production uses an unseeded JavaScript generator and cannot reproduce VBA draws
+one-for-one.
+
+## Documented application differences
 
 - The final workbook still has a contradictory MAIN gate for Types 5/6: its generic
   minimum-input check requires numeric TUR, whereas the dedicated unknown-measurement
@@ -164,6 +257,32 @@ to the displayed rounded limits gives about 73.2535% acceptance rather than 85%.
   of a bad unit among accepted units. The release accepts the rounded display criterion;
   e.g. interval-only PFA can be just below 2.005% while displaying 2.00%.
 
+## Historical fixture provenance
+
+Historical fixtures remain immutable regression evidence. Their JSON metadata,
+not the date of a later documentation update, identifies each capture.
+
+| Fixture | Evidence | Recorded source |
+| --- | --- | --- |
+| [beta7Vectors.json](beta7Vectors.json) | 786 synthetic row executions covering six tolerance types, five interval models, biases, resolution and error boundaries | Beta.7; captured 2026-09-14 |
+| [biasWorkflowVectors.json](biasWorkflowVectors.json) | 48 workbook cases for known-value bias workflows and the historical translated unknown-boundary extension | Beta.7; captured 2026-09-16 |
+| [suppliedBiasParityVectors.json](suppliedBiasParityVectors.json) | 12 populated known-value rows and six blank unknown-value rows; blanks are not numerical zero | Beta.7 tolerance/bias workbook; supplied 2026-09-18 |
+
+The first two sources have SHA-256
+`29a044c33581b8e5118dcc858b466830d92a6aca7ca06c95d36a0611095b97de`.
+The supplied tolerance/bias workbook has SHA-256
+`71794f230233b0d9d97802468be98147c5d6548375288d6128df122bc4299fdf`.
+
+The historical row harness compares numbers with tolerance
+`1e-10 + abs(expected) × 1e-8`, with exact blank/string comparisons. The final
+saved-result harness uses `1e-10 + abs(expected) × 1e-10`. Neither uses formatted
+percentage text as an oracle. Historical capture tooling remains available in
+[scripts/capture-risk-beta7.ps1](../../../../../scripts/capture-risk-beta7.ps1),
+with cases defined by [risk-beta7-cases.mjs](../../../../../scripts/risk-beta7-cases.mjs)
+and [risk-bias-cases.mjs](../../../../../scripts/risk-bias-cases.mjs). A new capture
+must record its actual workbook/version/hash and remain separate from these
+historical fixtures. Never generate expected values from the implementation under test.
+
 ## Reproducing the final saved-result check
 
 From `Frontend/workbench`, with the supplied workbook available locally:
@@ -181,12 +300,13 @@ another release, review the source and update the extraction provenance delibera
 
 ## Validation record
 
-On 2026-11-13, the final focused selection passed **738 tests in 42 files**.
+At audited implementation `212f6a2`, the 2026-11-13 focused selection passed
+**738 tests in 42 files**. Documentation cleanup does not constitute a new run.
 This includes all final saved-result comparisons, the unchanged historical
 Beta.7/bias captures, core/source regressions, tolerance/statistics/equation tests,
 selected-point/sidebar routing, cache clearing/recovery, and displayed derivations.
-The fixture extractor reproduced the committed JSON byte-for-byte. `git diff
---check` passed. Dependency installation used the unchanged lockfile with
+The fixture extractor reproduced the committed JSON byte-for-byte. The staged
+whitespace/error check passed. Dependency installation used the unchanged lockfile with
 `npm ci --ignore-scripts --no-audit --no-fund`; no dependency changes were made.
 
 Exact focused command, from `Frontend/workbench`:
@@ -225,3 +345,11 @@ as validation of this commit.
 - Enter an impossible correlation combination: the uncertainty total should be
   unavailable with an explanation, preserving editable source rows; correct the
   coefficients and confirm that uncertainty/risk recover.
+
+## Maintaining this audit
+
+When changing mathematical behavior, update the adjacent code comments, the
+procedure crosswalk, the affected independent regression tests, and this evidence
+record together. Identify the workbook version and hash for each new oracle.
+Keep application-specific behavior explicit. Record release validation separately
+from mathematical checks and from historical validation runs.

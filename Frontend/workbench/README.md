@@ -1,80 +1,51 @@
-# Getting Started with Create React App
+# Workbench frontend
+
+This is the shared React/Vite source for the Electron Workbench and standalone
+Uncertalytics. Run commands from this directory. Use Node.js 22 and `npm ci` with
+the committed lockfile; see the [repository setup guide](../../README.md) for the
+Django environment and instrument prerequisites.
+
+## Development commands
+
+| Command | Purpose |
+| --- | --- |
+| `npm start` | Workbench Vite server on port 3000; backend expected on port 8000. |
+| `npm run dev:mock` | Frontend and Windows backend scripts with mock instruments. |
+| `npm run electron:dev:mock` | Mock backend, frontend and Electron shell. |
+| `npm run dev:standalone` | Standalone SharePoint entry on port 3001. |
+| `npm run dev:remote` | Separate frontend/backend ports 3100/8100. |
+| `npx vitest run <file-or-directory>` | Focused tests for changed behavior. |
+| `npm test` | Complete frontend test suite. |
+| `npm run test:coverage` | Coverage report and configured threshold checks. |
+
+Follow [the repository workflow](../../AGENTS.md): perform focused checks before
+pushing, then allow hands-on testing before running full release validation.
+
+## Build targets
+
+| Command | Output |
+| --- | --- |
+| `npm run build` | `build/`: full Workbench browser assets. |
+| `npm run build:standalone` | `build-standalone/`: Uncertalytics assets served from a real URL. |
+| `npm run build:singlefile` | `build-singlefile/uncertainty-budget.html`: inlined SharePoint/Forge application. |
+| `npm run electron:build` | Backend packaging, frontend build and Windows installer. |
+
+The outputs use the same uncertainty module. [Build targets](../../docs/build-targets.md)
+explains their hosting differences; [SharePoint deployment](SHAREPOINT_DEPLOYMENT.md)
+explains identity and permission boundaries.
 
 ## Notes editor
 
-The uncertainty Notes workspace uses the Apache-2.0 licensed DOCX Editor core
-and React adapter maintained by the `heyirisai/docx-editor` project. The
-experimental editor is pinned to version 1.11.0, runs locally in the packaged
-application, and requires no license key, account, hosted service, or runtime
-network connection. Notes are stored per analysis session as versioned native
-DOCX payloads; importing and downloading `.docx` files preserves document
-layout, tables, images, comments, and tracked changes.
+The Notes workspace uses the Apache-2.0 licensed DOCX Editor core and React adapter
+from [`heyirisai/docx-editor`](https://github.com/heyirisai/docx-editor). The exact
+pinned versions are in [package.json](package.json) and its lockfile. The editor
+runs locally in the packaged application without a separate account or license
+key. Notes are stored per analysis session as versioned native DOCX payloads.
 
-This project was bootstrapped with [Create React App](https://github.com/facebook/create-react-app).
+## Implementation and audit references
 
-## Available Scripts
-
-In the project directory, you can run:
-
-### `npm start`
-
-Runs the app in the development mode.\
-Open [http://localhost:3000](http://localhost:3000) to view it in your browser.
-
-The page will reload when you make changes.\
-You may also see any lint errors in the console.
-
-### `npm test`
-
-Launches the test runner in the interactive watch mode.\
-See the section about [running tests](https://facebook.github.io/create-react-app/docs/running-tests) for more information.
-
-### `npm run build`
-
-Builds the app for production to the `build` folder.\
-It correctly bundles React in production mode and optimizes the build for the best performance.
-
-The build is minified and the filenames include the hashes.\
-Your app is ready to be deployed!
-
-See the section about [deployment](https://facebook.github.io/create-react-app/docs/deployment) for more information.
-
-### `npm run eject`
-
-**Note: this is a one-way operation. Once you `eject`, you can't go back!**
-
-If you aren't satisfied with the build tool and configuration choices, you can `eject` at any time. This command will remove the single build dependency from your project.
-
-Instead, it will copy all the configuration files and the transitive dependencies (webpack, Babel, ESLint, etc) right into your project so you have full control over them. All of the commands except `eject` will still work, but they will point to the copied scripts so you can tweak them. At this point you're on your own.
-
-You don't have to ever use `eject`. The curated feature set is suitable for small and middle deployments, and you shouldn't feel obligated to use this feature. However we understand that this tool wouldn't be useful if you couldn't customize it when you are ready for it.
-
-## Learn More
-
-You can learn more in the [Create React App documentation](https://facebook.github.io/create-react-app/docs/getting-started).
-
-To learn React, check out the [React documentation](https://reactjs.org/).
-
-### Code Splitting
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/code-splitting](https://facebook.github.io/create-react-app/docs/code-splitting)
-
-### Analyzing the Bundle Size
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size](https://facebook.github.io/create-react-app/docs/analyzing-the-bundle-size)
-
-### Making a Progressive Web App
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app](https://facebook.github.io/create-react-app/docs/making-a-progressive-web-app)
-
-### Advanced Configuration
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/advanced-configuration](https://facebook.github.io/create-react-app/docs/advanced-configuration)
-
-### Deployment
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/deployment](https://facebook.github.io/create-react-app/docs/deployment)
-
-### `npm run build` fails to minify
-
-This section has moved here: [https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify](https://facebook.github.io/create-react-app/docs/troubleshooting#npm-run-build-fails-to-minify)
+- [Codebase guide](../../documentation.md)
+- [Documentation index](../../docs/README.md)
+- [Final V8.00 mathematical audit](src/modules/uncertainty/utils/risk8/FINAL_V8_AUDIT.md)
+- [Testing and coverage](../../docs/testing-coverage.md)
+- [Forge runtime attribution and integration](vendor/forge/README.md)
