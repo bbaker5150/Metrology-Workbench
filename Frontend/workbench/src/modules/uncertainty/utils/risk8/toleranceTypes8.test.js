@@ -50,6 +50,8 @@ describe("cell-value helpers", () => {
     expect(isNumericCell(-2)).toBe(true);
     expect(isNumericCell("")).toBe(false);
     expect(isNumericCell("abc")).toBe(false);
+    expect(isNumericCell(true)).toBe(false);
+    expect(isNumericCell([1])).toBe(false);
   });
 
   test("getNumericState returns 0 / 1 / -1 with the coerced value", () => {
@@ -124,6 +126,12 @@ describe("Safe* input coercers", () => {
     expect(() => safeToleranceType("x")).toThrow();
   });
 
+  test("safeToleranceType matches CLng then EPS on either side of an integer", () => {
+    expect(safeToleranceType(2 - 5e-11)).toBe(2);
+    expect(safeToleranceType(2 + 5e-11)).toBe(2);
+    expect(() => safeToleranceType(2 - 2e-10)).toThrow();
+  });
+
   test("safeSingleSidedSwitch snaps to -1/0/1", () => {
     expect(safeSingleSidedSwitch("-1")).toBe(-1);
     expect(safeSingleSidedSwitch("0")).toBe(0);
@@ -176,8 +184,18 @@ describe("resolution rounding", () => {
     expect(isNearInteger(12).nOut).toBe(12);
   });
 
+  test("large count ties follow VBA Round nearest-even", () => {
+    expect(isNearInteger(10000000000.5)).toEqual({ near: true, nOut: 10000000000 });
+    expect(isNearInteger(10000000001.5)).toEqual({ near: true, nOut: 10000000002 });
+    expect(isNearInteger(-10000000001.5)).toEqual({ near: true, nOut: -10000000002 });
+  });
+
   test("cleanResolutionValue removes floating-point dust", () => {
     expect(cleanResolutionValue(0.1 + 0.2)).toBe(0.3);
+    // Final flowmeter workbook stores these as exact decimal 159.6 / 159.7.
+    expect(cleanResolutionValue(1596 * 0.1)).toBe(159.6);
+    expect(cleanResolutionValue(1597 * 0.1)).toBe(159.7);
+    expect(cleanResolutionValue(1e-16)).toBe(0);
   });
 
   test("round up/down move outward/inward to the resolution grid", () => {

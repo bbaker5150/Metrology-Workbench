@@ -168,3 +168,31 @@ describe("errorDistributions", () => {
     });
   });
 });
+
+
+describe("final V8.00 single-sided input preparation", () => {
+  it("converts and rounds the direct lower limit before displaying or solving it", () => {
+    const limits = getAbsoluteLimits({
+      singleSided: { direction: "low", limit: -10540, unit: "mV" },
+      resolution: 100, resolutionUnit: "mV",
+    }, { value: -10, unit: "V" });
+    expect(limits.rawLow).toBe("-10.5");
+    expect(limits.rawHigh).toBe("—");
+  });
+
+  it("rounds the direct upper limit down for an unknown measured value", () => {
+    const limits = getAbsoluteLimits({
+      singleSided: { direction: "high", measurement: "unknown", limit: 10.54, unit: "V" },
+      resolution: 0.1, resolutionUnit: "V",
+    }, { value: "", unit: "V" });
+    expect(limits.rawHigh).toBe("10.5");
+    expect(limits.rawLow).toBe("—");
+  });
+
+  it("retains unrounded direct limits when snap=false is explicitly requested", () => {
+    const limits = getAbsoluteLimits({
+      singleSided: { direction: "high", limit: 10.54, unit: "V" }, resolution: 0.1,
+    }, { value: 10, unit: "V" }, { snap: false });
+    expect(limits.rawHigh).toBe("10.54");
+  });
+});

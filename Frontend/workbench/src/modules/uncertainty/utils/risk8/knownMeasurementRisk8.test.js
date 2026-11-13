@@ -133,3 +133,43 @@ describe("known-measurement Risk 8.0 app wiring", () => {
 
   });
 });
+
+// Final workbook Type 3/4 TUR is geometry/U. The UUT population shift enters K
+// separately and must not change calibration sigma when the optional TUR is absent.
+test.each([["low", 9, 10.25], ["high", 11, 9.75]])(
+  "single-sided %s fallback TUR preserves nominal geometry with a biased population",
+  (direction, limit, riskAverage) => {
+    const input = {
+      tolerance: tolerance(direction, limit),
+      nominal: 10,
+      riskAverage,
+      calBias: 0.05,
+      expandedUncertaintyNative: 0.25,
+      assumedReop: 0.9,
+      requiredReop: 0.85,
+      turNeeded: 4,
+      reqPFA: 0.02,
+      originalInterval: 12,
+    };
+    const implicit = computeKnownMeasurementRisk8(input);
+    const explicit = computeKnownMeasurementRisk8({ ...input, tur: 4 });
+    expect(implicit.tur).toBe(4);
+    expect(implicit.input.mu).toBeCloseTo(riskAverage - 10, 12);
+    expect(implicit.diagnostics.core.sc_in).toBeCloseTo(1 / (4 * 1.96), 12);
+    expect(implicit.out).toEqual(explicit.out);
+  },
+);
+
+test.each([0, -4, "not numeric", Infinity])(
+  "an explicitly invalid single-sided TUR (%s) is not silently replaced by the fallback",
+  tur => {
+    const result = computeKnownMeasurementRisk8({
+      tolerance: tolerance("low", 9), nominal: 10, riskAverage: 10.25,
+      expandedUncertaintyNative: 0.25, tur,
+      assumedReop: 0.9, requiredReop: 0.85, reqPFA: 0.02, originalInterval: 12,
+    });
+    expect(result.out.pfa).toBe("");
+    expect(result.out.gbInterval).toBe("");
+    expect(result.out.statusCore).not.toBe("OK");
+  },
+);

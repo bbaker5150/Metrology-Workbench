@@ -1,11 +1,14 @@
 /**
  * riskEngine8.js — literal port of the 8.0 workbook risk engine
  * =============================================================================
- * SOURCE OF TRUTH: `Unc Tool v8.00-Beta.7.xlsm` › VBA module `modRiskBackend` (the
- * "STANDARD MODULE: Module1" math half). The workbook VBA is authoritative;
- * this file must reproduce it function-for-function. Where a function is ported
- * its governing VBA is quoted verbatim in the comment directly above it so a
- * reviewer can read the workbook and this file side-by-side.
+ * SOURCE OF TRUTH: final V8.00, `700-35SPA2DX 3AVR7 Flowmeter.xlsm`,
+ * VBA module `modRiskBackend` (the "STANDARD MODULE: Module1" math half).
+ * Workbook SHA-256:
+ * 8410cc4812276aff5973c1ac50abd6ef3a6d13ecd114240f418e3b80121d223d
+ * The 2026-11-13 source audit found that this existing numerical core,
+ * previously documented against Beta.7, already contains the final algorithms. Procedure names below identify the
+ * Excel equivalent; VBA blocks are excerpts or explicitly labelled summaries,
+ * not an assertion that every surrounding worksheet operation is copied here.
  *
  * PORTING RULES (do not "improve" the math):
  *   - Keep the same function names, order, constants, iteration counts and
@@ -22,9 +25,18 @@
  * knows nothing about React, units, Monte Carlo, or the app's data shapes —
  * exactly like the VBA standard module. App wiring lives in riskBridge8.js.
  *
- * Beta.7 audit: core evaluators, recommendation searches, and interval decay
- * are covered by Excel-captured vectors. Branch-changing updates are annotated
- * by VBA procedure name; see MIGRATION_AUDIT.md for capture provenance.
+ * Audit boundaries:
+ *   - This core accepts finite numeric arguments, as VBA Double parameters do.
+ *     Worksheet blank/string/non-finite validation belongs to computeOneRow8.
+ *   - Probabilities are fractions (0.02 = 2%), and tolerances/biases are already
+ *     normalized. PFA/PFR are joint probabilities, not conditional-on-pass rates.
+ *   - Recommendation PFA is compared at displayed hundredths of a percent;
+ *     stored probabilities and interval calculations retain their precision.
+ *   - resolutionMitigation8 re-solves the candidate after physical rounding.
+ *     E1/W1 aging must still use the original acceptance curve, not that newly
+ *     narrowed guardband (see the row driver's final risk evaluation).
+ * Existing Excel-captured Beta.7 vectors retain their original provenance;
+ * final V8.00 evidence is separate. See MIGRATION_AUDIT.md.
  */
 
 /* =============================================================================
@@ -48,7 +60,7 @@ export const T_CUTOFF = 12;
 export const SOLVE_TOL = 0.000000000001;
 export const EPS = 0.0000000001;
 export const REC_TOL = 0.0000005;
-// Beta.7: recommendation intervals have width <= 1; 32 bisections resolve
+// V8.00: recommendation intervals have width <= 1; 32 bisections resolve
 // them to < 2.4e-10. Distribution/sigma/integration iterations stay unchanged.
 export const OPT_SEARCH_ITERS = 32;
 
@@ -1226,8 +1238,12 @@ export function buildRecommendationCandidateDS(TUR_in, TUR_solve, reqAdjREOP, g,
   return buildRecommendationCandidateDSFromLimits(TUR_in, TUR_solve, reqAdjREOP, GB_L, GB_H, mu, LTL, UTL, XCAL);
 }
 
-// Beta.7: BuildRecommendationCandidate_DS_FromLimits. Explicit limits let the
-// resolution step re-solve reliability for the actual rounded acceptance region.
+// ── modRiskBackend › BuildRecommendationCandidate_DS_FromLimits ─────────────
+// V8.00 supplies the actual limits after rounding to instrument resolution.
+// Re-solve the UUT spread needed to put reqAdjREOP inside THAT window; then
+// translate that spread to a reference-TUR reliability input (recREOP).
+// recREOP is not the observed pass probability and is not fed directly into
+// E1's logarithmic interval formula. The returned r uses the rounded window.
 export function buildRecommendationCandidateDSFromLimits(TUR_in, TUR_solve, reqAdjREOP, GB_L, GB_H, mu, LTL, UTL, XCAL) {
   try {
     const muObs = mu + XCAL;
@@ -1267,7 +1283,7 @@ export function buildRecommendationCandidateDSFromLimits(TUR_in, TUR_solve, reqA
 }
 
 // ── modRiskBackend › RecommendMitigation_DS ──────────────────────────────────
-// VBA (structure preserved exactly; see modRiskBackend.bas lines ~1128-1263):
+// VBA summary (final V8.00, RecommendMitigation_DS):
 //   Private Function RecommendMitigation_DS(TUR_in, REOP_current, TUR_solve, GB_L_cur, GB_H_cur, _
 //                                           mu, LTL, UTL, XCAL, reqPFA, reqAdjREOP) As RecResult
 //       ' Guard: reqPFA in [0,1), reqAdjREOP in (0,1) -> "target input error"
@@ -1405,8 +1421,10 @@ export function buildRecommendationCandidateSS(TUR_in, TUR_solve, reqAdjREOP_sin
   return buildRecommendationCandidateSSFromLimit(TUR_in, TUR_solve, reqAdjREOP_single, g * activeUUT, activeUUT, mode, mu, XCAL);
 }
 
-// Beta.7: BuildRecommendationCandidate_SS_FromLimit; the active limit is already
-// normalized after inward resolution rounding, so no multiplier is reconstructed.
+// ── modRiskBackend › BuildRecommendationCandidate_SS_FromLimit ──────────────
+// V8.00's active limit is normalized after inward resolution rounding. Re-solve
+// reliability at that limit; multiplying the unrounded recommendation cannot
+// account for the altered pass region.
 export function buildRecommendationCandidateSSFromLimit(TUR_in, TUR_solve, reqAdjREOP_single, activeGB, activeUUT, mode, mu, XCAL) {
   try {
     const muObs = mu + XCAL;
@@ -1433,7 +1451,7 @@ export function buildRecommendationCandidateSSFromLimit(TUR_in, TUR_solve, reqAd
 }
 
 // ── modRiskBackend › RecommendMitigation_SS ──────────────────────────────────
-// VBA (structure preserved exactly; see modRiskBackend.bas lines ~1332-1453).
+// VBA summary (final V8.00, RecommendMitigation_SS).
 // Same two-stage guard-band search as the DS solver, but single-sided. Note the
 // SS solver keeps the workbook's special status text on the exact-g=1 branch.
 // REOP_current_single is in the signature but unused in the body.
@@ -1558,11 +1576,14 @@ export function riskTargetsMet(r, reqPFA, reqAdjREOP) {
   return false;
 }
 
-// ── Beta.7 › PFAHundredthsOfPercent / PFAPassesAtDisplayedPrecision ──────────
+// ── modRiskBackend › PFAHundredthsOfPercent / PFAPassesAtDisplayedPrecision ───
 // VBA: CLng(Int(Max(p,0) * 10000# + 0.5000000001)). This is half-up rounding
 // to 0.01 percentage points, not VBA Round's ties-to-even rule. The workbook
 // uses these integers ONLY for target acceptance. Preserve full-precision PFA
 // in all probability/interval outputs and subsequent numerical calculations.
+// Example: required 0.02 displays as 2.00%. An actual 0.020049 also displays as
+// 2.00% and passes, whereas 0.02005 displays as 2.01% and fails. This is an
+// explicit workbook policy, not a strict actualPFA <= requiredPFA comparison.
 export function pfaHundredthsOfPercent(p) {
   return Math.floor(Math.max(0, p) * 10000 + .5000000001);
 }
@@ -1571,7 +1592,7 @@ export function pfaPassesAtDisplayedPrecision(actualPFA, requiredPFA) {
 }
 
 // ── modRiskBackend › RecommendREOPOnly_DS ────────────────────────────────────
-// VBA (see modRiskBackend.bas lines ~1470-1555):
+// VBA summary (final V8.00, RecommendREOPOnly_DS):
 //   Private Function RecommendREOPOnly_DS(TUR_in, REOP_current, TUR_solve, GB_L_cur, GB_H_cur, _
 //                                         mu, LTL, UTL, XCAL, reqPFA, reqAdjREOP) As RecResult
 //       ' Hold the current GB fixed. Bracket REOP in (1e-9, maxREOP_solve]; if
@@ -1603,7 +1624,7 @@ export function recommendREOPOnlyDS(TUR_in, REOP_current, TUR_solve, GB_L_cur, G
     }
 
     let lo = 0.000000001;
-    // Beta.7 first brackets the lowest internal reference REOP satisfying the
+    // V8.00 first brackets the lowest internal reference REOP satisfying the
     // observed/test-point REOP target, independent of PFA. The second search
     // starts at that boundary; a single combined search is not equivalent.
     for (let i = 1; i <= OPT_SEARCH_ITERS; i++) {
@@ -1658,7 +1679,7 @@ export function recommendREOPOnlyDS(TUR_in, REOP_current, TUR_solve, GB_L_cur, G
 }
 
 // ── modRiskBackend › RecommendREOPOnly_SS ────────────────────────────────────
-// VBA (see modRiskBackend.bas lines ~1557-1651). Single-sided analogue: the
+// VBA summary (final V8.00, RecommendREOPOnly_SS). Single-sided analogue: the
 // REOP search range is bounded by Min/MaxAchievableSinglePass, and the low end
 // is nudged off the exact one-sided 50% asymptote.
 export function recommendREOPOnlySS(TUR_in, REOP_current, TUR_solve, activeGB, activeUUT, mode, mu, XCAL, reqPFA, reqAdjREOP) {
@@ -1695,7 +1716,7 @@ export function recommendREOPOnlySS(TUR_in, REOP_current, TUR_solve, activeGB, a
     // Avoid exact one-sided 50% when it is only an asymptotic solution.
     if (Math.abs(lo - 0.5) < 0.000000001) lo = lo + 0.000000001;
 
-    // Match Beta.7's two-stage search: find the observed-REOP-compliant lower
+    // Match V8.00's two-stage search: find the observed-REOP-compliant lower
     // edge, then (only if necessary) increase reference REOP to satisfy PFA.
     for (let i = 1; i <= OPT_SEARCH_ITERS; i++) {
       const mid = .5 * (lo + hi);
@@ -1848,13 +1869,16 @@ export function actualReferenceREOPForInterval(inputREOP, RBase) {
 //       If useSingleSidedFloor Then originalR = 2*originalR-1 : newTargetR = 2*newTargetR-1
 //   End Sub
 // E2/W2 decay on the TRUE (population-in-tolerance) reliability; E1/W1 decay on
-// the OBSERVED (accepted) reliability. originalReferenceREOP/targetReferenceREOP
-// are in the VBA signature but unused by the body; returns { originalR, newTargetR }.
+// the OBSERVED (accepted) reliability. In both cases RFinal must be evaluated
+// using the ORIGINAL acceptance rule at the recommended reference REOP. The
+// recommended guardband changes the decision rule, not the assumed aging curve.
+// originalReferenceREOP/targetReferenceREOP remain in the VBA signature but are
+// not the probabilities used here; returns { originalR, newTargetR }.
 export function getRPairForInterval(modelCode, RBase, RFinal, originalReferenceREOP, targetReferenceREOP, useSingleSidedFloor = false) {
   const useTrue = modelCode === "E2" || modelCode === "W2";
   let originalR = useTrue ? RBase.pTrue : RBase.pObs;
   let newTargetR = useTrue ? RFinal.pTrue : RFinal.pObs;
-  // Beta.7: single-sided exponential/Weibull aging acts on excess reliability
+  // V8.00: single-sided exponential/Weibull aging acts on excess reliability
   // q = 2R - 1, mapping R=1 to q=1 and the 50% asymptote to q=0.
   if (useSingleSidedFloor) {
     originalR = singleToEffectiveREOP(originalR);
@@ -1873,7 +1897,7 @@ export function getRPairForInterval(modelCode, RBase, RFinal, originalReferenceR
 //       Case Else
 //           modelCode = "" : issueText = "interval model error" : ReadIntervalDecayModel = False
 //   End Select
-// The worksheet-read half lives in the row driver (Phase 3); this is the pure
+// The worksheet-read half lives in computeOneRow8; this is the pure
 // normalize/validate half. Blank -> E1 (the workbook default).
 export function validateDecayModel(raw) {
   let s = String(raw ?? "").trim().toUpperCase();
@@ -1892,9 +1916,9 @@ export function validateDecayModel(raw) {
 }
 
 // ── modRiskBackend › WriteIntervalFromFinalRisk (pure decision half) ─────────
-// VBA (see modRiskBackend.bas lines ~2188-2244). The workbook version writes the
+// VBA summary (final V8.00, WriteIntervalFromFinalRisk). The workbook writes the
 // interval and status into cells; this pure port reproduces the SAME decision
-// tree and returns { ok, interval, issue } for the row driver (Phase 3) to
+// tree and returns { ok, interval, issue } for computeOneRow8 to
 // place. modelOK/intervalInputOK/betaOK plus their issue strings mirror the VBA
 // ByVal flags produced by ReadIntervalDecayModel / ReadOriginalInterval /
 // ReadWeibullBeta. originalReferenceREOP/targetReferenceREOP are passed through

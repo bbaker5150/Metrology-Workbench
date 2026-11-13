@@ -29,6 +29,7 @@ import {
   TOLTYPE_DS_SYM,
   TOLTYPE_DS_ASYM,
   safeInitialGB,
+  isBlankCell,
   updateToleranceOutputs,
 } from "./toleranceTypes8";
 
@@ -323,12 +324,18 @@ export function computeKnownMeasurementRisk8({
 
   const average = finite(riskAverage) ? Number(riskAverage) : Number(nominal);
   const uncertainty = Number(expandedUncertaintyNative);
-  const calculatedTur =
-    finite(tur) && Number(tur) > 0
-      ? Number(tur)
-      : uncertainty > 0
-        ? Math.abs(average - geometry.limit) / uncertainty
-        : NaN;
+  // Excel equivalent: the tolerance front end stores TUR as the physical
+  // nominal-to-limit span / expanded uncertainty, then RB_CopyMainInputsToScratch
+  // copies it to S. UUT population bias is normalized separately into K. Using
+  // riskAverage here would count that bias a second time by changing sigmaCal.
+  // Only a genuinely omitted TUR requests this app convenience. An explicit
+  // zero/negative/non-numeric TUR must remain invalid, as it does in scratch S;
+  // silently replacing it with a calculated value would hide a bad input.
+  const calculatedTur = isBlankCell(tur)
+    ? Number.isFinite(uncertainty) && uncertainty > 0
+      ? Math.abs(Number(nominal) - geometry.limit) / uncertainty
+      : NaN
+    : Number(tur);
 
   const lowerLimit = geometry.direction === "low" ? geometry.limit : "";
   const upperLimit = geometry.direction === "high" ? geometry.limit : "";

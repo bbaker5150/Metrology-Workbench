@@ -27,6 +27,7 @@ import {
   getKValueFromTDistribution,
   calculateDerivedUncertainty,
   calculateUncertaintyFromToleranceObject,
+  getAbsoluteLimits,
   combineWithCorrelation,
   normalQuantile,
   snapLimitsToResolution,
@@ -477,8 +478,23 @@ export function computePointRiskMetrics(
   onUncertainty?.(calcResults);
   if (!calcResults) return null;
 
-  const uutToleranceData = point.uutTolerance || sessionData.uutTolerance || {};
+  let uutToleranceData = point.uutTolerance || sessionData.uutTolerance || {};
   const nominalValue = parseFloat(uutNominal.value);
+  const singleSided = uutToleranceData.singleSided || uutToleranceData.tolerances?.singleSided;
+  if (singleSided) {
+    // Excel equivalent: frmUUTTolerance.cmdSave_Click writes the inward-rounded
+    // direct limit to MAIN, in measurement units, before the risk backend runs.
+    // Work on a local copy: the authored limit remains editable in its own unit.
+    const limits = getAbsoluteLimits(uutToleranceData, uutNominal);
+    const rawLimit = singleSided.direction === "low" ? limits.rawLow : limits.rawHigh;
+    if (rawLimit == null || String(rawLimit).trim() === "") return null;
+    const limit = Number(rawLimit);
+    if (!Number.isFinite(limit)) return null;
+    uutToleranceData = {
+      ...uutToleranceData,
+      singleSided: { ...singleSided, limit, unit: uutNominal.unit },
+    };
+  }
 
   // Risk 8.0 types 5/6: without a measured value there is no TUR, REOP, PFR,
   // or TAR calculation. Run the approved PFA-only acceptance-boundary method
@@ -491,7 +507,7 @@ export function computePointRiskMetrics(
 
     const expandedUncertaintyNative =
       calcResults.expanded_uncertainty_absolute_base / targetUnitInfo.to_si;
-    const bias = resolveMeasurementBias(point, sessionData, undefined, { includeSources: false });
+    const bias = resolveMeasurementBias({ ...point, uutTolerance: uutToleranceData }, sessionData, undefined, { includeSources: false });
     if (bias.error) { onStatus?.({ core: "Bias input error", gb: "Bias input error", interval: "Bias input error", message: bias.error }); return null; }
     const boundary = computeUnknownMeasurementBoundary8({
       tolerance: uutToleranceData,
@@ -552,7 +568,11 @@ export function computePointRiskMetrics(
 
   if (knownSingleSided) {
     if (Number.isFinite(LLow) === Number.isFinite(LUp)) return null;
-  } else if (isNaN(LLow) || isNaN(LUp) || LUp === LLow) {
+  } else if (!Number.isFinite(LLow) || !Number.isFinite(LUp) || LUp <= LLow) {
+    // Excel equivalent: tolerance form inward rounding must leave a valid band
+    // for UpdateToleranceOutputs. Never recover the pre-rounding limits: that
+    // would publish risk for a window the instrument cannot implement.
+    onStatus?.({ core: "bad input", gb: "solution not found", interval: "solution not found" });
     return null;
   }
 
@@ -597,7 +617,7 @@ export function computePointRiskMetrics(
   // shift. TUR/TAR use this value; riskAverage is the separate mean normalized
   // into workbook K. System bias travels independently to L, never into TUR.
   const measurementAverage = riskAverage;
-  const bias = resolveMeasurementBias(point, sessionData, riskAverage, { includeSources: false, limits: { lower: LLow, upper: LUp } });
+  const bias = resolveMeasurementBias({ ...point, uutTolerance: uutToleranceData }, sessionData, riskAverage, { includeSources: false, limits: { lower: LLow, upper: LUp } });
   if (bias.error) {
     // Clear all sidebar risk outputs together; invalid bias is not zero risk.
     onStatus?.({ core: "Bias input error", gb: "Bias input error", interval: "Bias input error", message: bias.error });
@@ -629,7 +649,10 @@ export function computePointRiskMetrics(
     LUp,
   );
   // Invalid geometry must not fall through to the retired probability managers.
-  if (!knownSingleSided && !knownTwoSided) return null;
+  if (!knownSingleSided && !knownTwoSided) {
+    onStatus?.({ core: "bad input", gb: "solution not found", interval: "solution not found" });
+    return null;
+  }
   if (knownSingleSided || knownTwoSided) {
     const sharedRisk8Inputs = {
       nominal: nominalValue,

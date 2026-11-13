@@ -102,8 +102,8 @@ describe("buildRisk8Contract — AVERAGE -> mu and field mapping", () => {
       assumedReop: 0.82,
       requiredReop: 0.91,
     });
-    expect(input.reop).toBe(0.82); // MAIN.T Assumed_REOP
-    expect(input.reopTarget).toBe(0.91); // MAIN.AB REOP_Required
+    expect(input.reop).toBe(0.82); // MAIN.AF -> scratch T: Assumed_REOP
+    expect(input.reopTarget).toBe(0.91); // MAIN.AJ -> scratch AB: REOP_Required
   });
 });
 
@@ -192,5 +192,60 @@ describe("asymmetric tolerance (type 2) mapping", () => {
     expect(out.statusCore).toBe("OK");
     expect(typeof out.pfa).toBe("number");
     expect(out.pfa).toBeGreaterThanOrEqual(0);
+  });
+});
+
+// Source: supplied final 8.00 Flowmeter workbook, MAIN row 5 and
+// UUT_TOL_DATA!F2. These expected values are saved workbook outputs, not values
+// produced by the app under test. This exercises the app -> scratch contract.
+describe("final V8.00 flowmeter adapter regression", () => {
+  const flowmeter = {
+    nominal: 160,
+    uutLowerLimit: 159.6,
+    uutUpperLimit: 160.4,
+    tur: 1.2852881174149715,
+    assumedReop: 0.85,
+    requiredReop: 0.85,
+    turNeeded: 4,
+    reqPFA: 0.02,
+    originalInterval: 18,
+    resolution: 0.1,
+  };
+
+  test("supplies resolution before solving, so interval and rounded limits describe one result", () => {
+    const { input, out, fields } = runRisk8FromApp(flowmeter);
+    expect(input.resolution).toBe(0.1); // scratch AE7, from UUT_TOL_DATA!F2
+    expect(input.initialGB).toBe(""); // workbook default remains g = 1
+    expect(input.decayModel).toBe(""); // workbook default remains E1
+    expect(fields.GB_LL).toBeCloseTo(159.7, 12);
+    expect(fields.GB_UL).toBeCloseTo(160.3, 12);
+    expect(fields.GB_Percent).toBeCloseTo(0.75, 12);
+    expect(fields.Interval_With_GB).toBeCloseTo(4.421331946491825, 8);
+    expect(fields.Target_REOP_With_GB).toBeCloseTo(0.9944290447016071, 10);
+    expect(fields.Observed_REOP_With_GB).toBeCloseTo(0.85, 10);
+    expect(fields.Observed_REOP_Interval_Only).toBeCloseTo(0.8657909993806616, 8);
+    expect(fields.Interval_REOP_Only).toBeCloseTo(11.276605944760007, 7);
+    expect(out.mitPfa).toBeCloseTo(0.0006006333430993438, 10);
+    // Never revive the beta's pre-rounding recommendation at rounded limits.
+    expect(fields.Interval_With_GB).not.toBeCloseTo(11.734263719927311, 3);
+  });
+
+  test.each(["", 0, -0.1])("blank or nonpositive resolution %s retains the continuous solution", resolution => {
+    const result = runRisk8FromApp({ ...flowmeter, resolution });
+    expect(result.out.statusMit).toBe("solution found");
+    expect(result.out.gbMult).toBeGreaterThan(0.97);
+    expect(result.out.physGbLower).toBeLessThan(159.7);
+    expect(result.out.gbInterval).toBeGreaterThan(11);
+  });
+
+  test.each(["not a number", Infinity])("invalid scratch resolution %s cannot publish stale GB outputs", resolution => {
+    const { out } = runRisk8FromApp({ ...flowmeter, resolution });
+    // Direct adapter inputs represent scratch values: a nonblank nonnumeric AE
+    // fails ApplyResolutionToMitigation, rather than silently disabling rounding.
+    expect(out.statusMit).toBe("solution not found");
+    expect(out.gbMult).toBe("");
+    expect(out.gbInterval).toBe("");
+    expect(out.mitObs).toBe("");
+    expect(out.intInterval).toEqual(expect.any(Number));
   });
 });

@@ -60,6 +60,9 @@ export function isBlankCell(v) {
 // blank check, and we require a finite result (VBA IsNumeric rejects overflow).
 export function isNumericCell(v) {
   if (isBlankCell(v)) return false;
+  // VBA IsNumeric does not treat Boolean/object values as numeric cells; JS
+  // Number(true) and Number([1]) would otherwise silently accept bad inputs.
+  if (typeof v !== "number" && typeof v !== "string") return false;
   const n = Number(v);
   return Number.isFinite(n);
 }
@@ -192,7 +195,9 @@ export function safeAsymmetry(v) {
 export function safeToleranceType(v) {
   if (!isNumericCell(v)) throw new Error("Tolerance Type must be numeric.");
   const x = Number(v);
-  const n = Math.trunc(x); // CLng rounds, but the integrality check below makes trunc/round equivalent
+  // VBA CLng rounds before the EPS check. Truncation wrongly rejects a value
+  // just below an integer (for example, 2 - 5e-11), which Excel accepts as 2.
+  const n = Math.round(x);
   if (Math.abs(x - n) > EPS) throw new Error("Tolerance Type must be an integer.");
 
   switch (n) {
@@ -342,11 +347,15 @@ export function floorTerm(x, unitMode) {
 //       If EPS < 0.0000000001 Then EPS = 0.0000000001
 //       IsNearInteger = (Abs(q - nOut) <= EPS)
 //   End Function
-// VBA Round is banker's rounding, but it is immaterial here: nOut is only used
-// when q is within eps (~1e-10) of an integer, where all rounding modes agree.
+// Match VBA Round(q, 0): ties round to the even integer. At ordinary q the
+// near-integer tolerance is tiny; for very large count values it can include a
+// half count, so Math.round alone would select a different resolution step.
 // Returns { near, nOut }.
 export function isNearInteger(q) {
-  const nOut = Math.round(q);
+  const floor = Math.floor(q);
+  const nOut = q - floor === 0.5
+    ? (floor % 2 === 0 ? floor : floor + 1)
+    : Math.round(q);
   let eps = 0.0000000001 * Math.abs(q);
   if (eps < 0.0000000001) eps = 0.0000000001;
   return { near: Math.abs(q - nOut) <= eps, nOut };
@@ -357,10 +366,13 @@ export function isNearInteger(q) {
 //   Private Function CleanResolutionValue(x As Double) As Double
 //       CleanResolutionValue = CDbl(Format$(x, "0.###############"))
 //   End Function
-// Format "0.###############" rounds to 15 decimals and drops trailing zeros;
-// Number(x.toFixed(15)) reproduces that for the magnitudes tolerances occupy.
+// VBA's numeric-to-decimal formatting uses 15 significant digits and this
+// mask permits at most 15 fractional digits. Apply both limits before parsing
+// back to Double. Merely toFixed(15) retains multiplication dust above 1:
+// 1597 * 0.1 would remain 159.70000000000002 instead of the supplied workbook's
+// stored 159.7. The fractional cap still matters for sub-femtounit values.
 export function cleanResolutionValue(x) {
-  return Number(x.toFixed(15));
+  return Number(Number(x.toPrecision(15)).toFixed(15));
 }
 
 // ── frmUUTTolerance › RoundLimitUpToResolution ───────────────────────────────
@@ -373,7 +385,8 @@ export function cleanResolutionValue(x) {
 //       End If
 //   End Function
 // VBA Int() floors toward -infinity, so -Int(-q) = ceil(q); rounds the limit
-// OUTWARD (up) to the next resolution step unless it already sits on one.
+// toward +infinity to the next step unless it already sits on one. Applied
+// to a lower acceptance limit this is INWARD, including for negative limits.
 export function roundLimitUpToResolution(x, res) {
   if (res <= 0) return x;
   const q = x / res;
@@ -455,7 +468,7 @@ export function writePhysicalGBFromMultiplier(tolType, inputs, g) {
 //   Type 5 (lower): GB lower = lowerLimit - U_cal * z_alpha / 1.96
 //   Type 6 (upper): GB upper = upperLimit + U_cal * z_alpha / 1.96
 // Requires TUR blank (this method uses U_cal directly) and U_cal > 0.
-// Beta.7 rounds inward to resolution and returns actualPFA from the normal tail
+// Final V8.00 rounds inward to resolution and returns actualPFA from the normal tail
 // at the final physical limit, rather than echoing alpha. No nominal is needed.
 // Returns { ok, gbLower? / gbUpper?, actualPFA } or a failed-input record.
 export function writePhysicalGBForUnknownMeasuredValue(tolType, inputs, alpha) {

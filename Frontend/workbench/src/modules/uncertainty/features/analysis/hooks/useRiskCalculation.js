@@ -18,6 +18,7 @@ import { useState, useCallback, useEffect, useRef } from "react";
 import { 
   unitSystem, 
   calculateUncertaintyFromToleranceObject, 
+  getAbsoluteLimits,
   calcTAR, 
   calcTUR, 
   PFAMgr,
@@ -95,16 +96,16 @@ export const useRiskCalculation = (
       return;
     }
 
-    // Match the workbook's single-sided cases exactly: the stored value is the
-    // one physical acceptance limit. A known measurement supplies the nominal
-    // (Types 3/4); an unknown measurement deliberately has no nominal (Types
-    // 5/6), but the active lower/upper limit is the same.
+    // Excel equivalent: frmUUTTolerance.cmdSave_Click rounds a direct lower
+    // limit up (upper down) before writing MAIN. Convert authored limit units
+    // and apply that grid here for all single-sided types, including unknown
+    // measurements. This is separate from rounding the later GB recommendation.
     if (hasSingleSidedLimit) {
-      const limit = singleSided.limit;
+      const limits = getAbsoluteLimits(uutToleranceData, uutNominal);
       setRiskInputs((prev) => ({
         ...prev,
-        LLow: singleSided.direction === "low" ? limit : "",
-        LUp: singleSided.direction === "low" ? "" : limit,
+        LLow: singleSided.direction === "low" ? limits.rawLow ?? "" : "",
+        LUp: singleSided.direction === "low" ? "" : limits.rawHigh ?? "",
       }));
       return;
     }
@@ -174,6 +175,19 @@ export const useRiskCalculation = (
     const hasLowerLimit = Number.isFinite(LLow);
     const hasUpperLimit = Number.isFinite(LUp);
 
+    // The backend consumes the normalized MAIN limit, while the editor retains
+    // its authored native-unit value. Geometry, bias normalization, diagnostics,
+    // and the unknown-value boundary must all see this same rounded limit.
+    const authoredSingleSided = uutToleranceData?.singleSided || uutToleranceData?.tolerances?.singleSided;
+    const riskToleranceData = authoredSingleSided ? {
+      ...uutToleranceData,
+      singleSided: {
+        ...authoredSingleSided,
+        limit: authoredSingleSided.direction === "low" ? LLow : LUp,
+        unit: uutNominal?.unit,
+      },
+    } : uutToleranceData;
+
     const pfaRequired = parseFloat(sessionData.uncReq.reqPFA) / 100;
     const reliability = parseFloat(sessionData.uncReq.reliability) / 100;
     const calInt = parseFloat(sessionData.uncReq.calInt);
@@ -192,7 +206,7 @@ export const useRiskCalculation = (
     } else if (knownSingleSided) {
       if (hasLowerLimit === hasUpperLimit) { publishRiskMetrics(null); return; }
       const geometry = validateKnownSingleSidedGeometry(
-        uutToleranceData,
+        riskToleranceData,
         uutNominal?.value,
       );
       if (!geometry.ok) {
@@ -208,7 +222,19 @@ export const useRiskCalculation = (
       }
       if (isNaN(reliability) || reliability <= 0 || reliability >= 1) { publishRiskMetrics(null); return; }
     } else {
-      if (!hasLowerLimit || !hasUpperLimit || LUp === LLow) { publishRiskMetrics(null); return; }
+      if (!hasLowerLimit || !hasUpperLimit) { publishRiskMetrics(null); return; }
+      // Excel equivalent: the inward-rounded physical limits must still be a
+      // nonempty band before UpdateToleranceOutputs can define a Type 1/2 row.
+      // Clear the previous risk result as soon as a resolution edit collapses
+      // or crosses these limits; do not recover the wider unsnapped tolerance.
+      if (LUp <= LLow) {
+        setNotification({
+          title: "Invalid Tolerance Limits",
+          message: "The tolerance limits do not leave an acceptance range at this measuring resolution. Review the tolerance and resolution.",
+        });
+        publishRiskMetrics(null);
+        return;
+      }
       if (isNaN(reliability) || reliability <= 0 || reliability >= 1) { publishRiskMetrics(null); return; }
     }
     setNotification(null);
@@ -270,7 +296,7 @@ export const useRiskCalculation = (
     // Use the effective selected tolerance/nominal so live edits and inherited
     // defaults cannot disagree with the open point's displayed budget.
     const measurementAverage = riskAverage;
-    const bias = resolveMeasurementBias({ ...testPointData, uutTolerance: uutToleranceData, testPointInfo: { ...testPointData?.testPointInfo, parameter: uutNominal } }, sessionData, riskAverage, { includeSources: false, limits: { lower: LLow, upper: LUp } });
+    const bias = resolveMeasurementBias({ ...testPointData, uutTolerance: riskToleranceData, testPointInfo: { ...testPointData?.testPointInfo, parameter: uutNominal } }, sessionData, riskAverage, { includeSources: false, limits: { lower: LLow, upper: LUp } });
     if (bias.error) {
       if (!bias.missingInputs) setNotification({ title: "Check bias settings", message: bias.error });
       publishRiskMetrics(null);
@@ -281,7 +307,7 @@ export const useRiskCalculation = (
     if (unknownMeasurement) {
       const safeRes = resolveResolutionNative(uutToleranceData, nominalUnit);
       const boundary = computeUnknownMeasurementBoundary8({
-        tolerance: uutToleranceData,
+        tolerance: riskToleranceData,
         calBias: bias.calBias,
         // Workbook column J is expanded U_cal for the type-5/6 boundary.
         uCalNative: U_Native,
@@ -425,7 +451,7 @@ export const useRiskCalculation = (
       const risk8Result = knownSingleSided
         ? computeKnownMeasurementRisk8({
             ...sharedRisk8Inputs,
-            tolerance: uutToleranceData,
+            tolerance: riskToleranceData,
           })
         : computeKnownTwoSidedRisk8({
             ...sharedRisk8Inputs,

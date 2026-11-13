@@ -93,7 +93,7 @@ const FeasibilityExplanation = ({ modalType, results, children }) => {
 };
 
 // Both tolerance families use the same interval derivation. The diagnostics
-// carry Beta.7's transformed q values for single-sided E/W models, and retain
+// carry final V8.00's transformed q values for single-sided E/W models, and retain
 // the original acceptance limits when evaluating the final aging state.
 const IntervalCalculation = ({ modalType, results }) => {
   const { input = {}, out = {}, diagnostics = {} } = results.risk8 || {};
@@ -217,10 +217,10 @@ const TwoSidedCalculationChain = ({ modalType, results }) => {
       <>
         <MathStep
           title="mitigation solve"
-          description="The solver searches for the largest acceptance region that meets both the required PFA and required reliability."
+          description="First search the continuous acceptance width at the required observed reliability, comparing PFA at displayed precision. Then round the physical limits inward and re-solve reliability and risk. The reported multiplier is the final rounded width ratio."
           equations={[
-            `g^*=\\max\\{g:PFA(g)\\le ${latexNumber(Number(input.pfaTarget))},\\;R_{obs}(g)\\ge ${latexNumber(Number(input.reopTarget))}\\}`,
-            `g^*=\\mathbf{${latexNumber(out.gbMult)}}`,
+            `g_{continuous}=\\max\\{g\\in[0,1]:Q(PFA(g,R_g))\\le Q(${latexNumber(Number(input.pfaTarget))}),\\;R_{obs}(g,R_g)=${latexNumber(Number(input.reopTarget))}\\}`,
+            `g_{final}=\\mathbf{${latexNumber(out.gbMult)}}`,
             `PFA_{GB}=\\mathbf{${latexNumber(out.mitPfa)}}\\;(${latexPercent(out.mitPfa)})`,
             `PFR_{GB}=\\mathbf{${latexNumber(out.mitPfr)}}\\;(${latexPercent(out.mitPfr)})`,
           ]}
@@ -274,9 +274,9 @@ const TwoSidedCalculationChain = ({ modalType, results }) => {
       <>
         <MathStep
           title="Target reliability with guardbanding"
-          description="The joint mitigation solver varies the acceptance multiplier and reliability, then retains the largest acceptance region that satisfies both targets."
+          description="After the continuous search and inward resolution rounding, solve the reference reliability that produces the required observed reliability at the final acceptance limits. Check the achieved PFA at displayed precision."
           equations={[
-            `R_{GB}^{*}=\\min\\{R:PFA(g^{*},R)\\le ${latexNumber(Number(input.pfaTarget))},\\;R_{obs}(g^{*},R)\\ge ${latexNumber(Number(input.reopTarget))}\\}`,
+            `R_{obs}(GB_{final},R_{GB}^{*})=${latexNumber(Number(input.reopTarget))},\\quad Q(PFA(GB_{final},R_{GB}^{*}))\\le Q(${latexNumber(Number(input.pfaTarget))})`,
             `R_{GB}^{*}=\\mathbf{${latexNumber(out.mitReop)}}=\\mathbf{${latexPercent(out.mitReop)}}`,
           ]}
         />
@@ -291,7 +291,7 @@ const TwoSidedCalculationChain = ({ modalType, results }) => {
           title="Interval-only reliability solve"
           description="The acceptance limits remain unchanged. The calculation solves only the reliability operating point needed to meet the PFA and reliability requirements."
           equations={[
-            `R_{int}^{*}=\\min\\{R:PFA(R)\\le ${latexNumber(Number(input.pfaTarget))},\\;R_{obs}(R)\\ge ${latexNumber(Number(input.reopTarget))}\\}`,
+            `R_{int}^{*}=\\min\\{R:Q(PFA(R))\\le Q(${latexNumber(Number(input.pfaTarget))}),\\;R_{obs}(R)\\ge ${latexNumber(Number(input.reopTarget))}-5\\times10^{-7}\\}`,
             `R_{int}^{*}=\\mathbf{${latexNumber(out.intReop)}}`,
           ]}
         />
@@ -339,15 +339,9 @@ const CalculationChain = ({ modalType, results }) => {
   const nominal = results.nominalValue ?? frame.center;
   const measured = results.measurementAverage ?? results.riskAverage;
   const distance =
-    finite(measured) && finite(limit) ? Math.abs(measured - limit) : NaN;
+    finite(nominal) && finite(limit) ? Math.abs(nominal - limit) : NaN;
   const tmdeHalfSpan = results.tmdeToleranceSpan / 2;
   const g = finite(out.gbMult) ? out.gbMult : NaN;
-  const rawPhysicalGB =
-    finite(nominal) && finite(limit) && finite(g)
-      ? lower
-        ? nominal - g * (nominal - limit)
-        : nominal + g * (limit - nominal)
-      : NaN;
   const physicalGB = lower ? results.gbLow : results.gbHigh;
   const activeSign = lower ? "-1" : "+1";
   const passEquation = lower
@@ -435,7 +429,7 @@ const CalculationChain = ({ modalType, results }) => {
       return (
         <MathStep
           title="Maximum achievable reliability at the test-point TUR"
-          description="The calculation evaluates the active acceptance limit using calibration uncertainty alone. This is the feasibility ceiling for the entered test-point TUR."
+          description="The calculation evaluates the active acceptance limit using calibration uncertainty alone at the actual test TUR. Assumed-reliability feasibility is checked separately at the reference TUR and specification limit."
           equations={[
             `s_{c,in}=\\frac{1}{1.96\\,TUR}=\\mathbf{${latexNumber(core?.sc_in)}}`,
             `R_{max}=P_{pass}(GB;\\mu_{obs},s_{c,in})=\\mathbf{${latexNumber(out.maxReop)}}`,
@@ -458,9 +452,9 @@ const CalculationChain = ({ modalType, results }) => {
       return (
         <MathStep
           title="Single-sided TUR calculation"
-          description="The numerator is the distance from the measured point to the active specification limit; the denominator is expanded measurement uncertainty."
+          description="The numerator is the distance from nominal to the active specification limit; the denominator is expanded measurement uncertainty. UUT bias shifts the population mean independently."
           equations={[
-            `d=|x-L|=|${latexNumber(measured)}-${latexNumber(limit)}|=\\mathbf{${latexNumber(distance)}}`,
+            `d=|N-L|=|${latexNumber(nominal)}-${latexNumber(limit)}|=\\mathbf{${latexNumber(distance)}}`,
             `TUR=\\frac{d}{U}=\\frac{${latexNumber(distance)}}{${latexNumber(results.expandedUncertainty)}}=\\mathbf{${latexNumber(results.tur)}}`,
           ]}
         />
@@ -469,9 +463,9 @@ const CalculationChain = ({ modalType, results }) => {
       return (
         <MathStep
           title="Single-sided TAR calculation"
-          description="TAR uses the distance to the active UUT limit divided by one half of the total TMDE tolerance span."
+          description="TAR uses the distance from nominal to the active UUT limit divided by one half of the total TMDE tolerance span."
           equations={[
-            `d=|x-L|=|${latexNumber(measured)}-${latexNumber(limit)}|=\\mathbf{${latexNumber(distance)}}`,
+            `d=|N-L|=|${latexNumber(nominal)}-${latexNumber(limit)}|=\\mathbf{${latexNumber(distance)}}`,
             `T_{TMDE,half}=\\frac{T_{high}-T_{low}}{2}=\\frac{${latexNumber(results.tmdeToleranceSpan)}}{2}=\\mathbf{${latexNumber(tmdeHalfSpan)}}`,
             `TAR=\\frac{d}{T_{TMDE,half}}=\\frac{${latexNumber(distance)}}{${latexNumber(tmdeHalfSpan)}}=\\mathbf{${latexNumber(results.tar)}}`,
           ]}
@@ -482,12 +476,11 @@ const CalculationChain = ({ modalType, results }) => {
       return (
         <MathStep
           title="Physical guardband conversion"
-          description={`For a ${lower ? "lower" : "upper"} limit, the recommended normalized multiplier is converted about nominal, then snapped inward to the UUT resolution.`}
+          description={`For a ${lower ? "lower" : "upper"} limit, convert the continuous candidate about nominal and round inward to resolution. Re-solve reliability and risk at that final boundary; the reported multiplier describes the final boundary.`}
           equations={[
-            lower
-              ? `GB_{raw}=N-g(N-L)=${latexNumber(nominal)}-${latexNumber(g)}(${latexNumber(nominal)}-${latexNumber(limit)})=\\mathbf{${latexNumber(rawPhysicalGB)}}`
-              : `GB_{raw}=N+g(U-N)=${latexNumber(nominal)}+${latexNumber(g)}(${latexNumber(limit)}-${latexNumber(nominal)})=\\mathbf{${latexNumber(rawPhysicalGB)}}`,
-            `GB_{display}=\\operatorname{snap}_{inward}(GB_{raw},${latexNumber(results.gbInputs?.safeRes)})=\\mathbf{${latexNumber(physicalGB)}}`,
+            lower ? "GB_{raw}=N-g_{continuous}(N-L)" : "GB_{raw}=N+g_{continuous}(U-N)",
+            `GB_{final}=\\operatorname{${lower ? "roundUp" : "roundDown"}}_{res}(GB_{raw})=\\mathbf{${latexNumber(physicalGB)}}`,
+            `g_{final}=\\frac{|GB_{final}-N|}{|L_{active}-N|}=\\mathbf{${latexNumber(g)}}`,
           ]}
         />
       );
@@ -498,8 +491,8 @@ const CalculationChain = ({ modalType, results }) => {
             title="Guardband and reliability solver"
             description="The largest feasible acceptance region is found at the required observed reliability. Limits are rounded inward to measuring resolution, then reliability and risk are recalculated for those exact limits."
             equations={[
-              `g^*=\\max\\{g\\in[0,1]:PFA(g)\\leq ${latexNumber(Number(input.pfaTarget))}\\;\\land\\;P_{obs}(g)\\geq ${latexNumber(Number(input.reopTarget))}\\}`,
-              `g^*=\\mathbf{${latexNumber(g)}}=\\mathbf{${latexPercent(g)}}`,
+              `g_{continuous}=\\max\\{g\\in[0,1]:Q(PFA(g,R_g))\\le Q(${latexNumber(Number(input.pfaTarget))}),\\;R_{obs}(g,R_g)=${latexNumber(Number(input.reopTarget))}\\}`,
+              `g_{final}=\\mathbf{${latexNumber(g)}}=\\mathbf{${latexPercent(g)}}`,
               `R_{recommended}=\\mathbf{${latexNumber(out.mitReop)}}`,
             ]}
           />
@@ -517,9 +510,9 @@ const CalculationChain = ({ modalType, results }) => {
         <>
           <MathStep
             title="Target reliability with guardbanding"
-            description="The joint solver varies guardband and reliability and retains the largest acceptance region that meets both mitigation targets."
+            description="After the continuous search and inward resolution rounding, solve the reference reliability at the final acceptance boundary and check the achieved PFA at displayed precision."
             equations={[
-              `R_{GB}^{*}=\\min\\{R:PFA(g^{*},R)\\le ${latexNumber(Number(input.pfaTarget))},\\;R_{obs}(g^{*},R)\\ge ${latexNumber(Number(input.reopTarget))}\\}`,
+              `R_{obs}(GB_{final},R_{GB}^{*})=${latexNumber(Number(input.reopTarget))},\\quad Q(PFA(GB_{final},R_{GB}^{*}))\\le Q(${latexNumber(Number(input.pfaTarget))})`,
               `R_{GB}^{*}=\\mathbf{${latexNumber(out.mitReop)}}=\\mathbf{${latexPercent(out.mitReop)}}`,
             ]}
           />
@@ -547,7 +540,7 @@ const CalculationChain = ({ modalType, results }) => {
             title="REOP-only solver"
             description="With the current guardband held fixed, first find the lowest reference reliability that meets the observed-reliability target. Increase it only if needed to meet the PFA target."
             equations={[
-              `R^*=\\min\\{R:PFA(R)\\leq ${latexNumber(Number(input.pfaTarget))}\\;\\land\\;P_{obs}(R)\\geq ${latexNumber(Number(input.reopTarget))}\\}`,
+              `R^*=\\min\\{R:Q(PFA(R))\\le Q(${latexNumber(Number(input.pfaTarget))}),\\;R_{obs}(R)\\ge ${latexNumber(Number(input.reopTarget))}-5\\times10^{-7}\\}`,
               `R^*=\\mathbf{${latexNumber(out.intReop)}}=\\mathbf{${latexPercent(out.intReop)}}`,
             ]}
           />
@@ -650,9 +643,9 @@ const metricDetails = (modalType, results) => {
         explanation:
           twoSided
             ? "For a two-sided tolerance, TUR is the full UUT tolerance width divided by twice the expanded measurement uncertainty."
-            : "For a known single-sided point, TUR is the physical distance from the measured value to the active specification limit divided by expanded measurement uncertainty.",
+            : "For a known single-sided point, TUR is the physical distance from nominal to the active specification limit divided by expanded measurement uncertainty.",
         rows: [
-          [twoSided ? "Full UUT tolerance width" : "Distance to active limit", withUnit(twoSided ? results.LUp - results.LLow : Math.abs((results.measurementAverage ?? results.riskAverage) - limit), unit)],
+          [twoSided ? "Full UUT tolerance width" : "Distance from nominal to active limit", withUnit(twoSided ? results.LUp - results.LLow : Math.abs((results.nominalValue ?? results.risk8?.meta?.frame?.center) - limit), unit)],
           ["Expanded measurement uncertainty", withUnit(results.expandedUncertainty, unit)],
           ["TUR", number(results.tur)],
         ],
@@ -664,7 +657,7 @@ const metricDetails = (modalType, results) => {
           results.tmdeLimits?.reason || `${results.tmdeLimits?.method || "TMDE specification limits"}. TAR compares specification widths. Risk probabilities use TUR and the uncertainty budget.`,
         rows: [
           ["TAR", number(results.tar)],
-          [twoSided ? "Full UUT tolerance width" : "Distance from measurement to active limit", withUnit(twoSided ? results.LUp - results.LLow : Math.abs((results.measurementAverage ?? results.riskAverage) - limit), unit)],
+          [twoSided ? "Full UUT tolerance width" : "Distance from nominal to active limit", withUnit(twoSided ? results.LUp - results.LLow : Math.abs((results.nominalValue ?? results.risk8?.meta?.frame?.center) - limit), unit)],
           [twoSided ? "Full TMDE tolerance width" : "TMDE half-span", withUnit(results.tmdeToleranceSpan == null ? undefined : results.tmdeToleranceSpan / (twoSided ? 1 : 2), unit)],
         ],
       };
@@ -674,7 +667,7 @@ const metricDetails = (modalType, results) => {
       return {
         title: `${lower ? "Lower" : "Upper"} Guardband Limit`,
         explanation:
-          "The calculation converts the recommended normalized guardband multiplier back to a physical acceptance limit and then applies the UUT resolution rule.",
+          "The calculation rounds the continuous candidate limits inward, then recalculates the reliability, risk, and final multiplier for those physical acceptance limits.",
         rows: [
           ["Physical acceptance limit", withUnit(lower ? results.gbLow : results.gbHigh, unit)],
           ["Recommended guardband", percent(results.gbMult)],

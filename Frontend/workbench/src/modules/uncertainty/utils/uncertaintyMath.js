@@ -6,6 +6,8 @@ import { prefixedUnitKey, registerUnitPrefixes, SI_PREFIX_OPTIONS } from "./siPr
 import { getUnitSearchNames } from "./unitNames";
 import * as math from "./equationMath";
 import { getDerivedEquationPlan } from "./derivedEquationCache";
+import { risk8Cholesky } from "./risk8/correlationMath8";
+import { roundLimitUpToResolution, roundLimitDownToResolution } from "./risk8/toleranceTypes8";
 
 // ==========================================
 // 1. Unit Systems & Conversions
@@ -797,8 +799,15 @@ function inverseRegularizedIncompleteBeta(p, a, b) {
  * Used as the coverage factor for a two-sided interval with p = (1 + C)/2.
  */
 export function studentTQuantile(p, df) {
-  if (!Number.isFinite(df) || df <= 0 || df > 1e7) return normalQuantile(p);
+  if (!Number.isFinite(df) || df <= 0) return normalQuantile(p);
   if (p === 0.5) return 0;
+  if (df > 1e7) {
+    // Large-finite-DOF t expansion avoids incomplete-beta cancellation. Do not
+    // round finite DOF to infinity: at 1e8 the 95% k is still ~2.37e-8 above z.
+    const z = normalQuantile(p);
+    return z + (z ** 3 + z) / (4 * df)
+      + (5 * z ** 5 + 16 * z ** 3 + 3 * z) / (96 * df ** 2);
+  }
   const tail = p < 0.5 ? p : 1 - p; // upper/lower tail probability
   const x = inverseRegularizedIncompleteBeta(2 * tail, df / 2, 0.5);
   const t = Math.sqrt((df * (1 - x)) / x);
@@ -806,15 +815,25 @@ export function studentTQuantile(p, df) {
 }
 
 /**
- * Coverage factor from degrees of freedom at a given two-sided coverage
- * probability. ν = ∞ (or NaN) collapses to the normal quantile. `probability`
- * is the one-sided upper probability p = (1 + C)/2 (default 0.975 ≡ 95 %).
+ * Excel equivalent: frmUncertaintyBudget.CoverageFactor and
+ * frmCalEquationUncertainty.CoverageFactor in the final V8.00 workbook.
+ * Both call WorksheetFunction.TInv(1 - confidence, effectiveDOF). Excel TINV
+ * truncates noninteger degrees of freedom before evaluating the two-tailed
+ * quantile. Keep the reported Welch–Satterthwaite DOF unrounded; truncate ONLY
+ * this coverage-factor argument. The generic studentTQuantile API continues to
+ * support continuous DOF for callers that explicitly need that distribution.
+ *
+ * `probability` is (1 + confidence)/2, so t(probability, floor(DOF)) is the
+ * positive two-sided TINV result. Excel errors for DOF < 1; the workbook catches
+ * that error and falls back to NormSInv. INF_DOF is 1e99 in both VBA forms.
  */
 export function getKValueFromTDistribution(dof, probability = 0.975) {
-  if (dof === Infinity || dof == null || isNaN(dof)) {
+  const excelDOF = Math.trunc(Number(dof));
+  if (!Number.isFinite(excelDOF) || excelDOF < 1 || excelDOF >= 1e98) {
     return normalQuantile(probability);
   }
-  return studentTQuantile(probability, dof);
+  const k = studentTQuantile(probability, excelDOF);
+  return Number.isFinite(k) && k > 0 ? k : normalQuantile(probability);
 }
 
 // ==========================================
@@ -853,6 +872,19 @@ export const getCorrelation = (correlations, idA, idB) => {
  * @returns {number} combined standard uncertainty (>= 0)
  */
 export const combineWithCorrelation = (contributions, correlations = {}) => {
+  // Excel equivalent: CalculateFirstOrderVarianceAndSensitivity validates the
+  // entire input correlation matrix with CholeskyDecompose before cᵀ Cov c.
+  // Checking only the resulting variance misses invalid matrices whose selected
+  // contributions happen to give a positive sum. A singular PSD matrix is valid.
+  const correlationMatrix = contributions.map((left, i) => contributions.map((right, j) => {
+    if (i === j || left.id === right.id) return 1;
+    const raw = correlations?.[correlationKey(left.id, right.id)];
+    if (raw === undefined || raw === null || raw === "") return 0;
+    const coefficient = Number(raw);
+    if (!Number.isFinite(coefficient)) throw new Error("Correlation coefficients must be numeric.");
+    return coefficient;
+  }));
+  risk8Cholesky(correlationMatrix);
   let sum = 0;
   for (let i = 0; i < contributions.length; i++) {
     const ci = contributions[i].contribution;
@@ -869,9 +901,11 @@ export const combineWithCorrelation = (contributions, correlations = {}) => {
       if (rho !== 0) sum += 2 * rho * ci * cj;
     }
   }
-  // Clamp: an over-correlated (non positive-semidefinite) matrix could drive the
-  // variance slightly negative; treat that as zero rather than returning NaN.
-  return Math.sqrt(Math.max(0, sum));
+  // Workbook permits only tiny cancellation noise after validating the matrix:
+  // If totalVar < 0 And Abs(totalVar) < 1e-15 Then totalVar = 0.
+  if (sum < 0 && Math.abs(sum) < 1e-15) sum = 0;
+  if (sum < 0) throw new Error("Taylor variance is negative. The correlation matrix is not physically valid for this calculation.");
+  return Math.sqrt(sum);
 };
 
 // ==========================================
@@ -935,19 +969,20 @@ export function normalQuantile(p) {
   return x;
 }
 
-// Round a [low, high] acceptance band INWARD to the UUT's measuring resolution
-// grid, mirroring the workbook: low rounds up (resDwn), high rounds down
-// (resUp). resolutionNative must already be in the limits' (nominal) unit.
-// A zero/invalid resolution, or a snap that would collapse/invert the band,
-// leaves the raw limits untouched.
+// Excel equivalent: frmUUTTolerance.cmdSave_Click applies
+// RoundLimitUpToResolution to LL and RoundLimitDownToResolution to UL. Keep
+// the actual rounded geometry even if the interval collapses or reverses:
+// modRiskBackend.UpdateToleranceOutputs then rejects it. Falling back to the
+// wider unsnapped band would silently solve a different calibration problem.
+// resolutionNative must already use the limits' physical unit.
 export function snapLimitsToResolution(low, high, resolutionNative) {
   if (!Number.isFinite(resolutionNative) || resolutionNative <= 0) {
     return { low, high };
   }
-  const snappedLow = resDwn(low, resolutionNative); // inward = up for the low limit
-  const snappedHigh = resUp(high, resolutionNative); // inward = down for the high limit
-  if (!(snappedLow < snappedHigh)) return { low, high };
-  return { low: snappedLow, high: snappedHigh };
+  return {
+    low: roundLimitUpToResolution(low, resolutionNative),
+    high: roundLimitDownToResolution(high, resolutionNative),
+  };
 }
 
 // ==========================================
@@ -1355,15 +1390,17 @@ export const getToleranceErrorSummary = (toleranceObject, referencePoint, option
 };
 
 export const getAbsoluteLimits = (toleranceObject, referencePoint, { snap = true, unitContext = "measurement" } = {}) => {
+  const singleSided = toleranceObject?.singleSided || toleranceObject?.tolerances?.singleSided;
+  const singleLimit = parseFloat(singleSided?.limit);
+  const hasAbsoluteSingleLimit = Number.isFinite(singleLimit);
   const validateUnits = unitContext === "budget" ? budgetToleranceUnitMismatch : toleranceUnitMismatch;
   const unitError = validateUnits(toleranceObject, referencePoint?.unit, unitSystem);
   if (unitError) return { high: "N/A", low: "N/A", reason: unitError };
   if (
     !toleranceObject || toleranceObject.rangeSelection === "required" ||
     !referencePoint ||
-    referencePoint.value === "" ||
-    referencePoint.value === null ||
-    referencePoint.value === undefined
+    (!hasAbsoluteSingleLimit && (referencePoint.value === "" ||
+      referencePoint.value === null || referencePoint.value === undefined))
   ) {
     return { high: "N/A", low: "N/A" };
   }
@@ -1372,10 +1409,8 @@ export const getAbsoluteLimits = (toleranceObject, referencePoint, { snap = true
   // +/- deviation. Show that active side directly and leave the unbounded side
   // explicit; falling through to an empty breakdown previously displayed the
   // nominal on both sides, which hid the actual Type 3/4 geometry.
-  const singleSided =
-    toleranceObject.singleSided || toleranceObject.tolerances?.singleSided;
-  const singleLimit = parseFloat(singleSided?.limit);
-  if (Number.isFinite(singleLimit)) {
+  // Types 5/6 need no nominal: the direct physical limit is sufficient.
+  if (hasAbsoluteSingleLimit) {
     const nominalUnit = referencePoint.unit;
     const limitUnit = singleSided.unit || nominalUnit;
     let limitInNominalUnit = singleLimit;
@@ -1388,6 +1423,15 @@ export const getAbsoluteLimits = (toleranceObject, referencePoint, { snap = true
       }
     } catch {
       return { high: "N/A", low: "N/A" };
+    }
+    // frmUUTTolerance.cmdSave_Click rounds the initial direct limit before
+    // any risk calculation: lower -> up; upper -> down. Use the same converted
+    // physical limit for display and the app-to-workbook input bridge.
+    const resolution = snap ? resolveResolutionNative(toleranceObject, nominalUnit) : 0;
+    if (resolution > 0) {
+      limitInNominalUnit = singleSided.direction === "low"
+        ? roundLimitUpToResolution(limitInNominalUnit, resolution)
+        : roundLimitDownToResolution(limitInNominalUnit, resolution);
     }
     const label = getUnitDisplayLabel(nominalUnit || "");
     const formatted = `${limitInNominalUnit.toPrecision(7)} ${label}`;
@@ -1602,7 +1646,7 @@ export function resolveResolutionNative(toleranceObject, nominalUnit) {
   const resRaw = parseFloat(
     toleranceObject?.measuringResolution ?? toleranceObject?.resolution,
   );
-  if (isNaN(resRaw) || resRaw <= 0) return 0;
+  if (!Number.isFinite(resRaw) || resRaw <= 0) return 0;
   const resUnit =
     toleranceObject?.measuringResolutionUnit ||
     toleranceObject?.resolutionUnit ||
@@ -2098,7 +2142,10 @@ export const calculateDerivedUncertainty = (
     })) };
   }
   const strictUnitValidation = Boolean(calculationOptions?.strictUnitValidation);
-  const allowFiniteDifference = Boolean(calculationOptions?.allowFiniteDifference);
+  // Explicit app-only extension for residual-bias source aggregation. Excel
+  // accepts an authored net bias and has no equivalent aggregation routine.
+  // The uncertainty-budget path never sets this; it uses finite differences.
+  const useSymbolicSensitivity = calculationOptions?.sensitivityMethod === "symbolic";
   // 1. Basic Validation
   if (!equationString || !variableMappings || !tmdeTolerances) {
     console.error("calculateDerivedUncertainty missing essential inputs", {
@@ -2467,39 +2514,53 @@ export const calculateDerivedUncertainty = (
 
       const ui_base = inputData.ui_base;
 
-      // MathJS derivative is retained for ordinary first-order budgets. Risk
-      // 8.0 Monte Carlo still needs local sensitivities only for its approximate
-      // Welch-Satterthwaite denominator; the workbook obtains those with a
-      // central finite difference, which also supports abs/min/max and other
-      // expressions MathJS cannot symbolically differentiate.
+      // Final V8.00 Excel equivalent:
+      // frmCalEquationUncertainty.CalculateFirstOrderVarianceAndSensitivity:
+      //   h = TaylorDerivativeStepSize(mean, standardUncertainty)
+      //   c = (f(mean + h) - f(mean - h)) / (2*h)
+      // In workbook-budget mode the symbolic expression is explanatory only;
+      // it does not replace Excel's coefficient for uncertainty or effective DOF.
+      // The explicit symbolic option belongs only to the separately documented
+      // app residual-bias extension. Finite differences also permit min/max.
       let derivativeNode = null;
       let derivativeStr = "";
-      let sensitivityCoeffBase;
+      let symbolicSensitivity = null;
       try {
         const derivative = equationPlan.getDerivative(variableSymbol);
         derivativeNode = derivative.node;
         derivativeStr = derivative.expression;
-        sensitivityCoeffBase = derivative.compiled.evaluate(nominalScope);
-      } catch (derivativeError) {
-        if (!allowFiniteDifference) throw derivativeError;
-        const mean = nominalScope[variableSymbol];
-        let scale = Math.max(Math.abs(mean), Math.abs(ui_base));
-        if (scale <= 0) scale = 1;
-        const h = Math.max(scale * 1e-6, 1e-15);
-        const plusScope = { ...nominalScope, [variableSymbol]: mean + h };
-        const minusScope = { ...nominalScope, [variableSymbol]: mean - h };
-        const yPlus = equationPlan.evaluate(plusScope);
-        const yMinus = equationPlan.evaluate(minusScope);
-        sensitivityCoeffBase = (yPlus - yMinus) / (2 * h);
-        derivativeStr = `central finite difference (h=${h})`;
+        if (useSymbolicSensitivity) symbolicSensitivity = derivative.compiled.evaluate(nominalScope);
+      } catch (error) {
+        if (useSymbolicSensitivity && !calculationOptions?.allowFiniteDifference) throw error;
+        // A symbolic derivative is optional audit/second-order information.
+        // App bias propagation may opt into the legacy numerical fallback.
       }
-
-      if (isNaN(sensitivityCoeffBase)) {
-        if (sensitivityCoeffBase && typeof sensitivityCoeffBase === 'object') {
-          throw new Error(`Derivative for '${variableSymbol}' is Complex. Check equation domain.`);
+      const mean = nominalScope[variableSymbol];
+      const inputToSi = unitSystem.units[inputData.unit]?.to_si || 1;
+      // Apply Excel's step rule in the authored input unit, then translate the
+      // perturbation to this app's common base-unit evaluation scope.
+      let scaleNative = Math.max(Math.abs(mean / inputToSi), Math.abs(ui_base / inputToSi));
+      if (scaleNative <= 0) scaleNative = 1;
+      const hNative = Math.max(scaleNative * 1e-6, 1e-15);
+      const h = hNative * inputToSi;
+      const usingSymbolicSensitivity = useSymbolicSensitivity && symbolicSensitivity !== null;
+      let sensitivityCoeffBase = 0;
+      if (usingSymbolicSensitivity) {
+        sensitivityCoeffBase = symbolicSensitivity;
+      } else if (ui_base > 0 || useSymbolicSensitivity) {
+        // Unlike workbook uncertainty, an app residual bias can exist with u=0.
+        // Its explicit symbolic fallback still needs the local slope then.
+        const yPlus = equationPlan.evaluate({ ...nominalScope, [variableSymbol]: mean + h });
+        const yMinus = equationPlan.evaluate({ ...nominalScope, [variableSymbol]: mean - h });
+        if (typeof yPlus !== "number" || typeof yMinus !== "number" || !Number.isFinite(yPlus) || !Number.isFinite(yMinus)) {
+          throw new Error(`Equation did not evaluate numerically for a perturbation of input '${variableSymbol}'. Check equation domain.`);
         }
-        throw new Error(`Could not evaluate derivative for '${variableSymbol}' (Result: NaN).`);
+        sensitivityCoeffBase = (yPlus - yMinus) / (2 * h);
       }
+      if (!Number.isFinite(sensitivityCoeffBase)) {
+        throw new Error(`Could not evaluate finite-difference sensitivity for '${variableSymbol}'.`);
+      }
+      if (!derivativeStr) derivativeStr = `central finite difference (h=${hNative} ${inputData.unit || "units"})`;
 
       // Contribution to uncertainty in Base Units
       const contribution_base = sensitivityCoeffBase * ui_base;
@@ -2550,7 +2611,6 @@ export const calculateDerivedUncertainty = (
 
       // Convert Sensitivity for Display: d(TargetUnit) / d(InputNativeUnit)
       // ci_display = ci_base * (InputToSi / TargetToSi)
-      const inputToSi = unitSystem.units[inputData.unit]?.to_si || 1;
       const ci_display = sensitivityCoeffBase * (inputToSi / targetToSi);
 
       // Convert Contribution for Display (Target Unit)
@@ -2564,6 +2624,8 @@ export const calculateDerivedUncertainty = (
         ui_absolute_base: ui_base, 
         ci: ci_display, // Sensitivity scaled to units
         derivativeString: derivativeStr,
+        sensitivityMethod: usingSymbolicSensitivity ? "symbolic" : "central finite difference",
+        sensitivityStep_native: usingSymbolicSensitivity ? null : hNative,
         contribution_native: contribution_target, // This matches the "Native" field expected by UI
         // SIGNED contribution in base SI units. Used by combineWithCorrelation
         // so cross-correlation terms carry the correct sign (a negative
@@ -3382,60 +3444,21 @@ function PFAIter(sRiskType, dMeasRel, dAvg, dTolLow, dTolUp, dMeasUnc) {
 // EXPORTED FUNCTIONS
 // ---------------------------------------------------------
 
-// NOTE: resDwn/resUp intentionally mirror the spreadsheet's VBA ResDwn/ResUp
-// bit-for-bit, INCLUDING a known floating-point quirk: a limit that is exactly
-// on the resolution grid (e.g. 0.012750 = 1275 counts) divides to 1274.9999999…
-// under IEEE-754, so the trunc/floor drops a whole count (-> 0.012740). That can
-// surface a "guard band" (e.g. GB Mult 95.92%) where the solver actually returned
-// no guard band. We preserve this on purpose so results match the spreadsheet of
-// record exactly. Do NOT add grid-snapping here — see the GB Mult discrepancy
-// investigation (it would make us diverge from Excel by ~1 resolution count).
+// Historical public names retained for saved callers. Final V8.00 names these
+// operations RoundLimitUpToResolution / RoundLimitDownToResolution (UUT form)
+// and RB_RoundUpToResolution / RB_RoundDownToResolution (risk backend).
+// A lower acceptance limit rounds toward +infinity, even when it is negative;
+// an upper limit rounds toward -infinity. Zero is a valid grid point. Preserve
+// the workbook's relative near-integer tolerance and decimal cleanup by using
+// the shared port rather than a second, subtly different rounding algorithm.
 export function resDwn(dVal, dRes) {
-  // Pass non-finite values straight through so a failed guard-band solve shows
-  // as N/A rather than being silently floored to a misleading number.
-  if (!Number.isFinite(dVal)) return dVal;
-  if (!Number.isFinite(dRes) || dRes <= 0) return dVal;
-  if (dVal === 0) return dVal;
-  // Snap to the grid when the value is already within floating-point dust of a
-  // grid line. A resolution that round-trips through unit conversion (e.g.
-  // 0.1 psig -> SI -> psig = 0.10000000000000002) makes an on-grid limit like
-  // 10.5 divide to 104.9999...; floor() then drops it a full resolution count
-  // to 10.4, corrupting the acceptance band (and every TUR/TAR/PFA/PFR built on
-  // it). Correcting the dust here keeps a genuinely on-grid limit in place while
-  // still rounding truly off-grid values inward below.
-  const qd = dVal / dRes;
-  const qdNearest = Math.round(qd);
-  if (Math.abs(qd - qdNearest) < 1e-9) return qdNearest * dRes;
-  let x = Math.floor(dVal / dRes) * dRes;
-  const dZero = 0.000001;
-  if (Math.abs(Math.trunc(dVal / dRes) - dVal / dRes) > dZero) {
-    if (dVal > 0) x = x + dRes;
-  }
-  // Guard: a resolution coarser than the limit can round the value to exactly
-  // 0. Never collapse a non-zero guard-band limit to zero (that produced the
-  // GBLOW/GBUP "0" display bug); fall back to the unrounded value instead.
-  if (x === 0 && dVal !== 0) return dVal;
-  return x;
+  if (!Number.isFinite(dVal) || !Number.isFinite(dRes) || dRes <= 0) return dVal;
+  return roundLimitUpToResolution(dVal, dRes);
 }
 
 export function resUp(dVal, dRes) {
-  if (!Number.isFinite(dVal)) return dVal;
-  if (!Number.isFinite(dRes) || dRes <= 0) return dVal;
-  if (dVal === 0) return dVal;
-  // See resDwn: snap to the grid when within floating-point dust of a grid line
-  // so an on-grid upper limit (e.g. 10.5 with a round-tripped 0.1 resolution)
-  // isn't truncated a full resolution count down to 10.4.
-  const qu = dVal / dRes;
-  const quNearest = Math.round(qu);
-  if (Math.abs(qu - quNearest) < 1e-9) return quNearest * dRes;
-  let x = Math.trunc(dVal / dRes) * dRes;
-  const dZero = 0.000001;
-  if (Math.abs(Math.trunc(dVal / dRes) - dVal / dRes) > dZero) {
-    if (dVal < 0) x = x - dRes;
-  }
-  // See resDwn: don't let a coarse resolution collapse a non-zero limit to 0.
-  if (x === 0 && dVal !== 0) return dVal;
-  return x;
+  if (!Number.isFinite(dVal) || !Number.isFinite(dRes) || dRes <= 0) return dVal;
+  return roundLimitDownToResolution(dVal, dRes);
 }
 
 export function calcTAR(rngNominal, rngAvg, rngTolLow, rngTolUp, rngSTDLow, rngSTDUp) {

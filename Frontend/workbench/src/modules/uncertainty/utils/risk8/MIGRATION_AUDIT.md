@@ -1,5 +1,9 @@
 # Risk calculation audit — Excel v8.00 Beta.7
 
+> Historical record. The current supplied-release reference, source crosswalk,
+> corrections and evidence limits are in [FINAL_V8_AUDIT.md](FINAL_V8_AUDIT.md).
+> The execution counts below describe the original Beta.7 audit only.
+
 Updated 2026-09-16, including the native-unit bias workflow audit. This supersedes
 the earlier Beta.4 cutover notes.
 

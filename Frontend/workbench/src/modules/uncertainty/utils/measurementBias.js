@@ -162,11 +162,20 @@ export function resolveMeasurementBias(point = {}, session = {}, calculatedAvera
     let breakdown = [];
     if (point.measurementType === "derived" && active.some(row => row.variableSymbol || row.variableType)) {
       const instances = refreshTmdeInstancesFromMasters(reconcileTmdeInstances(point.tmdeTolerances || [], session.tmdes || []), session.tmdes || []);
-      // Reuse the uncertainty evaluator's nominal units and SIGNED derivatives.
-      // This is first-order propagation b_y = sum(q_i * df/dx_i * b_i), not RSS
-      // and not f(x+b)-f(x). Large biases/nonlinear equations need user review.
+      // App-only source-bias aggregation: b_y = sum(q_i * df/dx_i * b_i).
+      // Excel modRiskBackend receives one authored Cal_Bias scalar (scratch L,
+      // MAIN AD); it does not calculate individual source biases. Preserve this
+      // app contract's analytical signed derivative independently of the final
+      // workbook's finite-difference UNCERTAINTY coefficients. Otherwise the
+      // numerical perturbation would alter the authored mean shift, and a source
+      // with zero uncertainty could incorrectly lose its nonzero bias.
+      // Reuse the evaluator's unit/nominal mapping, explicitly request symbolic
+      // sensitivity, and retain the existing finite-difference fallback only
+      // when the equation cannot be differentiated symbolically. This is not
+      // RSS or f(x+b)-f(x); large biases/nonlinear equations need user review.
       const derived = calculateDerivedUncertainty(point.equationString, point.variableMappings, instances,
-        { ...reference, variableNominals: point.variableNominals || {} }, resolvePointBudgetComponents(point, session), { allowFiniteDifference: true });
+        { ...reference, variableNominals: point.variableNominals || {} }, resolvePointBudgetComponents(point, session),
+        { sensitivityMethod: "symbolic", allowFiniteDifference: true });
       // Editing a variable's name/nominal temporarily leaves its sensitivity
       // unresolved. Preserve that pending state for the UI: risk still fails
       // closed, but ordinary inline editing must not launch a modal warning.

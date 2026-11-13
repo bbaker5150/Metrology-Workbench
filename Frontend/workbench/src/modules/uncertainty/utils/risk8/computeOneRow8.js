@@ -1,11 +1,11 @@
 /**
  * computeOneRow8.js — pure port of modRiskBackend › ComputeOneRow
  * =============================================================================
- * SOURCE OF TRUTH: `modRiskBackend` › ComputeOneRow and its row-output helpers
+ * SOURCE OF TRUTH: final v8.00 `modRiskBackend` › ComputeOneRow and its row-output helpers
  * (HandleUnknownMeasuredValue, CoreStatusText, StatusWithIssue, the interval
  * read helpers). The worksheet macro reads a fixed-column scratch row and writes
  * results back into cells; this port takes a plain inputs object and returns a
- * plain outputs object keyed by meaning, so the bridge (Phase 4) can map to/from
+ * plain outputs object keyed by meaning, so the bridge can map to/from
  * the app's data and the RISK_DATA / MAIN tables.
  *
  * The fixed-column contract (matches RB_CopyMainInputsToScratch /
@@ -22,9 +22,11 @@
  *
  * Blank/cleared cells are represented by "" (empty string); flag strings like
  * "check inputs" / "input error" pass through as strings; numeric outputs are
- * numbers. Beta.7 integrates inward resolution rounding into mitigation and
+ * numbers. Final v8.00 integrates inward resolution rounding into mitigation and
  * re-solves reliability/probabilities before publishing any recommendation.
- * See resolutionMitigation8.js for ApplyResolutionToMitigation_DS / _SS.
+ * This behavior was already ported from Beta.7; it must not regress to Beta.4's
+ * display-only rounding. See resolutionMitigation8.js and FINAL_V8_AUDIT.md for
+ * the final source fingerprint, procedure crosswalk, and saved Excel cases.
  */
 
 import {
@@ -118,7 +120,7 @@ function statusWithIssue(baseStatus, issueText) {
 }
 
 // ── modRiskBackend › ReadOriginalInterval (validation half) ──────────────────
-// VBA (see modRiskBackend.bas lines ~1987-2008): blank -> "interval missing";
+// Final v8.00 ReadOriginalInterval: blank -> "interval missing";
 // non-numeric -> "interval input error"; <= 0 -> "interval input error".
 function readOriginalInterval(v) {
   if (isBlankCell(v)) return { ok: false, value: 0, issue: "interval missing" };
@@ -129,7 +131,7 @@ function readOriginalInterval(v) {
 }
 
 // ── modRiskBackend › ReadWeibullBeta (validation half) ───────────────────────
-// VBA (see modRiskBackend.bas lines ~2010-2031): blank -> "beta missing";
+// Final v8.00 ReadWeibullBeta: blank -> "beta missing";
 // non-numeric -> "beta input error"; <= 0 -> "beta input error".
 function readWeibullBeta(v) {
   if (isBlankCell(v)) return { ok: false, value: 0, issue: "beta missing" };
@@ -140,7 +142,7 @@ function readWeibullBeta(v) {
 }
 
 // ── modRiskBackend › RowInputsBlank ──────────────────────────────────────────
-// VBA (see modRiskBackend.bas lines ~1666-1684): true when every physical input
+// Final v8.00 RowInputsBlank: true when every physical input
 // column is blank (M/N and the calculated outputs are excluded).
 function rowInputsBlank(input) {
   const cols = [
@@ -152,7 +154,7 @@ function rowInputsBlank(input) {
 }
 
 // ── modRiskBackend › HandleUnknownMeasuredValue ──────────────────────────────
-// VBA (see modRiskBackend.bas lines ~1905-1958). Types 5/6 are a PFA-only
+// Final v8.00 HandleUnknownMeasuredValue: Types 5/6 are a PFA-only
 // worst-case boundary method: no core risk is computed, AL (gbMult) is left
 // blank, and AM/AN hold the physical guard-band acceptance limit. The PFA target
 // (AA) supplies boundary alpha; AO is the achieved PFA after resolution rounding.
@@ -318,7 +320,7 @@ export function computeOneRow(input) {
 
     if (!r.OK) throw _BAD_INPUT;
 
-    // Beta.7 stops infeasible assumptions before publishing core risk or mitigation.
+    // Final v8.00 ComputeOneRow stops infeasible assumptions before publishing risk.
     // maxREOP_solve is the calibration floor at the reference TUR; the displayed
     // maximum remains maxREOP_input, evaluated using the actual calibration TUR.
     if (REOP_ref > r.maxREOP_solve + EPS) {
@@ -374,6 +376,9 @@ export function computeOneRow(input) {
       RR = recommendMitigationSS(TUR_in, REOP_ref, TUR_solve, activeGB, activeUUT, mode, mu, XCAL, reqPFA, reqREOP);
     }
 
+    // Excel order is essential: continuous candidate -> physical resolution ->
+    // revised RR -> outputs -> aging interval. Rounding only AM/AN after this
+    // block recreates the Beta.4 mismatch documented in FINAL_V8_AUDIT.md.
     let gb;
     if (RR.Found) {
       gb = applyResolutionToMitigation(input, tolType, RR, {
@@ -394,7 +399,12 @@ export function computeOneRow(input) {
       out.mitReop = RR.recREOP;
       out.statusMit = RR.Status;
 
-      // Interval stays on the ORIGINAL/current GB curve (not the recommended GB).
+      // Excel ComputeOneRow / WriteIntervalFromFinalRisk: re-evaluate the revised
+      // reference REOP on the ORIGINAL acceptance curve for aging. RR.pObs is
+      // acceptance at the new GB and belongs in mitObs, not the E1 log ratio.
+      // At the saved 160 point: original obs=.794505986866, aging final
+      // obs=.945063333083 -> 18*ln(final)/ln(original)=4.42133194649,
+      // while mitObs remains .85 at the final rounded [.75*-1, .75] limits.
       let RFinalGB;
       if (mode === MODE_TWO_SIDED) {
         RFinalGB = evaluateCaseDS(TUR_in, RR.recREOP, TUR_solve, GB_L, GB_H, mu, LTL, UTL, XCAL);

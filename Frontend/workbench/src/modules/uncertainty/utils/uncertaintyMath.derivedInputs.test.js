@@ -319,3 +319,29 @@ describe("calculateDerivedUncertainty input contributors", () => {
     expect(result.combinedUncertaintyNative).toBeCloseTo(0.5, 10);
   });
 });
+
+
+describe("final V8.00 central-difference equation sensitivities", () => {
+  it("supports a numeric min expression without requiring a symbolic derivative", () => {
+    const result = calculateDerivedUncertainty(
+      "min(x, 2)", { x: "Input" },
+      [makeTmdeAt("x", "Input", 1)], { value: 1, unit: "V" },
+    );
+    expect(result.error).toBeNull();
+    expect(result.combinedUncertaintyNative).toBeCloseTo(1 / Math.sqrt(3), 8);
+    expect(result.breakdown[0].sensitivityMethod).toBe("central finite difference");
+    expect(result.breakdown[0].sensitivityStep_native).toBe(1e-6);
+  });
+
+  it("keeps symbolic derivation for audit but computes the workbook finite-difference coefficient", () => {
+    const result = calculateDerivedUncertainty(
+      "x^2", { x: "Input" },
+      [makeTmdeAt("x", "Input", 3)], { value: 9, unit: "V" },
+    );
+    expect(result.error).toBeNull();
+    expect(result.breakdown[0].derivativeString).toMatch(/2.*x/);
+    expect(result.breakdown[0].sensitivityMethod).toBe("central finite difference");
+    expect(result.breakdown[0].sensitivityStep_native).toBe(3e-6);
+    expect(result.breakdown[0].ci).toBeCloseTo(6, 8);
+  });
+});

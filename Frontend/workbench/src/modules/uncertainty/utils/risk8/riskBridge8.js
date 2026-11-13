@@ -2,14 +2,16 @@
  * riskBridge8.js — front-end / back-end bridge for the 8.0 risk engine
  * =============================================================================
  * SOURCE OF TRUTH: `modRiskBackend` › the "Front-End / Back-End Bridge" section
- * (ComputeRiskForMainRow, RB_RowHasMinimumRiskInputs, RB_ApplyResolutionToScratchGB,
+ * (ComputeRiskForMainRow, RB_RowHasMinimumRiskInputs,
  * RB_CopyScratchOutputsToMain / ...ToRiskTable).
  *
  * In the workbook this layer reads a row of tblMain, copies the inputs onto a
- * hidden fixed-column scratch row, runs ComputeOneRow (including resolution and risk recalculation), then writes outputs back to
+ * hidden fixed-column scratch row, loads UUT resolution in AE, runs ComputeOneRow
+ * (including resolution and risk recalculation), then writes outputs back to
  * tblMain and tblRisk. This module is the pure equivalent: it takes the
  * fixed-column input object (see computeOneRow8.js), applies the same minimum-
- * input gate and integrated resolution calculation, and returns the outputs both raw and keyed by
+ * input gate and integrated resolution calculation, and returns outputs raw and
+ * keyed by
  * the workbook's MAIN/RISK column names.
  *
  * NOTE (for the reviewer): this module deliberately does NOT compute TUR or
@@ -63,11 +65,11 @@ export const RISK8_OUTPUT_FIELD_MAP = Object.freeze({
 });
 
 // ── modRiskBackend › RB_RowHasMinimumRiskInputs ──────────────────────────────
-// VBA (see modRiskBackend.bas lines ~2600-2649). Gate that decides whether a row
+// Final V8.00 modRiskBackend › RB_RowHasMinimumRiskInputs decides whether a row
 // is complete enough to compute; if not, the workbook clears the row's risk
 // outputs and deletes its RISK record.
 //
-// APPROVED BRIDGE CORRECTION (still needed in Beta.7): the workbook's literal bridge requires TUR,
+// EXISTING APP EXCEPTION (still needed in final V8.00): the literal bridge requires TUR,
 // Assumed_REOP, PFA_Required and REOP_Required for every type. Its dedicated
 // HandleUnknownMeasuredValue path, however, requires TUR to be blank and only
 // consumes ExpandedUncertainty (U_cal), the active physical limit, and the PFA
@@ -75,7 +77,7 @@ export const RISK8_OUTPUT_FIELD_MAP = Object.freeze({
 // handler is authoritative. We therefore validate unknown-measurement rows
 // against the inputs that handler actually uses, before applying the generic
 // TUR/REOP gate to types 1-4. This is a deliberate, documented correction to
-// Beta.7's unreachable MAIN-table path, not an unreviewed math change.
+// V8.00's unreachable MAIN-table path, not literal whole-workbook parity.
 export function rowHasMinimumRiskInputs(input) {
   // The workbook reads MAIN.TolType (written by the tolerance form). We derive
   // the same type from the physical limits so the gate is self-contained.
@@ -132,12 +134,13 @@ export function rowHasMinimumRiskInputs(input) {
 }
 
 // ── modRiskBackend › RB_ApplyResolutionToScratchGB ───────────────────────────
-// VBA (see modRiskBackend.bas lines ~2709-2758). Snaps the physical guard-band
+// The VBA helper remains in the final module but is not in its live call path.
+// It snaps the physical guard-band
 // acceptance limits to the UUT's measuring resolution: the lower limit rounds UP
 // (inward), the upper limit rounds DOWN (inward). If the snapped limits cross,
 // both are replaced with "resolution too coarse". Non-numeric GB cells (e.g.
 // "check inputs") and a missing/invalid resolution are left untouched.
-// Historical standalone rounding utility; not called by the Beta.7 bridge.
+// Historical standalone rounding utility; not called by the final V8.00 bridge.
 // Rounding after the risk solve would leave stale probabilities and intervals.
 // Mutates and returns `out`.
 export function applyResolutionToGB(out, resolution) {

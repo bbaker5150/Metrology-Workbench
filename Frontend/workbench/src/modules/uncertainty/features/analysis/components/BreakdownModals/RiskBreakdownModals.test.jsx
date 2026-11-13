@@ -298,3 +298,33 @@ describe("Risk 8.0 breakdown modal", () => {
     expect(screen.getByText(/PFR with guardbanding: 3.2100%/i)).toBeInTheDocument();
   });
 });
+
+test.each(["tur", "tar"])("%s breakdown keeps nominal geometry separate from UUT bias", (modalType) => {
+  render(<RiskBreakdownModal isOpen onClose={vi.fn()} modalType={modalType}
+    data={{ results: { ...results, measurementAverage: 10.4, riskAverage: 10.4 }, inputs: {} }} />);
+  const distance = screen.getByText("Distance from nominal to active limit");
+  expect(distance.nextElementSibling).toHaveTextContent("1.00000 V");
+  const equations = Array.from(document.querySelectorAll('annotation[encoding="application/x-tex"]'), node => node.textContent).join("\n");
+  expect(equations).toContain("d=|N-L|");
+  expect(equations).not.toContain("d=|x-L|");
+});
+
+test("rounded flowmeter GB is identified as the final width, not the continuous optimum", () => {
+  const engine = computeKnownTwoSidedRisk8({
+    nominal: 160, riskAverage: 160, lowerLimit: 159.6, upperLimit: 160.4,
+    expandedUncertaintyNative: 0.31121426750953196, tur: 1.2852881174149715,
+    assumedReop: .85, requiredReop: .85, turNeeded: 4, reqPFA: .02,
+    originalInterval: 18, resolution: .1,
+  });
+  expect(engine.out.gbMult).toBeCloseTo(.75, 10);
+  render(<RiskBreakdownModal isOpen onClose={vi.fn()} modalType="gbmult"
+    data={{ results: { ...toKnownMeasurementSummary(engine), risk8: engine,
+      nominalValue: 160, LLow: 159.6, LUp: 160.4, nativeUnit: "gpm",
+      gbInputs: { reqPFA: .02, measRelTarget: .85, safeRes: .1 } }, inputs: {} }} />);
+  expect(screen.getByText(/reported multiplier is the final rounded width ratio/i)).toBeInTheDocument();
+  const equations = Array.from(document.querySelectorAll('annotation[encoding="application/x-tex"]'), node => node.textContent).join("\n");
+  expect(equations).toContain("g_{continuous}");
+  expect(equations).toContain("g_{final}=\\mathbf{0.7500000}");
+  expect(equations).toContain("Q(PFA(g,R_g))");
+  expect(equations).not.toContain("g^*=\\mathbf{0.7500000}");
+});

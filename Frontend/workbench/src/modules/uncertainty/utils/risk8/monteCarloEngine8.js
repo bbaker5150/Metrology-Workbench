@@ -4,7 +4,7 @@
  * STATISTICAL VALIDATION NOTE
  * ---------------------------
  * This is a literal, reviewable port of `frmCalEquationUncertainty.RunMonteCarlo`
- * from Unc Tool v8.00-Beta.4-Unlocked.xlsm.  It intentionally does NOT reuse the
+ * from the final V8.00 workbook (unchanged from Beta.4 in that module). It does not reuse the
  * application's former GUM-S1/empirical-interval engine.  The workbook method is:
  *
  *   1. Treat every equation input as Normal(mean = x_i, standard deviation = u_i).
@@ -19,11 +19,15 @@
  *
  * The workbook calls VBA `Randomize`, so production intentionally uses
  * `Math.random`.  Tests inject a deterministic RNG; that seam is for validation
- * only and is not persisted as an application seed.
+ * only and is not persisted as an application seed. JavaScript and VBA use
+ * different random generators: parity covers the distribution and propagation
+ * method, not identical individual draws or identical unseeded results.
  */
 
 import * as math from "../equationMath";
-import { getCorrelation } from "../uncertaintyMath";
+import { correlationKey } from "../uncertaintyMath";
+import { risk8Cholesky } from "./correlationMath8";
+export { risk8Cholesky } from "./correlationMath8";
 
 export const RISK8_MC_DEFAULT_TRIALS = 10000;
 export const RISK8_MC_MIN_TRIALS = 100;
@@ -49,19 +53,25 @@ export function risk8MonteCarloInputHash({
 }
 
 export function normalizeRisk8MonteCarloTrials(value) {
-  if (value === "" || value === null || value === undefined) {
+  if (value == null || (typeof value === "string" && value.trim() === "")) {
     return RISK8_MC_DEFAULT_TRIALS;
   }
   const numeric = Number(value);
-  if (!Number.isFinite(numeric) || !Number.isInteger(numeric)) {
-    throw new Error("Monte Carlo trials must be a whole number.");
+  if (!Number.isFinite(numeric) || !["number", "string"].includes(typeof value)) {
+    throw new Error("Monte Carlo trials must be numeric.");
   }
-  if (numeric < RISK8_MC_MIN_TRIALS) {
-    throw new Error(
-      `Monte Carlo trials must be at least ${RISK8_MC_MIN_TRIALS}.`,
-    );
+  // ReadTrials uses VBA CLng before checking the minimum: nearest integer,
+  // with exact half-integers rounded to the even integer.
+  const floor = Math.floor(numeric);
+  const fraction = numeric - floor;
+  const count = fraction === 0.5 ? floor + (Math.abs(floor % 2)) : Math.round(numeric);
+  if (count < RISK8_MC_MIN_TRIALS) {
+    throw new Error(`Monte Carlo trials must be at least ${RISK8_MC_MIN_TRIALS}.`);
   }
-  return numeric;
+  if (count > 2147483647) {
+    throw new Error("Monte Carlo trials exceed the workbook's integer range.");
+  }
+  return count;
 }
 
 /** Workbook-equivalent Box-Muller draw.  VBA consumes two uniforms per draw
@@ -73,67 +83,21 @@ export function risk8StandardNormal(rng = Math.random) {
   return Math.sqrt(-2 * Math.log(u1)) * Math.cos(2 * Math.PI * u2);
 }
 
-/**
- * Strict workbook-style Cholesky decomposition.  A singular positive
- * semidefinite matrix is allowed; an invalid physical correlation matrix is
- * rejected instead of silently repaired or blended toward identity.
- */
-export function risk8Cholesky(correlationMatrix) {
-  const n = correlationMatrix.length;
-  const lower = Array.from({ length: n }, () => new Float64Array(n));
-  const tolerance = 1e-12;
-
-  for (let i = 0; i < n; i += 1) {
-    if (!Array.isArray(correlationMatrix[i]) && !(correlationMatrix[i] instanceof Float64Array)) {
-      throw new Error("The correlation matrix must be square.");
-    }
-    if (correlationMatrix[i].length !== n) {
-      throw new Error("The correlation matrix must be square.");
-    }
-    for (let j = 0; j <= i; j += 1) {
-      let value = Number(correlationMatrix[i][j]);
-      if (!Number.isFinite(value)) {
-        throw new Error("Correlation coefficients must be numeric.");
-      }
-      for (let k = 0; k < j; k += 1) {
-        value -= lower[i][k] * lower[j][k];
-      }
-
-      if (i === j) {
-        if (Math.abs(Number(correlationMatrix[i][i]) - 1) > 1e-9) {
-          throw new Error("The correlation matrix diagonal must be 1.");
-        }
-        if (value < -tolerance) {
-          throw new Error("The correlation matrix is not physically valid.");
-        }
-        lower[i][j] = value < 0 ? 0 : Math.sqrt(value);
-      } else {
-        if (Math.abs(Number(correlationMatrix[i][j])) > 1) {
-          throw new Error("Correlation coefficients must be between -1 and +1.");
-        }
-        if (Math.abs(lower[j][j]) < tolerance) {
-          if (Math.abs(value) > tolerance) {
-            throw new Error("The correlation matrix is not physically valid.");
-          }
-          lower[i][j] = 0;
-        } else {
-          lower[i][j] = value / lower[j][j];
-        }
-      }
-    }
-  }
-  return lower;
-}
 
 function buildCorrelationMatrix(inputs, correlations) {
   return inputs.map((left, i) =>
     inputs.map((right, j) => {
       if (i === j) return 1;
-      return getCorrelation(
-        correlations || {},
-        left.componentId || left.symbol,
-        right.componentId || right.symbol,
-      );
+      const leftId = left.componentId || left.symbol;
+      const rightId = right.componentId || right.symbol;
+      if (leftId === rightId) return 1;
+      const raw = correlations?.[correlationKey(leftId, rightId)];
+      if (raw == null || raw === "") return 0;
+      const coefficient = Number(raw);
+      if (!Number.isFinite(coefficient)) {
+        throw new Error("Correlation coefficients must be numeric.");
+      }
+      return coefficient;
     }),
   );
 }
@@ -249,7 +213,8 @@ export function runRisk8EquationMonteCarlo({
   );
   const totalInfluence = rawInfluence.reduce((sum, value) => sum + value, 0);
   const influenceFractions = rawInfluence.map((value) =>
-    totalInfluence > 0 ? value / totalInfluence : 0,
+    // A zero total leaves workbook Influence cells blank, not 0%.
+    totalInfluence > 0 ? value / totalInfluence : null,
   );
 
   // The nominal is f(x-bar), not the Monte Carlo mean.  This is how the

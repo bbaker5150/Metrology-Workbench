@@ -41,7 +41,7 @@ export function computeUnknownMeasurementBoundary8({
   const direction = singleSided.direction === "low" ? "low" : "high";
   const limit = singleSided.limit;
   if (limit == null || String(limit).trim() === "" || !Number.isFinite(Number(limit)) || !Number.isFinite(Number(calBias))) return { computed: false };
-  // APP EXTENSION, not literal Beta.7 parity for nonzero bias: workbook Types
+  // APP EXTENSION, not literal final V8.00 parity for nonzero bias: workbook Types
   // 5/6 ignore K/L. With reading Y = true value + bCal + noise, the acceptance
   // boundary in reading coordinates is L+bCal-sigma*z(PFA) (lower) or
   // U+bCal+sigma*z(PFA) (upper). Translate the limit BEFORE the workbook's inward
@@ -84,8 +84,9 @@ export function computeUnknownMeasurementBoundary8({
 
 /**
  * Convert the PFA-only result to the compact metrics contract used by sidebar
- * rows and exports. The cutoff still uses required PFA, but an unknown reading has no observed
- * PFA or PFR. Keep those metrics unavailable, matching workbook types 5/6.
+ * rows and exports. The cutoff uses required PFA. Population PFA/PFR remain unavailable for an
+ * unknown reading; the achieved boundary PFA is retained in out.mitPfa and
+ * displayed separately in the breakdown, as in final V8.00 Types 5/6.
  */
 export function toUnknownMeasurementSummary(boundary) {
   if (!boundary?.computed || boundary.out?.statusMit !== "OK") return null;

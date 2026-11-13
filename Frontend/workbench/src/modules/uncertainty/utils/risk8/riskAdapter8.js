@@ -67,7 +67,7 @@ const num = (v, dflt = NaN) => {
  * the band's offset from the nominal in `delta` (LTL=delta-1, UTL=delta+1). So
  * mu = (value - nominal) / halfSpan places the UUT mean correctly for both
  * symmetric (nominal == band center) and asymmetric (nominal off-center) specs.
- * halfSpan is always (upper - lower)/2 (one normalized unit).
+ * For two-sided tolerances, halfSpan is (upper - lower)/2.
  *
  * Returns null when the frame is undefined (unknown-value types 5/6, or a
  * degenerate/zero span) — callers then use mu = 0.
@@ -104,28 +104,37 @@ export function normalizeToleranceFrame(tolType, nominal, lowerLimit, upperLimit
  * resolution) must share the same native unit; TUR and the REOP/PFA fractions
  * are dimensionless.
  *
- * Field mapping (app -> workbook column):
- *   nominal          -> MeasurementPoint (F)
- *   uutLowerLimit    -> UUT_LL (G)
- *   uutUpperLimit    -> UUT_UL (H)
- *   initialGB        -> Initial_GB (I)          [app guardBandMultiplier]
- *   uCalNative       -> ExpandedUncertainty (J) [only used for types 5/6]
- *   mu (derived)     -> UUT_Bias (K)            [normalized; see AVERAGE->mu]
- *   xcal (derived)   -> Cal_Bias (L)            [normalized; calBias/halfSpan]
- *   tur              -> TUR (S)                 [app turResult]
- *   assumedReop      -> Assumed_REOP (T)       [calculated/assumed reliability]
- *   turNeeded        -> TUR_Needed (U)          [app neededTUR, optional]
- *   originalInterval -> Original_Interval (Z)   [app calInt]
- *   reqPFA           -> PFA_Required (AA)
- *   requiredReop     -> REOP_Required (AB)     [required reliability target]
- *   decayModel       -> Decay_Model (AC)        [optional; blank -> E1]
- *   weibullBeta      -> Weibull_Beta (AD)       [optional]
- *   measurement      -> "known" | "unknown"     [single-sided case selector]
+ * V8.00 field mapping. The engine uses RISK_CALC_SCRATCH row 7; MAIN row 5
+ * has different column letters. Keep both in view during the workbook audit:
+ *
+ * App input           MAIN field/column             Scratch column
+ * nominal             MeasurementPoint / I          F
+ * uutLowerLimit       UUT_LL / M                    G
+ * uutUpperLimit       UUT_UL / N                    H
+ * initialGB           Initial_GB / AB               I
+ * uCalNative          ExpandedUncertainty / U       J (types 5/6)
+ * mu (derived)        UUT_Bias / AC                 K (normalized)
+ * xcal (derived)      Cal_Bias / AD                 L (normalized)
+ * tur                 TUR / W                      S
+ * assumedReop         Assumed_REOP / AF            T
+ * turNeeded           TUR_Needed / AG              U (blank -> actual TUR)
+ * originalInterval    Original_Interval / AK       Z
+ * reqPFA              PFA_Required / AI            AA
+ * requiredReop        REOP_Required / AJ           AB
+ * decayModel          Decay_Model / AL             AC (blank -> E1)
+ * weibullBeta         Weibull_Beta / AM            AD
+ * resolution          UUT_TOL_DATA.Resolution      AE
+ *
+ * Resolution is a physical grid spacing in the same units as the limits, not
+ * a normalized fraction. Final V8.00 ComputeRiskForMainRow loads AE before
+ * ComputeOneRow; the recommendation therefore re-solves after inward rounding.
+ * The extra measurement selector is app-only: "unknown" leaves nominal blank
+ * and selects the workbook's type-5/6 boundary method.
  *
  * Compatibility note: early comparison-panel builds supplied `reliability` and
  * `reopTarget`. They are still accepted so saved diagnostic fixtures continue to
  * run, but new/live callers must use the explicit names above. This keeps the
- * mapping auditable against MAIN columns T and AB instead of overloading one
+ * mapping auditable against MAIN AF/AJ (scratch T/AB) instead of overloading one
  * ambiguous "reliability" value.
  */
 export function buildRisk8Contract(appInputs) {
@@ -170,6 +179,9 @@ export function buildRisk8Contract(appInputs) {
     ? appInputs.reopTarget
     : appInputs.requiredReop;
   const assumedReop = num(assumedReopSource);
+  // App compatibility default, not a workbook solver rule: old saved app rows
+  // supplied one reliability. Live callers supply both values explicitly. The
+  // fixed-column bridge still requires reopTarget; it never fills this blank.
   const reqReop = isBlankCell(requiredReopSource)
     ? assumedReop
     : num(requiredReopSource);

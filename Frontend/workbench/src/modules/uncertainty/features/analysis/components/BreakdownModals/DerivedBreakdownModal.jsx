@@ -259,7 +259,8 @@ const DerivedBreakdownModal = ({ isOpen, onClose, breakdownData }) => {
                                         <td>{input.symbol || `x${index + 1}`}</td>
                                         <td>{formatNumberForLatex(Number(input.meanBase), 7)}</td>
                                         <td>{formatNumberForLatex(Number(input.standardUncertaintyBase), 7)}</td>
-                                        <td>{formatNumberForLatex(100 * Number(monteCarlo.influenceFractions?.[index] || 0), 5)}%</td>
+                                        <td>{typeof monteCarlo.influenceFractions?.[index] === "number" && Number.isFinite(monteCarlo.influenceFractions[index])
+                                            ? `${formatNumberForLatex(100 * monteCarlo.influenceFractions[index], 5)}%` : ""}</td>
                                     </tr>
                                 ))}</tbody>
                             </table>
@@ -277,7 +278,7 @@ const DerivedBreakdownModal = ({ isOpen, onClose, breakdownData }) => {
                             <Latex>{`$$ \\bar{y} = \\frac{1}{N}\\sum_{k=1}^{N} y_k = ${formatNumberForLatex(Number(monteCarlo.meanBase), 7)} $$`}</Latex>
                             <Latex>{`$$ u_{MC} = \\sqrt{\\frac{\\sum_{k=1}^{N}(y_k-\\bar{y})^2}{N-1}} = ${formatNumberForLatex(Number(monteCarlo.standardUncertaintyBase), 7)} \\text{ (base unit)} $$`}</Latex>
                             <Latex>{`$$ f(\\bar{\\mathbf{x}}) = ${formatNumberForLatex(Number(monteCarlo.nominalResultBase), 7)} \\text{ (base unit)} $$`}</Latex>
-                            <p>The <Latex>{'$N-1$'}</Latex> denominator produces the unbiased sample standard deviation. The Monte Carlo result enters the final budget once; its input rows are not counted again.</p>
+                            <p>The <Latex>{'$N-1$'}</Latex> denominator makes the sample variance unbiased; its square root is the reported sample standard deviation. The Monte Carlo result enters the final budget once; its input rows are not counted again.</p>
                         </div>
                         <div className="breakdown-step">
                             <h5>Final Budget Combination</h5>
@@ -307,6 +308,7 @@ const DerivedBreakdownModal = ({ isOpen, onClose, breakdownData }) => {
                         derivativeTex = "1"; // Ci for resolution is 1
                     }
 
+                    const finiteDifference = budgetComp?.sensitivityMethod === 'central finite difference';
                     let evaluationStepTex = '';
                     if (derivativeDisplay && Object.keys(nominalScopeForDisplay).length > 0) {
                         try { const derivativeNode = math.parse(derivativeDisplay); evaluationStepTex = derivativeNode.toTex({ handler: (node, options) => { if (node.isSymbolNode && nominalScopeForDisplay.hasOwnProperty(node.name)) { return formatNumberForLatex(nominalScopeForDisplay[node.name]); } } }); evaluationStepTex = `${evaluationStepTex} = ${formattedCi}`; } catch (e) { evaluationStepTex = `${formattedCi}`; }
@@ -323,9 +325,15 @@ const DerivedBreakdownModal = ({ isOpen, onClose, breakdownData }) => {
                                 <li>
                                     <strong>Sensitivity Coefficient (<Latex>{`$c_{${symbol}}$`}</Latex>):</strong>
                                     <ul style={{ listStyleType: 'none', paddingLeft: '10px' }}>
-                                        {expressionTex && term.varSymbol !== 'res' && ( <li><Latex>{`$$ \\text{Calculate } c_{${symbol}} = \\frac{\\partial}{\\partial ${symbol}} \\left( ${expressionTex} \\right) $$`}</Latex></li> )}
-                                        {derivativeTex && term.varSymbol !== 'res' && ( <li><Latex>{`$$ \\rightarrow c_{${symbol}} = ${derivativeTex} $$`}</Latex></li> )}
-                                        {evaluationStepTex && ( <li><Latex>{`$$ \\text{Evaluate: } c_{${symbol}} = ${evaluationStepTex} $$`}</Latex></li> )}
+                                        {expressionTex && term.varSymbol !== 'res' && !finiteDifference && ( <li><Latex>{`$$ \\text{Calculate } c_{${symbol}} = \\frac{\\partial}{\\partial ${symbol}} \\left( ${expressionTex} \\right) $$`}</Latex></li> )}
+                                        {derivativeTex && term.varSymbol !== 'res' && !finiteDifference && ( <li><Latex>{`$$ \\rightarrow c_{${symbol}} = ${derivativeTex} $$`}</Latex></li> )}
+                                        {evaluationStepTex && !finiteDifference && ( <li><Latex>{`$$ \\text{Evaluate: } c_{${symbol}} = ${evaluationStepTex} $$`}</Latex></li> )}
+                                        {finiteDifference && <>
+                                            <li>The coefficient used in the calculation is a central finite difference. The symbolic derivative is an explanatory reference.</li>
+                                            {derivativeTex && <li><Latex>{`$$ \\frac{\\partial f}{\\partial ${symbol}} = ${derivativeTex} $$`}</Latex></li>}
+                                            <li><Latex>{`$$ c_{${symbol}} \\approx \\frac{f(\\mathbf{x}+h_{${symbol}}\\mathbf{e}_{${symbol}})-f(\\mathbf{x}-h_{${symbol}}\\mathbf{e}_{${symbol}})}{2h_{${symbol}}} = ${formattedCi} $$`}</Latex></li>
+                                            <li>Input step: {formatNumberForLatex(budgetComp.sensitivityStep_native, 7)} {displayValueUnitUi}</li>
+                                        </>}
                                     </ul>
                                 </li>
 

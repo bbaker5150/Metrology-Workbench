@@ -145,3 +145,29 @@ test("shows the saved Monte Carlo matrices and sampling walkthrough instead of T
   expect(screen.queryByText(/Sensitivity Coefficient/)).not.toBeInTheDocument();
   expect(screen.queryByText(/2nd-Order Taylor Term/)).not.toBeInTheDocument();
 });
+
+
+test("does not turn undefined MC influence into a displayed zero percent", () => {
+  const data = makeBreakdownData();
+  data.results.propagationMethod = "montecarlo";
+  data.results.monteCarlo = {
+    trials: 100, meanBase: 1, nominalResultBase: 1, standardUncertaintyBase: 0,
+    influenceFractions: [null],
+    inputs: [{ symbol: "constant-input", componentId: "constant", meanBase: 1, standardUncertaintyBase: 0 }],
+    correlationMatrix: [[1]], choleskyMatrix: [[1]],
+  };
+  render(<DerivedBreakdownModal isOpen onClose={() => {}} breakdownData={data} />);
+  const row = screen.getByText("constant-input", { selector: "td" }).closest("tr");
+  expect(row.cells[3]).toBeEmptyDOMElement();
+  expect(screen.getByText(/sample variance unbiased/)).toBeInTheDocument();
+});
+
+
+test("identifies finite-difference coefficients separately from the symbolic derivative", () => {
+  const data = makeBreakdownData();
+  data.results.calculatedBudgetComponents[0].sensitivityMethod = "central finite difference";
+  data.results.calculatedBudgetComponents[0].sensitivityStep_native = .001;
+  render(<DerivedBreakdownModal isOpen onClose={() => {}} breakdownData={data} />);
+  expect(screen.getByText(/coefficient used in the calculation is a central finite difference/)).toBeInTheDocument();
+  expect(screen.getByText(/Input step: 0.001/)).toBeInTheDocument();
+});

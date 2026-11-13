@@ -397,8 +397,6 @@ export const useUncertaintyCalculation = (
           manualComponents,
           {
             strictUnitValidation: true,
-            allowFiniteDifference:
-              propagationMethod === "montecarlo",
           },
         );
 
@@ -569,6 +567,11 @@ export const useUncertaintyCalculation = (
                 isBaseUnitValue: true,
                 sensitivityCoefficient: item.ci,
                 derivativeString: item.derivativeString,
+                // Excel CalculateFirstOrderVarianceAndSensitivity uses a central
+                // difference. Retain its step alongside the optional symbolic
+                // expression so the audit view can identify the actual method.
+                sensitivityMethod: item.sensitivityMethod,
+                sensitivityStep_native: item.sensitivityStep_native,
                 contribution: item.contribution_native,
                 nonlinearityWarning: item.nonlinearityWarning || null,
                 // Second-order Taylor diagnostics for the breakdown modal

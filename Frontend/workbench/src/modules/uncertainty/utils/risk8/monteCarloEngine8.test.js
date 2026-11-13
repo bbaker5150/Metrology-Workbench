@@ -18,7 +18,13 @@ describe("Risk 8.0 Monte Carlo workbook parity", () => {
     expect(normalizeRisk8MonteCarloTrials("")).toBe(10000);
     expect(normalizeRisk8MonteCarloTrials("25000")).toBe(25000);
     expect(() => normalizeRisk8MonteCarloTrials(99)).toThrow(/at least 100/i);
-    expect(() => normalizeRisk8MonteCarloTrials(100.5)).toThrow(/whole number/i);
+    expect(normalizeRisk8MonteCarloTrials("   ")).toBe(10000);
+    expect(normalizeRisk8MonteCarloTrials(99.5)).toBe(100);
+    expect(normalizeRisk8MonteCarloTrials(100.5)).toBe(100);
+    expect(normalizeRisk8MonteCarloTrials(101.5)).toBe(102);
+    expect(normalizeRisk8MonteCarloTrials(100.6)).toBe(101);
+    expect(() => normalizeRisk8MonteCarloTrials("bad")).toThrow(/numeric/i);
+    expect(() => normalizeRisk8MonteCarloTrials(2147483647.5)).toThrow(/integer range/i);
   });
 
   it("matches the analytic standard uncertainty of a correlated linear equation", () => {
@@ -67,4 +73,28 @@ describe("Risk 8.0 Monte Carlo workbook parity", () => {
       ]),
     ).toThrow(/not physically valid/i);
   });
+});
+
+
+it("leaves MC influence undefined when the equation output does not vary", () => {
+  const result = runRisk8EquationMonteCarlo({
+    equationString: "1 + 0 * x",
+    inputs: [{ symbol: "x", meanBase: 2, standardUncertaintyBase: 1 }],
+    trials: 100,
+    rng: seededRandom(),
+  });
+  expect(result.standardUncertaintyBase).toBe(0);
+  expect(result.influenceFractions).toEqual([null]);
+});
+
+
+it("rejects a supplied nonnumeric correlation instead of silently making inputs independent", () => {
+  expect(() => runRisk8EquationMonteCarlo({
+    equationString: "a + b",
+    inputs: [
+      { symbol: "a", meanBase: 1, standardUncertaintyBase: .1 },
+      { symbol: "b", meanBase: 2, standardUncertaintyBase: .1 },
+    ],
+    correlations: { "a|b": "invalid" }, trials: 100,
+  })).toThrow(/correlation coefficients must be numeric/i);
 });

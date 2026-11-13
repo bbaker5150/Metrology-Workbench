@@ -5,6 +5,7 @@ import { isBudgetEditorScrollTarget } from "../../../utils/budgetEditorViewport"
 import { readEditorDraft, saveEditorDraft, clearEditorDraft } from "../../../utils/editorRecovery";
 import { budgetDragProps } from "../../../utils/instrumentBudgetComponents";
 import { rawDecimal } from "../../../utils/rawDecimal";
+import { normalizeRisk8MonteCarloTrials } from "../../../utils/risk8/monteCarloEngine8";
 import { budgetUncertaintyDisplay, canDisplayRelativeUncertainty, isPpmBudget } from "../../../utils/budgetDisplay";
 import { measurementAreaAccent } from "../../../utils/measurementAreaColors";
 import GrowingNumericInput from "../../../components/common/GrowingNumericInput";
@@ -764,9 +765,13 @@ export const InlineManualComponentRow = ({
 const MonteCarloTrialsInput = ({ value, onCommit, disabled = false }) => {
   const [draft, setDraft] = useState(String(value || 10000));
   const commit = () => {
-    const parsed = Number(draft);
-    if (Number.isInteger(parsed) && parsed >= 100) onCommit?.(parsed);
-    else setDraft(String(value || 10000));
+    try {
+      const parsed = normalizeRisk8MonteCarloTrials(draft);
+      setDraft(String(parsed));
+      onCommit?.(parsed);
+    } catch {
+      setDraft(String(value || 10000));
+    }
   };
   return (
     <label
@@ -1311,7 +1316,7 @@ const UncertaintyBudgetTable = ({
             </td>
             {showInfluence && (
               <td>
-                {Number.isFinite(Number(row.influence))
+                {row.influence != null && row.influence !== "" && Number.isFinite(Number(row.influence))
                   ? `${(Number(row.influence) * 100).toFixed(2)}%`
                   : ""}
               </td>

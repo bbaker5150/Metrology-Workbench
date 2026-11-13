@@ -17,6 +17,7 @@ import {
   normalQuantile,
   resDwn,
   resUp,
+  resolveResolutionNative,
   snapLimitsToResolution,
   studentTQuantile,
   uutUnc,
@@ -176,9 +177,9 @@ describe("studentTQuantile", () => {
     expect(studentTQuantile(0.975, 1e6)).toBeCloseTo(normalQuantile(0.975), 5);
   });
 
-  it("collapses to the normal quantile for infinite or absurd dof", () => {
+  it("collapses to the normal quantile only for infinite or unknown dof", () => {
     expect(studentTQuantile(0.975, Infinity)).toBe(normalQuantile(0.975));
-    expect(studentTQuantile(0.975, 1e8)).toBe(normalQuantile(0.975));
+    expect(studentTQuantile(0.975, 1e8)).toBeCloseTo(1.9599640082627663, 12);
     expect(studentTQuantile(0.975, NaN)).toBe(normalQuantile(0.975));
   });
 
@@ -202,6 +203,22 @@ describe("getKValueFromTDistribution", () => {
     // This is the bug the exact implementation replaced: a hard-coded 95% table.
     expect(getKValueFromTDistribution(10, 0.95)).toBeCloseTo(1.8124611228107335, 6);
     expect(getKValueFromTDistribution(10, 0.995)).toBeCloseTo(3.169272672327235, 6);
+  });
+
+  it("matches Excel TINV truncation for fractional effective DOF", () => {
+    // TINV(0.05, 2.7) uses df=2. Reported effective DOF itself stays fractional.
+    expect(getKValueFromTDistribution(2.7)).toBeCloseTo(4.302652729696142, 8);
+    expect(getKValueFromTDistribution(10.9)).toBeCloseTo(2.2281388519649385, 8);
+    expect(studentTQuantile(0.975, 2.7)).toBeCloseTo(3.392148384469174, 7);
+  });
+
+  it("retains the finite-DOF correction above ten million", () => {
+    // Independent Student-t inverse reference, p=.975 and nu=100000000.
+    expect(getKValueFromTDistribution(1e8)).toBeCloseTo(1.9599640082627663, 12);
+  });
+
+  it("uses the workbook normal fallback when truncated DOF is below one", () => {
+    expect(getKValueFromTDistribution(0.9)).toBeCloseTo(1.959963984540054, 10);
   });
 
   it("falls back to the normal quantile when dof is infinite or unknown", () => {
@@ -255,11 +272,17 @@ describe("combineWithCorrelation", () => {
     expect(combineWithCorrelation([c("a", 3), c("b", -3)], rho)).toBeCloseTo(0, 10);
   });
 
-  it("clamps a non positive-semidefinite matrix to zero instead of returning NaN", () => {
-    const rho = { [correlationKey("a", "b")]: -5 };
-    const result = combineWithCorrelation([c("a", 1), c("b", 1)], rho);
-    expect(result).toBe(0);
-    expect(Number.isNaN(result)).toBe(false);
+  it("rejects out-of-range correlations instead of reporting zero uncertainty", () => {
+    expect(() => combineWithCorrelation([c("a", 1), c("b", 1)], { "a|b": -5 })).toThrow(/between -1 and \+1/);
+  });
+
+  it("rejects non-PSD correlation even when the resulting variance is positive", () => {
+    const rho = { "a|b": 0.9, "a|c": 0.9, "b|c": -0.9 };
+    expect(() => combineWithCorrelation([c("a", 1), c("b", 1), c("c", 1)], rho)).toThrow(/physically valid/);
+  });
+
+  it("rejects malformed authored correlations", () => {
+    expect(() => combineWithCorrelation([c("a", 1), c("b", 1)], { "a|b": "bad" })).toThrow(/numeric/);
   });
 
   it("skips non-finite contributions rather than poisoning the sum", () => {
@@ -306,16 +329,13 @@ describe("resolution rounding", () => {
     expect(resUp(10.5, 0.10000000000000002)).toBeCloseTo(10.5, 9);
   });
 
-  it("never collapses a non-zero limit to zero under a coarse resolution", () => {
-    // This produced the GBLOW/GBUP "0" display bug: truncating 0.05 to a 1.0
-    // grid lands on 0, so the raw value is kept instead.
-    expect(resUp(0.05, 1)).toBe(0.05);
+  it("allows zero as a valid rounded grid point, as in final V8.00", () => {
+    expect(resUp(0.05, 1)).toBe(0);
+    expect(resDwn(-0.05, 1)).toBe(0);
   });
 
-  it("moves a sub-resolution value onto the nearest grid line away from zero", () => {
-    // Both directions floor/truncate onto the grid; neither returns 0.
+  it("moves sub-resolution values in the required signed direction", () => {
     expect(resDwn(0.05, 1)).toBe(1);
-    expect(resDwn(-0.05, 1)).toBe(-1);
     expect(resUp(-0.05, 1)).toBe(-1);
   });
 
@@ -338,8 +358,8 @@ describe("resolution rounding", () => {
     expect(resUp(0, 0.1)).toBe(0);
   });
 
-  it("rounds negative values away from zero for resDwn and toward -inf for resUp", () => {
-    expect(resDwn(-10.54, 0.1)).toBeCloseTo(-10.6, 9);
+  it("rounds negative lower limits upward and upper limits downward", () => {
+    expect(resDwn(-10.54, 0.1)).toBeCloseTo(-10.5, 9);
     expect(resUp(-10.54, 0.1)).toBeCloseTo(-10.6, 9);
   });
 });
@@ -355,13 +375,20 @@ describe("snapLimitsToResolution", () => {
     expect(snapLimitsToResolution(1, 2, NaN)).toEqual({ low: 1, high: 2 });
   });
 
-  it("leaves the band untouched rather than collapsing it to a point", () => {
-    // Snapping 9.94/10.06 to a 0.1 grid would put both limits at 10.0.
-    expect(snapLimitsToResolution(9.94, 10.06, 0.1)).toEqual({ low: 9.94, high: 10.06 });
+  it("retains collapsed geometry for the row validator to reject", () => {
+    expect(snapLimitsToResolution(9.94, 10.06, 0.1)).toEqual({ low: 10, high: 10 });
   });
 
-  it("leaves the band untouched rather than inverting it", () => {
-    expect(snapLimitsToResolution(9.99, 10.01, 1)).toEqual({ low: 9.99, high: 10.01 });
+  it("retains inverted geometry instead of silently restoring a wider band", () => {
+    expect(snapLimitsToResolution(9.91, 9.99, 1)).toEqual({ low: 10, high: 9 });
+  });
+
+  it("matches the final workbook on a wholly negative interval", () => {
+    expect(snapLimitsToResolution(-10.54, -9.46, 0.1)).toEqual({ low: -10.5, high: -9.5 });
+  });
+
+  it("matches the supplied flowmeter tolerance rounded inward to 0.1 gpm", () => {
+    expect(snapLimitsToResolution(159.52, 160.48, 0.1)).toEqual({ low: 159.6, high: 160.4 });
   });
 
   it("keeps an already-on-grid band exactly where it is", () => {
@@ -458,5 +485,13 @@ describe("bivariateNormalCDF", () => {
       expect(p).toBeGreaterThanOrEqual(0);
       expect(p).toBeLessThanOrEqual(1);
     }
+  });
+});
+
+
+describe("resolveResolutionNative", () => {
+  it("ignores overflow resolution as RB_UUTResolutionByID ignores unusable entries", () => {
+    expect(resolveResolutionNative({ resolution: Infinity }, "V")).toBe(0);
+    expect(resolveResolutionNative({ resolution: "1e999" }, "V")).toBe(0);
   });
 });

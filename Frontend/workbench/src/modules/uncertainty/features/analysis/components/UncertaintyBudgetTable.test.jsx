@@ -519,6 +519,13 @@ describe("UncertaintyBudgetTable direct budget actions", () => {
     });
     fireEvent.blur(screen.getByLabelText("Monte Carlo trials"));
     expect(onTrials).toHaveBeenCalledWith(50000);
+    fireEvent.change(screen.getByLabelText("Monte Carlo trials"), { target: { value: "100.5" } });
+    fireEvent.blur(screen.getByLabelText("Monte Carlo trials"));
+    expect(onTrials).toHaveBeenLastCalledWith(100);
+    expect(screen.getByLabelText("Monte Carlo trials")).toHaveValue(100);
+    fireEvent.change(screen.getByLabelText("Monte Carlo trials"), { target: { value: "101.5" } });
+    fireEvent.blur(screen.getByLabelText("Monte Carlo trials"));
+    expect(onTrials).toHaveBeenLastCalledWith(102);
     fireEvent.click(screen.getByLabelText("Use Monte Carlo approximation"));
     expect(onMethod).toHaveBeenCalledWith("equation");
     expect(

@@ -36,8 +36,32 @@ describe("measurement bias", () => {
     expect(result.error).toBeNull();
     expect(result.sources).toHaveLength(2);
     // dI/dV=10 A/V; dI/dR=-100 A/Ohm => .1 - .2 = -.1 A.
-    expect(result.calBias).toBeCloseTo(-.1, 10);
+    expect(result.calBias).toBeCloseTo(-.1, 12);
     expect(result.sources.map(row => row.contribution)).toEqual(expect.arrayContaining([expect.closeTo(.1), expect.closeTo(-.2)]));
+  });
+  it("preserves authored source bias when the sources have zero uncertainty", () => {
+    const { point, session } = biasFixture();
+    for (const instrument of session.tmdes) {
+      const tolerance = instrument.instrument.functions[0].ranges[0].tolerances;
+      tolerance.floor.low = 0;
+      tolerance.floor.high = 0;
+    }
+    // Bias is a mean shift, not a standard uncertainty. The workbook budget
+    // deliberately sets sensitivity to zero for u=0, but this app-only source
+    // aggregation must still supply Cal_Bias = 10*.01 - 100*.002 = -.1 A.
+    const result = resolveMeasurementBias(point, session);
+    expect(result.error).toBeNull();
+    expect(result.sources.map(row => row.sensitivity)).toEqual([10, expect.closeTo(-100, 12)]);
+    expect(result.calBias).toBeCloseTo(-.1, 12);
+  });
+  it("retains the finite-difference source-bias fallback for unsupported symbolic equations", () => {
+    const { point, session } = biasFixture();
+    point.equationString = "max(V, 0) / R";
+    // At V=1 the max branch is locally V, so the hand-derived net is still
+    // -.1 A. The fallback is an app behavior, not Excel source aggregation.
+    const result = resolveMeasurementBias(point, session);
+    expect(result.error).toBeNull();
+    expect(result.calBias).toBeCloseTo(-.1, 8);
   });
   it("excludes corrections already applied and lets a net entry replace source calculation", () => {
     const { point, session } = biasFixture();
