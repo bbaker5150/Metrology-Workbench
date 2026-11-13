@@ -1702,9 +1702,9 @@ export const SidebarPointItem = ({
                       }}
                     >
                     <span className="point-grouped-cell-label">
-                      {formatPointQualifier(point.testPointInfo?.qualifier) || (
+                      {formatPointQualifier(point.testPointInfo?.qualifier) || (!hasInstrumentQualifiers && (
                         <span className="point-placeholder">-</span>
-                      )}
+                      ))}
                     </span>
                     {hasInstrumentQualifiers && <FontAwesomeIcon icon={faChevronDown} size="xs" aria-hidden="true" style={{ marginLeft: 5, flexShrink: 0 }} />}
                   </span>

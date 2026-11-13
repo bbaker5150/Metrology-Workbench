@@ -22470,7 +22470,6 @@ button.uncertainty-symbol-button:is(:hover, :focus-visible):not(:disabled) {
   display: flex; flex-direction: column; overflow: auto; color: var(--text-color);
   text-align: left; font-size: .82rem;
 }
-.point-qualifier-menu .instrument-menu-heading { flex: 0 0 auto; padding: 5px 8px 8px; }
 .point-qualifier-tree { flex: 1 1 auto; min-height: 0; overflow: auto; }
 .point-qualifier-menu .point-qualifier-item {
   display: flex; align-items: flex-start; gap: 8px; width: 100%; min-height: 32px;

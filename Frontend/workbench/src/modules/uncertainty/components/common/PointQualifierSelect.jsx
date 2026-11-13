@@ -164,12 +164,12 @@ export default function PointQualifierSelect({ choices = [], point, onChange, au
   const cancelPending = () => { const id = `choice:${pending.choice.key}`; setPending(null); setError(""); requestAnimationFrame(() => focusNode(id)); };
   return <span className="point-qualifier-select" onMouseDown={event => event.stopPropagation()}>
     <button ref={triggerRef} type="button" className="point-qualifier-trigger" aria-label="Choose measurement point qualifier" aria-haspopup="tree" aria-expanded={open}
-      title={currentLabel || "Choose qualifier"} onClick={event => { event.stopPropagation(); if (open) close(true); else openMenu(); }}
+      title={currentLabel || "Qualifier"} onClick={event => { event.stopPropagation(); if (open) close(true); else openMenu(); }}
       onKeyDown={event => {
         if (["ArrowDown", "ArrowUp"].includes(event.key)) { event.preventDefault(); event.stopPropagation(); openMenu(); }
         if (event.key === "Escape" && open) { event.preventDefault(); event.stopPropagation(); close(true); }
       }}>
-      <span>{summary || currentLabel || "Choose qualifier"}</span><FontAwesomeIcon icon={faChevronDown} />
+      {(summary || currentLabel) && <span>{summary || currentLabel}</span>}<FontAwesomeIcon icon={faChevronDown} />
     </button>
     {open && placement && createPortal(<div ref={menuRef} tabIndex={-1} className="inline-unit-menu point-qualifier-menu"
       style={{ top: placement.top, bottom: placement.bottom, left: placement.left, width: placement.width, maxHeight: placement.maxHeight,
@@ -179,7 +179,6 @@ export default function PointQualifierSelect({ choices = [], point, onChange, au
         if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); close(true); }
         else if (event.key === "Tab" && !pending) { event.stopPropagation(); close(true); }
       }} onBlur={event => { if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget) && !triggerRef.current?.contains(event.relatedTarget)) close(); }}>
-      <div className="instrument-menu-heading">Choose qualifier</div>
       {pending ? <form className="point-qualifier-values" onSubmit={event => { event.preventDefault(); apply(pending.choice, pending.qualifier); }}
         onKeyDown={event => { if (event.key !== "Escape") event.stopPropagation(); }}>
         <p>{choiceLabel(pending.choice)}</p><small>{pending.choice.summary}</small>
