@@ -22,7 +22,7 @@ it('keyboard resizing round-trips the saved width despite a temporarily expanded
   }
   const handle = within(table).getByRole('button', { name: 'Resize Description column', exact: true });
   fireEvent.keyDown(handle, { key: 'ArrowRight' });
-  expect(JSON.parse(localStorage.getItem(key))).toEqual({ ...widths, description: 212 });
+  expect(JSON.parse(localStorage.getItem(key))).toEqual({ ...widths, description: 212, __fillColumn: 'sync' });
   fireEvent.keyDown(handle, { key: 'ArrowLeft' });
-  expect(JSON.parse(localStorage.getItem(key))).toEqual(widths);
+  expect(JSON.parse(localStorage.getItem(key))).toEqual({ ...widths, __fillColumn: 'sync' });
 });

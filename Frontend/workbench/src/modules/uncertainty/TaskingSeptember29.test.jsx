@@ -99,8 +99,8 @@ it('inserts tabular rows in place and retains unit prefix selection', () => {
   fireEvent.click(screen.getByRole('button',{name:'Edit uncertainty unit'}));
   expect(screen.getByRole('button',{name:'Uncertainty unit prefix'})).toHaveTextContent('k');
   fireEvent.click(screen.getByTitle('Asymmetric tolerance'));
-  expect(screen.getByRole('columnheader',{name:/Unc. \(Low\)/})).toBeInTheDocument();
-  expect(screen.getByRole('columnheader',{name:/Unc. \(High\)/})).toBeInTheDocument();
+  expect(screen.getByRole('columnheader',{name:'Uncertainty (Low) kUnits',exact:true})).toBeInTheDocument();
+  expect(screen.getByRole('columnheader',{name:'Uncertainty (High) kUnits',exact:true})).toBeInTheDocument();
 });
 
 it('edits the Point header unit independently and preserves physical lookup values', () => {

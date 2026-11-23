@@ -130,7 +130,7 @@ describe("sophisticated equations run through BOTH engines and agree", () => {
 });
 
 describe("failure modes degrade gracefully (no crashes, no silent NaN)", () => {
-  it("non-differentiable equation: linear engine reports an error, MC still works", () => {
+  it("max uses local finite-difference sensitivities when symbolic differentiation is unavailable", () => {
     const expression = "max(x1, x2)";
     const validation = validateEquation(expression);
     expect(validation.status).toBe("ok");
@@ -146,8 +146,24 @@ describe("failure modes degrade gracefully (no crashes, no silent NaN)", () => {
       { value: 10, unit: "V" },
       [],
     );
-    // Graceful: an error string, not a throw / NaN budget posing as real.
-    expect(linear.error).toBeTruthy();
+    // max is locally x2 at (10, 10.1): c1=0 and c2=1. Final V8.00
+    // explicitly permits numeric sensitivities without a symbolic derivative.
+    expect(linear.error).toBeNull();
+    expect(linear.nominalResult).toBe(10.1);
+    expect(linear.combinedUncertaintyNative).toBeCloseTo(0.5 / Math.sqrt(3), 8);
+    const [a, b] = linear.breakdown;
+    expect(a.variable).toBe("x1");
+    expect(b.variable).toBe("x2");
+    expect(a.ci).toBe(0);
+    expect(b.ci).toBeCloseTo(1, 8);
+    for (const row of linear.breakdown) {
+      expect(row.sensitivityMethod).toBe("central finite difference");
+      expect(row.derivativeString).toMatch(/central finite difference/);
+    }
+    // The uncertain inactive branch must remain visible as a warning; the
+    // local linear budget cannot describe trials that switch max's branches.
+    expect(a.nonlinearityWarning).toMatch(/zero first-order sensitivity/);
+    expect(linear.warnings).toContain(a.nonlinearityWarning);
 
     const { inputs } = buildMonteCarloInputs(variableMappings, tmdes, []);
     const mc = runMonteCarloPropagation({
@@ -157,7 +173,8 @@ describe("failure modes degrade gracefully (no crashes, no silent NaN)", () => {
       seed: 7,
     });
     expect(Number.isFinite(mc.standardUncertainty)).toBe(true);
-    expect(mc.mean).toBeGreaterThan(10);
+    expect(mc.standardUncertainty).toBeGreaterThan(0);
+    expect(mc.mean).toBeGreaterThan(linear.nominalResult);
   });
 
   it("domain violation under uncertainty: MC throws a descriptive error", () => {

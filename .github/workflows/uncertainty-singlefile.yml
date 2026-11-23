@@ -28,7 +28,7 @@ permissions:
 
 concurrency:
   # A newer commit on main makes an in-flight build obsolete.
-  group: uncertainty-singlefile
+  group: uncertainty-singlefile-${{ github.ref }}
   cancel-in-progress: true
 
 defaults:
@@ -102,6 +102,12 @@ jobs:
           fi
           npx playwright install --with-deps chromium
 
+      - name: Verify Firepit isolation and forbidden link creation
+        # This source-free fixture keeps the installed Navy host private while
+        # blocking link creation and external requests in an opaque CSP frame.
+        # It also verifies Notes persistence and deferred optional reads.
+        run: node scripts/smoke-firepit.mjs
+
       - name: Smoke test the built file in an iframe srcdoc
         # The unit tests cannot see this: whether the finished single file
         # actually boots with no URL to resolve against, finds its SharePoint
@@ -174,6 +180,7 @@ jobs:
           gh release create "$TAG" \
             build-singlefile/uncertainty-budget.html \
             build-singlefile/uncertainty-budget.html.sha256 \
+            --target "$COMMIT" \
             --title "Uncertainty Budget $TAG" \
             --notes-file release-notes.md
 

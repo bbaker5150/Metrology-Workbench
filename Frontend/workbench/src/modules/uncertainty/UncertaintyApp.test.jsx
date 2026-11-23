@@ -1127,7 +1127,8 @@ describe("UncertaintyApp", () => {
     expect(
       uutRow.style.getPropertyValue("--instrument-function-color"),
     ).not.toBe("");
-    expect(uutTable).toHaveStyle({ width: "100%", minWidth: "346px" });
+    // Description 50 + Range 80 + Tolerance 60 + Resolution 60 + Status 64.
+    expect(uutTable).toHaveStyle({ width: "100%", minWidth: "314px" });
     expect(uutTable.querySelector('th[data-instrument-column="sync"]')).toHaveTextContent('Status');
     expect(within(uutTable).getByRole('button', { name: 'Resize Status column', exact: true })).toBeInTheDocument();
     const widths = Array.from(uutTable.querySelectorAll("col")).map((column) =>

@@ -5,6 +5,7 @@ import { faCheck, faChevronDown, faChevronRight } from "@fortawesome/free-solid-
 import useExclusiveMenu from "../../hooks/useExclusiveMenu";
 import { getAnchoredMenuPlacement, getDocumentZoom } from "../../utils/anchoredMenuPosition";
 import { samePointRange } from "../../utils/pointUutRange";
+import submitOnEnter from "../../utils/submitOnEnter";
 import {
   applyPointQualifierChoice, formatPointQualifierSelection, normalizeSelectedQualifier,
   validatePointQualifierChoice,
@@ -179,8 +180,11 @@ export default function PointQualifierSelect({ choices = [], point, onChange, au
         if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); close(true); }
         else if (event.key === "Tab" && !pending) { event.stopPropagation(); close(true); }
       }} onBlur={event => { if (event.relatedTarget && !event.currentTarget.contains(event.relatedTarget) && !triggerRef.current?.contains(event.relatedTarget)) close(); }}>
-      {pending ? <form className="point-qualifier-values" onSubmit={event => { event.preventDefault(); apply(pending.choice, pending.qualifier); }}
-        onKeyDown={event => { if (event.key !== "Escape") event.stopPropagation(); }}>
+      {pending ? <div className="point-qualifier-values"
+        onKeyDown={event => {
+          if (event.key !== "Escape") event.stopPropagation();
+          submitOnEnter(() => apply(pending.choice, pending.qualifier))(event);
+        }}>
         <p>{choiceLabel(pending.choice)}</p><small>{pending.choice.summary}</small>
         <p>Enter the measurement value within each selected range.</p>
         {pending.fields.map(field => {
@@ -192,8 +196,8 @@ export default function PointQualifierSelect({ choices = [], point, onChange, au
             <span>{field.unit}</span></span><small>{[field.min, field.max].filter(value => value != null && value !== "").join(" – ")} {field.unit}</small></label>;
         })}
         {error && <p role="alert" className="point-qualifier-error">{error}</p>}
-        <div className="point-qualifier-actions"><button type="button" onClick={cancelPending}>Back</button><button type="submit">Apply qualifier</button></div>
-      </form> : <>
+        <div className="point-qualifier-actions"><button type="button" onClick={cancelPending}>Back</button><button type="button" onClick={() => apply(pending.choice, pending.qualifier)}>Apply qualifier</button></div>
+      </div> : <>
         {choices.length > 8 && <input className="inline-unit-search" type="search" aria-label="Search qualifiers" placeholder="Search qualifiers" value={search}
           onChange={event => { setSearch(event.target.value); setError(""); }}
           onKeyDown={event => { if (["ArrowDown", "ArrowUp"].includes(event.key)) { event.preventDefault(); event.stopPropagation(); focusNode(event.key === "ArrowDown" ? rows[0]?.id : rows.at(-1)?.id); } }} />}

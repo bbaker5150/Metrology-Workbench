@@ -459,6 +459,13 @@ if (/not set up yet/i.test(frameText)) {
   const retainedLibraryRecords = instrumentItems.filter(item => !selectedLibraryRecords.includes(item)).map(item => [item.RecordId, item.PayloadJson]);
   const retainedLibraryRecordsUnchanged = () => retainedLibraryRecords.every(([id, payload]) => instrumentItems.find(item => item.RecordId === id)?.PayloadJson === payload);
   const library = frame.getByRole('dialog', { name: 'Instrument library', exact: true });
+  // Once the SME group exists, owner membership alone no longer grants shared
+  // removal. Check that boundary before exercising the signed-in SME path.
+  await library.locator('tr[data-instrument-id="instrument-301"]').waitFor();
+  check('ordinary users cannot remove shared catalog instruments', await library.getByRole('button', { name: 'Delete Instrument', exact: true }).count() === 0);
+  await library.getByRole('button', { name: 'Close instrument library', exact: true }).click();
+  memberships.push('Uncertalytics SME');
+  await frame.getByRole('button', { name: 'Instrument Library', exact: true }).click();
   // Open instruments from the compact names list. Ctrl-click retains the
   // first selection and the assertion still checks exact archived identities.
   const first = library.locator('tr[data-instrument-id="instrument-301"]');
@@ -492,7 +499,9 @@ if (/not set up yet/i.test(frameText)) {
   check('library selects exactly the two requested instruments', await library.locator('tr.selected-row, tr.instrument-selected').evaluateAll(rows => new Set(rows.map(row => row.dataset.instrumentId)).size) === 2);
   await page.keyboard.press('Delete');
   const removal = frame.getByRole('alertdialog');
-  await removal.getByLabel('Shared library password').fill('calibrate');
+  await removal.getByText('Remove instruments', { exact: true }).waitFor();
+  check('shared removal uses SharePoint reviewer access without an app password', await removal.getByLabel('Shared library password').count() === 0 &&
+    await removal.innerText().then(text => text.includes('2 shared instruments will be removed')));
   await removal.getByRole('button', {name:'Remove',exact:true}).click();
   check('confirmed bulk removal archives only the selected records without a native dialog', await until(() => selectedLibraryRecords.length === 2 && selectedLibraryRecords.every(item => JSON.parse(item.PayloadJson)._uncertaintyArchive)) && retainedLibraryRecordsUnchanged() && dialogs.length === 0);
   await page.reload({ waitUntil: 'networkidle' });

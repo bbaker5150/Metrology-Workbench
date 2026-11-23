@@ -69,7 +69,11 @@ describe("measurement point qualifier picker", () => {
     expect(screen.getByRole("alert")).toBeInTheDocument();
     expect(onChange).not.toHaveBeenCalled();
     fireEvent.change(input, { target: { value: "50" } });
-    fireEvent.submit(input.closest("form"));
+    expect(input.closest("form")).toBeNull();
+    expect(screen.getByRole("button", { name: "Apply qualifier" })).toHaveAttribute("type", "button");
+    fireEvent.keyDown(input, { key: "Enter", isComposing: true });
+    expect(onChange).not.toHaveBeenCalled();
+    fireEvent.keyDown(input, { key: "Enter" });
     expect(onChange).toHaveBeenCalledOnce();
     expect(onChange.mock.calls[0][0]).toMatchObject({ testPointInfo: { qualifier: { value: "50", unit: "Hz", qualifier: { value: "AC" } } }, uutTolerance: { rangeId: "band", rangeSelection: "explicit" } });
   });

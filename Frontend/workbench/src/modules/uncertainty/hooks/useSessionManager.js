@@ -421,7 +421,11 @@ const useSessionManager = ({ deferOptionalCollections = import.meta.env.VITE_SHA
     if (load.ready) return Promise.resolve(sharedDataRef.current[collection]);
     if (load.promise) return load.promise;
     setOptionalCollectionState(previous => ({ ...previous, [collection]: { phase: "loading", error: "" } }));
-    load.promise = axios.get(`${UNCERTAINTY_API}/${collection}/`).then(({ data }) => {
+    // Keep both concrete API paths visible to the standalone route contract.
+    const request = collection === "equations"
+      ? axios.get(`${UNCERTAINTY_API}/equations/`)
+      : axios.get(`${UNCERTAINTY_API}/bug_reports/`);
+    load.promise = request.then(({ data }) => {
       if (!Array.isArray(data)) throw new Error("The server returned an incomplete collection listing.");
       const merged = new Map(data.map(record => [record.id, record]));
       // A fresh report need not load the full history; its write still goes

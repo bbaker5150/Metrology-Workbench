@@ -195,7 +195,25 @@ describe("derived multi-TMDE composition — first-principles absolute", () => {
     const uL = 0.001 / Math.sqrt(3);
     // y = m*L: ∂y/∂m = L = 0.5, ∂y/∂L = m = 20
     const expected = Math.sqrt((0.5 * uM) ** 2 + (20 * uL) ** 2);
-    expect(r.combinedUncertaintyNative).toBeCloseTo(expected, 12);
+    // V8.00 uses central differences, not the symbolic coefficients above.
+    // Independently apply its documented h=|x|*1e-6 to this bilinear equation.
+    const hM = 20 * 1e-6;
+    const hL = 0.5 * 1e-6;
+    const cM = ((20 + hM) * 0.5 - (20 - hM) * 0.5) / (2 * hM);
+    const cL = (20 * (0.5 + hL) - 20 * (0.5 - hL)) / (2 * hL);
+    const mass = r.breakdown.find(row => row.variable === "m");
+    const length = r.breakdown.find(row => row.variable === "L");
+    expect(mass.sensitivityMethod).toBe("central finite difference");
+    expect(length.sensitivityMethod).toBe("central finite difference");
+    expect(mass.sensitivityStep_native).toBe(hM);
+    expect(length.sensitivityStep_native).toBe(hL);
+    expect(mass.ci).toBeCloseTo(cM, 12);
+    expect(length.ci).toBeCloseTo(cL, 12);
+    expect(r.combinedUncertaintyNative).toBeCloseTo(Math.hypot(cM * uM, cL * uL), 14);
+    // Subtracting nearly equal function values amplifies relative roundoff by
+    // x/h=1e6. Bound that error independently against the analytic RSS result.
+    expect(Math.abs(r.combinedUncertaintyNative / expected - 1))
+      .toBeLessThanOrEqual(2 * Number.EPSILON / 1e-6);
   });
 
   it("produces finite, sensible risk metrics", () => {

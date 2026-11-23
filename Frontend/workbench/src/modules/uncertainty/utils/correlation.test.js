@@ -13,6 +13,7 @@ import {
   unitSystem,
 } from "./uncertaintyMath";
 import { computePointRiskMetrics } from "./riskCompute";
+import release from "./risk8/finalRelease8Vectors.json";
 
 // Signed base-SI contributions for BRG-3100 section 4.1.9 (T = W * L), using the
 // workbook's Normal k=1.96 divisor on the beam (Length) and weight specs.
@@ -44,13 +45,25 @@ describe("combineWithCorrelation", () => {
     expect(combineWithCorrelation(list, {})).toBeCloseTo(rss, 12);
   });
 
-  test("reproduces Excel 4.1.9 with rho(W,L)=1 and rho(W,R)=1", () => {
-    const u_c = combineWithCorrelation(list, {
+  test("rejects inconsistent perfect correlations even when their quadratic sum is positive", () => {
+    // The historical 4.1.9 map omits rho(L,R), making it zero. If L and R
+    // both correlate perfectly with W, they must also correlate with each
+    // other. This matrix has determinant -1, so it cannot describe inputs.
+    const impossible = {
       "Length|Weight": 1,
       "UUT Resolution|Weight": 1,
-    });
-    // Workbook reports 4.7360706e-5.
-    expect(u_c).toBeCloseTo(4.73607e-5, 9);
+    };
+    expect(cL ** 2 + cW ** 2 + cR ** 2 + 2 * cL * cW + 2 * cW * cR).toBeGreaterThan(0);
+    expect(() => combineWithCorrelation(list, impossible)).toThrow(/correlation matrix is not physically valid/i);
+  });
+
+  test("valid perfect correlation combines contributions as the absolute signed sum", () => {
+    // An all-ones matrix is singular but PSD. Its variance is (cL+cW+cR)^2.
+    expect(combineWithCorrelation(list, {
+      "Length|Weight": 1,
+      "UUT Resolution|Weight": 1,
+      "Length|UUT Resolution": 1,
+    })).toBeCloseTo(Math.abs(cL + cW + cR), 14);
   });
 
   test("positive correlation on opposing sensitivities reduces u_c (ratio)", () => {
@@ -63,7 +76,7 @@ describe("combineWithCorrelation", () => {
     expect(corr).toBeLessThan(indep);
   });
 
-  test("over-correlated matrix clamps to >= 0 (no NaN)", () => {
+  test("valid perfect anticorrelation cancels equal contributions exactly", () => {
     const out = combineWithCorrelation(
       [
         { id: "A", contribution: 1 },
@@ -71,8 +84,7 @@ describe("combineWithCorrelation", () => {
       ],
       { "A|B": -1 },
     );
-    expect(Number.isFinite(out)).toBe(true);
-    expect(out).toBeGreaterThanOrEqual(0);
+    expect(out).toBe(0);
   });
 });
 
@@ -100,10 +112,11 @@ describe("snapLimitsToResolution", () => {
     });
   });
 
-  test("a band-collapsing resolution is ignored", () => {
-    // Resolution coarser than the band would invert it -> keep raw.
+  test("preserves an inverted rounded band for downstream rejection", () => {
+    // V8.00 retains the true grid geometry; restoring raw limits would solve
+    // a different acceptance problem. riskCompute.release8 tests rejection.
     const r = snapLimitsToResolution(0.0372, 0.0378, 0.01);
-    expect(r).toEqual({ low: 0.0372, high: 0.0378 });
+    expect(r).toEqual({ low: 0.04, high: 0.03 });
   });
 
   test("on-grid band survives a round-tripped resolution (no full-count drop)", () => {
@@ -210,8 +223,8 @@ describe("getTmdeAbsoluteLimitEntries", () => {
   });
 });
 
-describe("BRG-3100 4.1.9 full Excel mirror (riskCompute)", () => {
-  test("PFA/PFR/TUR match the workbook", () => {
+describe("legacy BRG-3100 correlation validation (riskCompute)", () => {
+  test("clears risk for the historical fixture's physically invalid correlation matrix", () => {
     const fp = path.resolve(
       __dirname,
       "../../../../../../Backend/ac_shunt/uncertainty/fixtures/mock/Derived.json",
@@ -222,37 +235,51 @@ describe("BRG-3100 4.1.9 full Excel mirror (riskCompute)", () => {
       uutTolerance: session.uutTolerance,
     };
     const tp = session.testPoints.find((p) => p.section === "4.1.9");
-    const m = computePointRiskMetrics(tp, sessionData);
-    expect(m.tur).toBeCloseTo(2.6394, 2); // Excel 2.639367
-    expect(m.pfa).toBeCloseTo(2.384, 1); // Excel 2.38%
-    expect(m.pfr).toBeCloseTo(3.96, 1); // Excel 3.96%
+    expect(tp.inputCorrelations).toEqual({
+      "Length|Weight": 1,
+      "UUT Resolution|Weight": 1,
+    });
+    expect(computePointRiskMetrics(tp, sessionData)).toBeNull();
+  });
+});
+
+describe("derived acceptance-grid routing to final V8.00 risk", () => {
+  const vector = release.cases.find(({ source }) => source.mainRow === 5);
+  const { input, expected } = vector;
+  const sessionData = { uncReq: {
+    uncertaintyConfidence: 95, reliability: input.reop * 100,
+    measRelCalcAssumed: input.reop * 100, neededTUR: input.turNeeded,
+    reqPFA: input.pfaTarget * 100, calInt: input.originalInterval,
+  } };
+  const makePoint = (key, resolution = input.resolution) => ({
+    id: "derived-flow-grid",
+    measurementType: "derived", equationString: "y = x",
+    variableMappings: { x: "Flow" }, tmdeTolerances: [],
+    testPointInfo: { parameter: { value: input.nominal, unit: "gpm" } },
+    components: [{
+      id: "flow-source", variableType: "Flow", nominal: input.nominal,
+      value_native: input.uCal / 1.959963984540054, unit_native: "gpm", dof: Infinity,
+    }],
+    uutTolerance: {
+      // Authored limits 159.551..160.449 must snap to the saved row's
+      // 159.6..160.4. A missing-key regression would widen this band's TUR.
+      floor: { high: 0.449, low: -0.449, unit: "gpm", symmetric: true },
+      [key]: resolution, measuringResolutionUnit: "gpm", resolutionUnit: "gpm",
+      includeResolutionInBudget: false,
+    },
   });
 
-  // The fixture stores the LSD under `measuringResolution`, but the API
-  // serializes derived (equation) points with the LSD under `resolution`.
-  // resolveResolutionNative must read both, otherwise the acceptance-limit
-  // snap silently no-ops at runtime, widening the tolerance span and pushing
-  // TUR above the workbook value. Rebuild the point in the API's runtime
-  // shape and confirm parity holds.
-  test("derived point still snaps when LSD arrives under the `resolution` key", () => {
-    const fp = path.resolve(
-      __dirname,
-      "../../../../../../Backend/ac_shunt/uncertainty/fixtures/mock/Derived.json",
-    );
-    const session = JSON.parse(fs.readFileSync(fp, "utf8"));
-    const sessionData = {
-      uncReq: session.uncReq,
-      uutTolerance: session.uutTolerance,
-    };
-    const tp = JSON.parse(
-      JSON.stringify(session.testPoints.find((p) => p.section === "4.1.9")),
-    );
-    // Mimic the API serialization: LSD under `resolution`, no `measuringResolution`.
-    const ut = tp.uutTolerance;
-    ut.resolution = ut.measuringResolution;
-    delete ut.measuringResolution;
-    const m = computePointRiskMetrics(tp, sessionData);
-    expect(m.tur).toBeCloseTo(2.6394, 2); // matches the workbook, not the un-snapped 2.69+
+  test.each(["measuringResolution", "resolution"])("%s snaps derived limits and preserves saved PFA/PFR/TUR", (key) => {
+    // These are independent saved Excel cells (MAIN W5/AP5/AQ5), not outputs
+    // captured from the app. The synthetic identity equation isolates routing.
+    const metrics = computePointRiskMetrics(makePoint(key), sessionData);
+    expect(metrics).not.toBeNull();
+    expect(metrics.tur).toBeCloseTo(input.tur, 7);
+    expect(metrics.pfa).toBeCloseTo(expected.pfa * 100, 7);
+    expect(metrics.pfr).toBeCloseTo(expected.pfr * 100, 7);
+    const unsnapped = computePointRiskMetrics(makePoint(key, 0), sessionData);
+    expect(unsnapped.tur).toBeCloseTo(0.449 / input.uCal, 7);
+    expect(unsnapped.tur).toBeGreaterThan(metrics.tur);
   });
 });
 
