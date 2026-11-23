@@ -8,8 +8,9 @@ import { MemoryRouter } from "react-router";
 // jsdom smoke test doesn't load it. (Charts only render once a point is
 // selected, which this no-backend test never reaches.)
 vi.mock("plotly.js-dist", () => ({ default: {} }));
-const parsePdf = vi.hoisted(() => vi.fn());
-vi.mock("./utils/fileIo", () => ({ parseSessionPdf: parsePdf }));
+const parseFile = vi.hoisted(() => vi.fn());
+const saveJson = vi.hoisted(() => vi.fn());
+vi.mock("./utils/fileIo", () => ({ parseSessionFile: parseFile, saveSessionToJson: saveJson }));
 
 const apiMock = vi.hoisted(() => {
   const state = {
@@ -95,28 +96,47 @@ beforeEach(() => {
   apiMock.put.mockClear();
   apiMock.patch.mockClear();
   apiMock.delete.mockClear();
+  parseFile.mockReset();
+  saveJson.mockReset();
   window.localStorage.clear();
 });
 
 describe("UncertaintyApp", () => {
-  test('imports a PDF silently and keeps malformed-PDF errors visible', async () => {
+  test.each([['pdf', 'application/pdf'], ['json', 'application/json']])('imports a session file (%s) silently and keeps import errors visible', async (extension, type) => {
     apiMock.state.sessions = [{ id: 1, name: 'Bench', uuts: [], tmdes: [], testPoints: [], uncReq: {} }];
-    parsePdf.mockResolvedValueOnce({ session: { id: 'pdf-session', name: 'PDF budget', uuts: [], tmdes: [], testPoints: [], uncReq: {} }, images: new Map() });
+    parseFile.mockResolvedValueOnce({ session: { id: 'imported-session', name: 'Imported budget', uuts: [], tmdes: [], testPoints: [], uncReq: {} }, images: new Map() });
     const { container } = render(<ThemeProvider><NotificationProvider><MemoryRouter><UncertaintyApp /></MemoryRouter></NotificationProvider></ThemeProvider>);
     await screen.findByRole('button', { name: 'Instrument Library' });
-    fireEvent.change(container.querySelector('#uncertainty-load-pdf'), { target: { files: [new File(['pdf'], 'budget.pdf', { type: 'application/pdf' })] } });
-    await waitFor(() => expect(apiMock.put.mock.calls.some(([, data]) => data?.name === 'PDF budget')).toBe(true));
+    expect(container.querySelector('#uncertainty-load-pdf')).toHaveAttribute('accept', '.json,.pdf');
+    fireEvent.change(container.querySelector('#uncertainty-load-pdf'), { target: { files: [new File(['fixture'], `budget.${extension}`, { type })] } });
+    await waitFor(() => expect(apiMock.put.mock.calls.some(([, data]) => data?.name === 'Imported budget')).toBe(true));
     await waitFor(() => expect(container.querySelector('#uncertainty-load-pdf').value).toBe(''));
     expect(screen.queryByText('Success')).not.toBeInTheDocument();
     expect(screen.queryByText(/imported as a new saved session/)).not.toBeInTheDocument();
     expect(container.querySelector('.notification-toast')).toBeNull();
-    parsePdf.mockRejectedValueOnce(new Error('The PDF does not contain a saved session.'));
+    parseFile.mockRejectedValueOnce(new Error('The file does not contain a saved session.'));
     const log = vi.spyOn(console, 'error').mockImplementation(() => {});
     try {
-      fireEvent.change(container.querySelector('#uncertainty-load-pdf'), { target: { files: [new File(['bad'], 'broken.pdf', { type: 'application/pdf' })] } });
+      fireEvent.change(container.querySelector('#uncertainty-load-pdf'), { target: { files: [new File(['bad'], `broken.${extension}`, { type })] } });
       expect(await screen.findByText('Load Failed')).toBeInTheDocument();
-      expect(screen.getByText('The PDF does not contain a saved session.')).toBeInTheDocument();
+      expect(screen.getByText('The file does not contain a saved session.')).toBeInTheDocument();
     } finally { log.mockRestore(); }
+  });
+
+  test('loads legacy note images before exporting a session JSON backup', async () => {
+    const image = { id: 7, data: 'data:image/png;base64,AQID' };
+    apiMock.state.sessions = [{ id: 1, name: 'Bench', uuts: [], tmdes: [], testPoints: [], uncReq: {}, noteImages: [{ id: 7, fileName: 'setup.png' }] }];
+    const originalGet = apiMock.get.getMockImplementation();
+    apiMock.get.mockImplementation((url, ...args) => String(url).includes('/sessions/1/images/')
+      ? Promise.resolve({ data: [image] }) : originalGet(url, ...args));
+    try {
+      render(<ThemeProvider><NotificationProvider><MemoryRouter><UncertaintyApp /></MemoryRouter></NotificationProvider></ThemeProvider>);
+      fireEvent.click(await screen.findByRole('button', { name: 'Export session JSON backup' }));
+      await waitFor(() => expect(saveJson).toHaveBeenCalledOnce());
+      expect(saveJson.mock.calls[0][0].name).toBe('Bench');
+      expect(saveJson.mock.calls[0][1].get('7')).toBe(image.data);
+      expect(screen.getByRole('button', { name: 'Export session to PDF' })).toBeInTheDocument();
+    } finally { apiMock.get.mockImplementation(originalGet); }
   });
 
   test("undoes and redoes Add and edits in the library without promoting a session draft", async () => {

@@ -190,6 +190,9 @@ export function createSharePointAdapter({ store, apiRoot, fallback }) {
           axiosError.operation = error.operation;
           axiosError.requestId = error.requestId;
           axiosError.serverMessage = error.serverMessage;
+          for (const key of ['code', 'phase', 'resource', 'changeSent', 'originalRecycled']) {
+            if (error[key] !== undefined) axiosError[key] = error[key];
+          }
         }
         throw axiosError;
       }

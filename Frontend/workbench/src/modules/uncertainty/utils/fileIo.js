@@ -34,6 +34,108 @@ const GUARDBAND_REPORT_COLUMNS = [
   "noGbMeasRel",
 ];
 
+const SESSION_BACKUP_FORMAT = "uncertalytics-session";
+const SESSION_BACKUP_VERSION = 1;
+
+const sessionFileName = (session, extension) => {
+  // A single extension also avoids Firepit rejecting names such as meter.exe.json.
+  const name = String(session.name || session.uutDescription || "Session")
+    .normalize("NFKC").replace(/[^\p{L}\p{N} _-]/gu, "_").trim().slice(0, 100) || "Session";
+  const stamp = new Date().toISOString().replace(/[-:]/g, "").slice(0, 15);
+  return `Uncertalytics_${name}_${stamp}.${extension}`;
+};
+
+const downloadBlob = (blob, fileName) => {
+  const href = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = href;
+  link.download = fileName;
+  document.body.appendChild(link);
+  try {
+    link.click();
+  } finally {
+    link.remove();
+    // Firepit reads and inspects the bytes asynchronously after the click.
+    window.setTimeout(() => URL.revokeObjectURL(href), 60000);
+  }
+};
+
+const validId = (id) => (typeof id === "string" && id.length > 0) ||
+  (typeof id === "number" && Number.isFinite(id));
+
+const validateSession = (session) => {
+  if (!session || typeof session !== "object" || Array.isArray(session) ||
+      !validId(session.id) || !Array.isArray(session.testPoints) ||
+      (session.noteImages !== undefined && !Array.isArray(session.noteImages))) {
+    throw new Error("This file does not contain a valid Uncertalytics session.");
+  }
+  const ids = new Set();
+  for (const image of session.noteImages || []) {
+    if (!image || !validId(image.id) || ids.has(String(image.id))) {
+      throw new Error("The session contains invalid or duplicate note image references.");
+    }
+    ids.add(String(image.id));
+  }
+};
+
+const validateImageDataUrl = (value) => {
+  if (typeof value !== "string" || !/^data:image\/(?:png|jpeg);base64,[A-Za-z0-9+/]+={0,2}$/.test(value)) {
+    throw new Error("Session note images must contain PNG or JPEG image data.");
+  }
+  try {
+    window.atob(value.slice(value.indexOf(",") + 1));
+  } catch {
+    throw new Error("A session note image contains invalid encoded data.");
+  }
+  return value;
+};
+
+// Firepit reconstructs PDF reports without their embedded attachments. A JSON
+// backup keeps the editable session and its legacy note images together.
+export const saveSessionToJson = async (session, sessionImagesMap = new Map()) => {
+  validateSession(session);
+  const images = [];
+  for (const reference of session.noteImages || []) {
+    const image = sessionImagesMap?.get(reference.id) ??
+      sessionImagesMap?.get(String(reference.id)) ?? reference.fileObject;
+    let dataUrl = image;
+    if (image instanceof Blob) {
+      dataUrl = `data:${image.type};base64,${uint8ArrayToBase64(await image.arrayBuffer())}`;
+    }
+    if (!dataUrl) {
+      throw new Error(`The note image "${reference.fileName || reference.id}" is unavailable. Load or reattach it before exporting a complete session backup.`);
+    }
+    images.push({ id: reference.id, dataUrl: validateImageDataUrl(dataUrl) });
+  }
+  const backup = { format: SESSION_BACKUP_FORMAT, version: SESSION_BACKUP_VERSION, session, images };
+  downloadBlob(new Blob([JSON.stringify(backup, null, 2)], { type: "application/json" }), sessionFileName(session, "json"));
+};
+
+export const parseSessionFile = async (file) => {
+  if (/\.pdf$/i.test(file.name || "")) return parseSessionPdf(file);
+  if (!/\.json$/i.test(file.name || "")) throw new Error("Choose a session JSON backup or a legacy session PDF.");
+  let backup;
+  try {
+    backup = JSON.parse(await file.text());
+  } catch {
+    throw new Error("The session JSON backup could not be read.");
+  }
+  if (backup?.format !== SESSION_BACKUP_FORMAT || backup.version !== SESSION_BACKUP_VERSION || !Array.isArray(backup.images)) {
+    throw new Error("This is not a supported Uncertalytics session backup.");
+  }
+  validateSession(backup.session);
+  const referenced = new Set((backup.session.noteImages || []).map(image => image.id));
+  const images = new Map();
+  for (const image of backup.images) {
+    if (!image || !referenced.has(image.id) || images.has(image.id)) {
+      throw new Error("The session backup contains invalid or duplicate image data.");
+    }
+    images.set(image.id, validateImageDataUrl(image.dataUrl));
+  }
+  if (images.size !== referenced.size) throw new Error("The session backup is missing note image data.");
+  return { session: backup.session, images };
+};
+
 // --- Helper: Convert Uint8Array to Base64 (For Loading) ---
 const uint8ArrayToBase64 = (buffer) => {
   let binary = '';
@@ -143,17 +245,7 @@ export const createSessionPdfBytes = async (
 ) => {
   let now = new Date();
 
-  const month = (now.getMonth() + 1).toString().padStart(2, "0");
-  const day = now.getDate().toString().padStart(2, "0");
-  const year = now.getFullYear();
-  const hours = now.getHours().toString().padStart(2, "0");
-  const minutes = now.getMinutes().toString().padStart(2, "0");
-  const safeSessionName = String(
-    currentSession.name || currentSession.uutDescription || "Session",
-  )
-    .replace(/[<>:"/\\|?*\x00-\x1f]/g, "_")
-    .trim();
-  const fileName = `Uncertalytics_${safeSessionName}_${year}${month}${day}_${hours}${minutes}.pdf`;
+  const fileName = sessionFileName(currentSession, "pdf");
 
   // 1. Prepare JSON Data
   const jsonData = JSON.stringify(currentSession, null, 2);
@@ -260,15 +352,7 @@ export const saveSessionToPdf = async (currentSession, sessionImagesMap, reportO
     sessionImagesMap,
     reportOptions,
   );
-  const blob = new Blob([pdfBytes], { type: "application/pdf" });
-  const href = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = href;
-  link.download = fileName;
-  document.body.appendChild(link);
-  link.click();
-  document.body.removeChild(link);
-  URL.revokeObjectURL(href);
+  downloadBlob(new Blob([pdfBytes], { type: "application/pdf" }), fileName);
 };
 
 // --- Exported: Load Session ---
@@ -284,7 +368,7 @@ export const parseSessionPdf = async (file) => {
 
   const attachments = extractAttachments(pdfDoc);
   if (attachments.length === 0) {
-    throw new Error("Error: This PDF does not contain any session data attachments.");
+    throw new Error("This PDF does not contain any session data attachments. Firepit removes attachments from exported reports; restore the session JSON backup instead.");
   }
 
   const sessionAttachment = attachments.find((a) => a.name === "sessionData.json");

@@ -31,6 +31,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   vi.useRealTimers();
   vi.restoreAllMocks();
 });
@@ -69,6 +70,37 @@ describe("resolveWebUrl", () => {
   const win = (overrides = {}) => ({
     location: { origin: "https://t.example", pathname: "/sites/ISEA/a.html", search: "" },
     ...overrides,
+  });
+
+  it('uses the public Firepit web in an opaque frame, preserving the subweb', () => {
+    expect(resolveWebUrl(win({
+      location: { origin: 'null', protocol: 'about:', pathname: 'srcdoc' },
+      firepit: { sharepoint: { siteUrl: 'https://t.example/sites/ISEA/Lab/' } },
+      _spPageContextInfo: { webAbsoluteUrl: 'https://t.example/sites/Wrong' },
+    }))).toBe('https://t.example/sites/ISEA/Lab');
+  });
+
+  it('rejects a conflicting configured destination instead of retargeting stored data', () => {
+    const host = win({ firepit: { sharepoint: { siteUrl: 'https://t.example/sites/ISEA/Lab' } } });
+    expect(() => resolveWebUrl(host, 'https://t.example/sites/ISEA')).toThrow(/differs from the Firepit hosting web/);
+    host.location.search = '?webUrl=https://t.example/sites/Other';
+    expect(() => resolveWebUrl(host)).toThrow(/differs from the Firepit hosting web/);
+  });
+
+  it('does not derive a tenant or collection URL from an opaque frame', () => {
+    expect(() => resolveWebUrl(win({ location: { origin: 'null', protocol: 'about:', pathname: 'srcdoc' } }))).toThrow(/hosting context is unavailable/);
+  });
+
+  it('checks the original query carried in a Firepit blob fragment', () => {
+    const host = win({ location: { hash: '#webUrl=https://t.example/sites/Other' }, firepit: { sharepoint: { siteUrl: 'https://t.example/sites/ISEA' } } });
+    expect(() => resolveWebUrl(host)).toThrow(/differs from the Firepit hosting web/);
+  });
+
+  it('recognizes only the supported Defender proxy alias of the same web', () => {
+    const siteUrl = 'https://tenant.sharepoint-mil.us.mcas-gov.us/sites/ISEA/Lab';
+    const host = win({ firepit: { sharepoint: { siteUrl } } });
+    expect(resolveWebUrl(host, 'https://tenant.sharepoint-mil.us/sites/ISEA/Lab/')).toBe(siteUrl);
+    expect(() => resolveWebUrl(host, 'https://tenant.sharepoint-mil.us/sites/ISEA')).toThrow(/differs/);
   });
 
   it("prefers an explicit ?webUrl override", () => {
@@ -247,10 +279,10 @@ describe("spGet", () => {
     expect(await spGet("https://t.example", "/_api/x", fetchImpl)).toEqual({ value: [1, 2] });
   });
 
-  it("turns 403 into a message naming the permission needed", async () => {
+  it("does not misdiagnose every 403 as missing Edit permission", async () => {
     const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({}, 403));
     await expect(spGet("https://t.example", "/_api/x", fetchImpl)).rejects.toThrow(
-      /need Edit permission on this site/,
+      /Check the reported reason and your access/,
     );
   });
 
@@ -348,6 +380,45 @@ describe("spPost", () => {
     const fetchImpl = withDigest([jsonResponse({}, 200)]);
     await spPost("https://t.example", "/_api/x", { body: {} }, fetchImpl);
     expect(fetchImpl.mock.calls[1][1].headers["Content-Type"]).toBe("application/json;odata=nometadata");
+  });
+});
+
+describe('Firepit request mediation', () => {
+  const web = 'https://t.example/sites/ISEA/Lab';
+  beforeEach(() => vi.stubGlobal('window', { firepit: { sharepoint: { siteUrl: web } } }));
+
+  it('lets the host manage authentication and digests without a separate contextinfo request', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ Id: 1 }));
+    await spPost(web, '/_api/web/lists', { body: { Title: 'Example' } }, fetchImpl);
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    expect(fetchImpl.mock.calls[0][0]).toBe(`${web}/_api/web/lists`);
+    expect(fetchImpl.mock.calls[0][1].headers).not.toHaveProperty('X-RequestDigest');
+  });
+
+  it('stops a foreign-web read before it can lock the host session', async () => {
+    const fetchImpl = vi.fn();
+    await expect(spGet('https://t.example/sites/ISEA', '/_api/web', fetchImpl)).rejects.toThrow(/different storage web/);
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('stops nested-web paging paths and traversal before a bridge read', async () => {
+    const fetchImpl = vi.fn();
+    for (const path of ['/Subweb/_api/web/lists', '/_api/../Subweb/_api/web/lists']) {
+      await expect(spGet(web, path, fetchImpl)).rejects.toThrow(/outside the hosting web API/);
+    }
+    expect(fetchImpl).not.toHaveBeenCalled();
+  });
+
+  it('preserves policy and uncertain-write diagnostics from rejected bridge requests', async () => {
+    const details = { code: 'FIREPIT_SESSION_READ_ONLY', phase: 'scope', changeSent: false };
+    const fetchImpl = vi.fn().mockRejectedValue(Object.assign(new Error('Reopen the app to write again.'), details));
+    await expect(spPost(web, '/_api/web/lists', { body: {} }, fetchImpl)).rejects.toMatchObject(details);
+  });
+
+  it('preserves recovery diagnostics returned as an HTTP error', async () => {
+    const details = { message: 'Check the file before retrying.', code: 'FIREPIT_REQUEST_ERROR', changeSent: true, resource: '/sites/ISEA/Lab/Sessions/1.json' };
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({ error: details }, 409));
+    await expect(spPost(web, '/_api/web/lists', { body: {} }, fetchImpl)).rejects.toMatchObject({ ...details, message: expect.stringContaining(details.message), status: 409 });
   });
 });
 

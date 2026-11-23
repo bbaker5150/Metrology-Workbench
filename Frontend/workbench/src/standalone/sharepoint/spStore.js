@@ -15,7 +15,7 @@
 // Instruments and equations are genuinely row-shaped and are lists.
 
 import { buildValidatedSnapshot } from "../../modules/uncertainty/utils/instrumentSync";
-import { getCurrentUser, SharePointError, spGet, spGetText, spPost } from './spContext';
+import { getCurrentUser, isFirepitHosted, SharePointError, spGet, spGetText, spPost } from './spContext';
 
 export const LIST_TEMPLATE = { GENERIC: 100, LIBRARY: 101 };
 export const FIELD_TYPE = { TEXT: 2, NOTE: 3, NUMBER: 9 };
@@ -560,6 +560,9 @@ export class SharePointStore {
           // own-item permissions were applied. Keep its index and all values.
           const fields = await this.get(`${path}/fields?$select=InternalName,EnforceUniqueValues&$filter=InternalName eq 'RecordId'`);
           if (fields.value?.some(field => field.InternalName === 'RecordId' && field.EnforceUniqueValues === true)) {
+            if (isFirepitHosted()) {
+              throw new SharePointError(`Firepit does not allow editing an existing column. A site owner must open SharePoint Site contents, then ${storageDisplayTitle(this.prefix, 'instrumentDrafts')} > List settings > Record Id, set Enforce unique values to No, and save. Keep the existing column and its values, then return here and finish instrument setup.`, 403);
+            }
             await this.post(`${path}/fields/getbyinternalnameortitle('RecordId')`, {
               headers: { 'X-HTTP-Method': 'MERGE', 'IF-MATCH': '*' }, body: { EnforceUniqueValues: false },
             });
@@ -761,14 +764,15 @@ export class SharePointStore {
       headers: { 'Content-Type': 'application/json' },
     });
 
-    // Promote picker columns only when they actually changed. Budget edits
-    // rewrite the JSON frequently, while this small metadata set usually stays
-    // identical. ValidateUpdateListItem is a regular POST rather than a
+    // Firepit may safely replace a file by recycling and recreating it. That
+    // creates a new list item without our picker columns, even when the JSON's
+    // metadata has not changed. Resolve the current item and restore the columns
+    // after every hosted save. ValidateUpdateListItem is a regular POST rather than a
     // tunneled MERGE, so embedded SharePoint hosts do not interrupt users with
     // a mutation-method confirmation for this already validated operation.
     const metadata = this.sessionMetadata(doc);
     const metadataSignature = this.sessionMetadataSignature(metadata);
-    if (this._sessionMetadata.get(Number(doc.id)) !== metadataSignature) {
+    if (isFirepitHosted() || this._sessionMetadata.get(Number(doc.id)) !== metadataSignature) {
       await this.updateFileListItem(folder, name, metadata);
       this._sessionMetadata.set(Number(doc.id), metadataSignature);
     }

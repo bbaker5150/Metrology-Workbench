@@ -11,13 +11,14 @@ import { listTitle, storageDisplayTitle, CONTAINERS, sharePointInstrumentOwnerKe
  * identical to "no sessions yet". Checking up front turns a silent misconfig
  * into a single actionable button.
  */
-export default function StorageGate({ store, children }) {
+export default function StorageGate({ store, startupError, children }) {
   const [state, setState] = useState({ phase: 'checking' });
   const clearOwnerOverrideRef = useRef(null);
 
   const check = useCallback(async () => {
     setState({ phase: 'checking' });
     try {
+      if (startupError) throw startupError;
       // SharePoint is the login provider for this static build. Resolve the
       // current Microsoft 365 user before mounting any session data so an
       // unauthenticated page can never fall through as an apparently empty
@@ -44,7 +45,7 @@ export default function StorageGate({ store, children }) {
     } catch (error) {
       setState({ phase: 'error', message: error.message });
     }
-  }, [store]);
+  }, [store, startupError]);
 
   useEffect(() => {
     check();

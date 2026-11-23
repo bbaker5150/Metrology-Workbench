@@ -14,6 +14,15 @@ const readyStore = (overrides = {}) => ({
 });
 
 describe('SharePoint storage gate authentication', () => {
+  it('displays an invalid hosting context without requesting or creating storage', async () => {
+    const store = readyStore();
+    render(<StorageGate store={store} startupError={new Error('Open the intended Firepit hosting web.')}><div>Private workspace</div></StorageGate>);
+    await screen.findByText('Open the intended Firepit hosting web.');
+    fireEvent.click(screen.getByRole('button', { name: 'Try again' }));
+    expect(store.currentUser).not.toHaveBeenCalled();
+    expect(store.provision).not.toHaveBeenCalled();
+    expect(screen.queryByText('Private workspace')).toBeNull();
+  });
   it('resolves the signed-in SharePoint user before mounting session data', async () => {
     const store = readyStore();
     render(

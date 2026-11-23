@@ -35,7 +35,10 @@ import './standalone.css';
 // the deployed artifact is a static file in a document library:
 //   <script>window.UNCERTAINTY_CONFIG = { listPrefix: 'LabB' }</script>
 const config = (typeof window !== 'undefined' && window.UNCERTAINTY_CONFIG) || {};
-const webUrl = config.webUrl || resolveWebUrl();
+let webUrl = '';
+let startupError;
+try { webUrl = resolveWebUrl(window, config.webUrl); }
+catch (error) { startupError = error; }
 const prefix = config.listPrefix || DEFAULT_PREFIX;
 
 const store = new SharePointStore({ webUrl, prefix });
@@ -68,7 +71,7 @@ ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
     <ThemeProvider>
       <NotificationProvider>
-        <StorageGate store={store}>
+        <StorageGate store={store} startupError={startupError}>
           <UncertaintyProvider>
             <ConfirmRecordDeletesContext.Provider value={false}>
               <UncertalyticsApp showThemeToggle headerExtras={<StorageAdministration store={store} />}

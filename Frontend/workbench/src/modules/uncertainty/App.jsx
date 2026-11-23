@@ -118,6 +118,7 @@ import {
   faHistory,
   faRightLeft,
   faSave,
+  faFilePdf,
   faFolderOpen,
   faCopy,
   faCut,
@@ -4776,12 +4777,33 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
     }
   };
 
+  const handleSaveJsonBackup = async () => {
+    if (!currentSessionData) return;
+    try {
+      const images = new Map(sessionImageCache.get(currentSessionData.id) || []);
+      const needsImages = (currentSessionData.noteImages || []).some(image =>
+        !images.has(image.id) && !images.has(String(image.id)) && !image.fileObject);
+      if (needsImages) {
+        for (const image of await loadSessionImages(currentSessionData.id)) {
+          if (!images.has(image.id) && !images.has(String(image.id))) {
+            images.set(String(image.id), image.data);
+          }
+        }
+      }
+      const { saveSessionToJson } = await import("./utils/fileIo");
+      await saveSessionToJson(currentSessionData, images);
+    } catch (error) {
+      console.error("Session Backup Error:", error);
+      setAppNotification({ title: "Save Failed", message: `Failed to save session backup: ${error.message}` });
+    }
+  };
+
   const handleLoadFromFile = async (event) => {
     const file = event.target.files[0];
     if (!file) return;
     try {
-      const { parseSessionPdf } = await import("./utils/fileIo");
-      const { session, images } = await parseSessionPdf(file);
+      const { parseSessionFile } = await import("./utils/fileIo");
+      const { session, images } = await parseSessionFile(file);
       const importedSession = await importSession(session, images);
       setSessionImageCache((prevCache) => {
         const newCache = new Map(prevCache);
@@ -4789,7 +4811,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
         return newCache;
       });
     } catch (error) {
-      console.error("PDF Load Error:", error);
+      console.error("Session Load Error:", error);
       setAppNotification({ title: "Load Failed", message: error.message });
     }
     event.target.value = null;
@@ -6011,23 +6033,33 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
                   <button
                     type="button"
                     className="app-chrome-meta-icon"
-                    onClick={handleSaveToFile}
-                    title="Export session to PDF"
-                    aria-label="Export session to PDF"
+                    onClick={handleSaveJsonBackup}
+                    title="Export session JSON backup (restorable)"
+                    aria-label="Export session JSON backup"
                   >
                     <FontAwesomeIcon icon={faSave} />
+                  </button>
+                  <button
+                    type="button"
+                    className="app-chrome-meta-icon"
+                    onClick={handleSaveToFile}
+                    title="Export PDF report (use JSON backup to restore)"
+                    aria-label="Export session to PDF"
+                  >
+                    <FontAwesomeIcon icon={faFilePdf} />
                   </button>
                   <label
                     className="app-chrome-meta-icon"
                     htmlFor="uncertainty-load-pdf"
-                    title="Import session from PDF"
+                    title="Import session JSON backup or legacy PDF"
                   >
                     <FontAwesomeIcon icon={faFolderOpen} />
                   </label>
                   <input
                     type="file"
                     id="uncertainty-load-pdf"
-                    accept=".pdf"
+                    accept=".json,.pdf"
+                    aria-label="Import session JSON backup or legacy PDF"
                     style={{ display: "none" }}
                     onChange={handleLoadFromFile}
                   />

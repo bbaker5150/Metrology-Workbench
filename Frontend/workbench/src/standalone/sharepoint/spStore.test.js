@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   SharePointStore,
   listTitle,
@@ -58,6 +58,7 @@ function fakeFetch() {
 let http;
 let store;
 let draftRows;
+afterEach(() => vi.unstubAllGlobals());
 
 beforeEach(() => {
   resetWebUrlCache();
@@ -305,7 +306,7 @@ describe("provision", () => {
   it("propagates a permission failure rather than reporting success", async () => {
     allMissing();
     http.on(/\/_api\/web\/lists$/, { status: 403 });
-    await expect(store.provision()).rejects.toThrow(/Edit permission/);
+    await expect(store.provision()).rejects.toThrow(/denied \(403\)/);
   });
 
   it('resumes partial setup with an ordinary indexed draft key and a native unique public key', async () => {
@@ -355,6 +356,15 @@ describe("provision", () => {
     await store.provision();
     expect(access).toEqual({ReadSecurity:2,WriteSecurity:2});
     expect(http.find(fieldPath)).toHaveLength(1);
+    expect(http.calls.filter(call => call.method === 'POST' && /InstrumentDrafts.*(?:items|createfieldasxml)/.test(call.url))).toHaveLength(0);
+  });
+
+  it('explains the owner-side legacy column repair when Firepit blocks field mutations', async () => {
+    vi.stubGlobal('window', { firepit: { sharepoint: { siteUrl: WEB } } });
+    allPresent();
+    http.on(/InstrumentDrafts.*fields\?/, { json: { value: [{ InternalName: 'RecordId', EnforceUniqueValues: true }] } });
+    await expect(store.provision()).rejects.toThrow(/List settings > Record Id, set Enforce unique values to No/);
+    expect(http.find(/getbyinternalnameortitle/)).toHaveLength(0);
     expect(http.calls.filter(call => call.method === 'POST' && /InstrumentDrafts.*(?:items|createfieldasxml)/.test(call.url))).toHaveLength(0);
   });
 });
@@ -598,6 +608,21 @@ describe("sessions", () => {
     expect(updates).toHaveLength(1);
     expect(updates[0].spMethod).toBeUndefined();
     expect(formValueObject(updates[0]).SessionName).toBe("After");
+  });
+
+  it('restores picker columns on the new item when Firepit recreates an unchanged session file', async () => {
+    vi.stubGlobal('window', { firepit: { sharepoint: { siteUrl: WEB } } });
+    http.on(/UncertaintySessions'\)\/items\?/, { json: { value: [
+      { AuthorId: 41, SessionId: 9, SessionName: 'Cal', FileLeafRef: 'session-41-9.json' },
+    ] } });
+    http.on(/ListItemAllFields/, { json: { Id: 123 } });
+    await store.listSessions();
+    await store.saveSession({ id: 9, name: 'Cal' });
+    const update = http.find(/items\(123\)\/ValidateUpdateListItem/)[0];
+    expect(formValueObject(update)).toMatchObject({ SessionId: '9', SessionName: 'Cal' });
+    expect(JSON.parse(update.body).bNewDocumentUpdate).toBe(false);
+    expect(http.find(/files\/add/)[0].url).toContain('overwrite=true');
+    expect(http.find(/recycle/i)).toHaveLength(0);
   });
 
   it("surfaces a field validation failure instead of silently accepting metadata", async () => {

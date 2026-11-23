@@ -1,15 +1,8 @@
 // ---------------------------------------------------------------------------
 // SharePoint context discovery and request plumbing.
 // ---------------------------------------------------------------------------
-// This build runs as a plain HTML page hosted inside a SharePoint site, not as
-// an SPFx web part, so none of the SPFx runtime is available: no
-// `context.pageContext`, no SPHttpClient, no automatic digest handling. What we
-// do have is same-origin cookies, because the page is served from the same
-// SharePoint host as the REST API.
-//
-// Everything below exists to reconstruct, from a bare page, the two things
-// SPFx would have handed us for free: which web we are in, and a valid form
-// digest for writes.
+// Firepit supplies the exact hosting web and mediates fetch in its opaque
+// iframe. Direct SharePoint hosting still needs a browser form digest.
 
 /** Cached web URL so discovery only runs once per page load. */
 let cachedWebUrl;
@@ -18,24 +11,51 @@ let currentUserCache = null;
 /**
  * Absolute URL of the SharePoint web this page is hosted in.
  *
- * Tried in order of reliability, because the hosting web part may either
- * inject this page inline or load it in an iframe, and we do not control
- * which:
- *
- *   1. `_spPageContextInfo` on our own window — present when SharePoint
- *      injected us into one of its pages.
- *   2. The same value on the parent frame — present when we are iframed by a
- *      web part on a SharePoint page. Same-origin, so this read is legal;
- *      wrapped anyway because a cross-origin parent throws on access.
- *   3. Derived from our own path. A file served out of a document library
- *      still sits under the web, so /sites/<x>/... yields /sites/<x>.
- *   4. An explicit ?webUrl= override, checked first in practice for testing
- *      against a web other than the hosting one.
+ * Firepit's public context wins and must agree with an explicit destination.
+ * Outside Firepit, retain configured URLs, SharePoint page context, same-origin
+ * parent context and the legacy URL fallback for directly hosted pages.
  */
-export function resolveWebUrl(win = typeof window !== 'undefined' ? window : undefined) {
-  if (cachedWebUrl !== undefined) return cachedWebUrl;
-  cachedWebUrl = discoverWebUrl(win);
+export function resolveWebUrl(win = typeof window !== 'undefined' ? window : undefined, configuredWebUrl) {
+  const hosted = firepitWebUrl(win);
+  // Firepit preserves the original app query in the blob frame's fragment.
+  const query = win?.location?.search || (hosted ? String(win?.location?.hash || '').replace(/^#\??/, '?') : '');
+  const override = configuredWebUrl || new URLSearchParams(query).get('webUrl');
+  if (hosted) {
+    if (override && canonicalWebUrl(override) !== canonicalWebUrl(hosted)) {
+      throw new SharePointError('The configured storage web differs from the Firepit hosting web. Open the app on its intended storage web or correct its webUrl setting; no SharePoint request was sent.');
+    }
+    return hosted;
+  }
+  if (override) return normalizeWebUrl(override);
+  if (cachedWebUrl === undefined) cachedWebUrl = discoverWebUrl(win);
   return cachedWebUrl;
+}
+
+function normalizeWebUrl(value) {
+  try {
+    const url = new URL(value);
+    if (!['https:', 'http:'].includes(url.protocol) || url.username || url.password || url.search || url.hash) throw new Error();
+    return stripTrailingSlash(`${url.origin}${url.pathname}`);
+  } catch {
+    throw new SharePointError('A valid absolute SharePoint web URL is required. Open the app from its SharePoint hosting page.');
+  }
+}
+
+function firepitWebUrl(win = typeof window !== 'undefined' ? window : undefined) {
+  const value = win?.firepit?.sharepoint?.siteUrl;
+  return value ? normalizeWebUrl(value) : '';
+}
+
+function canonicalWebUrl(value) {
+  const url = new URL(normalizeWebUrl(value));
+  if (/\.(?:sharepoint\.com|sharepoint\.us|sharepoint-mil\.us|sharepoint\.de|sharepoint\.cn)\.mcas-gov\.us$/i.test(url.hostname)) {
+    url.hostname = url.hostname.slice(0, -'.mcas-gov.us'.length);
+  }
+  return stripTrailingSlash(url.href).toLowerCase();
+}
+
+export function isFirepitHosted() {
+  return Boolean(firepitWebUrl());
 }
 
 /** Test seam: forget the discovered web URL. */
@@ -88,28 +108,23 @@ export async function getCurrentUser(webUrl, fetchImpl = fetch) {
 function discoverWebUrl(win) {
   if (!win || !win.location) return '';
 
-  // 4. Explicit override wins, so a page can be pointed at another web.
-  try {
-    const override = new URLSearchParams(win.location.search).get('webUrl');
-    if (override) return stripTrailingSlash(override);
-  } catch {
-    /* malformed query string — fall through to discovery */
-  }
-
   // 1. Injected directly into a SharePoint page.
   const own = win._spPageContextInfo?.webAbsoluteUrl;
-  if (own) return stripTrailingSlash(own);
+  if (own) return normalizeWebUrl(own);
 
   // 2. Iframed by a web part on a SharePoint page (same origin).
   try {
     const parent = win.parent?._spPageContextInfo?.webAbsoluteUrl;
-    if (parent) return stripTrailingSlash(parent);
+    if (parent) return normalizeWebUrl(parent);
   } catch {
     // Cross-origin parent. Not fatal; fall through to path derivation.
   }
 
   // 3. Derive from our own location.
-  return stripTrailingSlash(deriveWebUrlFromPath(win.location.origin, win.location.pathname));
+  if (!/^https?:\/\//i.test(win.location.origin || '') || /^(?:about|blob|data|file):/i.test(win.location.protocol || '')) {
+    throw new SharePointError('The SharePoint hosting context is unavailable in this frame. Reopen the app from its Firepit hosting page.');
+  }
+  return normalizeWebUrl(deriveWebUrlFromPath(win.location.origin, win.location.pathname));
 }
 
 /**
@@ -156,7 +171,7 @@ export async function getFormDigest(webUrl, fetchImpl = fetch) {
   const response = await fetchSharePoint(webUrl, '/_api/contextinfo', {
     method: 'POST',
     credentials: 'include',
-    headers: { Accept: JSON_ACCEPT, 'Content-Length': '0' },
+    headers: { Accept: JSON_ACCEPT },
   }, fetchImpl);
 
   if (!response.ok) {
@@ -197,14 +212,36 @@ function responseError(response, context, detail, message) {
   error.operation = context.split('?')[0];
   error.requestId = response.headers?.get?.('SPRequestGuid') || response.headers?.get?.('request-id');
   error.serverMessage = reason || (response.ok ? message : 'SharePoint returned no error message.');
+  try { copyHostErrorDetails(error, JSON.parse(detail)?.error); } catch { /* Not a JSON error. */ }
+  const changeSent = response.headers?.get?.('X-Firepit-Change-Sent');
+  if (changeSent === 'true' || changeSent === 'false') error.changeSent = changeSent === 'true';
   return error;
+}
+
+function copyHostErrorDetails(error, source) {
+  for (const key of ['code', 'phase', 'resource', 'changeSent', 'originalRecycled']) {
+    if (source?.[key] !== undefined) error[key] = source[key];
+  }
 }
 
 async function fetchSharePoint(webUrl, path, options, fetchImpl) {
   try {
+    // Fail before a foreign-web read can make the whole Firepit session read-only.
+    const hosted = firepitWebUrl();
+    if (hosted && canonicalWebUrl(webUrl) !== canonicalWebUrl(hosted)) {
+      throw new SharePointError('This request targets a different storage web from the Firepit hosting web. Reopen the app on its intended storage web; no SharePoint request was sent.');
+    }
+    if (hosted) {
+      const target = new URL(`${webUrl}${path}`);
+      const apiRoot = new URL(`${webUrl}/_api/`);
+      if (target.origin !== apiRoot.origin || !target.pathname.toLowerCase().startsWith(apiRoot.pathname.toLowerCase())) {
+        throw new SharePointError('SharePoint returned a request path outside the hosting web API. No request was sent.');
+      }
+    }
     return await fetchImpl(`${webUrl}${path}`, options);
   } catch (cause) {
-    const error = new SharePointError(cause?.message || String(cause));
+    const error = new SharePointError(cause?.message || String(cause), cause?.status);
+    copyHostErrorDetails(error, cause);
     error.operation = `${options.method} ${path.split('?')[0]}`;
     error.cause = cause;
     throw error;
@@ -221,18 +258,18 @@ export async function spGet(webUrl, path, fetchImpl = fetch) {
   return readJson(response, `GET ${path}`);
 }
 
-/** POST with a form digest attached. */
+/** POST through the host bridge, or with a digest when directly hosted. */
 export async function spPost(
   webUrl,
   path,
   { body, headers = {}, raw = false, verbose = false } = {},
   fetchImpl = fetch,
 ) {
-  const digest = await getFormDigest(webUrl, fetchImpl);
+  const digest = isFirepitHosted() ? null : await getFormDigest(webUrl, fetchImpl);
   const contentType = verbose ? VERBOSE : JSON_ACCEPT;
   const requestHeaders = {
     Accept: contentType,
-    'X-RequestDigest': digest,
+    ...(digest ? { 'X-RequestDigest': digest } : {}),
     ...headers,
   };
   if (!raw && body !== undefined) {
@@ -304,7 +341,7 @@ function describeFailure(context, status, reason) {
   const because = reason ? ` SharePoint said: ${reason}` : '';
 
   if (status === 403) {
-    return `${context} was denied (403). You need Edit permission on this site; ask a site owner.${because}`;
+    return `${context} was denied (403). Check the reported reason and your access to this SharePoint resource.${because}`;
   }
   if (status === 404) {
     return `${context} was not found (404). The lists may not have been created yet — run setup from the tool's Storage panel.${because}`;

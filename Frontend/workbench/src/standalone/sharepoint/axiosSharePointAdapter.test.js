@@ -262,6 +262,11 @@ describe("health probes", () => {
 });
 
 describe("error translation", () => {
+  it('keeps Firepit recovery and dispatch details for callers', async () => {
+    const details = { code: 'FIREPIT_REQUEST_ERROR', changeSent: true, phase: 'replacement', resource: '/sites/Lab/Sessions/9.json' };
+    store.listSessions.mockRejectedValue(Object.assign(new SharePointError('Check the file before retrying.'), details));
+    await expect(call('get', '/sessions/')).rejects.toMatchObject(details);
+  });
   it("presents a storage failure the way axios would", async () => {
     store.listSessions.mockRejectedValue(new SharePointError("denied", 403));
     await expect(call("get", "/sessions/")).rejects.toMatchObject({
