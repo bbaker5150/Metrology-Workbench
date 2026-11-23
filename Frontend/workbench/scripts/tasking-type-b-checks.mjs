@@ -229,12 +229,15 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
   await instrumentCell.getByRole('button',{name:'Change uncertainty type',exact:true}).click();
   for (const theme of ['light','dark']) {
     await frame.evaluate(theme=>{document.body.classList.toggle('light-mode',theme==='light');document.body.classList.toggle('dark-mode',theme==='dark');},theme);
-    check(`tabular horizontal dividers span the full editor in ${theme} mode`, await instrumentCell.locator('.dynamic-table-scroll').evaluate(scroll=>{
+    check(`tabular horizontal dividers span the compact table in ${theme} mode`, await instrumentCell.locator('.dynamic-table-scroll').evaluate(scroll=>{
       const bounds=scroll.getBoundingClientRect(), table=scroll.querySelector('table');
-      return [...table.rows].every(row=>{
-        const first=row.cells[0], last=row.cells[row.cells.length-1];
-        const gutter=getComputedStyle(first,'::after'), cell=first.getBoundingClientRect();
-        return Math.abs(cell.left+parseFloat(gutter.left)-bounds.left)<1 && Math.abs(last.getBoundingClientRect().right-bounds.right)<1 && gutter.borderBottomWidth==='1px' && gutter.borderBottomColor===getComputedStyle(first).borderBottomColor;
+      const borderColor=getComputedStyle(table.rows[0].cells[0]).borderBottomColor;
+      return bounds.width>0 && borderColor!=='rgba(0, 0, 0, 0)' && [...table.rows].every(row=>{
+        const cells=[...row.cells], boxes=cells.map(cell=>cell.getBoundingClientRect());
+        return Math.abs(boxes[0].left-bounds.left)<1 && Math.abs(boxes.at(-1).right-bounds.right)<1 && cells.every((cell,index)=>{
+          const style=getComputedStyle(cell), box=boxes[index];
+          return box.width>0 && box.height>0 && style.borderBottomStyle==='solid' && style.borderBottomWidth==='1px' && style.borderBottomColor===borderColor && (index===0 || Math.abs(boxes[index-1].right-box.left)<1);
+        });
       });
     }));
     check(`instrument tabular grid centers inputs with internal dividers in ${theme} mode`, await instrumentCell.locator('.dynamic-lookup-table').evaluate(table=>{
@@ -252,11 +255,16 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
         });
       });
     }));
-    check(`tabular header units and data stay centered in ${theme} mode`, await instrumentCell.evaluate(cell=>{
+    check(`compact table and its column headings stay centered in ${theme} mode`, await instrumentCell.evaluate(cell=>{
       const table=cell.querySelector('.dynamic-lookup-table'), scroll=cell.querySelector('.dynamic-table-scroll').getBoundingClientRect();
-      const headers=[...table.tHead.rows[0].cells].slice(0,-1), first=headers[0].getBoundingClientRect(), last=headers.at(-1).getBoundingClientRect();
+      const headers=[...table.tHead.rows[0].cells].slice(0,-1), bounds=table.getBoundingClientRect();
       const editor=cell.querySelector('.inline-tolerance-editor').getBoundingClientRect();
-      return headers.every(header=>header.querySelector('.dynamic-unit-summary')) && Math.abs((first.left+last.right)/2-scroll.left-scroll.width/2)<2 && Math.abs((first.left+last.right)/2-editor.left-editor.width/2)<2;
+      return bounds.width>0 && bounds.height>0 && Math.abs(bounds.left+bounds.width/2-scroll.left-scroll.width/2)<2 && Math.abs(bounds.left+bounds.width/2-editor.left-editor.width/2)<2 && headers.every(header=>{
+        const heading=header.querySelector('.dynamic-column-heading'), unit=heading?.querySelector('.dynamic-unit-summary');
+        if (!unit) return false;
+        const column=header.getBoundingClientRect(), label=heading.getBoundingClientRect(), summary=unit.getBoundingClientRect();
+        return label.width>0 && summary.width>0 && summary.height>0 && Math.abs(label.left+label.width/2-column.left-column.width/2)<2 && label.left>=column.left-1 && label.right<=column.right+1 && summary.left>=label.left-1 && summary.right<=label.right+1 && summary.top>=label.top-1 && summary.bottom<=label.bottom+1 && getComputedStyle(heading).flexWrap==='nowrap';
+      });
     }));
     check(`tabular symmetry sits at the left opposite its gear in ${theme} mode`, await instrumentCell.evaluate(cell=>{
       const mode=cell.querySelector('.dynamic-symmetry-slot').getBoundingClientRect(), gear=cell.querySelector('[aria-label="Change uncertainty type"]').getBoundingClientRect();
@@ -271,10 +279,10 @@ export async function checkTaskingTypeB({ frame, page, saved, until, check }) {
     const hoverRow=instrumentCell.locator('.dynamic-lookup-table tbody tr').first();
     await hoverRow.hover();
     const hoverGeometry=await hoverRow.evaluate(row=>{
-      const gutter=getComputedStyle(row.cells[0],'::before'), style=getComputedStyle(row), bounds=row.getBoundingClientRect(), scroll=row.closest('.dynamic-table-scroll').getBoundingClientRect();
-      return {gutterColor:gutter.backgroundColor,rowColor:style.backgroundColor,left:bounds.left+parseFloat(gutter.left)-scroll.left,width:parseFloat(gutter.width),hovered:row.matches(':hover')};
+      const style=getComputedStyle(row), bounds=row.getBoundingClientRect(), scroll=row.closest('.dynamic-table-scroll').getBoundingClientRect();
+      return {cellColors:[...row.cells].map(cell=>getComputedStyle(cell).backgroundColor),rowColor:style.backgroundColor,left:bounds.left-scroll.left,right:bounds.right-scroll.right,width:bounds.width,height:bounds.height,hovered:row.matches(':hover')};
     });
-    check(`tabular hover highlight reaches the left edge in ${theme} mode`, hoverGeometry.gutterColor===hoverGeometry.rowColor && hoverGeometry.rowColor!=='rgba(0, 0, 0, 0)' && Math.abs(hoverGeometry.left)<1 && Math.abs(hoverGeometry.width-48)<1, JSON.stringify(hoverGeometry));
+    check(`tabular hover highlight spans the compact table in ${theme} mode`, hoverGeometry.hovered && hoverGeometry.width>0 && hoverGeometry.height>0 && hoverGeometry.rowColor!=='rgba(0, 0, 0, 0)' && hoverGeometry.cellColors.every(color=>color==='rgba(0, 0, 0, 0)' || color===hoverGeometry.rowColor) && Math.abs(hoverGeometry.left)<1 && Math.abs(hoverGeometry.right)<1, JSON.stringify(hoverGeometry));
     await instrumentCell.locator('.instrument-tolerance-toolbar').hover();
     check(`tabular actions stay hidden off-row in ${theme} mode`, await instrumentCell.locator('.dynamic-row-action-cell > button').evaluateAll(buttons=>buttons.every(button=>getComputedStyle(button).opacity==='0')));
     if(process.env.FEEDBACK_SCREENSHOT_DIRECTORY) await instrumentCell.screenshot({path:`${process.env.FEEDBACK_SCREENSHOT_DIRECTORY}/instrument-tabular-${theme}.png`});
