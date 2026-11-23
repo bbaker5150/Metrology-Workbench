@@ -6,6 +6,7 @@ import { hardenInlineHtml } from './scripts/hardenInlineHtml.mjs';
 import { forgeRuntime } from './scripts/forgeRuntime.mjs';
 import { execSync } from 'node:child_process';
 import { docxRuntime, docxDedupe } from './scripts/docxRuntime.mjs';
+import { singlefileNoPreload } from './scripts/singlefileNoPreload.mjs';
 
 // Stamped into the page so anyone can tell which build is live — the file is
 // overwritten in place in SharePoint, so its URL says nothing about its age.
@@ -42,6 +43,7 @@ export default defineConfig({
   base: './',
   define: { 'import.meta.env.VITE_SHAREPOINT_SINGLEFILE': JSON.stringify('1') },
   plugins: [
+    singlefileNoPreload(),
     react(),
     docxRuntime(),
     viteSingleFile({ removeViteModuleLoader: true }),
@@ -73,6 +75,11 @@ export default defineConfig({
   // the seal image, is imported as a module asset and inlined.
   publicDir: false,
   build: {
+    // No module graph remains after inlining. Vite's preload support probe
+    // creates a link element before the app starts; Firepit forbids that DOM
+    // operation even when the link never enters the document. Disable the
+    // generated probe instead of relying on the inliner's removal regex.
+    modulePreload: false,
     outDir: 'build-singlefile',
     emptyOutDir: true,
     // Inline every asset regardless of size. Anything left on disk would be a

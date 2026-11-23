@@ -13,6 +13,7 @@ import { ConfirmRecordDeletesContext } from "../modules/uncertainty/contexts/Rec
 import React from 'react';
 import ReactDOM from 'react-dom/client';
 import axios from 'axios';
+import { setGoogleFontsEnabled } from '@heyirisai/docx-editor-core';
 
 import '../index.css';
 import { ThemeProvider } from '../shared/ThemeContext';
@@ -30,6 +31,11 @@ import StorageGate from './StorageGate';
 import StorageAdministration from './StorageAdministration';
 import installFormSubmitShim from './formSubmitShim';
 import './standalone.css';
+
+// The single-file app carries its assets locally. Missing Notes fonts should
+// use the editor's CSS fallback, never inject a Google Fonts stylesheet link.
+// Embedded and installed fonts continue to work through the editor's public API.
+if (import.meta.env.VITE_SHAREPOINT_SINGLEFILE === '1') setGoogleFontsEnabled(false);
 
 // The hosting page can override these without a rebuild, which matters because
 // the deployed artifact is a static file in a document library:
