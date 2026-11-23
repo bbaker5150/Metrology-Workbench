@@ -66,7 +66,9 @@ beforeEach(() => {
   draftRows = [];
   http.on(/InstrumentDrafts'\)\/items\?/, ({url}) => {
     const id = /RecordId eq '([^']+)'/.exec(url)?.[1];
-    return {json:{value:draftRows.filter(row => !id || row.RecordId === id)}};
+    const selected = new URL(url).searchParams.get('$select')?.split(',');
+    return {json:{value:draftRows.filter(row => !id || row.RecordId === id).map(row =>
+      selected ? Object.fromEntries(selected.filter(key => Object.hasOwn(row, key)).map(key => [key, row[key]])) : row)}};
   });
   http.on(/InstrumentDrafts'\)\/items$/, ({init}) => {
     const item = {Id:100 + draftRows.length, AuthorId:41, owshiddenversion:1, ...JSON.parse(init.body)};
@@ -625,6 +627,37 @@ describe("sessions", () => {
     expect(http.find(/recycle/i)).toHaveLength(0);
   });
 
+  it('skips hosted picker writes only when every current post-upload column matches', async () => {
+    vi.stubGlobal('window', { firepit: { sharepoint: { siteUrl: WEB } } });
+    const doc = { id: 9, name: 'Cal', documentDate: '2026-11-23' };
+    const current = { Id: 123, ...store.sessionMetadata(doc), SessionId: '9.0', Analyst: null, Organization: null, DocumentRef: null };
+    http.on(/ListItemAllFields/, ({url}) => {
+      expect(http.find(/files\/add/)).toHaveLength(1);
+      expect(new URL(url).searchParams.get('$select').split(',')).toEqual(['Id', ...Object.keys(store.sessionMetadata(doc))]);
+      return { json: current };
+    });
+    await store.saveSession(doc);
+    expect(http.find(/ListItemAllFields/)).toHaveLength(1);
+    expect(http.find(/ValidateUpdateListItem/)).toHaveLength(0);
+  });
+
+  it.each(['missing', 'cleared', 'renamed', 'dateChanged'])('restores %s picker columns despite an unchanged hosted save signature', async scenario => {
+    vi.stubGlobal('window', { firepit: { sharepoint: { siteUrl: WEB } } });
+    const doc = { id: 9, name: 'Cal', documentDate: '2026-11-23' };
+    const current = { Id: 123, ...store.sessionMetadata(doc) };
+    http.on(/ListItemAllFields/, () => ({ json: current }));
+    await store.saveSession(doc);
+    expect(http.find(/ValidateUpdateListItem/)).toHaveLength(0);
+    if (scenario === 'missing') delete current.Analyst;
+    if (scenario === 'cleared') current.SessionId = null;
+    if (scenario === 'renamed') current.Title = 'Changed elsewhere';
+    if (scenario === 'dateChanged') current.DocumentDate = '2026-11-22';
+    await store.saveSession(doc);
+    expect(http.find(/files\/add/)).toHaveLength(2);
+    expect(http.find(/ListItemAllFields/)).toHaveLength(2);
+    expect(formValueObject(http.find(/ValidateUpdateListItem/)[0])).toMatchObject({ SessionId: '9', Title: 'Cal', DocumentDate: '2026-11-23' });
+  });
+
   it("surfaces a field validation failure instead of silently accepting metadata", async () => {
     http.on(/UncertaintySessions'\)\/items\(91\)\/ValidateUpdateListItem/, {
       json: {
@@ -863,6 +896,44 @@ describe("user-scoped instrument records", () => {
     await store.saveInstrument({ id: "same", scope: "local", model: "8508A" });
     expect(http.find(/items\(73\)\/ValidateUpdateListItem/)[0].spMethod).toBeUndefined();
     expect(http.find(/items\(72\)/)).toHaveLength(0);
+  });
+
+  it('checks the current owned draft but does not write an identical local definition again', async () => {
+    const doc = { id: 'meter', scope: 'local', model: '8508A' };
+    await store.saveInstrument(doc);
+    http.calls.length = 0;
+    await store.saveInstrument(doc);
+    expect(http.find(/InstrumentDrafts'\)\/items\?/)).toHaveLength(1);
+    expect(http.find(/InstrumentDrafts'\)\/items\?/)[0].url).toContain('AuthorId eq 41');
+    expect(http.calls.filter(call => call.method !== 'GET')).toEqual([]);
+    expect(draftRows[0].owshiddenversion).toBe(1);
+  });
+
+  it.each(['title', 'payload', 'archived', 'submitted'])('does not skip the %s repair for an otherwise identical local save', async scenario => {
+    const doc = { id: 'meter', scope: 'local', model: '8508A' };
+    await store.saveInstrument(doc);
+    const row = draftRows[0];
+    if (scenario === 'title') row.Title = 'Different title';
+    if (scenario === 'payload') row.PayloadJson = JSON.stringify({ ...JSON.parse(row.PayloadJson), model: 'Changed elsewhere' });
+    if (scenario === 'archived') row.PayloadJson = JSON.stringify({ ...JSON.parse(row.PayloadJson), _uncertaintyArchive: { at: '2026-11-23' } });
+    if (scenario === 'submitted') row.SubmittedJson = JSON.stringify({ ...JSON.parse(row.PayloadJson), _uncertaintyArchive: { at: '2026-11-23' } });
+    http.calls.length = 0;
+    await store.saveInstrument(doc);
+    expect(http.calls.filter(call => call.method === 'POST')).toHaveLength(1);
+    expect(JSON.parse(row.PayloadJson)).toMatchObject({ id: 'meter', scope: 'local', model: '8508A' });
+    expect(JSON.parse(row.PayloadJson)).not.toHaveProperty('_uncertaintyArchive');
+    expect(row.Title).toBe('8508A');
+    if (scenario === 'submitted') expect(row.SubmittedJson).toBeNull();
+  });
+
+  it('rejects a late identical local save when a pending snapshot now needs its current revision', async () => {
+    const doc = { id: 'meter', scope: 'local', model: '8508A' };
+    await store.saveInstrument(doc);
+    draftRows[0].SubmittedJson = JSON.stringify({ ...JSON.parse(draftRows[0].PayloadJson), scope: 'pending' });
+    draftRows[0].owshiddenversion++;
+    http.calls.length = 0;
+    await expect(store.saveInstrument(doc)).rejects.toMatchObject({ status: 409 });
+    expect(http.calls.filter(call => call.method !== 'GET')).toEqual([]);
   });
 
   it('converges simultaneous first saves on the same native row and keeps duplicates hidden after removal', async () => {

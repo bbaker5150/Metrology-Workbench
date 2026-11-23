@@ -10882,6 +10882,8 @@ function DetailedView({
 
   // Custom equation library (global, persisted like the instrument library)
   customEquations = [],
+  onLoadCustomEquations,
+  customEquationsLoadState,
   onSaveCustomEquation,
   onDeleteCustomEquation,
 
@@ -15730,7 +15732,7 @@ function DetailedView({
 
   // Save from the library popover itself so the equation name and measurement
   // area are explicit library metadata, not fields attached to the point.
-  const handleSaveCurrentEquation = ({ name, measurementArea } = {}) => {
+  const handleSaveCurrentEquation = async ({ name, measurementArea } = {}) => {
     if (!onSaveCustomEquation || equationValidation?.status !== "ok") return false;
     const cleanName = String(name || "").trim();
     const cleanArea = String(measurementArea || "").trim();
@@ -15745,7 +15747,7 @@ function DetailedView({
       (area) =>
         String(area.name || "").trim().toLowerCase() === cleanArea.toLowerCase(),
     );
-    onSaveCustomEquation({
+    try { await onSaveCustomEquation({
       id:
         typeof crypto !== "undefined" && crypto.randomUUID
           ? crypto.randomUUID()
@@ -15758,16 +15760,21 @@ function DetailedView({
       variables,
     });
     return true;
+    } catch (error) {
+      setNotification({ title: "Save Failed", message: error.message || "Could not save the custom equation." });
+      return false;
+    }
   };
 
-  const handleDeleteCustomEquation = (equation) => {
+  const handleDeleteCustomEquation = async (equation) => {
     if (!onDeleteCustomEquation) return;
     if (
       window.confirm(
         `Delete "${equation.name}" from your equation library? This affects all sessions.`,
       )
     ) {
-      onDeleteCustomEquation(equation.id);
+      try { await onDeleteCustomEquation(equation.id); }
+      catch (error) { setNotification({ title: "Delete Failed", message: error.message || "Could not delete the custom equation." }); }
     }
   };
 
@@ -16590,6 +16597,8 @@ function DetailedView({
                     <EquationLibraryMenu
                       onSelect={handleLibrarySelect}
                       customEquations={customEquations}
+                      onLoad={onLoadCustomEquations}
+                      loadState={customEquationsLoadState}
                       onDeleteCustom={
                         onDeleteCustomEquation
                           ? handleDeleteCustomEquation

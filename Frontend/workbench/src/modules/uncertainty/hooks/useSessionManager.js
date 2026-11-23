@@ -150,7 +150,7 @@ export const prepareImportedSession = (
 // database") implementation; the in-memory CRUD helpers below are unchanged —
 // they mutate ``sessions`` state and delegate to ``persistSession``.
 // ---------------------------------------------------------------------------
-const useSessionManager = () => {
+const useSessionManager = ({ deferOptionalCollections = import.meta.env.VITE_SHAREPOINT_SINGLEFILE === "1" } = {}) => {
   // --- Constants ---
   const defaultTestPoint = useMemo(
     () => ({
@@ -233,6 +233,11 @@ const useSessionManager = () => {
   const [instrumentLibraryError, setInstrumentLibraryError] = useState("");
   const [customEquations, setCustomEquations] = useState([]);
   const [bugReports, setBugReports] = useState([]);
+  const [optionalCollectionState, setOptionalCollectionState] = useState({
+    equations: { phase: "idle", error: "" }, bug_reports: { phase: "idle", error: "" },
+  });
+  const optionalLoadsRef = useRef({ equations: {}, bug_reports: {} });
+  const optionalWriteStateRef = useRef(new Map());
   const [selectedSessionId, setSelectedSessionId] = useState(() => readRecovery().navigation?.sessionId ?? null);
   const [selectedTestPointId, setSelectedTestPointId] = useState(() => readRecovery().navigation?.pointId ?? null);
   const sessionsRef = useRef([]);
@@ -408,25 +413,53 @@ const useSessionManager = () => {
     loadData();
   }, [loadData]);
 
-  // --- 1.1 Load Shared Data (Instruments & Bugs) ---
+  // Optional catalogs are read on first use in the single-file host. Firepit
+  // tracks every source read for subsequent write-flow approvals, so unrelated
+  // feedback and equation records should not be read just to edit an instrument.
+  const loadOptionalCollection = useCallback(collection => {
+    const load = optionalLoadsRef.current[collection];
+    if (load.ready) return Promise.resolve(sharedDataRef.current[collection]);
+    if (load.promise) return load.promise;
+    setOptionalCollectionState(previous => ({ ...previous, [collection]: { phase: "loading", error: "" } }));
+    load.promise = axios.get(`${UNCERTAINTY_API}/${collection}/`).then(({ data }) => {
+      if (!Array.isArray(data)) throw new Error("The server returned an incomplete collection listing.");
+      const merged = new Map(data.map(record => [record.id, record]));
+      // A fresh report need not load the full history; its write still goes
+      // through the storage adapter's checks. Preserve it across the first read.
+      for (const [id, record] of load.overrides || []) {
+        if (record) merged.set(id, record); else merged.delete(id);
+      }
+      load.overrides?.clear();
+      const records = [...merged.values()];
+      if (collection === "bug_reports") records.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+      for (const [key, state] of optionalWriteStateRef.current) {
+        if (key.startsWith(`${collection}:`) && !state.pending) {
+          state.confirmed = records.find(record => `${collection}:${record.id}` === key);
+        }
+      }
+      sharedDataRef.current[collection] = records;
+      (collection === "equations" ? setCustomEquations : setBugReports)(records);
+      load.ready = true;
+      setOptionalCollectionState(previous => ({ ...previous, [collection]: { phase: "ready", error: "" } }));
+      return records;
+    }).catch(error => {
+      setOptionalCollectionState(previous => ({ ...previous, [collection]: { phase: "error", error: error.message || "Unable to load this collection." } }));
+      throw error;
+    }).finally(() => { load.promise = null; });
+    return load.promise;
+  }, []);
+  const loadCustomEquations = useCallback(() => loadOptionalCollection("equations"), [loadOptionalCollection]);
+  const loadBugReports = useCallback(() => loadOptionalCollection("bug_reports"), [loadOptionalCollection]);
+
+  // --- 1.1 Load Instruments (required by calculations and linked status) ---
   const loadSharedData = useCallback(async () => {
     const request = ++instrumentListRequest.current;
-    const [instrumentResult, equationResult, bugResult] =
-      await Promise.allSettled([
-        axios.get(`${UNCERTAINTY_API}/instruments/`, {
-          ...instrumentRequestConfig(), params: { owner: getDeviceKey() },
-        }),
-        axios.get(`${UNCERTAINTY_API}/equations/`),
-        axios.get(`${UNCERTAINTY_API}/bug_reports/`),
-      ]);
-
     try {
       // Load the validated (shared) library plus this user's own local
       // instruments — the backend resolves both from the owner key.
-      if (instrumentResult.status !== "fulfilled") {
-        throw instrumentResult.reason;
-      }
-      const instRes = instrumentResult.value;
+      const instRes = await axios.get(`${UNCERTAINTY_API}/instruments/`, {
+        ...instrumentRequestConfig(), params: { owner: getDeviceKey() },
+      });
       if (!Array.isArray(instRes.data)) throw new Error("The library returned an incomplete instrument listing.");
       if (request === instrumentListRequest.current) {
         setInstrumentLibraryError("");
@@ -446,33 +479,18 @@ const useSessionManager = () => {
       setInstrumentsLoaded(true);
     }
 
-    try {
-      if (equationResult.status !== "fulfilled") {
-        throw equationResult.reason;
-      }
-      const eqRes = equationResult.value;
-      sharedDataRef.current.equations = Array.isArray(eqRes.data) ? eqRes.data : [];
-      setCustomEquations(sharedDataRef.current.equations);
-    } catch (e) {
-      console.error("Failed to load custom equations from backend", e);
-    }
-
-    try {
-      if (bugResult.status !== "fulfilled") {
-        throw bugResult.reason;
-      }
-      const bugRes = bugResult.value;
-      const bugs = Array.isArray(bugRes.data) ? bugRes.data : [];
-      sharedDataRef.current.bug_reports = bugs.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
-      setBugReports(bugs);
-    } catch (e) {
-      console.error("Failed to load bug reports from backend", e);
-    }
   }, [dedupeLibraryInstruments, replaceInstruments]);
 
   useEffect(() => {
     loadSharedData();
   }, [loadSharedData]);
+  useEffect(() => {
+    if (deferOptionalCollections) return;
+    // Preserve eager desktop/Django loading; failures remain visible in each
+    // collection's UI and can be retried without treating them as empty data.
+    void loadCustomEquations().catch(() => {});
+    void loadBugReports().catch(() => {});
+  }, [deferOptionalCollections, loadCustomEquations, loadBugReports]);
 
   // --- 2. Persistence Logic (Sessions) ---
   // PUT upserts the whole nested session; the backend rebuilds child rows.
@@ -894,10 +912,15 @@ const useSessionManager = () => {
     }
   }, [recordLibraryChange, replaceInstruments]);
 
-  const editSharedRecord = useCallback((collection, id, value) => {
+  const editSharedRecord = useCallback((collection, id, value, { create = false } = {}) => {
+    // Do not snapshot an unloaded collection or let a late initial response
+    // overwrite an edit. All callers share one initial request per collection.
+    if (!optionalLoadsRef.current[collection].ready && !(collection === "bug_reports" && create && value)) {
+      return loadOptionalCollection(collection).then(() => editSharedRecord(collection, id, value));
+    }
     const previous = sharedDataRef.current[collection].find(item => item.id === id);
-    if (sameSessionValue(previous, value)) return;
-    const restore = record => {
+    if (sameSessionValue(previous, value)) return optionalWriteStateRef.current.get(`${collection}:${id}`)?.promise;
+    const applyRecord = record => {
       const current = sharedDataRef.current[collection];
       const exists = current.some(item => item.id === id);
       const next = record
@@ -906,17 +929,47 @@ const useSessionManager = () => {
       if (collection === "bug_reports") next.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
       sharedDataRef.current[collection] = next;
       (collection === "equations" ? setCustomEquations : setBugReports)(next);
+      const load = optionalLoadsRef.current[collection];
+      if (!load.ready) (load.overrides ||= new Map()).set(id, record);
+    };
+    const restore = (record, propagateFailure = false) => {
+      const prior = sharedDataRef.current[collection].find(item => item.id === id);
+      const key = `${collection}:${id}`;
+      const token = {};
+      const state = optionalWriteStateRef.current.get(key) || { confirmed: prior };
+      state.token = token;
+      state.pending = (state.pending || 0) + 1;
+      optionalWriteStateRef.current.set(key, state);
+      applyRecord(record);
       const url = `${UNCERTAINTY_API}/${collection}/`;
-      return queueRecordWrite(instrumentSaveQueuesRef.current, `${collection}:${id}`, () =>
+      const operation = queueRecordWrite(instrumentSaveQueuesRef.current, key, () =>
         record ? axios.post(url, record) : axios.delete(`${url}${encodeURIComponent(id)}/`)
-      ).catch(error => console.error(`Failed to persist ${collection} change`, error));
+      ).then(response => { state.confirmed = record; return response; }).catch(error => {
+        // A denial must not look saved or erase a newer edit queued meanwhile.
+        if (state.token === token) {
+          applyRecord(state.confirmed);
+          // An uncertain failed create is not an authoritative deletion. Let a
+          // later History read recover it if the server committed the request.
+          if (state.confirmed === undefined) optionalLoadsRef.current[collection].overrides?.delete(id);
+        }
+        console.error(`Failed to persist ${collection} change`, error);
+        if (propagateFailure) throw error;
+      });
+      state.promise = operation;
+      const settled = () => { state.pending -= 1; if (state.promise === operation) state.promise = null; };
+      operation.then(settled, settled);
+      return operation;
     };
     recordHistoryAction(previous, value, restore, `${collection}:${id}:${++undoSequenceRef.current}`);
-    return restore(value);
-  }, [recordHistoryAction]);
+    const historyEntry = undoHistoryRef.current.at(-1);
+    return restore(value, true).catch(error => {
+      undoHistoryRef.current = undoHistoryRef.current.filter(entry => entry !== historyEntry);
+      throw error;
+    });
+  }, [loadOptionalCollection, recordHistoryAction]);
   const saveCustomEquation = useCallback(item => editSharedRecord("equations", item.id, item), [editSharedRecord]);
   const deleteCustomEquation = useCallback(id => editSharedRecord("equations", id, undefined), [editSharedRecord]);
-  const saveBugReport = useCallback(item => editSharedRecord("bug_reports", item.id, item), [editSharedRecord]);
+  const saveBugReport = useCallback((item, options) => editSharedRecord("bug_reports", item.id, item, options), [editSharedRecord]);
   const deleteBugReport = useCallback(id => editSharedRecord("bug_reports", id, undefined), [editSharedRecord]);
 
   // --- 3. Image Actions ---
@@ -1578,9 +1631,13 @@ const useSessionManager = () => {
     instruments,
     instrumentLibraryError,
     customEquations,
+    loadCustomEquations,
+    customEquationsLoadState: optionalCollectionState.equations,
     saveCustomEquation,
     deleteCustomEquation,
     bugReports,
+    loadBugReports,
+    bugReportsLoadState: optionalCollectionState.bug_reports,
     saveInstrument,
     libraryDraftRows,
     changeLibraryDrafts,

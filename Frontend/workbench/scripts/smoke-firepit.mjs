@@ -19,6 +19,7 @@ const policy = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsaf
 const web = 'https://sharepoint.example.test/sites/Metrology/Lab';
 const calls = [], errors = [], violations = [], external = [], guardWarnings = [];
 const sessions = new Map();
+const sessionItems = new Map();
 function respond({ url, init = {} }) {
   assert.ok(url.startsWith(`${web}/_api/`), `Unexpected destination: ${url}`);
   assert.ok(!Object.keys(init.headers || {}).some(key => /^(x-requestdigest|authorization|content-length)$/i.test(key)), 'Host-owned request header');
@@ -35,16 +36,29 @@ function respond({ url, init = {} }) {
   if (path.includes('/RootFolder')) return ok({ ServerRelativeUrl: '/sites/Metrology/Lab/UncertaintySessions' });
   if (path.includes('/files/add(')) {
     assert.match(path, /overwrite=true/);
-    sessions.set(/url='([^']+)'/.exec(path)[1], JSON.parse(init.body));
+    const name = /url='([^']+)'/.exec(path)[1];
+    sessions.set(name, JSON.parse(init.body));
+    // Model a recoverable in-place replacement retaining its list item. Unit
+    // tests separately cover Firepit recreating an item with missing columns.
+    if (!sessionItems.has(name)) sessionItems.set(name, { Id: 123 + sessionItems.size });
     return ok({ UniqueId: '00000000-0000-4000-8000-000000000123' });
   }
-  if (path.includes('/ListItemAllFields')) return ok({ Id: 123 });
+  if (path.includes('/ListItemAllFields')) {
+    const name = /\/([^/']+)'\)\/ListItemAllFields/.exec(path)?.[1];
+    assert.ok(sessionItems.has(name), 'Metadata lookup must follow a successful file save');
+    return ok(sessionItems.get(name));
+  }
   if (path.includes('/getfilebyserverrelativeurl(') && path.endsWith('/$value')) {
     const name = /\/([^/']+)'\)\/\$value$/.exec(path)?.[1];
     return sessions.has(name) ? ok(sessions.get(name)) : { status: 404, body: '{}' };
   }
   if (path.includes('/ValidateUpdateListItem')) {
-    assert.equal(JSON.parse(init.body).bNewDocumentUpdate, false);
+    const body = JSON.parse(init.body);
+    assert.equal(body.bNewDocumentUpdate, false);
+    const id = Number(/\/items\((\d+)\)/.exec(path)?.[1]);
+    const item = [...sessionItems.values()].find(row => row.Id === id);
+    assert.ok(item, 'Session metadata must target its current item');
+    Object.assign(item, Object.fromEntries(body.formValues.map(({ FieldName, FieldValue }) => [FieldName, FieldValue])));
     return ok({ value: [] });
   }
   if (path.includes('/items?')) return ok({ value: [] });
@@ -159,12 +173,31 @@ try {
     await new Promise(resolve => setTimeout(resolve, 100));
   }
   assert.ok(savedNotes.includes(noteText), 'Saved DOCX must contain the text typed through the Notes UI');
+  for (let attempt = 0; attempt < 100 && calls.filter(call => call.path.includes('/ListItemAllFields')).length < calls.filter(call => call.path.includes('/files/add(')).length; attempt++) {
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  assert.ok(calls.filter(call => call.path.includes('/ListItemAllFields')).length >= 2, 'Notes save must recheck current picker columns');
+  assert.equal(calls.filter(call => call.path.includes('/ValidateUpdateListItem')).length, 1, 'Unchanged Notes metadata must not cause another write');
+  assert.ok(!calls.some(call => /Uncertainty(?:BugReports|Equations)'\)\/items\?/.test(call.path)), 'Session editing must not eagerly read optional libraries');
+  assert.ok(calls.some(call => /UncertaintyPublishedInstruments'\)\/items\?/.test(call.path)), 'Required instrument data must still load');
+  const reportReads = () => calls.filter(call => /UncertaintyBugReports'\)\/items\?/.test(call.path)).length;
+  await frame.getByRole('button', { name: 'Report an issue', exact: true }).click();
+  const feedback = frame.locator('.bug-report-window');
+  await feedback.getByRole('button', { name: 'New Report', exact: true }).waitFor();
+  assert.equal(reportReads(), 0, 'Opening the new-report form must not read feedback history');
+  await feedback.getByRole('button', { name: 'History', exact: true }).click();
+  await feedback.getByRole('button', { name: 'History (0)', exact: true }).waitFor();
+  assert.equal(reportReads(), 1, 'Feedback history must load when requested');
+  await feedback.getByRole('button', { name: 'Close', exact: true }).click();
+  await frame.getByRole('button', { name: 'Report an issue', exact: true }).click();
+  await feedback.getByRole('button', { name: 'History (0)', exact: true }).waitFor();
+  assert.equal(reportReads(), 1, 'Reopening feedback must reuse its loaded history');
   assert.ok(!calls.some(call => call.path.includes('contextinfo')), 'Hosted app must not fetch its own digest');
   assert.deepEqual(external, [], 'Standalone artifact must load without external assets');
   assert.deepEqual(violations, [], 'Artifact must not violate strict CSP');
   assert.deepEqual(errors, [], 'Artifact must boot without browser errors');
   assert.deepEqual(guardWarnings, [], 'Artifact must not trigger a host guard warning');
-  console.log(`Firepit compatibility smoke passed (${sourceDir ? 'actual supplied host guard and sanitizer' : 'link-factory fixture'}): opaque frame, strict CSP, ${calls.length} mocked SharePoint requests, new session save, metadata restoration and Notes editing/save, zero external resources or guard warnings.`);
+  console.log(`Firepit compatibility smoke passed (${sourceDir ? 'actual supplied host guard and sanitizer' : 'link-factory fixture'}): opaque frame, strict CSP, ${calls.length} mocked SharePoint requests, new session save, metadata restoration, Notes editing/save without duplicate metadata writes, optional libraries deferred, zero external resources or guard warnings.`);
 } finally {
   await browser.close();
   await new Promise(resolve => server.close(resolve));

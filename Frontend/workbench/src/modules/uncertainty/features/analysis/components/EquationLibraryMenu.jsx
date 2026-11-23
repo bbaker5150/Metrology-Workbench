@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
 import { faTrashAlt, faSave } from "@fortawesome/free-solid-svg-icons";
 import { equationLibrary } from "../../../utils/equationLibrary";
@@ -22,6 +22,8 @@ import submitOnEnter from "../../../utils/submitOnEnter";
 const EquationLibraryMenu = ({
   onSelect,
   customEquations = [],
+  onLoad,
+  loadState = { phase: "ready", error: "" },
   onDeleteCustom,
   onSaveCurrent,
   canSaveCurrent = false,
@@ -33,6 +35,10 @@ const EquationLibraryMenu = ({
   const [isSaveFormOpen, setIsSaveFormOpen] = useState(false);
   const [saveName, setSaveName] = useState("");
   const [saveArea, setSaveArea] = useState(defaultMeasurementArea);
+  const [saving, setSaving] = useState(false);
+  const [saveError, setSaveError] = useState("");
+  const customReady = loadState.phase === "ready";
+  useEffect(() => { void onLoad?.().catch(() => {}); }, [onLoad]);
 
   const cancelSave = () => {
     setIsSaveFormOpen(false);
@@ -40,13 +46,18 @@ const EquationLibraryMenu = ({
     setSaveArea(defaultMeasurementArea);
   };
 
-  const submitSave = (event) => {
+  const submitSave = async (event) => {
     event.preventDefault();
     const name = saveName.trim();
     const measurementArea = saveArea.trim();
-    if (!name || !measurementArea || !onSaveCurrent) return;
-    const saved = onSaveCurrent({ name, measurementArea });
-    if (saved !== false) cancelSave();
+    if (saving || !customReady || !name || !measurementArea || !onSaveCurrent) return;
+    setSaving(true);
+    setSaveError("");
+    try {
+      const saved = await onSaveCurrent({ name, measurementArea });
+      if (saved !== false) cancelSave();
+    } catch (error) { setSaveError(error.message || "Could not save the equation."); }
+    finally { setSaving(false); }
   };
 
   const customGroups = useMemo(() => {
@@ -86,7 +97,7 @@ const EquationLibraryMenu = ({
           {equation.expression}
         </code>
       </button>
-      {custom && onDeleteCustom && (
+      {custom && customReady && onDeleteCustom && (
         <button
           type="button"
           className="equation-library-delete-btn"
@@ -116,6 +127,12 @@ const EquationLibraryMenu = ({
 
   return (
     <>
+      {!customReady && (
+        <div role={loadState.phase === "error" ? "alert" : "status"}>
+          {loadState.phase === "error" ? `Custom equations could not be loaded: ${loadState.error}` : "Loading custom equations…"}
+          {loadState.phase === "error" && <button type="button" onClick={() => { void onLoad?.().catch(() => {}); }}>Retry custom equations</button>}
+        </div>
+      )}
       <div className="equation-library-toolbar">
         <input
           type="search"
@@ -132,7 +149,7 @@ const EquationLibraryMenu = ({
             aria-label="Save current equation"
             data-ui-toggle
             aria-expanded={isSaveFormOpen}
-            disabled={!canSaveCurrent}
+            disabled={!customReady || !canSaveCurrent}
             title={
               canSaveCurrent
                 ? "Save current equation"
@@ -148,6 +165,7 @@ const EquationLibraryMenu = ({
 
       {isSaveFormOpen && (
         <div className="equation-library-save-form" onKeyDown={submitOnEnter(submitSave)}>
+          {saveError && <p role="alert">{saveError}</p>}
           <div className="equation-library-save-heading">
             Save current equation
           </div>
@@ -185,7 +203,7 @@ const EquationLibraryMenu = ({
               type="button"
               onClick={submitSave}
               className="is-primary"
-              disabled={!saveName.trim() || !saveArea.trim()}
+              disabled={saving || !saveName.trim() || !saveArea.trim()}
             >
               Save equation
             </button>
@@ -193,7 +211,7 @@ const EquationLibraryMenu = ({
         </div>
       )}
 
-      {customSections.map(({ area, equations }) => (
+      {customReady && customSections.map(({ area, equations }) => (
         <div key={`custom-${area}`} className="add-point-symbol-category">
           <h5>
             {area}{" "}
@@ -212,7 +230,7 @@ const EquationLibraryMenu = ({
         </div>
       ))}
 
-      {customSections.length === 0 && builtinSections.length === 0 && (
+      {customReady && customSections.length === 0 && builtinSections.length === 0 && (
         <p className="equation-library-empty">
           No equations match “{filter}”.
         </p>

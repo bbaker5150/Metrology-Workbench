@@ -40,6 +40,196 @@ beforeEach(() => {
   );
 });
 
+describe("optional collection loading", () => {
+  it("shares an identical pending write's rejection and sends a real retry", async () => {
+    let rejectSave;
+    axios.post.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectSave = reject; }));
+    const { result } = renderHook(() => useSessionManager({ deferOptionalCollections: true }));
+    const report = { id: "duplicate", title: "One request" };
+    let first, second;
+    act(() => {
+      first = result.current.saveBugReport(report, { create: true });
+      second = result.current.saveBugReport(report, { create: true });
+    });
+    const outcomes = Promise.allSettled([first, second]);
+    await waitFor(() => expect(rejectSave).toBeTypeOf("function"));
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await act(async () => { rejectSave(new Error("Approval cancelled")); await outcomes; });
+      expect((await outcomes).map(result => result.status)).toEqual(["rejected", "rejected"]);
+      expect(axios.post).toHaveBeenCalledTimes(1);
+      await act(async () => result.current.saveBugReport(report, { create: true }));
+      expect(axios.post).toHaveBeenCalledTimes(2);
+    } finally { log.mockRestore(); }
+  });
+
+  it("recovers an uncertain failed create from a later authoritative History read", async () => {
+    const report = { id: "uncertain", title: "Server committed this" };
+    axios.post.mockRejectedValueOnce(new Error("Response lost"));
+    axios.get.mockImplementation(url => Promise.resolve({ data: url.endsWith("/bug_reports/") ? [report] : [] }));
+    const { result } = renderHook(() => useSessionManager({ deferOptionalCollections: true }));
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await act(async () => { await expect(result.current.saveBugReport(report, { create: true })).rejects.toThrow("Response lost"); });
+      await act(async () => result.current.loadBugReports());
+      expect(result.current.bugReports).toEqual([report]);
+      axios.post.mockRejectedValueOnce(new Error("Denied edit"));
+      await act(async () => { await expect(result.current.saveBugReport({ ...report, title: "New title" })).rejects.toThrow("Denied edit"); });
+      expect(result.current.bugReports).toEqual([report]);
+    } finally { log.mockRestore(); }
+  });
+  it("submits fresh feedback without a collection read and preserves it across a pending history response", async () => {
+    let finish;
+    axios.get.mockImplementation(url => url.endsWith("/bug_reports/")
+      ? new Promise(resolve => { finish = resolve; }) : Promise.resolve({ data: [] }));
+    const { result } = renderHook(() => useSessionManager({ deferOptionalCollections: true }));
+    const first = { id: "new-report", title: "Feedback" };
+    await act(async () => result.current.saveBugReport(first, { create: true }));
+    expect(axios.get.mock.calls.some(([url]) => url.endsWith("/bug_reports/"))).toBe(false);
+    let read;
+    act(() => { read = result.current.loadBugReports(); });
+    const second = { id: "newer-report", title: "More feedback" };
+    await act(async () => result.current.saveBugReport(second, { create: true }));
+    await act(async () => { finish({ data: [{ id: "existing" }] }); await read; });
+    expect(result.current.bugReports).toEqual(expect.arrayContaining([first, second, { id: "existing" }]));
+  });
+
+  it("rejects cancelled saves, restores the last confirmed record, and sends identical retries", async () => {
+    const { result } = renderHook(() => useSessionManager({ deferOptionalCollections: true }));
+    await waitFor(() => expect(result.current.sessionsLoaded).toBe(true));
+    const report = { id: "denied", title: "Keep my feedback" };
+    axios.post.mockRejectedValueOnce(new Error("Flow approval cancelled"));
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await act(async () => { await expect(result.current.saveBugReport(report, { create: true })).rejects.toThrow("approval cancelled"); });
+      expect(result.current.bugReports).toEqual([]);
+      expect(result.current.undoLastSessionChange()).toBe(false);
+      await act(async () => result.current.saveBugReport(report, { create: true }));
+      expect(axios.post).toHaveBeenCalledTimes(2);
+      expect(result.current.bugReports).toEqual([report]);
+    } finally { log.mockRestore(); }
+  });
+
+  it("does not roll back a newer queued edit when an earlier write is denied", async () => {
+    let rejectFirst;
+    axios.post.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectFirst = reject; }));
+    const { result } = renderHook(() => useSessionManager({ deferOptionalCollections: true }));
+    await waitFor(() => expect(result.current.sessionsLoaded).toBe(true));
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      let first, second;
+      act(() => { first = result.current.saveBugReport({ id: "same", title: "First" }, { create: true }).catch(error => error); });
+      await waitFor(() => expect(rejectFirst).toBeTypeOf("function"));
+      act(() => { second = result.current.saveBugReport({ id: "same", title: "Second" }, { create: true }); });
+      await act(async () => { rejectFirst(new Error("Denied")); await Promise.all([first, second]); });
+      expect(result.current.bugReports).toEqual([{ id: "same", title: "Second" }]);
+    } finally { log.mockRestore(); }
+  });
+
+  it("restores denied deletes and handles failed undo writes without an unhandled rejection", async () => {
+    const { result } = renderHook(() => useSessionManager({ deferOptionalCollections: true }));
+    await waitFor(() => expect(result.current.sessionsLoaded).toBe(true));
+    const report = { id: "kept", title: "Keep this report" };
+    await act(async () => result.current.saveBugReport(report, { create: true }));
+    axios.delete.mockRejectedValue(new Error("Flow approval cancelled"));
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await act(async () => { await expect(result.current.deleteBugReport(report.id)).rejects.toThrow("approval cancelled"); });
+      expect(result.current.bugReports).toEqual([report]);
+      act(() => expect(result.current.undoLastSessionChange()).toBe(true));
+      await waitFor(() => expect(axios.delete).toHaveBeenCalledTimes(2));
+      await waitFor(() => expect(result.current.bugReports).toEqual([report]));
+    } finally { log.mockRestore(); }
+  });
+  it("keeps sessions and instruments eager without reading optional catalogs in a single-file build", async () => {
+    vi.stubEnv("VITE_SHAREPOINT_SINGLEFILE", "1");
+    try {
+      const { result } = renderHook(() => useSessionManager());
+      await waitFor(() => expect(result.current.sessionsLoaded).toBe(true));
+      expect(axios.get.mock.calls.map(([url]) => url)).toEqual([
+        expect.stringMatching(/\/sessions\/$/), expect.stringMatching(/\/instruments\/$/),
+      ]);
+      await act(async () => result.current.loadInstruments());
+      expect(axios.get.mock.calls.every(([url]) => !/\/(equations|bug_reports)\/$/.test(url))).toBe(true);
+      expect(result.current.customEquationsLoadState.phase).toBe("idle");
+      expect(result.current.bugReportsLoadState.phase).toBe("idle");
+    } finally { vi.unstubAllEnvs(); }
+  });
+
+  it("preserves eager collection loading for desktop and Django", async () => {
+    const { result } = renderHook(() => useSessionManager({ deferOptionalCollections: false }));
+    await waitFor(() => expect(result.current.bugReportsLoadState.phase).toBe("ready"));
+    expect(axios.get.mock.calls.map(([url]) => url)).toEqual(expect.arrayContaining([
+      expect.stringMatching(/\/equations\/$/), expect.stringMatching(/\/bug_reports\/$/),
+    ]));
+  });
+
+  it("deduplicates initial reads and caches successful collections independently", async () => {
+    let finish;
+    axios.get.mockImplementation(url => url.endsWith("/equations/")
+      ? new Promise(resolve => { finish = resolve; }) : Promise.resolve({ data: [] }));
+    const { result } = renderHook(() => useSessionManager({ deferOptionalCollections: true }));
+    let first, second;
+    act(() => { first = result.current.loadCustomEquations(); second = result.current.loadCustomEquations(); });
+    expect(first).toBe(second);
+    expect(result.current.customEquationsLoadState.phase).toBe("loading");
+    await act(async () => { finish({ data: [{ id: "gain", name: "Gain" }] }); await first; });
+    await act(async () => result.current.loadCustomEquations());
+    expect(axios.get.mock.calls.filter(([url]) => url.endsWith("/equations/"))).toHaveLength(1);
+    expect(result.current.customEquations).toEqual([{ id: "gain", name: "Gain" }]);
+    expect(result.current.bugReportsLoadState.phase).toBe("idle");
+  });
+
+  it.each([
+    ["equations", "loadCustomEquations", "saveCustomEquation", "deleteCustomEquation", "customEquations"],
+    ["bug_reports", "loadBugReports", "saveBugReport", "deleteBugReport", "bugReports"],
+  ])("waits for %s before concurrent edits/deletes and preserves loaded records and undo", async (collection, load, save, remove, records) => {
+    let finish;
+    axios.get.mockImplementation(url => url.endsWith(`/${collection}/`)
+      ? new Promise(resolve => { finish = resolve; }) : Promise.resolve({ data: [] }));
+    const { result } = renderHook(() => useSessionManager({ deferOptionalCollections: true }));
+    await waitFor(() => expect(result.current.sessionsLoaded).toBe(true));
+    let read, write, deletion;
+    act(() => {
+      read = result.current[load]();
+      write = result.current[save]({ id: "edited", name: "Changed", title: "Changed" });
+      deletion = result.current[remove]("removed");
+    });
+    expect(axios.post).not.toHaveBeenCalled();
+    expect(axios.delete).not.toHaveBeenCalled();
+    const original = { id: "edited", name: "Original", title: "Original" };
+    await act(async () => {
+      finish({ data: [original, { id: "removed" }, { id: "untouched" }] });
+      await Promise.all([read, write, deletion]);
+    });
+    expect(result.current[records]).toEqual(expect.arrayContaining([
+      { id: "edited", name: "Changed", title: "Changed" }, { id: "untouched" },
+    ]));
+    expect(result.current[records].some(record => record.id === "removed")).toBe(false);
+    act(() => { result.current.undoLastSessionChange(); result.current.undoLastSessionChange(); });
+    expect(result.current[records]).toEqual(expect.arrayContaining([original, { id: "removed" }, { id: "untouched" }]));
+  });
+
+  it.each(["network", "malformed"])("exposes an initial %s failure, blocks a write, and retries successfully", async kind => {
+    let fail = true;
+    axios.get.mockImplementation(url => {
+      if (!url.endsWith("/equations/")) return Promise.resolve({ data: [] });
+      if (!fail) return Promise.resolve({ data: [{ id: "retained" }] });
+      return kind === "network" ? Promise.reject(new Error("Read denied")) : Promise.resolve({ data: {} });
+    });
+    const { result } = renderHook(() => useSessionManager({ deferOptionalCollections: true }));
+    await act(async () => {
+      await expect(result.current.saveCustomEquation({ id: "new" })).rejects.toThrow();
+    });
+    expect(result.current.customEquationsLoadState.phase).toBe("error");
+    expect(axios.post).not.toHaveBeenCalled();
+    fail = false;
+    await act(async () => result.current.loadCustomEquations());
+    expect(result.current.customEquationsLoadState.phase).toBe("ready");
+    expect(result.current.customEquations).toEqual([{ id: "retained" }]);
+  });
+});
+
 describe("instrument library refresh", () => {
   it('reports an initial permissions failure and clears it after a successful retry', async () => {
     const denied = Object.assign(new Error('Request denied'), {

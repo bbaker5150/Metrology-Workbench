@@ -1,5 +1,5 @@
 import SymbolButton from "../common/SymbolButton";
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import ReactDOM from "react-dom";
 import { useFloatingWindow } from '../../hooks/useFloatingWindow';
 import submitOnEnter from '../../utils/submitOnEnter';
@@ -18,7 +18,7 @@ import {
     faTrash
 } from "@fortawesome/free-solid-svg-icons";
 
-const BugReportModal = ({ isOpen, onClose, reports = [], onSave, onDelete }) => {
+const BugReportModal = ({ isOpen, onClose, reports = [], onSave, onDelete, onLoad, loadState = { phase: "ready", error: "" } }) => {
     const [activeTab, setActiveTab] = useState("new"); // 'new' | 'list'
 
     const getTodayString = () => new Date().toISOString().split('T')[0];
@@ -35,6 +35,9 @@ const BugReportModal = ({ isOpen, onClose, reports = [], onSave, onDelete }) => 
     });
 
     const [notification, setNotification] = useState(null);
+    const [submitting, setSubmitting] = useState(false);
+    const submittingRef = useRef(false);
+    useEffect(() => { if (isOpen && activeTab === "list") void onLoad?.().catch(() => {}); }, [isOpen, activeTab, onLoad]);
 
     const { position, handleMouseDown } = useFloatingWindow({
         isOpen,
@@ -48,6 +51,7 @@ const BugReportModal = ({ isOpen, onClose, reports = [], onSave, onDelete }) => 
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        if (submittingRef.current) return;
 
         if (!formData.title || !formData.description) {
             setNotification({ type: "error", message: "Please fill in the title and description." });
@@ -67,7 +71,9 @@ const BugReportModal = ({ isOpen, onClose, reports = [], onSave, onDelete }) => 
 
         try {
             if (onSave) {
-                await onSave(newReport);
+                submittingRef.current = true;
+                setSubmitting(true);
+                await onSave(newReport, { create: !formData.id });
                 setNotification({ type: "success", message: formData.id ? "Report updated." : "Report submitted." });
 
                 // Reset Form
@@ -89,7 +95,7 @@ const BugReportModal = ({ isOpen, onClose, reports = [], onSave, onDelete }) => 
             }
         } catch (err) {
             setNotification({ type: "error", message: "Failed to save report." });
-        }
+        } finally { submittingRef.current = false; setSubmitting(false); }
     };
 
     const handleEdit = (report) => {
@@ -109,12 +115,14 @@ const BugReportModal = ({ isOpen, onClose, reports = [], onSave, onDelete }) => 
 
     const handleMarkComplete = async (report) => {
         const updated = { ...report, status: "Complete" };
-        if (onSave) await onSave(updated);
+        try { if (onSave) await onSave(updated); }
+        catch (error) { setNotification({ type: "error", message: error.message || "Failed to update report." }); }
     };
 
     const handleDelete = async (reportId) => {
         // Simply delegate to parent (App.jsx), which triggers notification
-        if (onDelete) await onDelete(reportId);
+        try { if (onDelete) await onDelete(reportId); }
+        catch (error) { setNotification({ type: "error", message: error.message || "Failed to delete report." }); }
     };
 
     const getPriorityColor = (p) => {
@@ -196,7 +204,7 @@ const BugReportModal = ({ isOpen, onClose, reports = [], onSave, onDelete }) => 
                         className={activeTab === 'list' ? 'active' : ''}
                         onClick={() => setActiveTab('list')}
                     >
-                        <FontAwesomeIcon icon={faList} style={{ marginRight: '6px' }} /> History ({reports.length})
+                        <FontAwesomeIcon icon={faList} style={{ marginRight: '6px' }} /> History{loadState.phase === "ready" ? ` (${reports.length})` : ""}
                     </button>
                 </div>
 
@@ -315,6 +323,7 @@ const BugReportModal = ({ isOpen, onClose, reports = [], onSave, onDelete }) => 
                                     onClick={handleSubmit}
                                     className="bug-report-check-action"
                                     aria-label={formData.id ? "Save report changes" : "Submit report"}
+                                    disabled={submitting}
                                     title={formData.id ? "Save report changes" : "Submit report"}
                                 >
                                     <FontAwesomeIcon icon={faCheck} />
@@ -323,7 +332,13 @@ const BugReportModal = ({ isOpen, onClose, reports = [], onSave, onDelete }) => 
                         </div>
                     )}
 
-                    {activeTab === "list" && (
+                    {activeTab === "list" && loadState.phase !== "ready" && (
+                        <div role={loadState.phase === "error" ? "alert" : "status"}>
+                            {loadState.phase === "error" ? `Feedback could not be loaded: ${loadState.error}` : "Loading feedback…"}
+                            {loadState.phase === "error" && <button type="button" onClick={() => { void onLoad?.().catch(() => {}); }}>Retry feedback</button>}
+                        </div>
+                    )}
+                    {activeTab === "list" && loadState.phase === "ready" && (
                         <div className="bug-list-container">
                             {reports.length === 0 ? (
                                 <div className="placeholder-content" style={{ minHeight: '200px', border: 'none' }}>

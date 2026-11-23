@@ -1,8 +1,37 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 import EquationLibraryMenu from "./EquationLibraryMenu";
 
 describe("EquationLibraryMenu", () => {
+  it("retains the equation name after a rejected save and submits a retry", async () => {
+    const onSaveCurrent = vi.fn().mockRejectedValueOnce(new Error("Flow approval cancelled")).mockResolvedValueOnce(true);
+    render(<EquationLibraryMenu onSelect={vi.fn()} onSaveCurrent={onSaveCurrent} canSaveCurrent defaultMeasurementArea="Electrical" />);
+    fireEvent.click(screen.getByRole("button", { name: "Save current equation" }));
+    fireEvent.change(screen.getByLabelText("Equation name"), { target: { value: "Gain" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save equation" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Flow approval cancelled");
+    expect(screen.getByLabelText("Equation name")).toHaveValue("Gain");
+    fireEvent.click(screen.getByRole("button", { name: "Save equation" }));
+    await waitFor(() => expect(onSaveCurrent).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(screen.queryByLabelText("Equation name")).toBeNull());
+  });
+  it("loads custom equations on opening, retains built-ins, and exposes loading/error/retry", () => {
+    const onLoad = vi.fn().mockResolvedValue([]);
+    const props = { onLoad, onSelect: vi.fn(), onSaveCurrent: vi.fn(), canSaveCurrent: true };
+    const { rerender } = render(<EquationLibraryMenu {...props} loadState={{ phase: "loading" }} />);
+    expect(onLoad).toHaveBeenCalledOnce();
+    expect(screen.getByRole("status")).toHaveTextContent("Loading custom equations");
+    fireEvent.click(screen.getByRole("button", { name: /AC real power/i }));
+    expect(props.onSelect).toHaveBeenCalledOnce();
+    expect(screen.getByRole("button", { name: "Save current equation" })).toBeDisabled();
+    rerender(<EquationLibraryMenu {...props} loadState={{ phase: "error", error: "Read denied" }} />);
+    expect(screen.getByRole("alert")).toHaveTextContent("Read denied");
+    fireEvent.click(screen.getByRole("button", { name: "Retry custom equations" }));
+    expect(onLoad).toHaveBeenCalledTimes(2);
+    rerender(<EquationLibraryMenu {...props} loadState={{ phase: "ready" }} customEquations={[{ id: "gain", name: "My Gain", expression: "x", measurementArea: "Electrical" }]} />);
+    expect(screen.getByText("My Gain")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Save current equation" })).toBeEnabled();
+  });
   it("renders the metrology areas and their equations", () => {
     render(<EquationLibraryMenu onSelect={vi.fn()} />);
     expect(screen.getByText("Electrical")).toBeTruthy();

@@ -449,10 +449,11 @@ export class SharePointStore {
     return result;
   }
 
-  async updateFileListItem(folder, name, fields) {
+  async updateFileListItem(folder, name, fields, { skipUnchanged = false } = {}) {
+    const select = ['Id', ...(skipUnchanged ? Object.keys(fields) : [])].join(',');
     const itemPath =
       `/_api/web/getfilebyserverrelativeurl('${encodeURIComponent(`${folder}/${name}`)}')` +
-      '/ListItemAllFields?$select=Id';
+      `/ListItemAllFields?$select=${select}`;
     const item = await this.get(itemPath);
     const itemId = Number(item?.Id);
     if (!Number.isInteger(itemId) || itemId <= 0) {
@@ -461,6 +462,17 @@ export class SharePointStore {
         500,
       );
     }
+    // Compare the current file's item, never a cached pre-upload signature:
+    // Firepit's recoverable replacement can recreate it without these fields.
+    // SharePoint returns blank text as null and Number fields as numbers or
+    // numeric strings. An omitted field is unknown and must still be restored.
+    if (skipUnchanged && Object.entries(fields).every(([key, value]) => {
+      if (!Object.prototype.hasOwnProperty.call(item, key)) return false;
+      if (typeof value === 'number') {
+        return item[key] != null && String(item[key]).trim() !== '' && Number(item[key]) === value;
+      }
+      return String(item[key] ?? '') === String(value ?? '');
+    })) return;
     return this.updateListItem('sessions', itemId, fields);
   }
 
@@ -766,14 +778,16 @@ export class SharePointStore {
 
     // Firepit may safely replace a file by recycling and recreating it. That
     // creates a new list item without our picker columns, even when the JSON's
-    // metadata has not changed. Resolve the current item and restore the columns
-    // after every hosted save. ValidateUpdateListItem is a regular POST rather than a
+    // metadata has not changed. Check the current item after every hosted save,
+    // restoring metadata only when columns are missing or different.
+    // ValidateUpdateListItem is a regular POST rather than a
     // tunneled MERGE, so embedded SharePoint hosts do not interrupt users with
     // a mutation-method confirmation for this already validated operation.
     const metadata = this.sessionMetadata(doc);
     const metadataSignature = this.sessionMetadataSignature(metadata);
-    if (isFirepitHosted() || this._sessionMetadata.get(Number(doc.id)) !== metadataSignature) {
-      await this.updateFileListItem(folder, name, metadata);
+    const hosted = isFirepitHosted();
+    if (hosted || this._sessionMetadata.get(Number(doc.id)) !== metadataSignature) {
+      await this.updateFileListItem(folder, name, metadata, { skipUnchanged: hosted });
       this._sessionMetadata.set(Number(doc.id), metadataSignature);
     }
 
@@ -858,7 +872,7 @@ export class SharePointStore {
     if (recordId != null) conditions.push(`RecordId eq '${String(recordId).replace(/'/g, "''")}'`);
     if (authorId != null) conditions.push(`AuthorId eq ${Number(authorId)}`);
     const filter = conditions.length ? `&$filter=${conditions.join(' and ')}` : '';
-    const submitted = key === 'instrumentDrafts' ? ',SubmittedJson' : '';
+    const submitted = key === 'instrumentDrafts' ? ',SubmittedJson,Title' : '';
     const items = await this.getItems(`${listApi(this.prefix, key)}/items?$select=Id,RecordId,PayloadJson,AuthorId,owshiddenversion${submitted}${filter}&$top=5000`, {requireRows:true});
     const rows = items.map(item => ({ item, record: this.parsePayload(item, key) })).filter(row => row.record);
     if (key !== 'instrumentDrafts') return rows;
@@ -992,6 +1006,13 @@ export class SharePointStore {
     if (currentlyPending && String(existing.item.owshiddenversion) !== reviewVersion) {
       throw new SharePointError('This instrument has already been submitted. Reopen it to edit the current submission.', 409);
     }
+    // Keep the fresh ownership/submission checks above even when a retry or
+    // recovery replay carries the same local definition. Submission cleanup,
+    // archived-row reuse and approval claims must take their normal write path.
+    if (record.scope === 'local' && existing.record.scope === 'local' &&
+        !isArchived(record) && !isArchived(existing.record) &&
+        !existing.record._uncertaintyApprovalClaim && !existing.item.SubmittedJson &&
+        Object.entries(fields).every(([key, value]) => existing.item[key] === value)) return;
     if (pending || currentlyPending || existing.item.SubmittedJson) {
       // Submission, withdrawal and reuse of an archived row must all compare
       // the revision actually read, even after the caller supplies its token.

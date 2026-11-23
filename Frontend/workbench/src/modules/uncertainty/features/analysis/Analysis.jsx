@@ -113,6 +113,8 @@ function Analysis({
   onInstrumentSynced,
   canDemoteSharedInstruments = false,
   customEquations = [],
+  onLoadCustomEquations,
+  customEquationsLoadState,
   onSaveCustomEquation,
   onDeleteCustomEquation,
   setRiskResults: parentSetRiskResults,
@@ -1133,6 +1135,8 @@ function Analysis({
                 onApplyToSessionPoints={onApplyToSessionPoints}
                 // Custom equation library (global, instrument-library style)
                 customEquations={customEquations}
+                onLoadCustomEquations={onLoadCustomEquations}
+                customEquationsLoadState={customEquationsLoadState}
                 onSaveCustomEquation={onSaveCustomEquation}
                 onDeleteCustomEquation={onDeleteCustomEquation}
                 onOpenCorrelation={() => setCorrelationModalOpen(open => !open)}

@@ -34,10 +34,21 @@ context is allowed to call it.
 
 The app ordinarily updates existing rows with `ValidateUpdateListItem`. Removals archive the original content with a timestamp and acting user. Provisioning and storage organization use scoped `MERGE` updates to list settings. Approval uses version-checked `MERGE` updates to publish the reviewed definition and archive the submitted version.
 
-Normal budget edits still avoid redundant metadata writes. The session JSON is
-updated, but its picker columns are only posted when the session name, analyst,
-organization, document, or document date actually changes. Standard,
-standalone, and single-file builds use the same storage behavior.
+Normal budget edits save the session JSON. Under Firepit, the app then reads
+the current file item's picker columns and only posts metadata when a column
+is missing or different. This retains recovery when the host replaces a file
+with a new item, while avoiding a second write when the original metadata
+survives. Other SharePoint hosts retain the existing metadata-change cache.
+An identical local instrument save also skips its write after checking the
+current owned row and submission state; submission and review checks remain
+in effect.
+
+The single-file build loads Bug Reports history and custom Equations when their
+respective views are opened. Session and instrument data still load at startup
+because calculations and recovery depend on them. This avoids adding unused
+libraries to Firepit's read history. Opening those views can still cause a
+subsequent write to require the host's data-flow approval. The app does not
+change list permissions or suppress host confirmations.
 
 ## Permission boundary
 

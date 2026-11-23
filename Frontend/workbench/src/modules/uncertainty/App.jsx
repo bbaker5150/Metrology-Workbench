@@ -2307,9 +2307,13 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
     sessionsLoaded,
     instruments,
     customEquations,
+    loadCustomEquations,
+    customEquationsLoadState,
     saveCustomEquation,
     deleteCustomEquation,
     bugReports,
+    loadBugReports,
+    bugReportsLoadState,
     saveInstrument,
     libraryDraftRows,
     changeLibraryDrafts,
@@ -3941,7 +3945,7 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
   };
 
   const handleDeleteBugReport = (reportId) => {
-    if (!confirmRecordDeletes) { deleteBugReport(reportId); return; }
+    if (!confirmRecordDeletes) return deleteBugReport(reportId);
     setAppNotification({
       title: "Delete Report",
       message:
@@ -3949,9 +3953,9 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
       confirmText: "Delete",
       cancelText: "Cancel",
       isIconConfirm: false,
-      onConfirm: () => {
-        deleteBugReport(reportId);
-        setAppNotification(null);
+      onConfirm: async () => {
+        try { await deleteBugReport(reportId); setAppNotification(null); }
+        catch (error) { setAppNotification({ title: "Delete Failed", message: error.message }); }
       },
     });
   };
@@ -5832,6 +5836,8 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
           isOpen={isBugReportOpen}
           onClose={() => setIsBugReportOpen(false)}
           reports={bugReports}
+          onLoad={loadBugReports}
+          loadState={bugReportsLoadState}
           onSave={saveBugReport}
           onDelete={handleDeleteBugReport}
         />
@@ -6545,6 +6551,8 @@ function App({ showThemeToggle = false, AcShuntImportTool = null, headerExtras =
                     onDeleteLibraryInstrument={deleteInstrument}
                     onInstrumentSynced={reconcileSyncedInstrument}
                     customEquations={customEquations}
+                    onLoadCustomEquations={loadCustomEquations}
+                    customEquationsLoadState={customEquationsLoadState}
                     onSaveCustomEquation={saveCustomEquation}
                     onDeleteCustomEquation={deleteCustomEquation}
                     onDeleteTestPoint={handleDeleteTestPoint}
